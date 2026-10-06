@@ -13,7 +13,6 @@ import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Severity;
 import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -30,7 +29,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
@@ -70,9 +68,7 @@ public class AuthController {
     private final LoginService login;
     private final PasswordChangeService passwordChanges;
     private final AuditTrail audit;
-    private final SecurityContextRepository securityContextRepository;
-    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
-    private final CsrfTokenRepository csrfTokenRepository;
+    private final SessionEstablishment sessionEstablishment;
     private final CookieSerializer cookieSerializer;
 
     public AuthController(
@@ -86,17 +82,16 @@ public class AuthController {
         this.login = login;
         this.passwordChanges = passwordChanges;
         this.audit = audit;
-        this.securityContextRepository = securityContextRepository;
-        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
-        this.csrfTokenRepository = csrfTokenRepository;
+        this.sessionEstablishment = new SessionEstablishment(
+                securityContextRepository, sessionAuthenticationStrategy, csrfTokenRepository);
         this.cookieSerializer = cookieSerializer;
     }
 
     /**
      * Turns submitted credentials into a session. What counts as a successful
      * login — including the failure run a refusal lengthens — is
-     * {@link LoginService}'s; everything below it here is the session and CSRF
-     * work that only a web adapter can do.
+     * {@link LoginService}'s; the session and CSRF work that only a web adapter can
+     * do is {@link SessionEstablishment}'s, the step every Login path ends in.
      */
     @PostMapping("/login")
     public UserResponse login(
@@ -110,64 +105,9 @@ public class AuthController {
                 body.username(), body.password(), existing == null ? null : existing.getId());
         Authentication authentication = outcome.authentication();
 
-        // Rotate before the context is saved, so the authentication lands in the
-        // session the caller will keep using rather than the pre-login one.
-        sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
-
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, request, response);
-
-        // Overrides Spring Session's default principal-index population (which
-        // reads Authentication.getName(), i.e. the userName) with the SCIM
-        // stable id, so AccountSessionsAdapter — and any future stable-id-keyed
-        // session lookup — finds this session by an id that survives a later
-        // username change. Authentication.getName() itself is untouched: the
-        // security context still names the account by username, which is what
-        // userResponse() below reports.
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.setAttribute(
-                    FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
-                    outcome.userId().toString());
-            // The mapping the Permissions in the security context were resolved under, so a
-            // session minted under a different mapping can be told apart from one minted under
-            // the running one.
-            session.setAttribute(ROLE_MAPPING_HASH_ATTRIBUTE, outcome.roleMappingHash());
-        }
-
-        // The session id has just rotated, but its attributes moved with it — the
-        // pre-login CSRF token among them. Dropping it here means a token fetched
-        // before authentication is refused after it; the SPA fetches a new one.
-        csrfTokenRepository.saveToken(null, request, response);
-
-        HttpSession signedIn = request.getSession();
-        recordSessionStart(outcome.userId(), signedIn);
+        HttpSession signedIn = sessionEstablishment.establish(
+                authentication, outcome.userId(), outcome.roleMappingHash(), request, response);
         return userResponse(authentication, signedIn);
-    }
-
-    /**
-     * The operational stream's {@code session-start}: one per session a login signs in.
-     *
-     * <p>Written here, where the session becomes an authenticated one, rather than on container
-     * session creation. The anonymous session {@code GET /api/auth/csrf} mints exists only to
-     * hold the token a login submits; it either becomes this session (its id rotated) or idles
-     * out unused, so logging its creation would add a record per page load that names no one.
-     * Writing it here also means the record can carry the User's stable id, which no
-     * creation-time record could.
-     *
-     * <p>The record names the session by nothing: not its id, nor anything derived from it,
-     * because the id is the session's bearer credential.
-     */
-    private static void recordSessionStart(UUID userId, HttpSession session) {
-        try (LogContext.Scope scope = LogContext.userId(userId)) {
-            LogEvent.success(log, Operation.SESSION_START, Category.PROCESS, Type.START)
-                    .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
-                    .addKeyValue(LogEvent.SESSION_MAX_INACTIVE_INTERVAL,
-                            session.getMaxInactiveInterval())
-                    .log();
-        }
     }
 
     /**

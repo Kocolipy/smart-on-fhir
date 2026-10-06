@@ -29,7 +29,7 @@ import org.springframework.stereotype.Component;
  * <p>The index name says "principal name" because that is Spring Session's own
  * vocabulary, and by default it is populated from the security context's
  * {@code Authentication.getName()} — the login username. This application
- * overrides that: {@code AuthController} writes the account's stable id into the
+ * overrides that: {@code SessionEstablishment} writes the account's stable id into the
  * session attribute {@link FindByIndexNameSessionRepository#PRINCIPAL_NAME_INDEX_NAME}
  * explicitly on login, so the index this adapter searches is keyed by the stable
  * id and survives a later username change, while {@code Authentication.getName()}

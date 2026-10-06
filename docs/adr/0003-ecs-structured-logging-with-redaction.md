@@ -590,7 +590,9 @@ Issue #96. Logout, absolute-lifetime expiry and revocation each wrote `session-e
 marked a session's start (`Recipes/Logging_AuthN_And_AuthZ_Events.md` §6.1, `Log_Schema.md`
 §Event `session-start`).
 
-**One record per signed-in session, written by the login.** `AuthController.login` writes one
+**One record per signed-in session, written by the login.** The login writes one — since the
+Epic Login prefactor, from `SessionEstablishment`, the session step `AuthController.login`
+delegates to (still under the `AuthController` logger) —
 `INFO` `session-start` once the authentication is saved into the session — after the id has
 rotated — with `event.outcome` `success`, `event.severity` `low`,
 `session.max_inactive_interval` (the idle bound read off that session, in seconds, the same

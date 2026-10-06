@@ -19,7 +19,7 @@ import java.util.UUID;
  * <p>Indexed and revoked by the account's stable id, not its username: a session
  * outlives a username change, and username is a mutable display/login attribute
  * only. The login path is what records a session under this id in the first
- * place — see {@code AuthController}.
+ * place — see {@code SessionEstablishment}.
  */
 public interface AccountSessions {
 

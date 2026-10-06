@@ -140,9 +140,9 @@ public class SecurityConfig {
     /**
      * Session fixation protection for the login path. The filter chain cannot
      * apply this itself: nothing in the chain authenticates, so no chain-level
-     * {@code sessionFixation()} setting would ever run. AuthController invokes
-     * this strategy instead, which rotates the id of a session the caller
-     * already held before authenticating.
+     * {@code sessionFixation()} setting would ever run. SessionEstablishment, the
+     * step every Login ends in, invokes this strategy instead, which rotates the
+     * id of a session the caller already held before authenticating.
      */
     @Bean
     public SessionAuthenticationStrategy sessionAuthenticationStrategy() {
@@ -155,7 +155,7 @@ public class SecurityConfig {
      * obtains it from {@code GET /api/auth/csrf} — never from a cookie, which the
      * standard prohibits outright (see {@code /docs/adr/0009-csrf-synchronizer-token.md}).
      *
-     * <p>Shared with AuthController for the same reason as the security context
+     * <p>Shared with SessionEstablishment for the same reason as the security context
      * repository: the chain validates the token on every unsafe request and the
      * login path discards the pre-login one, so both halves must read and write
      * the same session attribute through the same configuration.
@@ -216,7 +216,7 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .logout(logout -> logout.disable())
-                // Share one repository with AuthController: the login path writes the
+                // Share one repository with SessionEstablishment: the login path writes the
                 // authentication here and every later request reads it back from the
                 // same place. Left implicit, the chain builds its own repository.
                 .securityContext(context -> context

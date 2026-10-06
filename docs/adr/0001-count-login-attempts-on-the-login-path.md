@@ -44,7 +44,8 @@ listener subscribes to authentication events.
 Because that recording is inside the module that authenticates, it cannot be
 skipped by a caller: an entry point either goes through `LoginService` and gets
 the failure run with it, or it does not authenticate submitted credentials at all.
-`AuthController` is one such caller and owns only the session and CSRF work.
+`AuthController` is one such caller and owns only the session and CSRF work,
+which it delegates to `SessionEstablishment`.
 
 ## Consequences
 
