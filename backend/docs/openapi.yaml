@@ -51,6 +51,12 @@ info:
     here therefore also has a `404` that means "not served by this deployment" rather
     than "no such resource"; it is not repeated on each operation.
 
+    **The Epic Login namespace is behind a release gate that is OFF by default.**
+    While `APP_EPIC_ENABLED` is unset or `false`, every path below `/api/auth/epic`
+    answers `404` with the generic `ApiError` body (`request-refused`), ahead of the
+    session, CSRF and authorization checks, so the namespace cannot be probed for
+    whether it exists. No Epic Login operation is documented here yet.
+
     SCIM requests and responses use `application/scim+json`; `application/json` is
     accepted and understood, and a response defaults to `application/scim+json`.
     SCIM errors are documents of their own shape (`ScimError`) and never the

@@ -125,6 +125,77 @@ Parameters:
     NoEcho: true
     MinLength: 8
 
+  # Epic Login (/docs/epic-smart-login.md). Off unless AppEpicEnabled is true, and
+  # then none of the other AppEpic* parameters is read. No default carries a
+  # value: with the switch on, the service refuses to start until every required
+  # one is set and well formed (backend/README.md, "Epic Login"). An empty
+  # parameter reaches the service as unset.
+  AppEpicEnabled:
+    Description: Whether this deployment serves Epic Login (APP_EPIC_ENABLED)
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+  AppEpicFhirBase:
+    Description: Epic FHIR base URL, https (APP_EPIC_FHIR_BASE); required when enabled
+    Type: String
+    Default: ""
+
+  AppEpicOauthIssuer:
+    Description: Epic OIDC issuer, https (APP_EPIC_OAUTH_ISSUER); required when enabled
+    Type: String
+    Default: ""
+
+  AppEpicClientId:
+    Description: Epic client id (APP_EPIC_CLIENT_ID); required when enabled
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  AppEpicRedirectUri:
+    Description: >-
+      Absolute https callback URL as registered with Epic, ending /api/auth/epic/callback
+      (APP_EPIC_REDIRECT_URI); required when enabled
+    Type: String
+    Default: ""
+
+  AppEpicClientKey:
+    Description: >-
+      Active signing key, EC P-384 private key as PKCS#8 PEM written on ONE line with no
+      line breaks (APP_EPIC_CLIENT_KEY); required when enabled
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  AppEpicClientKeyId:
+    Description: The active signing key's kid (APP_EPIC_CLIENT_KEY_ID); required when enabled
+    Type: String
+    Default: ""
+
+  AppEpicClientNextKey:
+    Description: >-
+      Optional next signing key, same format as AppEpicClientKey (APP_EPIC_CLIENT_NEXT_KEY);
+      set together with AppEpicClientNextKeyId
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  AppEpicClientNextKeyId:
+    Description: >-
+      The next key's kid, different from AppEpicClientKeyId (APP_EPIC_CLIENT_NEXT_KEY_ID)
+    Type: String
+    Default: ""
+
+  AppEpicConnectTimeout:
+    Description: Outbound Epic connect timeout, e.g. 2s (APP_EPIC_CONNECT_TIMEOUT); empty means 2s
+    Type: String
+    Default: ""
+
+  AppEpicReadTimeout:
+    Description: Outbound Epic read timeout, e.g. 5s (APP_EPIC_READ_TIMEOUT); empty means 5s
+    Type: String
+    Default: ""
+
   # Logging
   AppEnvironment:
     Description: >-
@@ -489,6 +560,17 @@ Resources:
           SESSION_COOKIE_SECURE=false
           APP_BOOTSTRAP_USERNAME=${AppBootstrapUsername}
           APP_BOOTSTRAP_PASSWORD=${AppBootstrapPassword}
+          APP_EPIC_ENABLED=${AppEpicEnabled}
+          APP_EPIC_FHIR_BASE=${AppEpicFhirBase}
+          APP_EPIC_OAUTH_ISSUER=${AppEpicOauthIssuer}
+          APP_EPIC_CLIENT_ID=${AppEpicClientId}
+          APP_EPIC_REDIRECT_URI=${AppEpicRedirectUri}
+          APP_EPIC_CLIENT_KEY=${AppEpicClientKey}
+          APP_EPIC_CLIENT_KEY_ID=${AppEpicClientKeyId}
+          APP_EPIC_CLIENT_NEXT_KEY=${AppEpicClientNextKey}
+          APP_EPIC_CLIENT_NEXT_KEY_ID=${AppEpicClientNextKeyId}
+          APP_EPIC_CONNECT_TIMEOUT=${AppEpicConnectTimeout}
+          APP_EPIC_READ_TIMEOUT=${AppEpicReadTimeout}
           APP_ENVIRONMENT=${AppEnvironment}
           LOG_FILE=/var/log/backend/backend.json
           EOF

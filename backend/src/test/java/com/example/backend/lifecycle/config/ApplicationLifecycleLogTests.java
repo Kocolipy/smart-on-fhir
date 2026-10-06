@@ -6,6 +6,11 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
+import com.example.backend.auth.epic.EcP384PrivateKeyPem;
+import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.EpicSigningKey;
+import com.example.backend.auth.epic.EpicSigningKeys;
+import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.config.ScimReleaseGate;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -14,6 +19,7 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -96,6 +102,48 @@ class ApplicationLifecycleLogTests {
                 .containsEntry(ApplicationLifecycleLog.SCIM_ENABLED, false);
     }
 
+    /** Epic Login off: the switch, and no key id, since none was read. */
+    @Test
+    void aClosedEpicGateIsRecordedAsOffWithNoKeyIds() {
+        listener(true, new EpicReleaseGate(false), Optional.empty()).started(ready(context));
+
+        assertThat(CapturedLog.fields(onlyRecord("application-startup")))
+                .containsEntry("app.epic.enabled", false)
+                .doesNotContainKeys("app.epic.client_key_id", "app.epic.client_next_key_id");
+    }
+
+    /**
+     * Epic Login on: the switch and both {@code kid}s, so each redeploy that promotes a key leaves
+     * a record. A {@code kid} is a public label; nothing else about Epic — no URL, no client id, no
+     * key material — is on the record.
+     */
+    @Test
+    void anOpenEpicGateIsRecordedWithItsActiveAndNextKeyIds() {
+        listener(true, new EpicReleaseGate(true),
+                Optional.of(signingKeys("active-2026-04", "next-2026-10")))
+                .started(ready(context));
+
+        Map<String, Object> fields = CapturedLog.fields(onlyRecord("application-startup"));
+        assertThat(fields)
+                .containsEntry("app.epic.enabled", true)
+                .containsEntry("app.epic.client_key_id", "active-2026-04")
+                .containsEntry("app.epic.client_next_key_id", "next-2026-10");
+        assertThat(fields.keySet().stream().filter(key -> key.startsWith("app.epic.")))
+                .containsExactlyInAnyOrder("app.epic.enabled", "app.epic.client_key_id",
+                        "app.epic.client_next_key_id");
+    }
+
+    /** No next key configured: the active {@code kid} alone. */
+    @Test
+    void anOpenEpicGateWithoutANextKeyRecordsTheActiveKeyIdAlone() {
+        listener(true, new EpicReleaseGate(true), Optional.of(signingKeys("active-2026-04", null)))
+                .started(ready(context));
+
+        assertThat(CapturedLog.fields(onlyRecord("application-startup")))
+                .containsEntry("app.epic.client_key_id", "active-2026-04")
+                .doesNotContainKey("app.epic.client_next_key_id");
+    }
+
     @Test
     void theShutdownRecordCarriesTheContextsUptime() throws Exception {
         Thread.sleep(40);
@@ -152,11 +200,29 @@ class ApplicationLifecycleLogTests {
                 .doesNotContainKeys(LogEvent.HOST_NAME, LogEvent.HOST_IP);
     }
 
+    /** Signing keys under these kids; {@code nextKeyId} {@code null} for no next key. */
+    private static EpicSigningKeys signingKeys(String activeKeyId, String nextKeyId) {
+        return new EpicSigningKeys(signingKey(activeKeyId),
+                Optional.ofNullable(nextKeyId).map(ApplicationLifecycleLogTests::signingKey));
+    }
+
+    private static EpicSigningKey signingKey(String keyId) {
+        return new EpicSigningKey(
+                keyId, EcP384PrivateKeyPem.parse(EpicTestKeys.p384Pem()).orElseThrow());
+    }
+
     private ApplicationLifecycleLog listener(boolean scimOpen) {
+        return listener(scimOpen, new EpicReleaseGate(false), Optional.empty());
+    }
+
+    private ApplicationLifecycleLog listener(
+            boolean scimOpen, EpicReleaseGate epicGate, Optional<EpicSigningKeys> epicKeys) {
         return new ApplicationLifecycleLog(
                 context,
                 environment,
                 new ScimReleaseGate(scimOpen),
+                epicGate,
+                epicKeys,
                 new DormancyPolicy(Duration.ofDays(61), Duration.ofDays(122)),
                 new AuditRetentionPolicy(Duration.ofDays(400), null));
     }

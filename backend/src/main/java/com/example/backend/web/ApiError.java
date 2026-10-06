@@ -29,8 +29,11 @@ public record ApiError(int status, String code, String detail) {
     /** A {@code 5xx}: a fault on this side, described no further. */
     public static final String SERVER_ERROR = "server-error";
 
-    /** The body for a failure answered with {@code status}. */
-    static ApiError of(HttpStatusCode status) {
+    /**
+     * The body for a failure answered with {@code status}. Public for the release-gate filters,
+     * which answer ahead of the dispatcher and so must build the same body themselves.
+     */
+    public static ApiError of(HttpStatusCode status) {
         if (status.is5xxServerError()) {
             return new ApiError(status.value(), SERVER_ERROR,
                     "The request could not be completed because of a server-side failure.");

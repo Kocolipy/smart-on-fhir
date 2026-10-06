@@ -1,6 +1,9 @@
 package com.example.backend.lifecycle.config;
 
 import com.example.backend.audit.domain.AuditRetentionPolicy;
+import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.EpicSigningKey;
+import com.example.backend.auth.epic.EpicSigningKeys;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -11,6 +14,7 @@ import com.example.backend.scim.domain.DormancyPolicy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
@@ -29,7 +33,8 @@ import org.springframework.stereotype.Component;
  * says which instance this is and how it is configured, so an operator can confirm a
  * deployment from its log without reading its artefacts: {@code host.name} and
  * {@code host.ip}, the active profiles, and the effective value of each non-secret setting
- * that changes what the service does. Effective, not configured: the windows and periods
+ * that changes what the service does — the Epic Login switch included, with the signing keys'
+ * {@code kid}s while it is on. Effective, not configured: the windows and periods
  * whose defaults belong to a domain policy are read from that policy, so an unset setting is
  * logged as the default it resolved to rather than as absent. {@code service.*} is not added
  * here; the ECS formatter writes it on every record.
@@ -59,6 +64,12 @@ public class ApplicationLifecycleLog {
 
     static final String SCIM_ENABLED = "app.scim.enabled";
 
+    static final String EPIC_ENABLED = "app.epic.enabled";
+
+    static final String EPIC_CLIENT_KEY_ID = "app.epic.client_key_id";
+
+    static final String EPIC_CLIENT_NEXT_KEY_ID = "app.epic.client_next_key_id";
+
     static final String DORMANCY_LOCKOUT_WINDOW = "app.dormancy.lockout.window";
 
     static final String DORMANCY_ROLE_REVOCATION_WINDOW =
@@ -71,6 +82,8 @@ public class ApplicationLifecycleLog {
     private final ApplicationContext context;
     private final Environment environment;
     private final ScimReleaseGate scimGate;
+    private final EpicReleaseGate epicGate;
+    private final Optional<EpicSigningKeys> epicSigningKeys;
     private final DormancyPolicy dormancy;
     private final AuditRetentionPolicy retention;
 
@@ -78,11 +91,15 @@ public class ApplicationLifecycleLog {
             ApplicationContext context,
             Environment environment,
             ScimReleaseGate scimGate,
+            EpicReleaseGate epicGate,
+            Optional<EpicSigningKeys> epicSigningKeys,
             DormancyPolicy dormancy,
             AuditRetentionPolicy retention) {
         this.context = context;
         this.environment = environment;
         this.scimGate = scimGate;
+        this.epicGate = epicGate;
+        this.epicSigningKeys = epicSigningKeys;
         this.dormancy = dormancy;
         this.retention = retention;
     }
@@ -98,11 +115,13 @@ public class ApplicationLifecycleLog {
         record = withHost(record)
                 .addKeyValue(PROFILES, List.of(environment.getActiveProfiles()))
                 .addKeyValue(SCIM_ENABLED, scimGate.open())
+                .addKeyValue(EPIC_ENABLED, epicGate.open())
                 .addKeyValue(DORMANCY_LOCKOUT_WINDOW,
                         dormancy.lockoutWindow().toString())
                 .addKeyValue(DORMANCY_ROLE_REVOCATION_WINDOW,
                         dormancy.roleRevocationWindow().toString())
                 .addKeyValue(AUDIT_RETENTION_PERIOD, retention.period().toString());
+        record = withEpicKeyIds(record, epicSigningKeys);
         record.log();
     }
 
@@ -116,6 +135,25 @@ public class ApplicationLifecycleLog {
                         Category.PROCESS, Type.END)
                 .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
                 .log();
+    }
+
+    /**
+     * The Epic signing keys' {@code kid}s, which exist only while Epic Login is on: the active one,
+     * and the next one when configured. Recorded so each redeploy that promotes a key leaves a
+     * record of it. A {@code kid} is a public label the JWKS publishes, and it is the only part of
+     * a key read here; no key material, URL or issuer reaches the record (D22).
+     */
+    private static LoggingEventBuilder withEpicKeyIds(
+            LoggingEventBuilder record, Optional<EpicSigningKeys> signingKeys) {
+        if (signingKeys.isEmpty()) {
+            return record;
+        }
+        LoggingEventBuilder withActive = record.addKeyValue(
+                EPIC_CLIENT_KEY_ID, signingKeys.get().active().keyId());
+        return signingKeys.get().next()
+                .map(EpicSigningKey::keyId)
+                .map(nextKeyId -> withActive.addKeyValue(EPIC_CLIENT_NEXT_KEY_ID, nextKeyId))
+                .orElse(withActive);
     }
 
     /**

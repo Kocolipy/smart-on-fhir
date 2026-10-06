@@ -72,6 +72,50 @@
     "ParameterValue": "CHANGE_ME_SecureBootstrapPassword123"
   },
   {
+    "ParameterKey": "AppEpicEnabled",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "AppEpicFhirBase",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicOauthIssuer",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicClientId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicRedirectUri",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicClientKey",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicClientKeyId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicClientNextKey",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicClientNextKeyId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicConnectTimeout",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AppEpicReadTimeout",
+    "ParameterValue": ""
+  },
+  {
     "ParameterKey": "AppEnvironment",
     "ParameterValue": "production"
   },
