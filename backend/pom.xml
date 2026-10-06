@@ -51,6 +51,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Epic SMART on FHIR EHR launch Login (/docs/epic-smart-login.md). Inert until a
+             later step configures oauth2Login: no client registration is declared, so Boot's
+             OAuth2 client auto-configuration contributes no repository and no filter chain. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-session-data-redis</artifactId>

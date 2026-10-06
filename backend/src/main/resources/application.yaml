@@ -97,6 +97,11 @@ app:
     #
     # Turn SCIM off with APP_SCIM_ENABLED=false; see README.md's Configuration
     # section.
+  epic:
+    # Epic Login. Absent on purpose, every key of it: EpicLoginProperties binds the
+    # APP_EPIC_* variables by relaxed binding, and owns the only defaults there are
+    # (the switch off, timeouts 2s / 5s). No URL, client id or key may ever get a
+    # fallback here — this repository is public. See README.md's "Epic Login".
   auth:
     # The Bootstrap Admin, the one User every deployment is seeded with. The
     # non-administrative `user` is a development fixture (authorization.yaml).

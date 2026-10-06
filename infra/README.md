@@ -367,28 +367,50 @@ of silently disarming an alert.
 
 ## Parameters Reference
 
-| Parameter            | Description                                   | Required | Default               |
-| -------------------- | --------------------------------------------- | -------- | --------------------- |
-| VpcId                | Existing VPC ID                               | Yes      | -                     |
-| PublicSubnet1Id      | Public subnet 1                               | Yes      | -                     |
-| PublicSubnet2Id      | Public subnet 2                               | Yes      | -                     |
-| PrivateSubnet1Id     | Private subnet 1                              | Yes      | -                     |
-| PrivateSubnet2Id     | Private subnet 2                              | Yes      | -                     |
-| CreateKeyPair        | Create key pair                               | No       | true                  |
-| KeyName              | Key pair name                                 | No       | spring-backend-key    |
-| InstanceType         | EC2 type                                      | No       | t3.small              |
-| SSHLocation          | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
-| DBInstanceClass      | RDS instance type                             | No       | db.t3.micro           |
-| DBAllocatedStorage   | RDS storage, GB (20–100)                      | No       | 20                    |
-| DBName               | PostgreSQL database name                      | No       | backend               |
-| DBUsername           | PostgreSQL master username                    | No       | backend               |
-| DBPassword           | Database password                             | Yes      | -                     |
-| RedisNodeType        | ElastiCache node type                         | No       | cache.t3.micro        |
-| RedisPassword        | Redis password                                | No       | (empty)               |
-| AppBootstrapUsername | Bootstrap Admin's username                    | No       | admin                 |
-| AppBootstrapPassword | Bootstrap Admin's password                    | Yes      | -                     |
-| AppEnvironment       | `service.environment` on every log record     | No       | production            |
-| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No       | 90                    |
+| Parameter              | Description                                   | Required | Default               |
+| ---------------------- | --------------------------------------------- | -------- | --------------------- |
+| VpcId                  | Existing VPC ID                               | Yes      | -                     |
+| PublicSubnet1Id        | Public subnet 1                               | Yes      | -                     |
+| PublicSubnet2Id        | Public subnet 2                               | Yes      | -                     |
+| PrivateSubnet1Id       | Private subnet 1                              | Yes      | -                     |
+| PrivateSubnet2Id       | Private subnet 2                              | Yes      | -                     |
+| CreateKeyPair          | Create key pair                               | No       | true                  |
+| KeyName                | Key pair name                                 | No       | spring-backend-key    |
+| InstanceType           | EC2 type                                      | No       | t3.small              |
+| SSHLocation            | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
+| DBInstanceClass        | RDS instance type                             | No       | db.t3.micro           |
+| DBAllocatedStorage     | RDS storage, GB (20–100)                      | No       | 20                    |
+| DBName                 | PostgreSQL database name                      | No       | backend               |
+| DBUsername             | PostgreSQL master username                    | No       | backend               |
+| DBPassword             | Database password                             | Yes      | -                     |
+| RedisNodeType          | ElastiCache node type                         | No       | cache.t3.micro        |
+| RedisPassword          | Redis password                                | No       | (empty)               |
+| AppBootstrapUsername   | Bootstrap Admin's username                    | No       | admin                 |
+| AppBootstrapPassword   | Bootstrap Admin's password                    | Yes      | -                     |
+| AppEpicEnabled         | Epic Login switch (`APP_EPIC_ENABLED`)        | No       | false                 |
+| AppEpicFhirBase        | Epic FHIR base URL, https                     | If Epic  | (empty)               |
+| AppEpicOauthIssuer     | Epic OIDC issuer, https                       | If Epic  | (empty)               |
+| AppEpicClientId        | Epic client id (NoEcho)                       | If Epic  | (empty)               |
+| AppEpicRedirectUri     | Registered callback URL, https                | If Epic  | (empty)               |
+| AppEpicClientKey       | Active EC P-384 key, one-line PEM (NoEcho)    | If Epic  | (empty)               |
+| AppEpicClientKeyId     | Active key's `kid`                            | If Epic  | (empty)               |
+| AppEpicClientNextKey   | Next key, one-line PEM (NoEcho)               | No       | (empty)               |
+| AppEpicClientNextKeyId | Next key's `kid`, set with the next key       | No       | (empty)               |
+| AppEpicConnectTimeout  | Outbound Epic connect timeout                 | No       | (empty) = 2s          |
+| AppEpicReadTimeout     | Outbound Epic read timeout                    | No       | (empty) = 5s          |
+| AppEnvironment         | `service.environment` on every log record     | No       | production            |
+| LogRetentionDays       | Retention of the `/<stack>/backend` log group | No       | 90                    |
+
+The `AppEpic*` parameters become the `APP_EPIC_*` variables of
+`backend/README.md`'s "Epic Login" section; with `AppEpicEnabled=false` none is
+read. No default carries a value, and with the switch on the service refuses to
+start until every required one is set and well formed. The two keys and the
+client id are `NoEcho`, but they are still rendered into the instance's
+`/opt/backend/.env` (mode `0600`), as the database and Bootstrap Admin passwords
+are. Give each key as **one line with no line breaks** — the armour and the base64
+run together, e.g.
+`awk 'NF {printf "%s", $0}' key.pem` — because the environment file holds one
+value per line. Never commit a key or a filled-in parameters file.
 
 ---
 

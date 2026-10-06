@@ -291,6 +291,47 @@ The value is not written in `application.yaml`: the default belongs to
 `ScimSecurityConfig`, so an unset variable reaches the gate as open rather than as
 whatever a replaced config file happens to say.
 
+### Epic Login
+
+Epic SMART on FHIR EHR launch Login (`/docs/epic-smart-login.md`, section 5).
+**Off by default**, and then nothing below is read or required: the app starts
+with no Epic variable at all, and every `/api/auth/epic/**` path answers `404`
+ahead of the session, CSRF and authorization checks, mirroring
+`APP_SCIM_ENABLED=false`.
+
+| Variable                      | Required when enabled | Default | Meaning                                                                   |
+| ----------------------------- | --------------------- | ------- | ------------------------------------------------------------------------- |
+| `APP_EPIC_ENABLED`            | —                     | `false` | The feature switch                                                        |
+| `APP_EPIC_FHIR_BASE`          | yes                   | none    | The one allowed launch `iss`, sent as `aud`, and the prefix of `fhirUser` |
+| `APP_EPIC_OAUTH_ISSUER`       | yes                   | none    | OIDC issuer, for discovery and the `id_token` `iss`                       |
+| `APP_EPIC_CLIENT_ID`          | yes                   | none    | Epic client id                                                            |
+| `APP_EPIC_REDIRECT_URI`       | yes                   | none    | Absolute callback URL as registered (path `/api/auth/epic/callback`)      |
+| `APP_EPIC_CLIENT_KEY`         | yes                   | none    | Active signing key: EC P-384 private key, PKCS#8 PEM                      |
+| `APP_EPIC_CLIENT_KEY_ID`      | yes                   | none    | The active key's `kid`                                                    |
+| `APP_EPIC_CLIENT_NEXT_KEY`    | no                    | none    | Next key, published but never used to sign; set with its `kid`            |
+| `APP_EPIC_CLIENT_NEXT_KEY_ID` | no                    | none    | The next key's `kid`; must differ from the active one                     |
+| `APP_EPIC_CONNECT_TIMEOUT`    | no                    | `2s`    | Connect timeout for every outbound Epic call                              |
+| `APP_EPIC_READ_TIMEOUT`       | no                    | `5s`    | Read timeout for every outbound Epic call                                 |
+
+**No default credentials**: this repository is public, so no URL, client id or
+key has a fallback anywhere. With the switch on, startup fails fast when a
+required variable is missing or blank, when a URL is not an absolute `https`
+URL (only the `dev` profile may use `http`, for a local launcher), when a key is
+not an EC P-384 private key in PKCS#8 PEM, when the next key and its `kid` are
+not set together, when the two `kid`s are equal, or when a timeout is not
+positive. An empty variable counts as unset. The error names the variable and
+the rule, **never the value**, and the bound settings print with both keys
+redacted. Startup does not contact Epic.
+
+Generate a key with `openssl genpkey -algorithm EC -pkeyopt
+ec_paramgen_curve:P-384`. The PEM may be given on one line, with or without its
+line breaks escaped as `\n`. Never commit a key.
+
+The startup record carries `app.epic.enabled` and, while it is on, the active
+and next `kid` (`app.epic.client_key_id`, `app.epic.client_next_key_id`), so a
+redeploy that promotes a key leaves a record. It never carries a URL, the
+client id or key material.
+
 ### Audit trail retention
 
 | Variable                       | Default         | Meaning                                   |

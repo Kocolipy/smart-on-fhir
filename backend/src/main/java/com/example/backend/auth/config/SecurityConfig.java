@@ -2,6 +2,8 @@ package com.example.backend.auth.config;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
+import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.config.EpicReleaseGateFilter;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.RouteTemplates;
@@ -34,6 +36,7 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
@@ -197,7 +200,8 @@ public class SecurityConfig {
             AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter,
             AccessRefusalLog accessRefusalLog,
             AuditTrail auditTrail,
-            RouteTemplates routeTemplates) {
+            RouteTemplates routeTemplates,
+            EpicReleaseGate epicReleaseGate) {
         // Both refusals record themselves before answering. The access-denied handler is the
         // chain's one handler, and the CSRF filter answers through the same one, so a missing
         // token and a missing Permission are each recorded once, under their own reason — and
@@ -223,6 +227,13 @@ public class SecurityConfig {
                         .securityContextRepository(securityContextRepository))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                // First, as the SCIM release gate is in its chain: while APP_EPIC_ENABLED is
+                // off, every request under /api/auth/epic is answered 404 before any session,
+                // CSRF or authorization filter decides anything, so the routes cannot be
+                // probed for existence. Every other request passes straight through.
+                .addFilterBefore(
+                        new EpicReleaseGateFilter(epicReleaseGate),
+                        WebAsyncManagerIntegrationFilter.class)
                 // Before the context is loaded from the session, so an expired
                 // session presents to the rest of the chain — including the
                 // context-loading filter itself — as if no session existed.
