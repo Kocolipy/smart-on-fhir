@@ -229,7 +229,8 @@ class AuthorizationContractTests {
     void public_operations_need_no_session() throws Exception {
         List<Operation> open = withAccess(Access.PUBLIC);
         assertThat(open).extracting(Operation::toString).containsExactlyInAnyOrder(
-                "GET /api/auth/csrf", "POST /api/auth/login", "GET /actuator/health");
+                "GET /api/auth/csrf", "POST /api/auth/login", "GET /api/auth/epic/jwks.json",
+                "GET /actuator/health");
         for (Operation operation : open) {
             assertThat(call(operation, null)).as("%s with no session", operation)
                     .isNotIn(401, 403);

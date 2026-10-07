@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
+import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -36,6 +37,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -81,13 +84,22 @@ class ApiContractFixtureTests {
     /** Documented statuses no fixture can produce here, each with the reason. */
     private static final Set<String> NOT_PRODUCIBLE = Set.of(
             // Needs a dependency to be DOWN; this context's Postgres and Redis are up by design.
-            "GET /actuator/health 503");
+            "GET /actuator/health 503",
+            // Needs Epic Login OFF; this context has it on, to serve the JWKS. The switch-off 404
+            // is EpicReleaseGateIntegrationTests', in a context with no Epic variable at all.
+            "GET /api/auth/epic/jwks.json 404");
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
 
     private static final ContractRecorder RECORDER = new ContractRecorder(CONTRACT);
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /** Epic Login on, so its public JWKS is served; with generated keys, never committed ones. */
+    @DynamicPropertySource
+    static void epicLoginOn(DynamicPropertyRegistry registry) {
+        EpicTestKeys.epicLoginOn(registry, EpicTestKeys::p384Pem, EpicTestKeys::p384Pem);
+    }
 
     @Autowired
     private WebApplicationContext context;
@@ -190,6 +202,11 @@ class ApiContractFixtureTests {
     // ---- /api/auth --------------------------------------------------------------------
 
     private static void authentication(List<Fixture> all) {
+        add(all, "epic jwks: 200 to a caller with no session, the active then the next key", t -> {
+            JsonNode keys = json(t.expect(t.get("/api/auth/epic/jwks.json"), 200)).get("keys");
+            assertThat(List.of(keys.get(0).get("kid").asText(), keys.get(1).get("kid").asText()))
+                    .containsExactly("active-2026-04", "next-2026-10");
+        });
         add(all, "csrf: 200 with the session's token in the body, never cached", t -> {
             MvcResult issued = t.expect(t.get(SessionCsrf.PATH), 200);
             assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
