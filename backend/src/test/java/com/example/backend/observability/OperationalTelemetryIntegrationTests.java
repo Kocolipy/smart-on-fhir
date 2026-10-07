@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
+import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import java.io.IOException;
 import java.net.CookieManager;
@@ -32,6 +33,8 @@ import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfig
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -51,12 +54,21 @@ import tools.jackson.databind.json.JsonMapper;
  * values the traffic carried — a userName, an externalId, filter text, a resource id, a
  * token — are collected in {@link #forbidden} as they are sent, so the absence check is
  * over what really crossed the wire rather than a list written separately.
+ *
+ * <p>Epic Login is on, so the {@code epic.outbound} series it publishes from startup are in
+ * the scrape its alert selects on. Nothing here launches from Epic, and startup contacts
+ * no Epic, so its issuer need not answer.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OperationalTelemetryIntegrationTests {
+
+    @DynamicPropertySource
+    static void epicLoginOn(DynamicPropertyRegistry registry) {
+        EpicTestKeys.epicLoginOn(registry, EpicTestKeys::p384Pem, EpicTestKeys::p384Pem);
+    }
 
     private static final String ADMIN = "test-admin";
 
@@ -374,6 +386,7 @@ class OperationalTelemetryIntegrationTests {
                 "ScimUniquenessConflictsSustained",
                 "DormancyJobFailed",
                 "DormancyJobNotRunning",
+                "EpicJwksFetchFailing",
                 "scim:unconditional_writes:rate1h");
         assertThat(rules.get("ScimAuthenticationFailuresSustained")).contains("status=\"401\"");
         assertThat(rules.get("LoginAuthenticationFailuresSustained")).contains("status=\"401\"");
@@ -384,6 +397,8 @@ class OperationalTelemetryIntegrationTests {
         assertThat(rules.get("ScimUniquenessConflictsSustained")).contains("status=\"409\"");
         assertThat(rules.get("DormancyJobFailed")).contains("job=\"dormancy\"");
         assertThat(rules.get("DormancyJobNotRunning")).contains("job=\"dormancy\"");
+        assertThat(rules.get("EpicJwksFetchFailing"))
+                .contains("epic_outbound_errors_total{call=\"jwks\"}");
     }
 
     /**

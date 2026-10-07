@@ -140,14 +140,15 @@ it makes the same change voluntarily. Password history refuses the seed
 password afterwards, so this is one-way for that database. The specs read these
 environment variables; the SPA reads none of them:
 
-| Variable                    | Default                          | Used for                                                                                                                         |
-| --------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `E2E_ADMIN_PASSWORD`        | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                         |
-| `APP_LOCKOUT_MAX_ATTEMPTS`  | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)          |
-| `APP_DEV_FIXTURES_PASSWORD` | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                    |
-| `E2E_BACKEND_URL`           | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                            |
-| `E2E_EPIC_FHIR_BASE`        | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make epic-integration-test` sets it) |
-| `E2E_EPIC_JWKS_URL`         | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make epic-integration-test` sets it)                                             |
+| Variable                      | Default                          | Used for                                                                                                                               |
+| ----------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_ADMIN_PASSWORD`          | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                               |
+| `APP_LOCKOUT_MAX_ATTEMPTS`    | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)                |
+| `APP_DEV_FIXTURES_PASSWORD`   | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                          |
+| `E2E_BACKEND_URL`             | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                                  |
+| `E2E_EPIC_FHIR_BASE`          | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make epic-integration-test` sets it)       |
+| `E2E_EPIC_JWKS_URL`           | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make epic-integration-test` sets it)                                                   |
+| `E2E_EPIC_LAUNCHER_CONTAINER` | none — required by the Epic spec | the launcher's Docker container, paused for one callback to make its token endpoint unreachable (`make epic-integration-test` sets it) |
 
 The backend's development role mapping seeds one User per Role when it runs with
 `APP_DEV_FIXTURES_ENABLED=true` (as `backend/.env.example` sets): `account-admin`,
@@ -172,8 +173,13 @@ permission-denied or retry copy.
 Epic Login reaches the SPA as a full-page navigation, never a request the SPA
 makes. A refused EHR launch lands at `/?signin=refused`, signed out, and the
 login page reads that marker off the URL and shows the neutral notice "Sign-in
-from Epic was refused" — no reason, because the backend sends none. The page
-always carries the line "Clinicians: open this application from Epic.", and its
+from Epic was refused" — no reason, because the backend sends none. A launch
+that found Epic unavailable — Epic too slow to answer, or answering with a server
+error — lands at `/?signin=unavailable`, also signed out, and the page shows
+"Sign-in from Epic is temporarily unavailable. Try again shortly." instead: the
+clinician did nothing wrong and a relaunch may well succeed. Either notice wins
+over a session-ended notice the history entry happens to carry. The page always
+carries the line "Clinicians: open this application from Epic.", and its
 password form is unchanged either way. A `signin` value the page does not know
 shows nothing.
 

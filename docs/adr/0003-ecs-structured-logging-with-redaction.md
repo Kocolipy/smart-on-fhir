@@ -556,6 +556,8 @@ This table supersedes the per-addendum tables above for `event.action` and
 | -------------------------- | ----------------------------- | ----------------------------------- |
 | `LOGIN`                    | `user-authentication`         | —                                   |
 | `EPIC_LOGIN`               | `user-authentication`         | `epic.login`                        |
+| `EPIC_OUTBOUND`            | `user-authentication`         | `epic.outbound`                     |
+| `EPIC_JWKS_REFETCH`        | `user-authentication`         | `epic.jwks_refetch`                 |
 | `UNLOCK`                   | `access-control`              | `identity.unlock`                   |
 | `FORCE_PASSWORD_CHANGE`    | `password-change-enforcement` | —                                   |
 | `PASSWORD_CHANGE`          | `user-administration`         | `identity.password_change`          |
@@ -722,3 +724,43 @@ already holds `ERROR`), the classic `info(...)`/`warn(...)`/`debug(...)`/`trace(
 write of `event.outcome` or `event.duration_ms`, `setMessage(...)`, and a `log(...)` call that
 passes a message. Run against the code before this change it reported 100 findings across the 22
 files. The redaction rules and the field names are unchanged.
+
+## Addendum (2026-10-07): Epic Login's outbound calls (ADR 0013, D23, D25, D26)
+
+Epic Login's calls to Epic — discovery, the JWKS and the token call — are the first records
+of a call this service makes rather than answers. Two operations and four shapes are added,
+each on an existing `event.action` value, since the spec puts every Epic record under
+`user-authentication`:
+
+| Record                                            | Shape                | Level   | `app.event.action`  | `event.category` | `event.type`          |
+| ------------------------------------------------- | -------------------- | ------- | ------------------- | ---------------- | --------------------- |
+| "Epic outbound call started"                      | `outboundStart`      | `INFO`  | `epic.outbound`     | `network`        | `connection`, `start` |
+| "Epic outbound call completed", whatever the code | `outboundEnd`        | `INFO`  | `epic.outbound`     | `network`        | `connection`, `end`   |
+| "Epic outbound call failed": no answer at all     | `outboundFailed`     | `ERROR` | `epic.outbound`     | `network`        | `connection`, `error` |
+| a JWKS refetch for an unknown `kid`               | `jwksRefetchWarning` | `WARN`  | `epic.jwks_refetch` | `network`        | `connection`, `start` |
+| the `kid` still unknown after the refetches       | `error`              | `ERROR` | `epic.jwks_refetch` | `network`        | `error`               |
+| "Epic sign-in failed": an Epic call that failed   | `error`              | `ERROR` | `epic.login`        | `network`        | `error`               |
+
+**Fields.** The outbound records carry `app.epic.call` (`discovery`, `jwks` or `token`), the
+method as `http.request.method`, and `url.full` narrowed to scheme, host, port and path —
+never a query, a fragment or user info, any of which may carry a value no record may hold.
+`outboundEnd` adds `http.response.status_code`, `event.duration_ms`, and `event.outcome`
+`success` below `400`; `outboundFailed` adds `event.duration_ms` and the §Error fields:
+`error.code` `502`, `error.category` `network`, follow-up `false`, and the failure attached as
+a `RedactedFaultException` under its type name. `jwksRefetchWarning` carries `app.retry.attempt`
+and no outcome, which is the retried operation's to state. Neither a body nor a header of any
+Epic call is read for a record.
+
+**Follow-up by category.** `error` gains an overload taking `error.follow_up_action`, because
+the Epic Login spec's section 5 table says per category whether an Epic failure needs a
+person: `network` (a timeout, or no connection) and `server` (Epic's `5xx`) do not — Epic
+being down is not this service's to fix, and the clinician is told to retry — while
+`cert/auth` (Epic refusing our own credential) and `data` (an answer that is not what was
+asked for) do. Three `error.category` values join the declared ones for it: `network`,
+`server` and `cert/auth`, all from `Log_Schema.md` §Error; `data` now also covers an
+unusable answer from a service this one called.
+
+The `ERROR` an Epic call failure ends in is written once, by the Epic failure handler, beside
+the outbound record of the call itself. A `5xx` is an answer, so its outbound record is the
+`INFO` "completed", and only the handler's record is an `ERROR`; a timeout has both the
+outbound `ERROR` and the handler's, each naming the call.

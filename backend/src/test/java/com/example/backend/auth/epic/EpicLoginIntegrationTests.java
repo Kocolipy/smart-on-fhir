@@ -5,10 +5,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -17,6 +21,7 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import com.nimbusds.jose.jwk.JWKSet;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
@@ -28,9 +33,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.text.ParseException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,6 +66,7 @@ import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -79,6 +87,14 @@ import org.springframework.web.context.WebApplicationContext;
  *
  * <p>The {@code dev} profile lets the fake be plain {@code http} on the loopback interface (D21);
  * nothing else in this context depends on it.
+ *
+ * <p>Epic on a bad day is the same fake told to stall, answer {@code 5xx} or rotate its key
+ * (D23, D24, D26). The outbound timeouts are 1 second here, well short of the fake's stall; the
+ * waits before D26's JWKS refetches are recorded rather than slept. Discovery and Epic's keys
+ * are kept across tests, as they are across Logins: each test's fake signs with a key of its
+ * own, so a test's first Login finds its key by a refetch, and a test about the JWKS counts from
+ * a Login that has already found it. Discovery failing is {@link EpicDiscoveryIntegrationTests}'
+ * subject, in a context whose discovery has never succeeded.
  */
 @SpringBootTest
 @ActiveProfiles("dev")
@@ -117,6 +133,10 @@ class EpicLoginIntegrationTests {
         registry.add("app.epic.redirect-uri", () -> REDIRECT_URI);
         registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
         registry.add("app.epic.client-key-id", () -> ACTIVE_KID);
+        // Short, so a stalled fake Epic times out quickly: and well short of the stall, which
+        // the 5-second default would not be.
+        registry.add("app.epic.connect-timeout", () -> "1s");
+        registry.add("app.epic.read-timeout", () -> "1s");
     }
 
     @Autowired
@@ -163,6 +183,16 @@ class EpicLoginIntegrationTests {
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
 
+    /** Every wait before a D26 JWKS refetch, in order, since the test began. */
+    private static final List<Duration> PAUSES = Collections.synchronizedList(new ArrayList<>());
+
+    @TestBean
+    private EpicRetryPause epicRetryPause;
+
+    static EpicRetryPause epicRetryPause() {
+        return PAUSES::add;
+    }
+
     private MockMvc mvc;
 
     private FakeEpic epic;
@@ -175,6 +205,7 @@ class EpicLoginIntegrationTests {
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
         epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID, this::publishedJwks);
+        PAUSES.clear();
     }
 
     @AfterEach
@@ -517,6 +548,471 @@ class EpicLoginIntegrationTests {
         assertThat(successes()).isEqualTo(before);
     }
 
+    // ---- Epic unavailable (D23, D24, D26) ------------------------------------------------------
+
+    @Test
+    void aTokenEndpoint5xxLandsAtTheUnavailableNotice() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=unavailable");
+    }
+
+    @Test
+    void aTokenEndpointTimeoutLandsAtTheUnavailableNotice() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=unavailable");
+    }
+
+    /** D26: the code is single-use, so a token call that timed out is not sent again. */
+    @Test
+    void aTokenEndpointTimeoutMakesExactlyOneTokenRequest() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
+    }
+
+    @Test
+    void aTokenEndpoint5xxMakesExactlyOneTokenRequest() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
+    }
+
+    /** The fake's new key is not in the kept JWKS, so the id_token sends us to fetch it. */
+    @Test
+    void aJwks5xxLandsAtTheUnavailableNotice() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=unavailable");
+    }
+
+    @Test
+    void aJwksTimeoutLandsAtTheUnavailableNotice() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=unavailable");
+    }
+
+    /** A fetch that failed is Epic unavailable, not a reason to try again within the Login. */
+    @Test
+    void aJwksFetchThatFailedIsNotRetried() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(1);
+    }
+
+    @Test
+    void anUnavailableEpicIsAuditedAsALoginFailureBySsoNamingNobody() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+        int before = unavailableFailures();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(unavailableFailures()).isEqualTo(before + 1);
+    }
+
+    /** D24: the launch's session does not outlive a Login Epic could not complete. */
+    @Test
+    void anUnavailableLaunchEndsTheSessionTheBrowserHeld() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(sessionRepository.findById(sessionId(landing.launched()))).isNull();
+    }
+
+    @Test
+    void anUnavailableLaunchSignsNobodyIn() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(sessionRepository.findByPrincipalName(idOf(practitioner).toString())).isEmpty();
+    }
+
+    @Test
+    void theEpicLoginCounterRecordsAnUnavailableLaunch() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+        double before = unavailables();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(unavailables()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void anUnavailableLaunchIsNotCountedAsARefusal() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+        double before = allRefusals();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(allRefusals()).isEqualTo(before);
+    }
+
+    /** Spec section 5: a timeout is {@code network}, and Epic being down needs no follow-up. */
+    @Test
+    void aTokenEndpointTimeoutIsOneErrorUnderTheNetworkCategory() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+
+        List<Map<String, Object>> errors = signInFailureErrors(practitioner);
+
+        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "network")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
+                .containsEntry(LogEvent.EPIC_CALL, "token"));
+    }
+
+    @Test
+    void aTokenEndpoint5xxIsOneErrorUnderTheServerCategoryWithEpicsStatus() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+
+        List<Map<String, Object>> errors = signInFailureErrors(practitioner);
+
+        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "server")
+                .containsEntry(LogEvent.ERROR_CODE, 503)
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
+                .containsEntry(LogEvent.EPIC_CALL, "token"));
+    }
+
+    @Test
+    void aJwks5xxIsOneErrorNamingTheJwksCall() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
+
+        List<Map<String, Object>> errors = signInFailureErrors(practitioner);
+
+        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "server")
+                .containsEntry(LogEvent.EPIC_CALL, "jwks"));
+    }
+
+    /** Spec section 5: Epic refusing our assertion is a key or registration problem. */
+    @Test
+    void epicRefusingOurAssertionIsRefused() throws Exception {
+        String practitioner = provision();
+        epic.rejectingOurAssertion();
+
+        Landing landing = completeAllowingRefusal(practitioner, launch(null));
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    @Test
+    void epicRefusingOurAssertionIsOneErrorUnderCertAuthNeedingFollowUp() throws Exception {
+        String practitioner = provision();
+        epic.rejectingOurAssertion();
+
+        List<Map<String, Object>> errors;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            completeAllowingRefusal(practitioner, launch(null));
+            errors = signInFailureErrors(captured);
+        }
+
+        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true)
+                .containsEntry(LogEvent.EPIC_CALL, "token"));
+    }
+
+    @Test
+    void aMalformedJwksIsRefused() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    @Test
+    void aMalformedJwksIsOneErrorUnderTheDataCategoryNeedingFollowUp() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
+
+        List<Map<String, Object>> errors = signInFailureErrors(practitioner);
+
+        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "data")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true)
+                .containsEntry(LogEvent.EPIC_CALL, "jwks"));
+    }
+
+    // ---- the outbound client (D25, spec section 5) ---------------------------------------------
+
+    @Test
+    void eachOutboundCallIsLoggedStartedThenCompletedWithItsName() throws Exception {
+        String practitioner = provision();
+
+        List<String> logged;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            logged = outbound(captured).stream()
+                    .map(record -> CapturedLog.fields(record).get(LogEvent.EPIC_CALL) + " "
+                            + record.getMessage())
+                    .toList();
+        }
+
+        // The JWKS twice: this test's fake signs with a key the kept JWKS has never held.
+        assertThat(logged).containsSubsequence(
+                "token Epic outbound call started", "token Epic outbound call completed",
+                "jwks Epic outbound call started", "jwks Epic outbound call completed");
+    }
+
+    @Test
+    void aCompletedCallRecordsTheMethodTheUrlWithNoQueryTheStatusAndTheDuration()
+            throws Exception {
+        String practitioner = provision();
+
+        Map<String, Object> jwks;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            jwks = outbound(captured).stream()
+                    .filter(record -> "Epic outbound call completed".equals(record.getMessage()))
+                    .map(CapturedLog::fields)
+                    .filter(fields -> "jwks".equals(fields.get(LogEvent.EPIC_CALL)))
+                    .findFirst().orElseThrow();
+        }
+
+        assertThat(jwks).containsEntry(LogEvent.HTTP_METHOD, "GET")
+                .containsEntry(LogEvent.URL_FULL, epic.issuer() + "/jwks")
+                .containsEntry(LogEvent.HTTP_STATUS_CODE, 200)
+                .containsKey(LogEvent.DURATION_MS);
+    }
+
+    /** The JWKS URI discovery names carries a query, which no record repeats. */
+    @Test
+    void noOutboundRecordCarriesAQuery() throws Exception {
+        String practitioner = provision();
+
+        String everything;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            everything = outbound(captured).stream()
+                    .map(record -> CapturedLog.fields(record).toString())
+                    .collect(Collectors.joining("\n"));
+        }
+
+        assertThat(everything).isNotEmpty().doesNotContain(FakeEpic.JWKS_QUERY);
+    }
+
+    @Test
+    void aCallThatTimedOutIsLoggedAsFailedUnderTheNetworkCategory() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+
+        Map<String, Object> failed;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            failed = outbound(captured).stream()
+                    .filter(record -> record.getLevel() == Level.ERROR)
+                    .map(CapturedLog::fields)
+                    .findFirst().orElseThrow();
+        }
+
+        assertThat(failed).containsEntry(LogEvent.EPIC_CALL, "token")
+                .containsEntry(LogEvent.ERROR_CATEGORY, "network")
+                .containsKey(LogEvent.DURATION_MS);
+    }
+
+    /** Neither a body nor a header reaches the outbound log: not Epic's tokens, not our assertion. */
+    @Test
+    void noOutboundRecordCarriesWhatEpicSentBack() throws Exception {
+        String practitioner = provision();
+
+        String everything;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            everything = outbound(captured).stream()
+                    .map(record -> record.getFormattedMessage() + CapturedLog.fields(record))
+                    .collect(Collectors.joining("\n"));
+        }
+
+        assertThat(List.of(epic.accessToken, epic.idTokens.getFirst(), epic.patient))
+                .allSatisfy(value -> assertThat(everything).doesNotContain(value));
+    }
+
+    /** D25: Epic's side of the call can be joined to ours. */
+    @Test
+    void theTokenCallCarriesAW3cTraceparent() throws Exception {
+        String practitioner = provision();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(epic.tokenRequestHeaders()).singleElement()
+                .satisfies(headers -> assertThat(headers.get("traceparent")).singleElement()
+                        .asString().matches("00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]"));
+    }
+
+    @Test
+    void theOutboundTimerCountsTheTokenCall() throws Exception {
+        String practitioner = provision();
+        long before = outboundCalls("token");
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(outboundCalls("token")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void theOutboundErrorCounterCountsAToken5xxUnderItsCall() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+        double before = outboundErrors("token");
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(outboundErrors("token")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void theOutboundErrorCounterCountsAJwksTimeoutUnderItsCall() throws Exception {
+        String practitioner = provision();
+        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
+        double before = outboundErrors("jwks");
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(outboundErrors("jwks")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void aSuccessfulLoginCountsNoOutboundError() throws Exception {
+        String practitioner = provision();
+        double before = outboundErrors("token") + outboundErrors("jwks");
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(outboundErrors("token") + outboundErrors("jwks")).isEqualTo(before);
+    }
+
+    // ---- discovery and Epic's keys, kept (D26) ------------------------------------------------
+
+    @Test
+    void aSecondLaunchReadsDiscoveryFromWhatWasKept() throws Exception {
+        signInFromEpic(provision(), null);
+        int before = epic.requests(FakeEpic.Endpoint.DISCOVERY);
+
+        signInFromEpic(provision(), null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(before);
+    }
+
+    @Test
+    void aKnownKidIsVerifiedWithTheKeptKeysWithNoFetch() throws Exception {
+        signInFromEpic(provision(), null);
+        int before = epic.requests(FakeEpic.Endpoint.JWKS);
+
+        signInFromEpic(provision(), null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before);
+    }
+
+    /** D26: a key Epic never publishes is refetched for three times, and then refused. */
+    @Test
+    void anUnknownKidIsRefetchedThreeTimesBeforeTheRefusal() throws Exception {
+        signInFromEpic(provision(), null);
+        epic.rotateSigningKey(Integer.MAX_VALUE);
+        int before = epic.requests(FakeEpic.Endpoint.JWKS);
+
+        Landing landing = signInFromEpic(provision(), null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 3);
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    @Test
+    void theRefetchesWaitOneThenTwoThenFourSeconds() throws Exception {
+        signInFromEpic(provision(), null);
+        epic.rotateSigningKey(Integer.MAX_VALUE);
+        PAUSES.clear();
+
+        signInFromEpic(provision(), null);
+
+        assertThat(PAUSES).containsExactly(
+                Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4));
+    }
+
+    @Test
+    void eachRefetchIsAWarningWithItsAttemptAndTheLastFailureAnError() throws Exception {
+        signInFromEpic(provision(), null);
+        epic.rotateSigningKey(Integer.MAX_VALUE);
+
+        List<String> logged;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(provision(), null);
+            logged = captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "epic.jwks_refetch")
+                    .stream()
+                    .map(record -> record.getLevel() + " "
+                            + CapturedLog.fields(record).get(LogEvent.RETRY_ATTEMPT))
+                    .toList();
+        }
+
+        assertThat(logged).containsExactly("WARN 1", "WARN 2", "WARN 3", "ERROR null");
+    }
+
+    /** D26: still unknown, Epic may have moved its keys, so discovery is read again. */
+    @Test
+    void aKidStillUnknownAfterTheRefetchesRefetchesDiscovery() throws Exception {
+        signInFromEpic(provision(), null);
+        epic.rotateSigningKey(Integer.MAX_VALUE);
+        int before = epic.requests(FakeEpic.Endpoint.DISCOVERY);
+
+        signInFromEpic(provision(), null);
+
+        assertThat(epic.requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(before + 1);
+    }
+
+    /** A rotation Epic publishes a moment late is found by the refetches, and accepted. */
+    @Test
+    void aRotatedKeyPublishedOnTheSecondRefetchIsAccepted() throws Exception {
+        signInFromEpic(provision(), null);
+        epic.rotateSigningKey(2);
+        int before = epic.requests(FakeEpic.Endpoint.JWKS);
+
+        Landing landing = signInFromEpic(provision(), null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 2);
+    }
+
     // ---- the browser --------------------------------------------------------------------------
 
     /** The launch session, and Epic's authorization URL the backend redirected it to. */
@@ -556,6 +1052,19 @@ class EpicLoginIntegrationTests {
 
     /** {@link #complete}, with Epic's {@code id_token} naming the clinician as {@code fhirUser}. */
     private Landing completeAs(String fhirUser, Launched launched) throws Exception {
+        Landing landing = completeAllowingRefusalAs(fhirUser, launched);
+        assertThat(epic.tokenRefusals()).as("Epic accepted our token request").isEmpty();
+        return landing;
+    }
+
+    /** {@link #complete}, whether or not Epic's {@code /token} accepts the request. */
+    private Landing completeAllowingRefusal(String practitioner, Launched launched)
+            throws Exception {
+        return completeAllowingRefusalAs(FHIR_BASE + "/Practitioner/" + practitioner, launched);
+    }
+
+    private Landing completeAllowingRefusalAs(String fhirUser, Launched launched)
+            throws Exception {
         epic.signInAs(fhirUser);
         HttpResponse<Void> atEpic = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(launched.epicAuthorize()).GET().build(),
@@ -568,7 +1077,6 @@ class EpicLoginIntegrationTests {
                 get(callback.getPath()).cookie(launched.session());
         FakeEpic.queryOf(callback).forEach(redirected::param);
         MvcResult result = mvc.perform(redirected).andReturn();
-        assertThat(epic.tokenRefusals()).as("Epic accepted our token request").isEmpty();
         Cookie signedIn = result.getResponse().getCookie(sessionCookieName);
         return new Landing(result,
                 signedIn == null ? null : new Cookie(signedIn.getName(), signedIn.getValue()),
@@ -692,6 +1200,54 @@ class EpicLoginIntegrationTests {
     private double successes() {
         Counter counter = meters.find("epic.login").tag("outcome", "success").counter();
         return counter == null ? 0 : counter.count();
+    }
+
+    private double unavailables() {
+        Counter counter = meters.find("epic.login").tag("outcome", "unavailable")
+                .tag("reason", "EPIC_UNAVAILABLE").counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    private double allRefusals() {
+        return meters.find("epic.login").tag("outcome", "refused").counters().stream()
+                .mapToDouble(Counter::count).sum();
+    }
+
+    private long outboundCalls(String call) {
+        Timer timer = meters.find("epic.outbound").tag("call", call).timer();
+        return timer == null ? 0 : timer.count();
+    }
+
+    private double outboundErrors(String call) {
+        Counter counter = meters.find("epic.outbound.errors").tag("call", call).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    /** Every Epic {@code EPIC_UNAVAILABLE} failure the audit trail holds, each naming nobody. */
+    private int unavailableFailures() {
+        return jdbc.queryForObject("""
+                SELECT count(*) FROM audit_events
+                WHERE operation = 'LOGIN_FAILURE' AND error_code = 'EPIC_UNAVAILABLE'
+                AND login_method = 'sso' AND subject_id IS NULL""", Integer.class);
+    }
+
+    /** The fields of each {@code ERROR} the Epic sign-in failure wrote while signing in. */
+    private List<Map<String, Object>> signInFailureErrors(String practitioner) throws Exception {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            return signInFailureErrors(captured);
+        }
+    }
+
+    private static List<Map<String, Object>> signInFailureErrors(CapturedLog captured) {
+        return captured.withAction(Level.ERROR, LogEvent.LOCAL_ACTION, "epic.login").stream()
+                .map(CapturedLog::fields)
+                .toList();
+    }
+
+    /** Every outbound call record, in order. */
+    private static List<ILoggingEvent> outbound(CapturedLog captured) {
+        return captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "epic.outbound");
     }
 
     private double refusals(String reason) {

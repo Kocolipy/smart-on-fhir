@@ -186,7 +186,14 @@ backend side moves. What the SPA has to honour:
   the clinician on to `/showcase`. A refused launch lands at
   `/?signin=refused` with its session ended — whoever's it was — and the
   login page shows only the neutral "Sign-in from Epic was refused"; the
-  refusal's reason never reaches the browser. All four Epic routes (the three
+  refusal's reason never reaches the browser. The second outcome is Epic being
+  unavailable — no answer within the backend's timeouts, or an Epic `5xx`, on
+  discovery, the JWKS or the token call — which lands at
+  `/?signin=unavailable`, its session ended the same way, and the login page
+  shows "Sign-in from Epic is temporarily unavailable. Try again shortly."
+  instead. The two are distinct on purpose (D23): a refused clinician should not
+  retry, an unavailable one should. Neither marker carries any detail, and
+  either notice wins over router state. All four Epic routes (the three
   above and the public `jwks.json`) are `404` while `APP_EPIC_ENABLED` is off.
   The SPA never calls them, and they need no CSRF token: each is a `GET`.
 - **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a

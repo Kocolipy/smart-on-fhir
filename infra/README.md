@@ -361,9 +361,18 @@ own runbook text:
 | `ScimPreconditionFailuresSustained`           | sustained SCIM `412`                                   | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
 | `ScimUniquenessConflictsSustained`            | sustained SCIM `409`                                   | a connector re-creating identities it believes are missing                                                                                           |
 | `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h | dormant accounts are not being locked, nor their Roles revoked                                                                                       |
+| `EpicJwksFetchFailing`                        | `epic.outbound{call="jwks"}` errors persisting 5 min   | Epic's `id_token` keys are unreachable (timeouts or Epic `5xx`): launches land at the unavailable notice; password Login is unaffected               |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
 The dormancy job publishes its series under `job="dormancy"` from startup.
+With Epic Login on, so does the outbound client: `epic_outbound_seconds` (a timer)
+and `epic_outbound_errors_total` (calls that got no answer or a `5xx`), each
+tagged `call` = `discovery`, `jwks` or `token`, exist at zero from startup, so
+`EpicJwksFetchFailing` — `increase(epic_outbound_errors_total{call="jwks"}[5m]) > 0`
+held for 5 minutes — sees the first error. The JWKS is fetched only when an
+`id_token` names a key the kept JWKS lacks, so the alert fires on real launches
+failing, not on a background poll. With Epic Login off the series do not exist and
+the rule matches nothing.
 `DormancyJobNotRunning` measures from
 the last success **or the last restart**, so an instance that restarts more often
 than daily masks a stuck job. Alert on restarts separately if that happens.
@@ -420,6 +429,21 @@ are. Give each key as **one line with no line breaks** — the armour and the ba
 run together, e.g.
 `awk 'NF {printf "%s", $0}' key.pem` — because the environment file holds one
 value per line. Never commit a key or a filled-in parameters file.
+
+### Epic outbound timeouts
+
+`AppEpicConnectTimeout` and `AppEpicReadTimeout` become `APP_EPIC_CONNECT_TIMEOUT`
+and `APP_EPIC_READ_TIMEOUT`: the connect and read timeouts of every call the
+service makes to Epic — discovery, the JWKS and the token call, all through one
+client (ADR 0013, D25). Each is a duration such as `2s` or `1500ms`; left empty
+they are 2 and 5 seconds, and a zero or negative value refuses startup. A call
+that times out, like one Epic answers `5xx`, sends the clinician to the login
+page's "temporarily unavailable" notice rather than the refused one, and is an
+`ERROR` record under `error.category` `network` (or `server`). The token call is
+never retried, so a read timeout longer than Epic's own processing time is what
+keeps a slow Epic from looking unavailable; raise it rather than lowering it if
+clinicians see the notice while Epic is merely slow. There is no circuit breaker:
+the edge throttle on the callback (above) bounds the load on Epic.
 
 ### Signing-key promotion
 

@@ -10,12 +10,18 @@ package com.example.backend.auth.domain;
  * account reasons in particular tell whether an account exists, which an investigation needs
  * and an operational log reader does not.
  *
- * <p>Today the list holds the login decision's three account reasons (flow step 6). The
- * protocol reasons — the launch, {@code state}, the code, the token exchange, the
- * {@code id_token} and {@code fhirUser} — and Epic being unavailable join it with the steps that
- * refuse for them.
+ * <p>Today the list holds the login decision's three account reasons (flow step 6) and Epic
+ * being unavailable (D23). The protocol reasons — the launch, {@code state}, the code, the token
+ * exchange, the {@code id_token} and {@code fhirUser} — join it with the step that refuses for
+ * them.
  */
 public enum EpicLoginFailureReason {
+
+    /**
+     * Epic could not be reached: a connect or read timeout, or a {@code 5xx}, from discovery, the
+     * JWKS or the token endpoint (D23). Not a refusal: the browser is told to try again shortly.
+     */
+    EPIC_UNAVAILABLE,
 
     /**
      * No User's stored {@code userName} equals the Practitioner ID exactly — none at all, or

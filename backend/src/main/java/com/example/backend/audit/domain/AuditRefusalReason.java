@@ -30,6 +30,12 @@ public enum AuditRefusalReason {
     /** An administrator had disabled the account. */
     ACCOUNT_DISABLED,
 
+    /**
+     * An Epic Login that could not complete because Epic could not be reached: a timeout or a
+     * {@code 5xx} from discovery, the JWKS or the token endpoint. No account is named.
+     */
+    EPIC_UNAVAILABLE,
+
     /** A refusal this service does not have its own name for yet. */
     OTHER
 }
