@@ -87,6 +87,25 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
+    // Epic Login's E2E conditional gate (frontend/AGENTS.md), run by
+    // `make epic-integration-test`. Declared only when that gate's environment
+    // names the local SMART launcher, so `npm run test:e2e` — which runs without
+    // the launcher or Epic Login — never sees it. It needs only the Admin session
+    // `setup` saves, to issue its SCIM token: the one sign-in it makes is of a
+    // User it provisions itself, so it ends no session another project replays.
+    ...(process.env.E2E_EPIC_FHIR_BASE
+      ? [
+          {
+            name: "epic",
+            testMatch: /epic-launch\.spec\.ts/,
+            dependencies: ["setup"],
+            use: {
+              ...devices["Desktop Chrome"],
+              storageState: "test/e2e/.auth/admin.json",
+            },
+          },
+        ]
+      : []),
   ],
 
   webServer: {

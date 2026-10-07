@@ -232,13 +232,27 @@ green _before_ touching code is what proves a later failure is yours.
 
 Each carries its own trigger and its own completion criterion, and none of them
 belongs in the baseline — a gate that runs on every change needs a binary bound,
-and these three do not have one until their trigger narrows the scope.
+and these do not have one until their trigger narrows the scope.
 
 | Gate               | Command                                              | Trigger                                                   | Done when                                                                                                                                                                                                               |
 | ------------------ | ---------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote a unit test or changed an existing one          | every mutant killed, or a survivor carrying a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged — the survivor plus its reason go in the change summary |
 | **Playwright E2E** | `npm run test:e2e`                                   | routes, request handling, or the session contract changed | the suite is green against live dependencies                                                                                                                                                                            |
 | **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file, or a dependency   | zero findings — dead code sits at zero, so any it reports is one this changeset introduced                                                                                                                              |
+| **Epic Login E2E** | `make epic-integration-test` (repo root)             | any change to Epic Login, on either side                  | `test/e2e/epic-launch.spec.ts` is green against the local SMART launcher, and the script exits zero                                                                                                                     |
+
+**Epic Login E2E** drives a real SMART provider EHR launch through
+`/api/auth/epic/launch`, the launcher's authorization and our callback to
+`/showcase`, with the SMART Health IT launcher standing in for Epic. "Epic
+Login" means anything on that path: `backend/.../auth/epic/`, the Epic routes'
+security or session handling, `logInFromEpic`, the SPA's handling of the
+launch landing, and the launcher setup itself. `make epic-integration-test`
+starts Postgres, Redis and the launcher (compose profile `epic-launcher`), runs
+the backend in the `dev` profile with a freshly generated key and the
+`APP_EPIC_*` values in `backend/README.md`, "Local Epic launcher", and runs
+`npm run test:e2e:epic`, the Playwright `epic` project. It is separate from the
+**Playwright E2E** gate, which neither needs nor runs it; a change to Epic Login
+that also pulls that gate's trigger runs both.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture rule, suppressing a fallow finding, adding a file nothing

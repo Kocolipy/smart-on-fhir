@@ -42,6 +42,9 @@ re-resolve the digest together:
 docker buildx imagetools inspect postgres:18.6-alpine --format '{{println .Manifest.Digest}}'
 ```
 
+The one exception is the local Epic launcher, `smartonfhir/smart-launcher-2`:
+upstream publishes `latest` only, so its digest alone is the pin.
+
 A bump to Node, Maven, or the JDK has to land in every row of the table above in
 the same commit — a pin that disagrees with its neighbour is worse than no pin,
 because the failure surfaces as a build error somewhere unrelated.

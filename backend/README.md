@@ -343,6 +343,61 @@ through `ClientAssertionSigner`. The runbook for promoting a key is
 curl -i localhost:8080/api/auth/epic/jwks.json
 ```
 
+#### Local Epic launcher
+
+A real SMART EHR launch, locally and without Epic: the SMART Health IT launcher
+(`smartonfhir/smart-launcher-2`) stands in for Epic as the `smart-launcher`
+service in `compose.yaml`. It is behind the `epic-launcher` compose profile, so
+`make infra-up` and a plain `docker compose up` never start it. From the
+repository root:
+
+```bash
+make epic-launcher-up     # Postgres, Redis and the launcher on http://localhost:9009
+make epic-launcher-down   # stops all three; `make infra-down` leaves the launcher up
+```
+
+The launcher is plain `http`, so the backend must run in the **`dev` profile**,
+the only one that accepts `http` Epic URLs (D21). That profile alone also
+accepts the launcher's relative `fhirUser` (`Practitioner/{id}`); outside it,
+`fhirUser` must be the absolute `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. Never
+use either allowance anywhere but a developer machine. Run the backend with
+these in place of the Epic lines in `.env`:
+
+| Variable                 | Value for the launcher                           |
+| ------------------------ | ------------------------------------------------ |
+| `SPRING_PROFILES_ACTIVE` | `dev`                                            |
+| `APP_EPIC_ENABLED`       | `true`                                           |
+| `APP_EPIC_FHIR_BASE`     | `http://localhost:9009/v/r4/fhir`                |
+| `APP_EPIC_OAUTH_ISSUER`  | `http://localhost:9009/v/r4/fhir` (the same URL) |
+| `APP_EPIC_CLIENT_ID`     | any value; the launcher accepts any client id    |
+| `APP_EPIC_REDIRECT_URI`  | `http://localhost:5173/api/auth/epic/callback`   |
+| `APP_EPIC_CLIENT_KEY`    | a key generated for the purpose (see above)      |
+| `APP_EPIC_CLIENT_KEY_ID` | any `kid`, e.g. `local-1`                        |
+
+The FHIR base is the `iss` the launcher sends on a provider EHR launch, and its
+discovery document names that same URL as the issuer. The redirect URI goes
+through the Vite dev server (`make dev`), so the callback's `302 /` lands on
+the SPA. Generate the key per machine and keep it out of the repository, e.g.
+`export APP_EPIC_CLIENT_KEY="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384)"`.
+
+To launch by hand, provision a User over SCIM whose `userName` is the
+Practitioner ID you will launch as, and let it set its own password once (a
+connector's write leaves a change pending, which confines every session of the
+User, an Epic one included, to `/change-password`). Then, in the launcher UI at
+`http://localhost:9009`:
+
+- **Launch type** `Provider EHR Launch`; pick a patient, and set the provider to
+  that Practitioner ID. Turn on "Skip login" and "Skip authorization".
+- **Client** `Confidential asymmetric`, with the JWKS URL
+  `http://host.docker.internal:8080/api/auth/epic/jwks.json`: the launcher
+  verifies our client assertion against it, from inside its container.
+- **App launch URL** `http://localhost:5173/api/auth/epic/launch`.
+
+Launching lands on `/showcase`, signed in as that User with its Groups'
+Permissions. `make epic-integration-test` runs the same launch as a Playwright
+spec, which is Epic Login's E2E gate (`frontend/AGENTS.md`); it generates its own
+key and sets all of the above itself.
+
 ### Audit trail retention
 
 | Variable                       | Default         | Meaning                                   |
