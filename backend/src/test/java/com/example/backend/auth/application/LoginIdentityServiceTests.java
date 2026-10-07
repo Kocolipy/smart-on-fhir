@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -147,6 +148,45 @@ class LoginIdentityServiceTests {
         assertThatThrownBy(() -> service.loadUserByUsername("missing"))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("User not found");
+    }
+
+    // Linking an Epic Login's Practitioner ID to a User
+
+    @Test
+    void anEpicPractitionerIdLinksToTheUserWhoseUserNameItIs() {
+        users.given(ScimIdentities.user("eABC123"));
+
+        assertThat(service.loadEpicLinkedUser("eABC123"))
+                .map(UserDetails::getUsername)
+                .contains("eABC123");
+    }
+
+    /**
+     * Epic IDs are case-sensitive (D3) while the directory's lookup normalizes, so an ID that
+     * differs from the stored {@code userName} only in case links to nobody.
+     */
+    @Test
+    void anEpicPractitionerIdDifferingOnlyInCaseLinksToNoUser() {
+        users.given(ScimIdentities.user("eABC123"));
+
+        assertThat(service.loadEpicLinkedUser("eabc123")).isEmpty();
+    }
+
+    /** The Bootstrap Admin links to nothing whatever its name (D6): password Login recovers it. */
+    @Test
+    void anEpicPractitionerIdNamingTheBootstrapAdminLinksToNoUser() {
+        users.createReserved(ScimIdentities.user("eRECOVERY"), ReservedResourceName.BOOTSTRAP_ADMIN);
+
+        assertThat(service.loadEpicLinkedUser("eRECOVERY")).isEmpty();
+    }
+
+    /** No Practitioner ID links to nobody, rather than failing the way normalizing one would. */
+    @Test
+    void aBlankOrMissingEpicPractitionerIdLinksToNoUser() {
+        users.given(ScimIdentities.user("eABC123"));
+
+        assertThat(Stream.of("   ", null).map(service::loadEpicLinkedUser))
+                .containsOnly(Optional.empty());
     }
 
     /**
