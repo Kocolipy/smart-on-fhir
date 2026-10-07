@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic.controller;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.auth.application.EpicLoginRefusedException;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.controller.SessionEstablishment;
@@ -16,7 +17,6 @@ import java.io.IOException;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Component;
 
@@ -35,7 +35,9 @@ import org.springframework.stereotype.Component;
  * {@code sso}. The browser lands at {@code /}.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
- * the session and lands at {@code /?signin=refused}.
+ * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
+ * A User the login decision refused is audited and logged there, once, and counted here under
+ * its reason; the counter is the web adapter's, as the success count is.
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
  * Epic security configuration so that the configuration need not depend on a web adapter: it is
@@ -82,7 +84,10 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
         try {
             outcome = login.logInFromEpic(
                     practitionerId.get(), existing == null ? null : existing.getId());
-        } catch (AuthenticationException refused) {
+        } catch (EpicLoginRefusedException refused) {
+            // Audited and logged by the login decision already; counted here, and the browser
+            // signed out and sent to the refused notice with no detail (D23, D24).
+            metrics.refused(refused.reason().name());
             EpicSignInRedirect.refused(request, response);
             return;
         }

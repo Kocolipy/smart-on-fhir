@@ -224,6 +224,29 @@ class AuditTrailServiceTests {
     }
 
     /**
+     * A refusal that counted toward no failure run (an Epic Login's, D12) is the same
+     * {@code LOGIN_FAILURE}, and does not claim a failure-run change that never happened.
+     */
+    @Test
+    void aRefusalThatCountsTowardNoFailureRunNamesNoChangedPath() {
+        trail.recordLoginRefusal(SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO);
+
+        AuditEvent event = events.only();
+        assertThat(event.changedPaths()).isEmpty();
+    }
+
+    @Test
+    void aRefusalThatCountsTowardNoFailureRunIsALoginFailureNamingItsReasonAndMethod() {
+        trail.recordLoginRefusal(SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO);
+
+        AuditEvent event = events.only();
+        assertThat(List.<Object>of(event.operation(), event.outcome(), event.subjectId(),
+                        event.errorCode(), event.loginMethod()))
+                .containsExactly(AuditOperation.LOGIN_FAILURE, AuditOutcome.FAILURE, SUBJECT,
+                        "ACCOUNT_LOCKED", "sso");
+    }
+
+    /**
      * The case that must not record the submitted username: no account carries it,
      * so there is nothing to name and the subject stays absent.
      */

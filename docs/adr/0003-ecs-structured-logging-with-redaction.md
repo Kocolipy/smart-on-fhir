@@ -555,6 +555,7 @@ This table supersedes the per-addendum tables above for `event.action` and
 | `Operation`                | `event.action`                | `app.event.action`                  |
 | -------------------------- | ----------------------------- | ----------------------------------- |
 | `LOGIN`                    | `user-authentication`         | —                                   |
+| `EPIC_LOGIN`               | `user-authentication`         | `epic.login`                        |
 | `UNLOCK`                   | `access-control`              | `identity.unlock`                   |
 | `FORCE_PASSWORD_CHANGE`    | `password-change-enforcement` | —                                   |
 | `PASSWORD_CHANGE`          | `user-administration`         | `identity.password_change`          |
