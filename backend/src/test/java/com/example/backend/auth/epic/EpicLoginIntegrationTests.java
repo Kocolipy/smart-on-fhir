@@ -553,6 +553,10 @@ class EpicLoginIntegrationTests {
     }
 
     private static int freePort() {
+        // Test-only: binds an ephemeral local port just to learn a free number for the fake
+        // Epic, and closes at once. Nothing is ever sent over it, so there is no traffic for
+        // TLS to protect.
+        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
         try (ServerSocket socket = new ServerSocket(0)) {
             socket.setReuseAddress(true);
             return socket.getLocalPort();
