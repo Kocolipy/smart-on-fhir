@@ -76,6 +76,49 @@ glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
 holds, so signing in from a second browser signs the first out; the first sees an
 expired session. It is one of the **session revocation** triggers below.
 
+## Epic Login
+
+A Login by **EHR launch**: Epic opens the application in the clinician's system
+browser, Epic's OpenID Connect provider proves who the clinician is, and the
+session is then built exactly as password Login builds it. Password Login is
+unchanged, and a User may hold both. ADR 0013 records the decisions and the flow;
+`backend/docs/openapi.yaml` holds the three browser routes.
+
+**Linking by `userName`** — an Epic clinician is a User because the SCIM
+connector provisioned it with `userName` equal to the clinician's Practitioner
+FHIR ID, which the directory holds. There is no separate link, no schema change,
+and no just-in-time provisioning: an Epic Login never creates or modifies a User,
+so nobody Epic can authenticate gets an account the directory did not give them.
+
+**Exact match** — the Practitioner ID comes from the `id_token`'s `fhirUser`,
+which must be exactly `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`: the deployment's
+own FHIR base, the `Practitioner` type, a non-blank id and nothing after it. The
+User is found through the normal normalized-`userName` lookup and then accepted
+only when its stored `userName` equals the id character for character. Epic IDs
+are case-sensitive and normalization lowercases, so `eabc` never signs in the
+User provisioned as `eABC`. The Bootstrap Admin is never signed in this way;
+password Login is its recovery path. Lockout and deactivation refuse an Epic
+Login as they refuse a password one.
+
+**One organisation per deployment** — a bare Practitioner ID is unique only
+within one Epic organisation, so a deployment trusts exactly one **Epic
+issuer**: every launch's `iss` must equal `APP_EPIC_FHIR_BASE` exactly, never
+normalized, and the `id_token` must come from `APP_EPIC_OAUTH_ISSUER`.
+Non-production and production are separate deployments. Because the issuer is
+fixed, it is not repeated on each audit event or stored per User.
+
+**Every launch is a fresh Login** — the launch ends whatever session the
+browser held, whoever it belonged to, and a refused launch leaves the browser
+signed out: a shared workstation is never left signed in as the previous User. A
+successful Epic Login is recorded exactly as a password Login is — failure run
+cleared, dormancy basis moved, `LOGIN_SUCCESS` with login method `sso`, every
+other session of the User revoked — so **one session per User** holds across both
+Login paths. The authorities are the ones password Login gives the same User.
+
+**Identity only** — Epic's access token, the patient and encounter context, and
+the rest of the token response are discarded; nothing from Epic is stored, and no
+FHIR API is called. A refusal says only `/?signin=refused`, with no detail.
+
 ## Identity provisioning
 
 ### SCIM target model

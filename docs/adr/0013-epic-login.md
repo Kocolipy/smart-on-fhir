@@ -5,7 +5,9 @@ Date: 2026-10-06
 ## Status
 
 Proposed, and incomplete by design. Started in Epic Login step 4 (signing keys and
-JWKS) with the three decisions that step implements: D7, D14 and D16. The spec,
+JWKS) with the three decisions that step implements: D7, D14 and D16. The
+tracer-bullet step (a provisioned clinician signs in from Epic) added the flow and
+the decisions it implements: D1–D11 and D15. The spec,
 `/docs/epic-smart-login.md`, holds every decision (D1–D28); this ADR gains the rest,
 the accepted risk D13, the section 9 policy position and the section 11
 App-Standards deviations, plus an addendum on ADR-0012, in the documentation step
@@ -21,7 +23,105 @@ Epic verifies that client authentication against a JWKS the application publishe
 and fetches it from us. How the application holds and rotates its signing keys
 therefore has to suit Epic's verifier and the deployment's secrets handling.
 
+ADR-0012 records "no organisational IdP/SSO" and puts OAuth/JWT flows out of scope.
+This ADR refines it for exactly one flow: the SMART on FHIR EHR launch, for
+clinicians, with password Login kept unchanged beside it.
+
 ## Decision
+
+### The flow
+
+```
+Browser            Epic (Hyperspace + OAuth)          Backend
+   | <-- opens system browser on launch URL ---|              |
+   |-- GET /api/auth/epic/launch?iss&launch ------------------>| iss allowlist
+   |<-------------------------- 302 /api/auth/epic/authorize   |
+   |-- GET /api/auth/epic/authorize -------------------------->|
+   |<-------------------------- 302 authorize?…launch,aud,PKCE,state,nonce
+   |-- GET authorize ------------>|                            |
+   |<-- 302 /api/auth/epic/callback?code&state                 |
+   |-- GET /api/auth/epic/callback ---------------------------->| pending request, state
+   |                              |<-- POST token (client_assertion, verifier)
+   |                              |-- id_token --------------->| verify via jwks_uri
+   |                              |-- GET /api/auth/epic/jwks.json (Epic verifies our assertion)
+   |<-------------------------------------- 302 / (session established)
+```
+
+1. **Launch.** `EpicLaunchController` accepts `iss` only when it equals
+   `APP_EPIC_FHIR_BASE` exactly and a `launch` is present, ends any session the
+   browser holds, and holds `launch` in a new session for the next step only.
+2. **Authorize.** The internal hop `GET /api/auth/epic/authorize` is Spring
+   Security's authorization-request filter, with a resolver that adds `launch`
+   and `aud` to Spring's own request: `response_type=code`, `client_id`, the
+   registered `redirect_uri`, `scope=launch openid fhirUser`, `state`, `nonce`
+   and PKCE S256. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on use, never at
+   startup. The pending request is kept in the HTTP session, in Redis, so the
+   callback may land on any node.
+3. **Callback.** `GET /api/auth/epic/callback` is `oauth2Login`'s processing URL
+   on the existing application chain. The pending request is taken out of the
+   session, `state` checked, and the code redeemed once through the one outbound
+   client, `epicRestClient`, with the verifier and our `private_key_jwt`
+   assertion (D7).
+4. **`id_token`.** RS256 only, against the discovered `jwks_uri` fetched through
+   `epicRestClient`; `iss`, `aud`/`azp`, `exp` and `iat` with a 30-second skew
+   from the injected `Clock`, and `nonce`. No user-info call is made.
+5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
+   non-blank `id` and nothing after it (`FhirUserReference`).
+6. **Login decision.** `LoginService.logInFromEpic` accepts the User whose stored
+   `userName` equals the id exactly, refuses a deactivated or locked one, and
+   records the success exactly as password Login does, in one transaction.
+7. **Session.** `SessionEstablishment`, shared with password Login, rotates the
+   session id, saves the security context, sets the principal index and the
+   role-mapping hash, drops the pre-login CSRF token and logs `session-start`
+   (method `sso`). The answer is `302 /`; the SPA's `/api/auth/me` →
+   `authenticated` → `/showcase` path follows.
+
+Any refusal or OAuth error lands at `/?signin=refused`, with no detail, its
+session ended. The full refusal treatment — every reason audited, refused versus
+unavailable, the outbound resilience and the protocol hardening — follows in later
+steps; the spec is their authority until then.
+
+The login filter is configured to neither rotate the session nor save a security
+context of its own, and the authorized client is saved nowhere. The success
+handler, a web adapter, establishes the session from our own Login instead. That
+is what keeps Epic's `id_token` and access token out of the session store (D8),
+and it means an Epic session is built by exactly the code that builds a password
+one.
+
+### Decisions
+
+- **D1: EHR launch only.** Epic opens the clinician's system browser on our
+  launch URL, not an iframe. There is no standalone launch, no "Sign in with
+  Epic" button and no patient-facing Login.
+- **D2: linked by `userName`.** A User is linked to Epic by `userName` =
+  Practitioner FHIR ID, sent by the SCIM connector, whose IdP holds that
+  attribute. No schema change, and no just-in-time provisioning.
+- **D3: an exact, case-sensitive match.** The User is found through the normal
+  `NormalizedUserName` lookup and then accepted only if its stored `userName`
+  equals the Practitioner ID character for character. Normalization lowercases,
+  and Epic IDs are case-sensitive.
+- **D4: one Epic organisation per deployment.** A bare FHIR ID is unique only
+  within one organisation. Non-production and production are separate
+  deployments, so the issuer is fixed per deployment and is neither repeated on
+  each audit event nor stored per User.
+- **D5: password Login is kept** for every User with a password. One User may
+  hold both, and needs no extra rule.
+- **D6: the Bootstrap Admin never signs in through Epic,** recognised by its
+  reservation marker. Password Login stays its recovery path.
+- **D8: identity only.** The patient and encounter context and the access token
+  are discarded, and nothing from Epic is stored.
+- **D9: every launch is a fresh Login.** A session already in the browser is
+  replaced, whoever it belongs to.
+- **D10: `iss` is required** on the launch URL and must exactly equal
+  `APP_EPIC_FHIR_BASE`; a missing or different `iss` is refused.
+- **D11: a successful Epic Login lands on `/showcase`,** the same default as
+  password Login with no return destination.
+- **D15: a login method on every Login record.** `LOGIN_SUCCESS`,
+  `LOGIN_FAILURE` and the operational `session-start` carry `password` or `sso`
+  (the audit trail's `login_method` column, the log's `app.login.method`), and the
+  Audit page shows it. While D4 holds, `sso` means Epic.
+
+### Client authentication and signing keys
 
 - **D7: `private_key_jwt`, ES384.** Client authentication to Epic's token endpoint
   is a client assertion JWT signed ES384 with an EC P-384 key. There is no client
@@ -51,6 +151,15 @@ therefore has to suit Epic's verifier and the deployment's secrets handling.
   a library signer a private JWK.
 
 ## Consequences
+
+- An Epic session is indistinguishable from a password one after sign-in: the same
+  authorities (Spring Security's own `FACTOR_PASSWORD` aside, which records a
+  credential the Epic path never presents), the same session bounds, the same
+  one-session-per-User rule. Only the login method on the records tells them
+  apart.
+- The callback is served by a security filter, not a controller, so the API
+  contract check lists it as filter-served rather than finding it in the handler
+  mapping.
 
 - **as-8 (secrets management) and ck-4 (key storage) stay open** in ADR-0012
   until the KMS signer exists (spec section 9). The signing keys are deployment

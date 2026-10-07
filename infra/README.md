@@ -55,6 +55,8 @@ takes traffic.
 | SCIM                         | `/scim/v2/` and everything below | the `Authorization` header (one connector token) |
 | Login                        | `POST /api/auth/login`           | count-all, scoped down to the path               |
 | Self-service password change | `POST /api/auth/change-password` | the `JSESSIONID` cookie (one session)            |
+| Epic Login launch            | `GET /api/auth/epic/launch`      | count-all, scoped down to the path               |
+| Epic Login callback          | `GET /api/auth/epic/callback`    | count-all, scoped down to the path               |
 
 Also give `/scim/v2/` a count-all ceiling scoped down to the path, so random
 bearer values cannot dodge the per-token rule by presenting a different key on
@@ -80,6 +82,13 @@ attempt is aimed at one credential, so the limit belongs on the credential:
   total cost. Every attempt pays an Argon2id verification, so unthrottled Login
   is a CPU-exhaustion lever. An edge that can key on a JSON body field may add a
   per-`userName` limit on top.
+- **Epic Login** (ADR 0013, D19): the launch and the callback are browser
+  navigations from Epic, made before there is any session or credential of ours
+  to key on, so the edge's rule caps their total cost. The callback matters most:
+  every callback makes an outbound token call to Epic, so an unthrottled callback
+  would let anyone use this server to flood Epic. A breach is answered `429` with
+  `Retry-After`, as for every other surface. The limits are edge configuration,
+  not part of the application.
 
 **Per-source (per-IP) throttling is not required and not assumed.** It is left
 to the edge's own policy. Behind a corporate proxy or NAT gateway, many
