@@ -332,6 +332,17 @@ and next `kid` (`app.epic.client_key_id`, `app.epic.client_next_key_id`), so a
 redeploy that promotes a key leaves a record. It never carries a URL, the
 client id or key material.
 
+With the switch on, `GET /api/auth/epic/jwks.json` is public and serves the
+active key and then the next key, if one is set, as EC P-384 public keys for
+ES384 under their `kid`s, with no private parameter. Epic verifies our client
+assertions against it. Client assertions are signed by the active key only,
+through `ClientAssertionSigner`. The runbook for promoting a key is
+`/infra/README.md`, "Signing-key promotion".
+
+```bash
+curl -i localhost:8080/api/auth/epic/jwks.json
+```
+
 ### Audit trail retention
 
 | Variable                       | Default         | Meaning                                   |

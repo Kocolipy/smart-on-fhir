@@ -357,6 +357,37 @@ paths:
             `/me` as the lockout.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
+  /api/auth/epic/jwks.json:
+    get:
+      tags: [Authentication]
+      summary: Get our public JWKS for Epic
+      description: |
+        The public keys Epic verifies our `private_key_jwt` client assertions
+        against (Epic Login, `/docs/epic-smart-login.md`, D7 and D14): the active
+        signing key and, when `APP_EPIC_CLIENT_NEXT_KEY` is configured, the next
+        key, in that order. Each is an EC P-384 public key for ES384 signatures,
+        under its configured `kid`. Assertions are signed by the active key only;
+        the next key is published ahead of its promotion. No private parameter is
+        ever present.
+
+        Public: Epic fetches it with no session. While `APP_EPIC_ENABLED` is off
+        it answers `404`, as every path under `/api/auth/epic` does, before any
+        session, CSRF or authorization check.
+      operationId: getEpicJwks
+      security: []
+      responses:
+        "200":
+          description: Our public JWKS.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JwkSet"
+        "404":
+          description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/self:
     get:
       tags: [Authentication]
@@ -2644,6 +2675,46 @@ components:
           schema:
             $ref: "#/components/schemas/ScimError"
   schemas:
+    JwkSet:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      description: |
+        A JSON Web Key Set (RFC 7517) of EC P-384 public signing keys. The
+        closed property list is the guarantee that no private parameter (`d`)
+        is published.
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 2
+          description: The active key, then the next key when one is configured.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kty, crv, x, y, kid, use, alg]
+            properties:
+              kty:
+                type: string
+                enum: [EC]
+              crv:
+                type: string
+                enum: [P-384]
+              x:
+                type: string
+                description: The public point's x coordinate, base64url (RFC 7518).
+              y:
+                type: string
+                description: The public point's y coordinate, base64url (RFC 7518).
+              kid:
+                type: string
+                description: The key's configured `kid`.
+              use:
+                type: string
+                enum: [sig]
+              alg:
+                type: string
+                enum: [ES384]
     ApiError:
       type: object
       required: [status, code, detail]

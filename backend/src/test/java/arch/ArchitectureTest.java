@@ -317,6 +317,8 @@ public class ArchitectureTest {
     private static final java.util.Set<String> SELF_SERVICE_OR_PUBLIC_CONTROLLERS = java.util.Set.of(
             "com.example.backend.auth.controller.AuthController",
             "com.example.backend.auth.controller.SelfController",
+            // Our public JWKS, which Epic fetches with no session (D14).
+            "com.example.backend.auth.epic.controller.EpicJwksController",
             "com.example.backend.session.controller.SessionController");
 
     // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain

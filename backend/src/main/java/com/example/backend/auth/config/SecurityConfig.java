@@ -272,6 +272,10 @@ public class SecurityConfig {
                         // to authenticate: a guest's call creates the session the token is
                         // bound to, and login then carries that session forward.
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
+                        // Our public JWKS: Epic fetches it, with no session, to verify our client
+                        // assertions (D14). Public keys only. While APP_EPIC_ENABLED is off the
+                        // release gate above answers 404 before this rule is consulted.
+                        .requestMatchers(read("/api/auth/epic/jwks.json")).permitAll()
                         // ---- self-service: authenticated, no Permission ----
                         // The whole of what a session confined by a required password change may
                         // do: read its own standing, submit the change, and log out (the token
