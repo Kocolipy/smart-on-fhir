@@ -2,11 +2,13 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +20,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -133,20 +134,33 @@ public class LoginService {
      * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
      * (D8); the Practitioner ID is not logged.
      *
+     * <p>A refusal is recorded here, once, as password Login's is, so no caller can refuse an
+     * Epic Login without the record: a {@code LOGIN_FAILURE} under method {@code sso} with its
+     * {@link EpicLoginFailureReason} and the refused User's stable id — none for
+     * {@code UNKNOWN_ACCOUNT}, whose ID is not recorded at all — and a {@code WARN} that says only
+     * "Epic sign-in refused", because the reason tells whether an account exists. Unlike password
+     * Login's, it counts toward no failure run (D12).
+     *
      * @param practitionerId    the Practitioner ID Epic's {@code id_token} named
      * @param retainedSessionId the id the caller's session is stored under, which the Login
      *                          continues in; {@code null} when it holds none
-     * @throws AuthenticationException when no acceptable User is linked to the Practitioner ID
+     * @throws EpicLoginRefusedException when no acceptable User is linked to the Practitioner ID:
+     *     none matches it exactly, or the one that does is the Bootstrap Admin, deactivated or
+     *     locked
      */
     @Transactional
     public LoginOutcome logInFromEpic(String practitionerId, String retainedSessionId) {
-        UserDetails user = identities.loadEpicLinkedUser(practitionerId)
-                .orElseThrow(() -> new UsernameNotFoundException("No linked User"));
-        if (!user.isEnabled()) {
-            throw new DisabledException("User is deactivated");
+        Optional<UserDetails> linked = identities.loadEpicLinkedUser(practitionerId);
+        if (linked.isEmpty()) {
+            // No subject: the ID named nobody acceptable, and is itself never recorded.
+            throw refusedEpicLogin(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT);
         }
-        if (!user.isAccountNonLocked()) {
-            throw new LockedException("User is locked");
+        UserDetails user = linked.get();
+        if (!user.isEnabled() || !user.isAccountNonLocked()) {
+            throw refusedEpicLogin(identities.resolveUserId(user.getUsername()),
+                    user.isEnabled()
+                            ? EpicLoginFailureReason.ACCOUNT_LOCKED
+                            : EpicLoginFailureReason.ACCOUNT_DISABLED);
         }
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
@@ -154,6 +168,40 @@ public class LoginService {
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
         return succeeded(authentication, retainedSessionId, AuditLoginMethod.SSO);
+    }
+
+    /**
+     * An Epic Login refused by the login decision, recorded once: a {@code LOGIN_FAILURE} under
+     * method {@code sso} naming the reason and the refused User, which counts toward no failure
+     * run (D12).
+     *
+     * @param subjectId the refused User's stable id, or {@code null} when there is none to name
+     * @return the refusal, for the caller to throw
+     */
+    private EpicLoginRefusedException refusedEpicLogin(
+            UUID subjectId, EpicLoginFailureReason reason) {
+        attempts.recordRefusal(subjectId, audited(reason), AuditLoginMethod.SSO);
+        // Generic on purpose: the reason tells whether an account exists, so it is the audit
+        // trail's alone (spec section 11), and no user field — the refused User is named there,
+        // and a session the browser happened to carry is not whom the launch was for.
+        try (LogContext.Scope unresolved = LogContext.userId(null)) {
+            LogEvent.refused(log, Operation.EPIC_LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
+                    .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())
+                    .log();
+        }
+        return new EpicLoginRefusedException(reason);
+    }
+
+    /**
+     * An Epic refusal as the audit trail's own vocabulary, which password Login's refusals share.
+     * Exhaustive, so a reason added to the list cannot reach the trail unmapped.
+     */
+    private static AuditRefusalReason audited(EpicLoginFailureReason reason) {
+        return switch (reason) {
+            case UNKNOWN_ACCOUNT -> AuditRefusalReason.UNKNOWN_ACCOUNT;
+            case ACCOUNT_DISABLED -> AuditRefusalReason.ACCOUNT_DISABLED;
+            case ACCOUNT_LOCKED -> AuditRefusalReason.ACCOUNT_LOCKED;
+        };
     }
 
     /**

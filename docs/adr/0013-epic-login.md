@@ -7,12 +7,13 @@ Date: 2026-10-06
 Proposed, and incomplete by design. Started in Epic Login step 4 (signing keys and
 JWKS) with the three decisions that step implements: D7, D14 and D16. The
 tracer-bullet step (a provisioned clinician signs in from Epic) added the flow and
-the decisions it implements: D1–D11 and D15. The spec,
-`/docs/epic-smart-login.md`, holds every decision (D1–D28); this ADR gains the rest,
-the accepted risk D13, the section 9 policy position and the section 11
-App-Standards deviations, plus an addendum on ADR-0012, in the documentation step
-(spec section 7, step 9). Until then the spec is the authority for anything not
-recorded here.
+the decisions it implements: D1–D11 and D15. The account-refusal step added D12
+and D24, and the one section 11 App-Standards deviation it implements: the
+account reasons kept in the audit only. The spec, `/docs/epic-smart-login.md`,
+holds every decision (D1–D28); this ADR gains the rest, the accepted risk D13, the
+section 9 policy position and the other section 11 deviations, plus an addendum on
+ADR-0012, in the documentation step (spec section 7, step 9). Until then the spec
+is the authority for anything not recorded here.
 
 ## Context
 
@@ -71,8 +72,11 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    because the local SMART launcher issues no other form; it is decided where
    D21's `http` allowance is, and outside the dev profile parsing is unchanged.
 6. **Login decision.** `LoginService.logInFromEpic` accepts the User whose stored
-   `userName` equals the id exactly, refuses a deactivated or locked one, and
-   records the success exactly as password Login does, in one transaction.
+   `userName` equals the id exactly and records the success exactly as password
+   Login does, in one transaction. It refuses, in this order: no exact match (a
+   case variant included) or the Bootstrap Admin as `UNKNOWN_ACCOUNT`, a
+   deactivated User as `ACCOUNT_DISABLED`, and a User locked for any cause as
+   `ACCOUNT_LOCKED` (`EpicLoginFailureReason`).
 7. **Session.** `SessionEstablishment`, shared with password Login, rotates the
    session id, saves the security context, sets the principal index and the
    role-mapping hash, drops the pre-login CSRF token and logs `session-start`
@@ -80,9 +84,15 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    `authenticated` → `/showcase` path follows.
 
 Any refusal or OAuth error lands at `/?signin=refused`, with no detail, its
-session ended. The full refusal treatment — every reason audited, refused versus
-unavailable, the outbound resilience and the protocol hardening — follows in later
-steps; the spec is their authority until then.
+session ended (D24). An account refusal is recorded once, by the login decision,
+as password Login's refusal is, so no caller can refuse without the record: a
+`LOGIN_FAILURE` under method `sso` with its reason and the refused User's stable
+id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`,
+which counts toward no failure run (D12), and a `WARN` saying only "Epic sign-in
+refused". The success handler then counts it on `epic.login`
+(`outcome=refused`, `reason`) and redirects. The rest of the refusal treatment —
+the protocol reasons, refused versus unavailable, the outbound resilience —
+follows in later steps; the spec is its authority until then.
 
 The login filter is configured to neither rotate the session nor save a security
 context of its own, and the authorized client is saved nowhere. The success
@@ -110,7 +120,10 @@ one.
 - **D5: password Login is kept** for every User with a password. One User may
   hold both, and needs no extra rule.
 - **D6: the Bootstrap Admin never signs in through Epic,** recognised by its
-  reservation marker. Password Login stays its recovery path.
+  reservation marker, never its name, so a rename cannot move the exclusion.
+  It is refused as `UNKNOWN_ACCOUNT`, exactly as a name that matches nobody is,
+  so the refusal does not say the account exists. Password Login stays its
+  recovery path.
 - **D8: identity only.** The patient and encounter context and the access token
   are discarded, and nothing from Epic is stored.
 - **D9: every launch is a fresh Login.** A session already in the browser is
@@ -119,10 +132,33 @@ one.
   `APP_EPIC_FHIR_BASE`; a missing or different `iss` is refused.
 - **D11: a successful Epic Login lands on `/showcase`,** the same default as
   password Login with no return destination.
+- **D12: Dormancy and Lockout apply to Epic Login exactly as to password
+  Login,** and a successful Epic Login moves the dormancy basis. A refused launch
+  does **not** lengthen a failure run: Epic checked the credential, not us, so a
+  refusal is no evidence of guessing. Counting it would also let anyone whose
+  Epic ID is a case variant of a User's `userName` lock that User out by
+  launching. `LoginAttemptService.recordRefusal` therefore records the
+  `LOGIN_FAILURE` and neither reads nor writes the User's login state, and the
+  record names no changed path.
 - **D15: a login method on every Login record.** `LOGIN_SUCCESS`,
   `LOGIN_FAILURE` and the operational `session-start` carry `password` or `sso`
   (the audit trail's `login_method` column, the log's `app.login.method`), and the
   Audit page shows it. While D4 holds, `sso` means Epic.
+- **D24: a refused launch invalidates any session already in the browser**
+  before redirecting, whoever it belongs to. This follows D9, and leaves no
+  previous User signed in on a shared workstation.
+
+### Deviation: the account reasons are audit-only
+
+Logging standard §2.2 asks that no reason reveal whether the account exists.
+`UNKNOWN_ACCOUNT`, `ACCOUNT_DISABLED` and `ACCOUNT_LOCKED` do reveal it, and they
+are kept anyway (spec section 11), **in the audit trail only**. An investigation
+needs them, the SSO standard asks for specific failure types, and password Login
+records the same reasons. The browser sees one answer for all of them,
+`/?signin=refused`, and the operational log says only "Epic sign-in refused",
+with no reason and no user field. The audit trail, read by an administrator,
+holds the detail. The `epic.login` counter carries the reason as a tag; it counts
+events and names no account.
 
 ### Client authentication and signing keys
 

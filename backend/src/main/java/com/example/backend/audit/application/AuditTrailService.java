@@ -189,12 +189,31 @@ public class AuditTrailService implements AuditTrail {
     @Override
     public void recordLoginFailure(
             UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
+        appendLoginFailure(subjectId, reason, method, FAILURE_RUN_PATHS);
+    }
+
+    /**
+     * Records a refused login that counted toward no failure run. Fail-open, as
+     * {@link #recordLoginFailure} is: the refusal's answer is already given.
+     */
+    @Override
+    public void recordLoginRefusal(
+            UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
+        appendLoginFailure(subjectId, reason, method, NO_PATHS);
+    }
+
+    /**
+     * The fail-open {@code LOGIN_FAILURE} every refused login shares, differing only in
+     * what it says changed about the account.
+     */
+    private void appendLoginFailure(UUID subjectId, AuditRefusalReason reason,
+            AuditLoginMethod method, List<String> changedPaths) {
         appendRaisingAlertOnFailure(loginEvent(
                 AuditOperation.LOGIN_FAILURE,
                 AuditOutcome.FAILURE,
                 null,
                 subjectId,
-                FAILURE_RUN_PATHS,
+                changedPaths,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name(),
                 method));

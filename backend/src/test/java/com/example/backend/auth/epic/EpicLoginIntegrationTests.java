@@ -11,6 +11,7 @@ import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.nimbusds.jose.jwk.JWKSet;
@@ -380,6 +381,142 @@ class EpicLoginIntegrationTests {
                 .allSatisfy(value -> assertThat(everythingInRedis).doesNotContain(value));
     }
 
+    // ---- account refusals (flow steps 6 and 8) ------------------------------------------------
+
+    @Test
+    void anUnprovisionedPractitionerLandsAtTheRefusedNotice() throws Exception {
+        Landing landing = signInFromEpic(unprovisioned(), null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    @Test
+    void aDeactivatedUserLandsAtTheRefusedNotice() throws Exception {
+        String practitioner = provisionDeactivated();
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    @Test
+    void aLockedUserLandsAtTheRefusedNotice() throws Exception {
+        String practitioner = provisionLocked();
+
+        Landing landing = signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo("/?signin=refused");
+    }
+
+    /** D24: the refused browser is left signed in as nobody — its session is gone. */
+    @Test
+    void aRefusedLaunchEndsTheSessionTheBrowserHeld() throws Exception {
+        Landing landing = signInFromEpic(unprovisioned(), null);
+
+        assertThat(sessionRepository.findById(sessionId(landing.launched()))).isNull();
+    }
+
+    /** D24, whoever the session belonged to: a colleague's is not left signed in either. */
+    @Test
+    void aRefusedLaunchLeavesNoColleagueSignedIn() throws Exception {
+        String colleague = provision();
+        Cookie colleaguesSession = logIn(colleague, null);
+
+        signInFromEpic(unprovisioned(), colleaguesSession);
+
+        assertThat(status(get("/api/auth/me"), colleaguesSession)).isEqualTo(401);
+    }
+
+    /** The refusal outlives the login decision's rolled-back transaction. */
+    @Test
+    void aRefusedDeactivatedUserIsAuditedAsALoginFailureBySsoWithItsReason() throws Exception {
+        String practitioner = provisionDeactivated();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(jdbc.queryForList(
+                "SELECT error_code || '/' || login_method FROM audit_events"
+                        + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
+                String.class, idOf(practitioner)))
+                .containsExactly("ACCOUNT_DISABLED/sso");
+    }
+
+    @Test
+    void aRefusedLockedUserIsAuditedAsALoginFailureBySsoWithItsReason() throws Exception {
+        String practitioner = provisionLocked();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(jdbc.queryForList(
+                "SELECT error_code || '/' || login_method FROM audit_events"
+                        + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
+                String.class, idOf(practitioner)))
+                .containsExactly("ACCOUNT_LOCKED/sso");
+    }
+
+    /** An unknown ID is not recorded: the audit trail holds no trace of the Practitioner ID. */
+    @Test
+    void anUnknownAccountRefusalRecordsNothingOfThePractitionerId() throws Exception {
+        String practitioner = unprovisioned();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(jdbc.queryForList("SELECT * FROM audit_events").toString())
+                .doesNotContain(practitioner);
+    }
+
+    @Test
+    void anUnknownAccountRefusalIsAuditedWithNoSubject() throws Exception {
+        int before = unknownAccountRefusals();
+
+        signInFromEpic(unprovisioned(), null);
+
+        assertThat(unknownAccountRefusals()).isEqualTo(before + 1);
+    }
+
+    /** D12: Epic checked the credential, so a refusal is no evidence of guessing. */
+    @Test
+    void aRefusedLaunchNeverLengthensTheFailureRun() throws Exception {
+        String practitioner = provisionDeactivated();
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT failed_login_attempts FROM scim_users WHERE user_name = ?",
+                Integer.class, practitioner)).isZero();
+    }
+
+    @Test
+    void theEpicLoginCounterRecordsARefusalWithItsReason() throws Exception {
+        String practitioner = provisionLocked();
+        double before = refusals("ACCOUNT_LOCKED");
+
+        signInFromEpic(practitioner, null);
+
+        assertThat(refusals("ACCOUNT_LOCKED")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void theEpicLoginCounterRecordsAnUnknownAccountRefusal() throws Exception {
+        double before = refusals("UNKNOWN_ACCOUNT");
+
+        signInFromEpic(unprovisioned(), null);
+
+        assertThat(refusals("UNKNOWN_ACCOUNT")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void aRefusalIsNotCountedAsASuccess() throws Exception {
+        double before = successes();
+
+        signInFromEpic(unprovisioned(), null);
+
+        assertThat(successes()).isEqualTo(before);
+    }
+
     // ---- the browser --------------------------------------------------------------------------
 
     /** The launch session, and Epic's authorization URL the backend redirected it to. */
@@ -457,6 +594,31 @@ class EpicLoginIntegrationTests {
         return practitioner;
     }
 
+    /** A fresh Practitioner ID no User is provisioned under. */
+    private static String unprovisioned() {
+        return "eNobody" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    /** {@link #provision()}, then deactivated, as the directory would. */
+    private String provisionDeactivated() {
+        String practitioner = provision();
+        UUID id = idOf(practitioner);
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> users.updateActive(id, false, Instant.now()));
+        return practitioner;
+    }
+
+    /** {@link #provision()}, then locked by a failure run reaching the limit. */
+    private String provisionLocked() {
+        String practitioner = provision();
+        UUID id = idOf(practitioner);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            ScimLoginState login = users.findById(id).orElseThrow().login();
+            users.updateLoginState(id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
+        });
+        return practitioner;
+    }
+
     /** {@link #provision()}, and a member of the Admin group, so its Permissions are mapped. */
     private String provisionInAdminGroup() {
         String practitioner = provision();
@@ -530,6 +692,20 @@ class EpicLoginIntegrationTests {
     private double successes() {
         Counter counter = meters.find("epic.login").tag("outcome", "success").counter();
         return counter == null ? 0 : counter.count();
+    }
+
+    private double refusals(String reason) {
+        Counter counter = meters.find("epic.login").tag("outcome", "refused")
+                .tag("reason", reason).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    /** Every Epic {@code UNKNOWN_ACCOUNT} refusal the audit trail holds, each naming nobody. */
+    private int unknownAccountRefusals() {
+        return jdbc.queryForObject("""
+                SELECT count(*) FROM audit_events
+                WHERE operation = 'LOGIN_FAILURE' AND error_code = 'UNKNOWN_ACCOUNT'
+                AND login_method = 'sso' AND subject_id IS NULL""", Integer.class);
     }
 
     /** Every key and value in the session store, as text: what the store would hand an attacker. */

@@ -44,6 +44,18 @@ public interface AuditTrail {
      */
     void recordLoginFailure(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method);
 
+    /**
+     * Records a refused login that counted toward no failure run — an Epic Login refused by
+     * the login decision (D12), whose credential Epic checked rather than this service. The
+     * same {@code LOGIN_FAILURE} as {@link #recordLoginFailure}, naming no changed path,
+     * because nothing about the account changed.
+     *
+     * @param subjectId stable id of the account refused, or {@code null} when the attempt
+     *                  named no acceptable account, so that no subject is recorded
+     * @param method    how the refused Login was attempted (D15)
+     */
+    void recordLoginRefusal(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method);
+
     /** Records a session ended by its holder. */
     void recordLogout(UUID accountId);
 

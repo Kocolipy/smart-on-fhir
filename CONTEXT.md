@@ -261,7 +261,9 @@ _Avoid_: SSO, sign-on, identity provider (for the organisation)
 
 **Failure run**:
 The consecutive failures recorded against one User: rejected Logins, and wrong
-current passwords on the self-service password change.
+current passwords on the self-service password change. It counts password
+refusals only: a refused EHR launch never lengthens it, because Epic checked the
+credential, not this service.
 
 **Lockout**:
 The permanent state a User enters for one of two causes — its failure run

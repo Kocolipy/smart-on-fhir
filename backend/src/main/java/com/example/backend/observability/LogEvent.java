@@ -444,6 +444,7 @@ public final class LogEvent {
     static String refusedMessage(Operation operation) {
         return switch (operation) {
             case LOGIN -> "Login refused";
+            case EPIC_LOGIN -> "Epic sign-in refused";
             case UNLOCK, FORCE_PASSWORD_CHANGE -> "Administrative identity change refused";
             case PASSWORD_CHANGE -> "Self-service change refused";
             case CONNECTOR_TOKEN_ISSUE, CONNECTOR_TOKEN_ROTATE ->
@@ -542,6 +543,7 @@ public final class LogEvent {
      */
     public enum Operation {
         LOGIN(Action.USER_AUTHENTICATION, null),
+        EPIC_LOGIN(Action.USER_AUTHENTICATION, "epic.login"),
         UNLOCK(Action.ACCESS_CONTROL, "identity.unlock"),
         FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null),
         PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change"),

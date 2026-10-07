@@ -169,6 +169,14 @@ CSRF recovery and returns typed semantic results instead of raw responses:
 could not be fetched) preserve the session and let the feature show
 permission-denied or retry copy.
 
+Epic Login reaches the SPA as a full-page navigation, never a request the SPA
+makes. A refused EHR launch lands at `/?signin=refused`, signed out, and the
+login page reads that marker off the URL and shows the neutral notice "Sign-in
+from Epic was refused" — no reason, because the backend sends none. The page
+always carries the line "Clinicians: open this application from Epic.", and its
+password form is unchanged either way. A `signin` value the page does not know
+shows nothing.
+
 In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 `npm run dev` needs the backend up for anything past the login form.
 

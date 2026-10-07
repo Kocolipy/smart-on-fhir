@@ -216,6 +216,16 @@ public class ArchitectureTest {
             .withOptionalLayers(true)
             .because("Dependencies point inward: adapters depend on application, application on domain, domain on nothing");
 
+    // The onion rule above cannot see this: the auth.epic root matches no layer, yet it holds
+    // adapter-grade code (Micrometer meters, key signing, bound properties).
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule inner_layers_never_reach_the_epic_root =
+        noClasses()
+            .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
+            .should().dependOnClassesThat().resideInAPackage("com.example.backend.auth.epic")
+            .because("Dependencies point inward: the Epic package root is adapter code, which the"
+                    + " application and domain layers must not depend on");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_infrastructure_imports =
         noClasses()

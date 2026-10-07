@@ -80,6 +80,12 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
+    public void recordLoginRefusal(
+            UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
+        recordLoginFailure(subjectId, reason, method);
+    }
+
+    @Override
     public void recordLogout(UUID accountId) {
         recorded.add(new Recorded(AuditOperation.LOGOUT, accountId, accountId, null));
     }

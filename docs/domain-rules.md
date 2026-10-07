@@ -96,9 +96,37 @@ own FHIR base, the `Practitioner` type, a non-blank id and nothing after it. The
 User is found through the normal normalized-`userName` lookup and then accepted
 only when its stored `userName` equals the id character for character. Epic IDs
 are case-sensitive and normalization lowercases, so `eabc` never signs in the
-User provisioned as `eABC`. The Bootstrap Admin is never signed in this way;
-password Login is its recovery path. Lockout and deactivation refuse an Epic
-Login as they refuse a password one.
+User provisioned as `eABC`.
+
+**Refusals** — the login decision refuses an Epic Login, in this order:
+
+| The Practitioner ID names                                             | Refused as         |
+| --------------------------------------------------------------------- | ------------------ |
+| no User whose stored `userName` equals it exactly, a case variant too | `UNKNOWN_ACCOUNT`  |
+| the Bootstrap Admin                                                   | `UNKNOWN_ACCOUNT`  |
+| a deactivated User                                                    | `ACCOUNT_DISABLED` |
+| a locked User, whatever the cause: a failure run or dormancy          | `ACCOUNT_LOCKED`   |
+
+**The Bootstrap Admin is excluded**, recognised by its reservation marker and
+never by its name, so no rename moves the exclusion and no other User acquires
+it. It is refused exactly as a name that matches nobody is, so a refusal never
+says the account exists. Password Login stays its recovery path: Epic proving a
+clinician is never a way into the deployment's last account.
+
+A refusal lands the browser at `/?signin=refused` with no detail, its session
+ended first whoever it belonged to, and the login page shows only "Sign-in from
+Epic was refused". It is audited once, as a `LOGIN_FAILURE` with login method
+`sso`, its reason, and the refused User's stable id — none for
+`UNKNOWN_ACCOUNT`, so an ID that matched nobody leaves no trace of itself. The
+reason is the audit trail's alone: the operational log says only "Epic sign-in
+refused", because the reason tells whether an account exists.
+
+**A refusal never lengthens a failure run.** Epic checked the credential, not
+this service, so a refused launch is no evidence of guessing — and counting it
+would let a clinician whose Epic ID is a case variant of a User's `userName`
+lock that User out by launching. Lockout and deactivation still refuse an Epic
+Login exactly as they refuse a password one; Epic's word unlocks and reactivates
+nobody.
 
 **One organisation per deployment** — a bare Practitioner ID is unique only
 within one Epic organisation, so a deployment trusts exactly one **Epic
@@ -117,7 +145,7 @@ Login paths. The authorities are the ones password Login gives the same User.
 
 **Identity only** — Epic's access token, the patient and encounter context, and
 the rest of the token response are discarded; nothing from Epic is stored, and no
-FHIR API is called. A refusal says only `/?signin=refused`, with no detail.
+FHIR API is called.
 
 ## Identity provisioning
 

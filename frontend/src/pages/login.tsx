@@ -15,6 +15,15 @@ const INACTIVE_MESSAGE = "You were signed out because you were inactive. Please 
 /** Shown when the visitor arrives here because their own password change ended the session. */
 const CHANGED_CREDENTIAL_MESSAGE = "Your password was changed. Sign in with your new password.";
 
+/**
+ * Shown when an Epic launch landed here refused (`/?signin=refused`). Neutral on
+ * purpose: the backend gives the browser no reason, and this page invents none.
+ */
+const EPIC_REFUSED_MESSAGE = "Sign-in from Epic was refused";
+
+/** Always shown: a clinician signs in by opening the application from Epic, not here. */
+const CLINICIANS_LINE = "Clinicians: open this application from Epic.";
+
 export function Login() {
   const { login } = useAuth();
   const location = useLocation();
@@ -24,8 +33,12 @@ export function Login() {
   // Where to go afterwards is the guest route's decision, not this page's: it
   // reads the same return destination and redirects once the status changes.
   const carried = location.state as SessionRouteState | null;
-  const notice =
-    carried?.passwordChanged === true
+  // An Epic launch arrives by full-page navigation, so it carries a query
+  // marker rather than router state; the two never coincide.
+  const epicRefused = new URLSearchParams(location.search).get("signin") === "refused";
+  const notice = epicRefused
+    ? EPIC_REFUSED_MESSAGE
+    : carried?.passwordChanged === true
       ? CHANGED_CREDENTIAL_MESSAGE
       : carried?.inactive === true
         ? INACTIVE_MESSAGE
@@ -95,6 +108,7 @@ export function Login() {
               {submitting ? "Signing in…" : "Sign in"}
             </Button>
           </form>
+          <p className="mt-4 text-sm text-muted-foreground">{CLINICIANS_LINE}</p>
         </CardContent>
       </Card>
     </main>

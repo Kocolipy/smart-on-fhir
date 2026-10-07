@@ -13,11 +13,12 @@ import {
 } from "./scim.helpers";
 
 /**
- * Epic Login's happy path, end to end, with the SMART Health IT launcher
- * standing in for Epic: a provider EHR launch for a Practitioner whose ID is the
- * `userName` of a provisioned User opens our launch route, passes the
- * launcher's authorization and our callback, and lands on `/showcase` signed in
- * as that User with the Permissions its Groups confer.
+ * Epic Login end to end, with the SMART Health IT launcher standing in for
+ * Epic: a provider EHR launch for a Practitioner whose ID is the `userName` of a
+ * provisioned User opens our launch route, passes the launcher's authorization
+ * and our callback, and lands on `/showcase` signed in as that User with the
+ * Permissions its Groups confer; a launch for a Practitioner no User is
+ * provisioned for lands on the login page's refused notice instead.
  *
  * Epic Login's E2E conditional gate (frontend/AGENTS.md). It runs only in the
  * `epic` project, which `make epic-integration-test` declares by exporting the
@@ -118,5 +119,26 @@ test("a provider EHR launch from the SMART launcher lands on /showcase as the Pr
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("a provider EHR launch for an unprovisioned Practitioner lands on the refused notice", async ({
+  browser,
+}) => {
+  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
+  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+
+  // No User carries this userName: Epic proves a clinician nobody provisioned.
+  const unprovisioned = `${E2E_PREFIX}epic-unprovisioned-${runId()}`;
+  const clinician = await freshBrowser(browser);
+  try {
+    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(unprovisioned) });
+    const page = await clinician.newPage();
+    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+
+    await expect(page).toHaveURL(/\/\?signin=refused$/);
+    await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
+  } finally {
+    await clinician.close();
   }
 });

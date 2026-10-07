@@ -10,8 +10,10 @@ import { Login } from "./login";
 const INACTIVE = "You were signed out because you were inactive. Please sign in again.";
 const EXPIRED = "Your session ended. Please sign in again.";
 const CHANGED = "Your password was changed. Sign in with your new password.";
+const EPIC_REFUSED = "Sign-in from Epic was refused";
+const CLINICIANS = "Clinicians: open this application from Epic.";
 
-function renderLogin(login: AuthContextState["login"], state?: SessionRouteState) {
+function renderLogin(login: AuthContextState["login"], state?: SessionRouteState, search = "") {
   const value: AuthContextState = {
     changePassword: vi.fn(),
     expireSession: vi.fn(),
@@ -25,7 +27,7 @@ function renderLogin(login: AuthContextState["login"], state?: SessionRouteState
     user: null,
   };
   render(
-    <MemoryRouter initialEntries={[{ pathname: "/", state }]}>
+    <MemoryRouter initialEntries={[{ pathname: "/", search, state }]}>
       <AuthContext.Provider value={value}>
         <Login />
       </AuthContext.Provider>
@@ -60,6 +62,39 @@ describe("Login", () => {
     renderLogin(vi.fn());
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("says a sign-in from Epic was refused when the launch landed refused", () => {
+    renderLogin(vi.fn(), undefined, "?signin=refused");
+
+    expect(screen.getByRole("status").textContent).toBe(EPIC_REFUSED);
+  });
+
+  it("says nothing for a signin marker it does not know", () => {
+    renderLogin(vi.fn(), undefined, "?signin=elsewhere");
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("tells clinicians where they sign in", () => {
+    renderLogin(vi.fn());
+
+    expect(screen.getByText(CLINICIANS).textContent).toBe(CLINICIANS);
+  });
+
+  it("tells clinicians where they sign in beside the refused notice", () => {
+    renderLogin(vi.fn(), undefined, "?signin=refused");
+
+    expect(screen.getByText(CLINICIANS).textContent).toBe(CLINICIANS);
+  });
+
+  it("keeps the password form working beside the refused notice", async () => {
+    const login = vi.fn<AuthContextState["login"]>().mockResolvedValue(undefined);
+    renderLogin(login, undefined, "?signin=refused");
+
+    await submit();
+
+    expect(login).toHaveBeenCalledWith("ada", "secret-value");
   });
 
   it("shows the submission in progress, then lets the form be used again", async () => {
