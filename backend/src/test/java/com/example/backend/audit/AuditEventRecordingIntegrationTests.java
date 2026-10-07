@@ -135,6 +135,16 @@ class AuditEventRecordingIntegrationTests {
         assertThat(event.get("occurred_at")).isNotNull();
     }
 
+    /** D15: password Login records method {@code password}, accepted or refused. */
+    @Test
+    void passwordLoginRecordsMethodPasswordOnSuccessAndOnFailure() throws Exception {
+        logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+        logIn(USER, USER_PASSWORD).andExpect(status().isOk());
+
+        assertThat(List.of(only(AuditOperation.LOGIN_FAILURE), only(AuditOperation.LOGIN_SUCCESS)))
+                .allSatisfy(event -> assertThat(event).containsEntry("login_method", "password"));
+    }
+
     @Test
     void aRefusedLoginProducesExactlyOneEventNamingTheReason() throws Exception {
         logIn(USER, "not-the-password").andExpect(status().isUnauthorized());

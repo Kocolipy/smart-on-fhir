@@ -58,6 +58,14 @@ export const AUDIT_OUTCOMES = ["SUCCESS", "FAILURE"] as const;
 export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
 
 /**
+ * How a `LOGIN_SUCCESS` or `LOGIN_FAILURE` was attempted, mirroring
+ * `AuditLoginMethod`: password Login, or an EHR launch from Epic (`sso`).
+ */
+const AUDIT_LOGIN_METHODS = ["password", "sso"] as const;
+
+type AuditLoginMethod = (typeof AUDIT_LOGIN_METHODS)[number];
+
+/**
  * One recorded event, exactly as `AuditEvent` reports it: every reference to a
  * person or a resource is a stable id, never a readable name, and there is no
  * field a password or a bearer value could be written into.
@@ -82,6 +90,8 @@ export interface AuditEvent {
   filterShape: string | null;
   role: string | null;
   permissions: string[];
+  /** How a login was attempted; `null` for every event that is not a login. */
+  loginMethod: AuditLoginMethod | null;
 }
 
 /** One page of the listing, newest first, and where it sits in the whole. */
@@ -126,6 +136,7 @@ const decodeAuditEvent = (value: unknown): AuditEvent => {
     filterShape: event.nullableString("filterShape"),
     role: event.nullableString("role"),
     permissions: event.array("permissions", decodeStringElement),
+    loginMethod: event.nullableOneOf("loginMethod", AUDIT_LOGIN_METHODS),
   };
 };
 

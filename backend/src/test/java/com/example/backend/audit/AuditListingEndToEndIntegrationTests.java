@@ -260,10 +260,18 @@ class AuditListingEndToEndIntegrationTests {
                 .isEqualTo("userName eq ?");
 
         List<JsonNode> memberEvents = listAll(reader, "resourceId=" + member, listed);
-        expect(single(memberEvents, "LOGIN_SUCCESS", "SUCCESS"), member, "User", member);
+        JsonNode acceptedLogin = single(memberEvents, "LOGIN_SUCCESS", "SUCCESS");
+        expect(acceptedLogin, member, "User", member);
         JsonNode failedLogin = single(memberEvents, "LOGIN_FAILURE", "FAILURE");
         expect(failedLogin, null, "User", member, "failedLoginAttempts");
         assertThat(failedLogin.get("errorCode").asText()).isEqualTo("BAD_CREDENTIALS");
+        assertThat(List.of(acceptedLogin, failedLogin))
+                .as("D15: each login is listed with the method it was attempted by")
+                .allSatisfy(login -> assertThat(login.path("loginMethod").asText())
+                        .isEqualTo("password"));
+        assertThat(single(memberEvents, "PASSWORD_CHANGE", "SUCCESS").get("loginMethod").isNull())
+                .as("an event other than a login names no method")
+                .isTrue();
         expect(single(memberEvents, "PASSWORD_CHANGE", "SUCCESS"),
                 member, "User", member, "password", "passwordChangeRequiredSince");
         expect(single(memberEvents, "PASSWORD_CHANGE_REQUIRE", "SUCCESS"),

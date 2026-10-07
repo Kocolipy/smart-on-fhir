@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -20,13 +21,18 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.stereotype.Component;
 
 /**
  * The session work every Login ends in, once it has decided who signed in: the step that turns
  * the caller's session into a signed-in one. What counts as a successful login is the Login
  * path's own; everything here is the session and CSRF work only a web adapter can do, shared so
  * no Login path can establish a session differently from another.
+ *
+ * <p>A component, injected into each Login path's web adapter, so every one of them is handed the
+ * same instance over the chain's own repositories rather than assembling one of its own.
  */
+@Component
 public class SessionEstablishment {
 
     /**
@@ -55,12 +61,15 @@ public class SessionEstablishment {
      * @param authentication  the authenticated User, with the authorities the login resolved
      * @param userId          the User's stable id, which the session is indexed and logged by
      * @param roleMappingHash the hash of the role mapping those authorities were resolved under
+     * @param method          how the Login proved who signed in, which {@code session-start}
+     *                        records (D15)
      * @return the signed-in session, under its rotated id
      */
     public HttpSession establish(
             Authentication authentication,
             UUID userId,
             String roleMappingHash,
+            AuditLoginMethod method,
             HttpServletRequest request,
             HttpServletResponse response) {
         // Rotate before the context is saved, so the authentication lands in the
@@ -102,7 +111,7 @@ public class SessionEstablishment {
         csrfTokenRepository.saveToken(null, request, response);
 
         HttpSession signedIn = request.getSession();
-        recordSessionStart(userId, signedIn);
+        recordSessionStart(userId, method, signedIn);
         return signedIn;
     }
 
@@ -116,15 +125,20 @@ public class SessionEstablishment {
      * Writing it here also means the record can carry the User's stable id, which no
      * creation-time record could.
      *
+     * <p>It carries the login method (D15), so the operational stream tells a password Login
+     * from an EHR launch without the audit trail.
+     *
      * <p>The record names the session by nothing: not its id, nor anything derived from it,
      * because the id is the session's bearer credential.
      */
-    private static void recordSessionStart(UUID userId, HttpSession session) {
+    private static void recordSessionStart(
+            UUID userId, AuditLoginMethod method, HttpSession session) {
         try (LogContext.Scope scope = LogContext.userId(userId)) {
             LogEvent.success(log, Operation.SESSION_START, Category.PROCESS, Type.START)
                     .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
                     .addKeyValue(LogEvent.SESSION_MAX_INACTIVE_INTERVAL,
                             session.getMaxInactiveInterval())
+                    .addKeyValue(LogEvent.LOGIN_METHOD, method.value())
                     .log();
         }
     }

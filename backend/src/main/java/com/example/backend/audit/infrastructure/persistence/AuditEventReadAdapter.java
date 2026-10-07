@@ -51,7 +51,7 @@ class AuditEventReadAdapter implements AuditEventReader {
     private static final String PAGE = """
             SELECT id, occurred_at, operation, outcome, actor_id, subject_id, resource_type,
                    resource_id, changed_paths, status_class, error_code, http_method, http_path,
-                   request_id, result_count, filter_shape, role_name, permissions
+                   request_id, result_count, filter_shape, role_name, permissions, login_method
               FROM audit_events
             """ + FILTER + """
              ORDER BY occurred_at DESC, id DESC
@@ -112,7 +112,8 @@ class AuditEventReadAdapter implements AuditEventReader {
                 row.getObject("result_count", Integer.class),
                 row.getString("filter_shape"),
                 row.getString("role_name"),
-                paths(row.getString("permissions")));
+                paths(row.getString("permissions")),
+                row.getString("login_method"));
     }
 
     /** The persistence adapter stores "nothing changed" as null, so null reads back as empty. */

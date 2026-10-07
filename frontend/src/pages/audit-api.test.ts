@@ -35,6 +35,7 @@ const AUDIT_EVENT = {
   filterShape: null,
   role: null,
   permissions: [],
+  loginMethod: "password",
 };
 
 const AUDIT_EVENT_PAGE = {
@@ -123,6 +124,7 @@ describe("decodeAuditEventPage", () => {
       ["filterShape", "a string"],
       ["role", "a string"],
       ["requestId", "a string"],
+      ["loginMethod", "a string"],
     ])("refuses an event missing the nullable field %s", (key, expected) => {
       refusal(
         () => decodeOneEvent(without(AUDIT_EVENT, key)),
@@ -143,6 +145,21 @@ describe("decodeAuditEventPage", () => {
           requestId: null,
         }),
       ).toMatchObject({ httpMethod: null, httpPath: null, requestId: null });
+    });
+
+    it("decodes each login method, and none for an event that is not a login", () => {
+      expect(
+        ["password", "sso", null].map(
+          (loginMethod) => decodeOneEvent({ ...AUDIT_EVENT, loginMethod }).loginMethod,
+        ),
+      ).toEqual(["password", "sso", null]);
+    });
+
+    it("refuses a login method outside the closed set", () => {
+      refusal(
+        () => decodeOneEvent({ ...AUDIT_EVENT, loginMethod: "saml" }),
+        "AuditEvent.loginMethod is not password | sso",
+      );
     });
 
     it("refuses an event missing resultCount", () => {

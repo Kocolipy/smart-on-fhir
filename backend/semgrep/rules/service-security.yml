@@ -411,13 +411,14 @@ rules:
       - metavariable-regex:
           metavariable: $VALUE
           regex: (?i).*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie).*
-      # The audit slice's own closed sets are not values a caller supplied, and two
+      # The audit slice's own closed sets are not values a caller supplied, and some
       # of their members read as credential words — AuditRefusalReason.BAD_CREDENTIALS
-      # most of all. Excluding references to those types by name keeps the rule
-      # pointed at what it is for: an identifier or a secret from outside the slice.
+      # and AuditLoginMethod.PASSWORD most of all. Excluding references to those types
+      # by name keeps the rule pointed at what it is for: an identifier or a secret
+      # from outside the slice.
       - metavariable-regex:
           metavariable: $VALUE
-          regex: ^(?!.*\b(AuditRefusalReason|AuditOperation|AuditOutcome)\b).*$
+          regex: ^(?!.*\b(AuditRefusalReason|AuditOperation|AuditOutcome|AuditLoginMethod)\b).*$
 
   - id: be-audit-retention-role-outside-its-adapter
     languages: [java]

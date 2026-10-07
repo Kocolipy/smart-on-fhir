@@ -27,8 +27,12 @@ import java.util.UUID;
  */
 public interface AuditTrail {
 
-    /** Records an accepted login. */
-    void recordLoginSuccess(UUID accountId);
+    /**
+     * Records an accepted login.
+     *
+     * @param method how the Login proved who was signing in (D15)
+     */
+    void recordLoginSuccess(UUID accountId, AuditLoginMethod method);
 
     /**
      * Records a refused login.
@@ -36,8 +40,9 @@ public interface AuditTrail {
      * @param subjectId stable id of the account the attempt named, or {@code null}
      *                  when the submitted username names no account — the one thing
      *                  that must not be recorded in its place
+     * @param method    how the refused Login was attempted (D15)
      */
-    void recordLoginFailure(UUID subjectId, AuditRefusalReason reason);
+    void recordLoginFailure(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method);
 
     /** Records a session ended by its holder. */
     void recordLogout(UUID accountId);

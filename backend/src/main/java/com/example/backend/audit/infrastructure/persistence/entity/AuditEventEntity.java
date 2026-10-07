@@ -97,6 +97,10 @@ public class AuditEventEntity {
     @Column(updatable = false)
     private String permissions;
 
+    /** How a login was attempted, {@code password} or {@code sso}; null for anything else. */
+    @Column(name = "login_method", updatable = false)
+    private String loginMethod;
+
     protected AuditEventEntity() {
     }
 
@@ -118,7 +122,8 @@ public class AuditEventEntity {
             Integer resultCount,
             String filterShape,
             String roleName,
-            String permissions) {
+            String permissions,
+            String loginMethod) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -137,6 +142,7 @@ public class AuditEventEntity {
         this.filterShape = filterShape;
         this.roleName = roleName;
         this.permissions = permissions;
+        this.loginMethod = loginMethod;
     }
 
     /*

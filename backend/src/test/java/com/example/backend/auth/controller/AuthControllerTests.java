@@ -145,9 +145,8 @@ class AuthControllerTests {
                         audit,
                         clock),
                 audit,
-                config.securityContextRepository(),
-                config.sessionAuthenticationStrategy(),
-                csrfTokenRepository,
+                new SessionEstablishment(config.securityContextRepository(),
+                        config.sessionAuthenticationStrategy(), csrfTokenRepository),
                 cookieSerializer);
     }
 

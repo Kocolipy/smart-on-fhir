@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -10,6 +11,7 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.core.GrantedAuthority;
@@ -143,6 +145,31 @@ public class LoginIdentityService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+        return userDetailsOf(user);
+    }
+
+    /**
+     * The User an Epic Login's Practitioner ID links to (D2), reported to the caller exactly as
+     * {@link #loadUserByUsername} reports it to Spring Security — the same authorities, and the
+     * same locked and disabled flags — or empty when it links to none.
+     *
+     * <p>Found through the normal {@link NormalizedUserName} lookup, and then accepted only when
+     * the stored {@code userName} equals the Practitioner ID character for character (D3):
+     * normalization lowercases, and Epic IDs are case-sensitive, so {@code eabc} never signs in
+     * the User provisioned as {@code eABC}. The Bootstrap Admin, recognised by its reservation
+     * marker, links to nothing whatever its name (D6): password Login is its recovery path.
+     */
+    public Optional<UserDetails> loadEpicLinkedUser(String practitionerId) {
+        if (practitionerId == null || practitionerId.isBlank()) {
+            return Optional.empty();
+        }
+        return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
+                .filter(user -> user.profile().userName().equals(practitionerId))
+                .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
+                .map(this::userDetailsOf);
+    }
+
+    private UserDetails userDetailsOf(ScimUser user) {
         User.UserBuilder builder = User.withUsername(user.profile().userName())
                 .password(user.login().hasPassword()
                         ? user.login().passwordHash()

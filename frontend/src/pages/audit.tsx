@@ -58,13 +58,14 @@ function requestCell(event: AuditEvent): string {
 }
 
 /**
- * Everything else a reader may need, as plain text joined by " · ": a bulk
- * read's result count and filter shape, a membership change's Role, and the
- * Permissions a token event carried. Empty when the operation names none of
- * these.
+ * Everything else a reader may need, as plain text joined by " · ": a login's
+ * method, a bulk read's result count and filter shape, a membership change's
+ * Role, and the Permissions a token event carried. Empty when the operation
+ * names none of these.
  */
 function detailsCell(event: AuditEvent): string {
   const parts = [
+    event.loginMethod === null ? null : `login method: ${event.loginMethod}`,
     event.resultCount === null ? null : `${event.resultCount} result(s)`,
     event.filterShape,
     event.role,

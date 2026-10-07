@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -34,6 +35,8 @@ public final class RecordingAuditTrail implements AuditTrail {
 
     private final List<Recorded> recorded = new ArrayList<>();
 
+    private final List<AuditLoginMethod> loginMethods = new ArrayList<>();
+
     /** One recorded call: what it said happened, and the ids and reason it named. */
     public record Recorded(
             AuditOperation operation, UUID actorId, UUID subjectId, String detail) {
@@ -48,19 +51,32 @@ public final class RecordingAuditTrail implements AuditTrail {
         return recorded.stream().filter(event -> event.operation() == operation).toList();
     }
 
+    /**
+     * The login method of every recorded {@code LOGIN_SUCCESS} and {@code LOGIN_FAILURE}, in the
+     * order they were recorded. Kept beside {@link #recorded()} rather than in {@link Recorded},
+     * so a test's expected {@code Recorded} values need not change for a field it is not about.
+     */
+    public List<AuditLoginMethod> loginMethods() {
+        return List.copyOf(loginMethods);
+    }
+
     public void reset() {
         recorded.clear();
+        loginMethods.clear();
     }
 
     @Override
-    public void recordLoginSuccess(UUID accountId) {
+    public void recordLoginSuccess(UUID accountId, AuditLoginMethod method) {
         recorded.add(new Recorded(AuditOperation.LOGIN_SUCCESS, accountId, accountId, null));
+        loginMethods.add(method);
     }
 
     @Override
-    public void recordLoginFailure(UUID subjectId, AuditRefusalReason reason) {
+    public void recordLoginFailure(
+            UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
         recorded.add(new Recorded(
                 AuditOperation.LOGIN_FAILURE, null, subjectId, reason.name()));
+        loginMethods.add(method);
     }
 
     @Override

@@ -240,8 +240,24 @@ _Avoid_: forbidden (for a CSRF refusal, which is not an authorization decision)
 ### Authentication
 
 **Login**:
-The one operation that turns submitted credentials into a session or a refusal.
+The one operation that turns submitted credentials _or an EHR launch_ into a
+session or a refusal. Its login method, `password` or `sso`, is recorded on the
+audit trail's login events and on `session-start`.
 _Avoid_: sign-on, authenticate (as a noun for the operation)
+
+**EHR launch**:
+Epic opening this application in the clinician's system browser, which signs the
+clinician in through the Epic issuer instead of a password — the User whose
+`userName` is exactly the Practitioner ID Epic proved. Every EHR launch is a fresh
+Login, replacing whatever session the browser held. Recorded as login method `sso`.
+_Avoid_: SSO, sign-on
+
+**Epic issuer**:
+The one Epic organisation a deployment trusts to sign clinicians in: its FHIR base
+(`APP_EPIC_FHIR_BASE`, which every launch must name and every `fhirUser` sits
+under) and its OpenID Connect issuer (`APP_EPIC_OAUTH_ISSUER`). Exactly one per
+deployment, because a Practitioner ID is unique only within one organisation.
+_Avoid_: SSO, sign-on, identity provider (for the organisation)
 
 **Failure run**:
 The consecutive failures recorded against one User: rejected Logins, and wrong

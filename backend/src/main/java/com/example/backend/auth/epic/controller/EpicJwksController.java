@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic.controller;
 
 import com.example.backend.auth.epic.EpicJwks;
+import com.example.backend.auth.epic.EpicRoutes;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,15 +18,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class EpicJwksController {
 
-    static final String PATH = "/api/auth/epic/jwks.json";
-
     private final EpicJwks jwks;
 
     public EpicJwksController(EpicJwks jwks) {
         this.jwks = jwks;
     }
 
-    @GetMapping(path = PATH, produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(path = EpicRoutes.JWKS, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> jwks() {
         return jwks.document();
     }

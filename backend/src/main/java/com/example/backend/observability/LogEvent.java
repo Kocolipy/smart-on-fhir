@@ -215,6 +215,14 @@ public final class LogEvent {
      */
     public static final String SESSION_MAX_INACTIVE_INTERVAL = "session.max_inactive_interval";
 
+    /**
+     * How a Login proved who signed in, {@code password} or {@code sso} (Epic Login, D15), on the
+     * accepted {@code user-authentication} and the {@code session-start} records — the same
+     * spelling the audit trail's login events carry.
+     * ECS names no such field, so it is under this service's own {@code app} namespace.
+     */
+    public static final String LOGIN_METHOD = "app.login.method";
+
     /** The machine's host name, on the startup record. ECS {@code host.name}. */
     public static final String HOST_NAME = "host.name";
 

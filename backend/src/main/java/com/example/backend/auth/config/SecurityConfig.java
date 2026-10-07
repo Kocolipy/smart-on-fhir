@@ -3,6 +3,8 @@ package com.example.backend.auth.config;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.EpicRoutes;
+import com.example.backend.auth.epic.config.EpicLoginFlow;
 import com.example.backend.auth.epic.config.EpicReleaseGateFilter;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.AccessRefusalLog;
@@ -13,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
@@ -201,7 +204,8 @@ public class SecurityConfig {
             AccessRefusalLog accessRefusalLog,
             AuditTrail auditTrail,
             RouteTemplates routeTemplates,
-            EpicReleaseGate epicReleaseGate) {
+            EpicReleaseGate epicReleaseGate,
+            ObjectProvider<EpicLoginFlow> epicLogin) {
         // Both refusals record themselves before answering. The access-denied handler is the
         // chain's one handler, and the CSRF filter answers through the same one, so a missing
         // token and a missing Permission are each recorded once, under their own reason — and
@@ -209,6 +213,10 @@ public class SecurityConfig {
         AuthenticationEntryPoint unauthorized = new SessionAuthenticationEntryPoint(accessRefusalLog);
         AccessDeniedHandler forbidden = new RefusalLoggingAccessDeniedHandler(
                 accessRefusalLog, auditTrail, routeTemplates);
+        // Epic Login's OAuth 2.0 half, while APP_EPIC_ENABLED is on: the authorize hop and the
+        // callback are served by its filters, ahead of every rule below. Off, there is none,
+        // and the release gate answers 404 for both routes.
+        epicLogin.ifAvailable(flow -> flow.applyTo(http));
         return http
                 // The default request handler: it XOR-masks the token it exposes
                 // (so GET /api/auth/csrf never returns the same bytes twice, which
@@ -275,7 +283,14 @@ public class SecurityConfig {
                         // Our public JWKS: Epic fetches it, with no session, to verify our client
                         // assertions (D14). Public keys only. While APP_EPIC_ENABLED is off the
                         // release gate above answers 404 before this rule is consulted.
-                        .requestMatchers(read("/api/auth/epic/jwks.json")).permitAll()
+                        .requestMatchers(read(EpicRoutes.JWKS)).permitAll()
+                        // Epic Login's browser routes (ADR 0013): the launch URL Epic opens, the
+                        // internal hop to Epic's authorization endpoint, and the callback Epic
+                        // redirects back to. The browser arrives from Epic with no session of
+                        // ours; each answers with a redirect. 404 while the switch is off.
+                        .requestMatchers(read(EpicRoutes.LAUNCH),
+                                read(EpicRoutes.AUTHORIZE),
+                                read(EpicRoutes.CALLBACK)).permitAll()
                         // ---- self-service: authenticated, no Permission ----
                         // The whole of what a session confined by a required password change may
                         // do: read its own standing, submit the change, and log out (the token

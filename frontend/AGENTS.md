@@ -174,7 +174,19 @@ backend side moves. What the SPA has to honour:
   described above.
 - **One session per User.** A login ends every other session the same User
   holds, so signing in from a second browser or profile signs the first
-  out; the first presents as the ordinary `401` path above.
+  out; the first presents as the ordinary `401` path above. Epic Login counts
+  too: a password Login and an EHR launch for the same User share the rule.
+- **Epic Login reaches the SPA as a full-page navigation, never a request the
+  SPA makes.** Epic opens `GET /api/auth/epic/launch` in the clinician's
+  browser; the backend redirects through `GET /api/auth/epic/authorize` to
+  Epic and back to `GET /api/auth/epic/callback`, and on success answers
+  `302 /` with the session already signed in (session id rotated, pre-login
+  CSRF token dropped). The SPA does nothing special: its ordinary start-up
+  `GET /api/auth/me` answers `authenticated`, and the guest route at `/` sends
+  the clinician on to `/showcase`. A refused launch lands at
+  `/?signin=refused` with its session ended. All four Epic routes (the three
+  above and the public `jwks.json`) are `404` while `APP_EPIC_ENABLED` is off.
+  The SPA never calls them, and they need no CSRF token: each is a `GET`.
 - **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a
   successful logout and on the `401` a logout with no live session gets. The
   browser drops anything in `localStorage` / `sessionStorage` along with the

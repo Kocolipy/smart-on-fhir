@@ -155,6 +155,17 @@ class LoginLockoutTests {
         assertThat(MDC.get(LogContext.USER_ID)).isNull();
     }
 
+    /** The accepted record says how the Login was made (D15), as the Epic one does. */
+    @Test
+    void theAcceptedLoginRecordNamesThePasswordMethod() {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            login.logIn("ada", CORRECT_PASSWORD);
+
+            assertThat(CapturedLog.fields(onlyLoginRecord(captured, Level.INFO)))
+                    .containsEntry(LogEvent.LOGIN_METHOD, "password");
+        }
+    }
+
     /**
      * A refused attempt names nobody, even inside a request already carrying a User's
      * id: the identity the attempt was for is unresolved. The outer id is back for the

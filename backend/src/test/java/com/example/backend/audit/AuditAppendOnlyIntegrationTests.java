@@ -11,6 +11,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.application.AuditRetentionService;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
@@ -286,7 +287,8 @@ class AuditAppendOnlyIntegrationTests {
         UUID subjectId = idOf(USER);
 
         transactions.executeWithoutResult(status -> {
-            auditTrail.recordLoginFailure(subjectId, AuditRefusalReason.BAD_CREDENTIALS);
+            auditTrail.recordLoginFailure(
+                    subjectId, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
             status.setRollbackOnly();
         });
 

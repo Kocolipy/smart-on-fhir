@@ -36,6 +36,16 @@ class RouteContractTests {
     /** The namespaces whose routes the contract covers. */
     private static final List<String> NAMESPACES = List.of("/api/", "/scim/v2/");
 
+    /**
+     * Documented operations a security filter serves rather than a controller, so the handler
+     * mapping cannot show them. Each is held by its own integration tests instead.
+     */
+    private static final Set<String> FILTER_SERVED = Set.of(
+            // Epic Login's callback: the OAuth 2.0 login filter's processing URL, which answers
+            // every request to it while Epic Login is on (EpicLoginIntegrationTests), and which
+            // the release gate answers 404 while it is off.
+            "GET /api/auth/epic/callback");
+
     /** What a mapping with no method condition answers: every method the contract names. */
     private static final List<String> ALL_METHODS = List.of("GET", "POST", "PUT", "PATCH", "DELETE");
 
@@ -69,6 +79,11 @@ class RouteContractTests {
         assertThat(mapped).as("the handler mapping was read").isNotEmpty();
         assertThat(mapped).as("mapped routes docs/openapi.yaml does not document")
                 .isSubsetOf(documented);
+        assertThat(mapped).as("a filter-served operation is not also a controller route")
+                .doesNotContainAnyElementsOf(FILTER_SERVED);
+        assertThat(documented).as("filter-served operations are documented")
+                .containsAll(FILTER_SERVED);
+        documented.removeAll(FILTER_SERVED);
         assertThat(documented).as("documented operations no handler maps")
                 .isSubsetOf(mapped);
     }

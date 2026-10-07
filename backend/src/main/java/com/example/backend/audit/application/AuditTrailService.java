@@ -6,6 +6,7 @@ import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
@@ -165,15 +166,16 @@ public class AuditTrailService implements AuditTrail {
      */
     @Transactional
     @Override
-    public void recordLoginSuccess(UUID accountId) {
-        append(event(
+    public void recordLoginSuccess(UUID accountId, AuditLoginMethod method) {
+        append(loginEvent(
                 AuditOperation.LOGIN_SUCCESS,
                 AuditOutcome.SUCCESS,
                 accountId,
                 accountId,
                 NO_PATHS,
                 AuditEvent.STATUS_OK,
-                null));
+                null,
+                method));
     }
 
     /**
@@ -185,15 +187,17 @@ public class AuditTrailService implements AuditTrail {
      *                  thing that must not be recorded in its place
      */
     @Override
-    public void recordLoginFailure(UUID subjectId, AuditRefusalReason reason) {
-        appendRaisingAlertOnFailure(event(
+    public void recordLoginFailure(
+            UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
+        appendRaisingAlertOnFailure(loginEvent(
                 AuditOperation.LOGIN_FAILURE,
                 AuditOutcome.FAILURE,
                 null,
                 subjectId,
                 FAILURE_RUN_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
-                reason.name()));
+                reason.name(),
+                method));
     }
 
     /**
@@ -1004,7 +1008,8 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 null,
                 null,
-                permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList());
+                permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList(),
+                null);
     }
 
     private AuditEvent event(
@@ -1016,6 +1021,21 @@ public class AuditTrailService implements AuditTrail {
             List<String> changedPaths,
             String statusClass,
             String errorCode) {
+        return event(operation, outcome, actorId, subjectId, resourceType, changedPaths,
+                statusClass, errorCode, null);
+    }
+
+    /** {@link #event} carrying a login method, which only a login event has. */
+    private AuditEvent event(
+            AuditOperation operation,
+            AuditOutcome outcome,
+            UUID actorId,
+            UUID subjectId,
+            String resourceType,
+            List<String> changedPaths,
+            String statusClass,
+            String errorCode,
+            String loginMethod) {
         AuditRequest request = requests.current();
         return new AuditEvent(
                 UUID.randomUUID(),
@@ -1034,7 +1054,27 @@ public class AuditTrailService implements AuditTrail {
                 request.requestId(),
                 null,
                 null,
-                null);
+                null,
+                List.of(),
+                loginMethod);
+    }
+
+    /**
+     * A login event: one about the User the attempt named, carrying how the Login was attempted
+     * (D15), rendered here from the closed {@link AuditLoginMethod} so the stored spelling is this
+     * slice's own.
+     */
+    private AuditEvent loginEvent(
+            AuditOperation operation,
+            AuditOutcome outcome,
+            UUID actorId,
+            UUID subjectId,
+            List<String> changedPaths,
+            String statusClass,
+            String errorCode,
+            AuditLoginMethod method) {
+        return event(operation, outcome, actorId, subjectId, AuditEvent.USER_RESOURCE_TYPE,
+                changedPaths, statusClass, errorCode, method.value());
     }
 
     /**

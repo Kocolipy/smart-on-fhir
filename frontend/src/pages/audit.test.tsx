@@ -54,6 +54,7 @@ const EVENT_1 = {
   filterShape: null,
   role: null,
   permissions: [],
+  loginMethod: "password",
 };
 
 const EVENT_2 = {
@@ -75,6 +76,7 @@ const EVENT_2 = {
   filterShape: "userName eq ?",
   role: null,
   permissions: [],
+  loginMethod: null,
 };
 
 /** A membership change: multiple changed paths, a Role and Permissions, no triggering request. */
@@ -97,6 +99,7 @@ const EVENT_ROLE_CHANGE = {
   filterShape: null,
   role: "Engineering",
   permissions: ["user:read", "group:read"],
+  loginMethod: null,
 };
 
 /**
@@ -123,6 +126,7 @@ const EVENT_BARE = {
   filterShape: null,
   role: null,
   permissions: [],
+  loginMethod: null,
 };
 
 function pageOf(events: object[], overrides: Partial<Record<string, unknown>> = {}) {
@@ -319,6 +323,25 @@ describe("Audit", () => {
 
     await findTable();
     expect(within(table()).getByText("Engineering · user:read, group:read")).toBeInTheDocument();
+  });
+
+  it("names a login's method in Details", async () => {
+    resolveWith({
+      kind: "ok",
+      data: pageOf([EVENT_1, { ...EVENT_1, id: "e-5", loginMethod: "sso" }]),
+    });
+    renderAudit();
+
+    await findTable();
+    const rows = within(table()).getAllByRole("row");
+    const details = (row: HTMLElement) => {
+      const cells = within(row).getAllByRole("cell");
+      return cells[cells.length - 1].textContent;
+    };
+    expect([details(rows[1]), details(rows[2])]).toEqual([
+      "login method: password",
+      "login method: sso",
+    ]);
   });
 
   it("shows an em dash in every optional column for an event naming none of them", async () => {

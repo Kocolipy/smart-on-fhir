@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -30,10 +31,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.CookieSerializer.CookieValue;
@@ -75,15 +73,12 @@ public class AuthController {
             LoginService login,
             PasswordChangeService passwordChanges,
             AuditTrail audit,
-            SecurityContextRepository securityContextRepository,
-            SessionAuthenticationStrategy sessionAuthenticationStrategy,
-            CsrfTokenRepository csrfTokenRepository,
+            SessionEstablishment sessionEstablishment,
             CookieSerializer cookieSerializer) {
         this.login = login;
         this.passwordChanges = passwordChanges;
         this.audit = audit;
-        this.sessionEstablishment = new SessionEstablishment(
-                securityContextRepository, sessionAuthenticationStrategy, csrfTokenRepository);
+        this.sessionEstablishment = sessionEstablishment;
         this.cookieSerializer = cookieSerializer;
     }
 
@@ -105,8 +100,8 @@ public class AuthController {
                 body.username(), body.password(), existing == null ? null : existing.getId());
         Authentication authentication = outcome.authentication();
 
-        HttpSession signedIn = sessionEstablishment.establish(
-                authentication, outcome.userId(), outcome.roleMappingHash(), request, response);
+        HttpSession signedIn = sessionEstablishment.establish(authentication, outcome.userId(),
+                outcome.roleMappingHash(), AuditLoginMethod.PASSWORD, request, response);
         return userResponse(authentication, signedIn);
     }
 
