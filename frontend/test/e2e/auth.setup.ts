@@ -3,6 +3,7 @@ import { expect, request, test as setup, type Page } from "@playwright/test";
 import {
   ADMIN_PASSWORD,
   ADMIN_USERNAME,
+  csrfHeaderFor,
   FIXTURE_PASSWORD,
   SEED_PASSWORD,
   loginAs,
@@ -20,6 +21,11 @@ setup("authenticate USER", async ({ page }) => {
 setup("authenticate ADMIN", async ({ page }) => {
   await settleAdminPassword(page);
   await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+  // The login discarded the session's CSRF token. Issued here, once, so the
+  // workers replaying this session all read the same one: left unissued, the
+  // first fetches race, each generating a token of its own, and every worker
+  // but the last to save holds a token the session no longer has.
+  await csrfHeaderFor(page.request);
   await page.context().storageState({ path: "test/e2e/.auth/admin.json" });
   // Here because this is the one point where an Admin session exists and no
   // spec is running yet: every other project depends on `setup`. A sweep run

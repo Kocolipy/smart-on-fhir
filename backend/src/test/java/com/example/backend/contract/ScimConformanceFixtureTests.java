@@ -22,11 +22,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -70,6 +71,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(ContainerTestConfiguration.class)
 @TestPropertySource(properties = "app.scim.enabled=true")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ScimConformanceFixtureTests {
 
     static final String BASE = "/scim/v2";
@@ -131,7 +133,12 @@ class ScimConformanceFixtureTests {
 
     private final List<UUID> created = new ArrayList<>();
 
-    @BeforeEach
+    /**
+     * Once for the class, not per fixture: no fixture creates, revokes or reconfigures a connector
+     * or a token, so the 343 fixtures can share them, and each fixture removes the resources it
+     * created afterwards.
+     */
+    @BeforeAll
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)

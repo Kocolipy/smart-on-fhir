@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -27,10 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
@@ -58,7 +56,7 @@ import org.springframework.web.context.WebApplicationContext;
  * of them.
  */
 @SpringBootTest
-@Import(ContainerTestConfiguration.class)
+@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
 class AuditEventRecordingIntegrationTests {
 
     private static final String USER = "test-user";
@@ -80,17 +78,6 @@ class AuditEventRecordingIntegrationTests {
 
     private static final String ASSUME_RETENTION_ROLE =
             "SET LOCAL ROLE backend_audit_retention";
-
-    /** The session registry, in memory: this context has no Redis. */
-    @TestConfiguration
-    static class SessionRegistryConfiguration {
-
-        @Bean
-        @Primary
-        InMemoryAccountSessions inMemoryAccountSessions() {
-            return new InMemoryAccountSessions();
-        }
-    }
 
     @Autowired
     private WebApplicationContext context;

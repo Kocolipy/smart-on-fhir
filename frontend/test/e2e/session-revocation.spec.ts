@@ -18,8 +18,8 @@ import {
  * Sessions ended from somewhere other than the browser holding them, seen from
  * that browser: a second sign-in as the same User (one session per User, #64),
  * and SCIM writes the backend revokes sessions for after commit — deactivation,
- * a password replace, and removal from a mapped Group (the Admin group, which is
- * the Superuser Group, and the Account admin Role's Group).
+ * deletion, a password replace, a rename, and removal from a mapped Group (the
+ * Admin group, which is the Superuser Group, and the Account admin Role's Group).
  *
  * The backend's integration tests prove the sessions are deleted. What only a
  * browser can show is the SPA's reaction: the next request the page makes is
@@ -158,6 +158,60 @@ test("a SCIM password replace ends the User's session and retires the old passwo
       // connector-set password is one the User must replace.
       await submitLogin(page, userName, REPLACED_PASSWORD);
       await expect(page).toHaveURL(/\/change-password$/);
+    } finally {
+      await page.context().close();
+    }
+  });
+});
+
+test("a SCIM deletion ends the User's session and refuses the next sign-in", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await withUser("deleted", async (userName, id) => {
+    const page = await signedInBrowser(browser, userName);
+    try {
+      await park(page);
+
+      // `withUser`'s own clean-up finds the User gone and leaves it so.
+      await deprovisionUser(connector.scim, id);
+
+      await expectNextRequestEndsSession(page);
+
+      await submitLogin(page, userName, OWN_PASSWORD);
+      await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
+      await expect(page).toHaveURL(/\/$/);
+    } finally {
+      await page.context().close();
+    }
+  });
+});
+
+test("a SCIM rename ends the User's session and only the new name signs in", async ({
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await withUser("renamed", async (userName, id) => {
+    // Still prefixed, so a crashed run's leftover is swept like any other.
+    const renamed = `${userName}-new`;
+    const page = await signedInBrowser(browser, userName);
+    try {
+      await park(page);
+
+      const patched = await scimPatch(connector.scim, `/scim/v2/Users/${id}`, [
+        { op: "replace", path: "userName", value: renamed },
+      ]);
+      expect(patched.status(), "renaming over SCIM").toBe(200);
+
+      await expectNextRequestEndsSession(page);
+
+      // The old name names nobody now; the same password under the new name is
+      // the same User, unflagged, because a rename is not a password write.
+      await submitLogin(page, userName, OWN_PASSWORD);
+      await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
+      await submitLogin(page, renamed, OWN_PASSWORD);
+      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page.getByText(`Signed in as ${renamed}`)).toBeVisible();
     } finally {
       await page.context().close();
     }

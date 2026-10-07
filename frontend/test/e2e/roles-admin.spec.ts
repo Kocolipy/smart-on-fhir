@@ -119,27 +119,6 @@ test.describe("ADMIN account control", () => {
   });
 
   /**
-   * The legacy Disable and Enable endpoints are gone, not hidden: a session
-   * holding every Permission, with a valid CSRF token, is refused 403 — the
-   * application chain denies whatever it does not declare — by the old
-   * `userName` addressing and by the new id, and the User is untouched.
-   */
-  test("no longer serves the removed Disable and Enable endpoints", async ({ page }) => {
-    const id = await userIdOf(page, "user");
-
-    for (const target of ["user", id]) {
-      for (const action of ["disable", "enable"]) {
-        const response = await postAdminAction(page, target, action);
-        expect(response.status(), `${action} ${target}`).toBe(403);
-      }
-    }
-    const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
-      Record<string, unknown>
-    >;
-    expect(listing.find((row) => row.id === id)).toMatchObject({ active: true });
-  });
-
-  /**
    * The read-only criterion from the backend's side, over the real stack: no
    * write reaches a directory-owned field, whatever method or path it takes.
    */

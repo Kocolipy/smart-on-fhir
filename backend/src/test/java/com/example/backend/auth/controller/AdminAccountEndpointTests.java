@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -28,10 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -72,33 +71,22 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code PasswordChangeLifecycleIntegrationTests}, on Users that test creates for itself.
  */
 @SpringBootTest
-@Import(com.example.backend.ContainerTestConfiguration.class)
+@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
 class AdminAccountEndpointTests {
-
-    /**
-     * The session registry, in memory. The deployed one is Redis-backed and this
-     * context has no Redis, but the reason to replace it is not only that: a fake
-     * can be asked what it holds, so the removed-endpoint test below proves a
-     * request to the old disable path revoked nothing rather than merely
-     * returning 404.
-     *
-     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —
-     * {@link #theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds()}
-     * is what holds that.
-     */
-    @TestConfiguration
-    static class SessionRegistryConfiguration {
-
-        @Bean
-        @Primary
-        InMemoryAccountSessions inMemoryAccountSessions() {
-            return new InMemoryAccountSessions();
-        }
-    }
 
     @Autowired
     private WebApplicationContext context;
 
+    /**
+     * The session registry, in memory, from {@link InMemorySessionRegistryConfiguration}. The
+     * deployed one is Redis-backed and this context has no Redis, but the reason to replace it is
+     * not only that: a fake can be asked what it holds, so the removed-endpoint test below proves
+     * a request to the old disable path revoked nothing rather than merely returning 404.
+     *
+     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —
+     * {@link #theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds()} is what holds
+     * that.
+     */
     @Autowired
     private InMemoryAccountSessions sessions;
 
@@ -125,7 +113,7 @@ class AdminAccountEndpointTests {
      * The configuration the forced-change path depends on, asserted rather
      * than assumed: a plain session repository cannot be searched by principal, so
      * {@code AccountSessionsAdapter} has nothing to inject and the deployed service
-     * does not start. The fake registry above is {@code @Primary}, so it would hide
+     * does not start. The fake registry is {@code @Primary}, so it would hide
      * the adapter's absence from every other test here.
      */
     @Test

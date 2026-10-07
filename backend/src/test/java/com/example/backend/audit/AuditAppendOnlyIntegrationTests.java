@@ -9,6 +9,7 @@ import com.example.backend.SessionCsrf;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -39,10 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -82,7 +80,7 @@ import org.springframework.web.context.WebApplicationContext;
  * against the deployed file rather than a test copy of it.
  */
 @SpringBootTest
-@Import(ContainerTestConfiguration.class)
+@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
 class AuditAppendOnlyIntegrationTests {
 
     private static final String USER = "test-user";
@@ -145,17 +143,6 @@ class AuditAppendOnlyIntegrationTests {
 
     /** Postgres's code for a privilege the current role does not hold. */
     private static final String INSUFFICIENT_PRIVILEGE = "42501";
-
-    /** The session registry, in memory: this context has no Redis. */
-    @TestConfiguration
-    static class SessionRegistryConfiguration {
-
-        @Bean
-        @Primary
-        InMemoryAccountSessions inMemoryAccountSessions() {
-            return new InMemoryAccountSessions();
-        }
-    }
 
     @Autowired
     private WebApplicationContext context;

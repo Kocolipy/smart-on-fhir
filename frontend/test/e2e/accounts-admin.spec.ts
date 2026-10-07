@@ -12,8 +12,10 @@ import {
   rowOf,
   runId,
   scimApi,
+  scimPatch,
   settlePassword,
   USER_SCHEMA,
+  workerConnector,
 } from "./scim.helpers";
 
 /**
@@ -41,6 +43,9 @@ const CONNECTOR_NAME = `${E2E_PREFIX}connector-${RUN}`;
 const READ_ONLY_CONNECTOR = `${E2E_PREFIX}connector-ro-${RUN}`;
 const LOCKED_USER = `${E2E_PREFIX}locked-${RUN}`;
 const FORCED_USER = `${E2E_PREFIX}forced-${RUN}`;
+
+/** For the tests outside the serial journey, whose own connector is created and deleted in it. */
+const directory = workerConnector("accounts");
 
 /** Whether a fresh login as this User is accepted, and whether it is confined to the change. */
 async function signInState(userName: string) {
@@ -255,6 +260,55 @@ test.describe.serial("ADMIN accounts page", () => {
       await cleanUp(page, scim, provisioned);
     }
   });
+});
+
+/**
+ * Unlocking and deactivating are separate capabilities, and neither performs the
+ * other: a User the directory deactivated stays refused after an Admin unlocks
+ * it, and signs in again only once the directory reactivates it — into the
+ * change, since both the Unlock and the reactivation flag one.
+ */
+test("an Unlock leaves a deactivated User deactivated, until the directory reactivates it", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const userName = `${E2E_PREFIX}inactive-${RUN}`;
+  const id = await provisionUser(directory.scim, userName);
+  try {
+    await settlePassword(userName);
+    const guesser = await anonymousApi();
+    try {
+      for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
+        expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
+      }
+    } finally {
+      await guesser.dispose();
+    }
+    const deactivated = await scimPatch(directory.scim, `/scim/v2/Users/${id}`, [
+      { op: "replace", path: "active", value: false },
+    ]);
+    expect(deactivated.status(), "deactivating over SCIM").toBe(200);
+
+    await openAccounts(page);
+    const row = rowOf(page, usersTable(page), userName);
+    await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
+    await expect(row.getByText("Locked: failed logins", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: `Unlock ${userName}` }).click();
+    await expect(row.getByText("Not locked")).toBeVisible();
+    await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
+    expect(await signInState(userName)).toEqual({ accepted: false, confined: false });
+    const read = await directory.scim.get(`/scim/v2/Users/${id}`);
+    expect(((await read.json()) as { active: boolean }).active).toBe(false);
+
+    const reactivated = await scimPatch(directory.scim, `/scim/v2/Users/${id}`, [
+      { op: "replace", path: "active", value: true },
+    ]);
+    expect(reactivated.status(), "reactivating over SCIM").toBe(200);
+    expect(await signInState(userName)).toEqual({ accepted: true, confined: true });
+  } finally {
+    await deprovisionUser(directory.scim, id);
+  }
 });
 
 /**
