@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -16,7 +17,10 @@ import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Logging in: submitted credentials become either an authentication or a
@@ -115,6 +119,54 @@ public class LoginService {
         // requests is written only after this returns.
         try (LogContext.Scope resolved = LogContext.userId(userId)) {
             LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                    .log();
+        }
+        return new LoginOutcome(authentication, userId, identities.roleMappingHash());
+    }
+
+    /**
+     * The login decision for an Epic Login (spec flow step 6): the clinician Epic proved, named
+     * by the Practitioner ID its {@code fhirUser} carried, becomes an authentication — or a
+     * refusal.
+     *
+     * <p>The User is the one whose stored {@code userName} equals the Practitioner ID exactly
+     * ({@link LoginIdentityService#loadEpicLinkedUser}), and it is refused if there is none, or
+     * it is deactivated or locked — Lockout and deactivation apply to Epic Login exactly as to
+     * password Login (D12). Otherwise its authorities are those password Login gives the same
+     * User, and the success is recorded exactly as password Login's is, under method
+     * {@code sso}: failure run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed,
+     * and every other session of the User revoked after the commit. All of it in one
+     * transaction, so a success the trail cannot record is not a success.
+     *
+     * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
+     * (D8); the Practitioner ID is not logged.
+     *
+     * @param practitionerId    the Practitioner ID Epic's {@code id_token} named
+     * @param retainedSessionId the id the caller's session is stored under, which the Login
+     *                          continues in; {@code null} when it holds none
+     * @throws AuthenticationException when no acceptable User is linked to the Practitioner ID
+     */
+    @Transactional
+    public LoginOutcome logInFromEpic(String practitionerId, String retainedSessionId) {
+        UserDetails user = identities.loadEpicLinkedUser(practitionerId)
+                .orElseThrow(() -> new UsernameNotFoundException("No linked User"));
+        if (!user.isEnabled()) {
+            throw new DisabledException("User is deactivated");
+        }
+        if (!user.isAccountNonLocked()) {
+            throw new LockedException("User is locked");
+        }
+        UsernamePasswordAuthenticationToken authentication =
+                UsernamePasswordAuthenticationToken.authenticated(
+                        user, null, user.getAuthorities());
+        // As ProviderManager does for a password Login: the session never carries the hash.
+        authentication.eraseCredentials();
+
+        attempts.recordSuccess(user.getUsername(), retainedSessionId, AuditLoginMethod.SSO);
+        UUID userId = identities.resolveUserId(user.getUsername());
+        try (LogContext.Scope resolved = LogContext.userId(userId)) {
+            LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                    .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())
                     .log();
         }
         return new LoginOutcome(authentication, userId, identities.roleMappingHash());

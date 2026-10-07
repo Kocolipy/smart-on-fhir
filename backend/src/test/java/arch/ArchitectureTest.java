@@ -319,6 +319,8 @@ public class ArchitectureTest {
             "com.example.backend.auth.controller.SelfController",
             // Our public JWKS, which Epic fetches with no session (D14).
             "com.example.backend.auth.epic.controller.EpicJwksController",
+            // The EHR launch, which the browser opens from Epic with no session of ours (D1).
+            "com.example.backend.auth.epic.controller.EpicLaunchController",
             "com.example.backend.session.controller.SessionController");
 
     // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain

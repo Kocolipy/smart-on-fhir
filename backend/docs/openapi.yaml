@@ -55,7 +55,9 @@ info:
     While `APP_EPIC_ENABLED` is unset or `false`, every path below `/api/auth/epic`
     answers `404` with the generic `ApiError` body (`request-refused`), ahead of the
     session, CSRF and authorization checks, so the namespace cannot be probed for
-    whether it exists. No Epic Login operation is documented here yet.
+    whether it exists. Its operations are the public JWKS and the three browser
+    navigations of an EHR launch — `launch`, `authorize` and `callback` — each of
+    which answers with a redirect rather than a body.
 
     SCIM requests and responses use `application/scim+json`; `application/json` is
     accepted and understood, and a response defaults to `application/scim+json`.
@@ -382,6 +384,130 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JwkSet"
+        "404":
+          description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/epic/launch:
+    get:
+      tags: [Authentication]
+      summary: Start an Epic Login (EHR launch)
+      description: |
+        The launch URL registered with Epic, which Epic opens in the clinician's
+        system browser (Epic Login, ADR 0013, D1). Every launch is a fresh Login
+        (D9): any session the browser holds is ended here, whoever it belongs
+        to, and the launch continues in a new one.
+
+        `iss` must equal `APP_EPIC_FHIR_BASE` exactly (D10) and `launch` must be
+        present; the launch is then held in the new session and the browser is
+        sent on to `/api/auth/epic/authorize`. Anything else lands at
+        `/?signin=refused`, with no further detail.
+
+        Public: the browser arrives from Epic with no session of ours. A
+        navigation, not an API call: every answer is a redirect.
+      operationId: launchEpicLogin
+      security: []
+      parameters:
+        - name: iss
+          in: query
+          description: The FHIR base Epic launched from; must be `APP_EPIC_FHIR_BASE` exactly.
+          schema:
+            type: string
+        - name: launch
+          in: query
+          description: Epic's opaque launch context, sent on to its authorization endpoint.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: |
+            To `/api/auth/epic/authorize` for an accepted launch, or to
+            `/?signin=refused` for a refused one, its session ended.
+          headers:
+            Location:
+              description: Where the browser goes next.
+              schema:
+                type: string
+        "404":
+          description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/epic/authorize:
+    get:
+      tags: [Authentication]
+      summary: Redirect to Epic's authorization endpoint
+      description: |
+        The internal hop between the launch and Epic (flow step 2). With a launch
+        pending, the browser is redirected to Epic's discovered
+        `authorization_endpoint` with `response_type=code`, `client_id`, the
+        registered `redirect_uri`, `scope=launch openid fhirUser`, the pending
+        `launch`, `aud` set to `APP_EPIC_FHIR_BASE`, a `state`, a `nonce`, and a
+        PKCE S256 `code_challenge`. The pending request is kept in the session.
+
+        With no launch pending it lands at `/?signin=refused`, its session ended.
+      operationId: authorizeEpicLogin
+      security: []
+      responses:
+        "302":
+          description: To Epic's authorization endpoint, or to `/?signin=refused`.
+          headers:
+            Location:
+              description: Where the browser goes next.
+              schema:
+                type: string
+        "404":
+          description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/epic/callback:
+    get:
+      tags: [Authentication]
+      summary: Complete an Epic Login
+      description: |
+        The redirect URI registered with Epic, whose absolute URL is
+        `APP_EPIC_REDIRECT_URI` (flow steps 3–7). The pending request is taken
+        out of the session, `state` is checked, and the code is redeemed once at
+        Epic's token endpoint with the PKCE verifier and our `private_key_jwt`
+        client assertion. The `id_token` is validated against Epic's JWKS, and its
+        `fhirUser` must be `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. The User
+        whose `userName` equals that id exactly is signed in as password Login
+        would sign it in — the same authorities, a rotated session id, the
+        pre-login CSRF token dropped — and the browser lands at `/`, where the
+        SPA's `GET /api/auth/me` takes over. Epic's access token and the rest of
+        its token response are discarded (D8).
+
+        Any OAuth error or failed check lands at `/?signin=refused`, its session
+        ended, with no further detail (D23, D24).
+
+        Served by the OAuth 2.0 login filter on the application chain rather than
+        by a controller.
+      operationId: completeEpicLogin
+      security: []
+      parameters:
+        - name: code
+          in: query
+          description: Epic's single-use authorization code.
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: The `state` the authorize redirect sent.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: To `/` signed in, or to `/?signin=refused`.
+          headers:
+            Location:
+              description: Where the browser goes next.
+              schema:
+                type: string
         "404":
           description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
           content:
@@ -2767,7 +2893,8 @@ components:
             own maximum, so no password the policy accepted is refused here.
     UserResponse:
       type: object
-      required: [username, permissions, passwordChangeRequired, idleTimeoutSeconds]
+      required:
+        [username, permissions, passwordChangeRequired, idleTimeoutSeconds]
       properties:
         username:
           type: string
@@ -2831,7 +2958,15 @@ components:
     SelfRecord:
       type: object
       additionalProperties: false
-      required: [id, userName, displayName, groups, passwordChangeRequired, lastAuthenticatedAt]
+      required:
+        [
+          id,
+          userName,
+          displayName,
+          groups,
+          passwordChangeRequired,
+          lastAuthenticatedAt,
+        ]
       description: |
         The whole of what the self-read returns. There is deliberately no lockout
         or failed-login field; `additionalProperties: false` states that the set
@@ -2923,8 +3058,22 @@ components:
         `displayName`, `active`, `groups`) are read-only here; the rest is
         application-owned state. Returned by the listing and, for the User acted
         on, by `unlock` and `force-password-change`.
-      required: [id, userName, displayName, admin, bootstrapAdmin, active, locked,
-        lockCause, hasPassword, passwordChangeRequired, lastAuthenticatedAt, createdAt, groups]
+      required:
+        [
+          id,
+          userName,
+          displayName,
+          admin,
+          bootstrapAdmin,
+          active,
+          locked,
+          lockCause,
+          hasPassword,
+          passwordChangeRequired,
+          lastAuthenticatedAt,
+          createdAt,
+          groups,
+        ]
       properties:
         id:
           type: string
@@ -3168,7 +3317,17 @@ components:
         One recorded event, exactly as stored. There is no property a password,
         bearer value, hash, `userName`, profile value or literal filter value
         could occupy.
-      required: [id, occurredAt, operation, outcome, resourceType, changedPaths, statusClass, permissions]
+      required:
+        [
+          id,
+          occurredAt,
+          operation,
+          outcome,
+          resourceType,
+          changedPaths,
+          statusClass,
+          permissions,
+        ]
       properties:
         id:
           type: string
@@ -3257,6 +3416,15 @@ components:
             granted the new token or — on a `FAILURE` with `errorCode`
             `PERMISSION_ESCALATION` — that were asked for, sorted by name; empty
             for every other event.
+        loginMethod:
+          type: [string, "null"]
+          enum: [password, sso, null]
+          description: |
+            How a `LOGIN_SUCCESS` or `LOGIN_FAILURE` was attempted: `password`
+            for password Login, `sso` for an EHR launch from Epic (Epic Login,
+            D15; one Epic organisation per deployment, so `sso` means Epic).
+            `null` for every other operation, and for a login recorded before
+            the method was.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]
@@ -3370,7 +3538,8 @@ components:
             - type: "null"
     ConnectorTokenSummary:
       type: object
-      required: [id, permissions, issuedAt, expiresAt, originalExpiresAt, active]
+      required:
+        [id, permissions, issuedAt, expiresAt, originalExpiresAt, active]
       description: |
         Has no property a token value or its hash could occupy, and that is
         deliberate: the serialised projection has no such field, so a listing cannot
@@ -3428,7 +3597,8 @@ components:
             $ref: "#/components/schemas/ConnectorTokenSummary"
     IssuedConnectorToken:
       type: object
-      required: [connectorId, tokenId, permissions, issuedAt, expiresAt, presentedValue]
+      required:
+        [connectorId, tokenId, permissions, issuedAt, expiresAt, presentedValue]
       description: |
         The only schema that carries a token value, returned only by issue and
         rotate. A type of its own rather than a nullable field on
@@ -3476,8 +3646,16 @@ components:
           example: "409"
         scimType:
           type: string
-          enum: [invalidSyntax, invalidValue, invalidFilter, invalidPath, noTarget,
-                 mutability, uniqueness]
+          enum:
+            [
+              invalidSyntax,
+              invalidValue,
+              invalidFilter,
+              invalidPath,
+              noTarget,
+              mutability,
+              uniqueness,
+            ]
         detail:
           type: string
     ScimMeta:
@@ -3512,7 +3690,7 @@ components:
           description: |
             The resource's strong validator, quotes included — the same string as the
             `ETag` header, so a client can compare the two without unwrapping either.
-          example: "\"1\""
+          example: '"1"'
     ScimUserName:
       type: object
       description: |
