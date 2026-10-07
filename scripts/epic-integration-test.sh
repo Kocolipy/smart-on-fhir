@@ -43,5 +43,10 @@ unset APP_EPIC_CLIENT_NEXT_KEY APP_EPIC_CLIENT_NEXT_KEY_ID
 # host.docker.internal to it).
 export E2E_EPIC_FHIR_BASE="$APP_EPIC_FHIR_BASE"
 export E2E_EPIC_JWKS_URL="http://host.docker.internal:$BACKEND_PORT/api/auth/epic/jwks.json"
+# The launcher's container, which the unavailable case pauses for one callback so
+# our token call to it gets no answer (D23), and unpauses again.
+E2E_EPIC_LAUNCHER_CONTAINER="$("${STACK_COMPOSE[@]}" ps -q smart-launcher)"
+[[ -n $E2E_EPIC_LAUNCHER_CONTAINER ]] || die "the smart-launcher container is not running"
+export E2E_EPIC_LAUNCHER_CONTAINER
 
 stack_e2e test:e2e:epic

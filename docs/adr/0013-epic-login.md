@@ -9,7 +9,9 @@ JWKS) with the three decisions that step implements: D7, D14 and D16. The
 tracer-bullet step (a provisioned clinician signs in from Epic) added the flow and
 the decisions it implements: D1–D11 and D15. The account-refusal step added D12
 and D24, and the one section 11 App-Standards deviation it implements: the
-account reasons kept in the audit only. The spec, `/docs/epic-smart-login.md`,
+account reasons kept in the audit only. The outbound-resilience step added D23,
+D25 and D26, and the section 11 deviation it implements: discovery on first use
+rather than at startup. The spec, `/docs/epic-smart-login.md`,
 holds every decision (D1–D28); this ADR gains the rest, the accepted risk D13, the
 section 9 policy position and the other section 11 deviations, plus an addendum on
 ADR-0012, in the documentation step (spec section 7, step 9). Until then the spec
@@ -55,17 +57,20 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    Security's authorization-request filter, with a resolver that adds `launch`
    and `aud` to Spring's own request: `response_type=code`, `client_id`, the
    registered `redirect_uri`, `scope=launch openid fhirUser`, `state`, `nonce`
-   and PKCE S256. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on use, never at
-   startup. The pending request is kept in the HTTP session, in Redis, so the
-   callback may land on any node.
+   and PKCE S256. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on first use, never
+   at startup, and a successful read is kept for 24 hours (D26). The pending
+   request is kept in the HTTP session, in Redis, so the callback may land on any
+   node.
 3. **Callback.** `GET /api/auth/epic/callback` is `oauth2Login`'s processing URL
    on the existing application chain. The pending request is taken out of the
    session, `state` checked, and the code redeemed once through the one outbound
    client, `epicRestClient`, with the verifier and our `private_key_jwt`
-   assertion (D7).
+   assertion (D7) — exactly one request, never retried (D26).
 4. **`id_token`.** RS256 only, against the discovered `jwks_uri` fetched through
-   `epicRestClient`; `iss`, `aud`/`azp`, `exp` and `iat` with a 30-second skew
-   from the injected `Clock`, and `nonce`. No user-info call is made.
+   `epicRestClient` by the one `EpicJwkSource`, which keeps the keys and refetches
+   them on an unknown `kid` (D26); `iss`, `aud`/`azp`, `exp` and `iat` with a
+   30-second skew from the injected `Clock`, and `nonce`. No user-info call is
+   made.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
    non-blank `id` and nothing after it (`FhirUserReference`). The dev profile
    alone also accepts the relative `Practitioner/{id}` under the same rules,
@@ -90,9 +95,14 @@ as password Login's refusal is, so no caller can refuse without the record: a
 id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`,
 which counts toward no failure run (D12), and a `WARN` saying only "Epic sign-in
 refused". The success handler then counts it on `epic.login`
-(`outcome=refused`, `reason`) and redirects. The rest of the refusal treatment —
-the protocol reasons, refused versus unavailable, the outbound resilience —
-follows in later steps; the spec is its authority until then.
+(`outcome=refused`, `reason`) and redirects. Epic being unavailable is the other
+outcome, and `EpicLoginFailureHandler` — the failure handler of both the
+authorize hop and the callback — is where it is told apart and recorded, once
+(D23, D24): `/?signin=unavailable`, its session ended, a `LOGIN_FAILURE` under
+method `sso` with `EPIC_UNAVAILABLE` and no subject, `epic.login`
+(`outcome=unavailable`), and one `ERROR` naming the call and its section 5
+category. The protocol reasons follow in a later step; the spec is their
+authority until then.
 
 The login filter is configured to neither rotate the session nor save a security
 context of its own, and the authorized client is saved nowhere. The success
@@ -144,9 +154,69 @@ one.
   `LOGIN_FAILURE` and the operational `session-start` carry `password` or `sso`
   (the audit trail's `login_method` column, the log's `app.login.method`), and the
   Audit page shows it. While D4 holds, `sso` means Epic.
-- **D24: a refused launch invalidates any session already in the browser**
-  before redirecting, whoever it belongs to. This follows D9, and leaves no
-  previous User signed in on a shared workstation.
+- **D23: refused and unavailable are distinct outcomes.** A refusal — bad input,
+  a failed check, no acceptable User — is `302 /?signin=refused`. Epic being
+  unreachable — a connect or read timeout, or a `5xx`, from discovery, the JWKS
+  or the token endpoint — is `302 /?signin=unavailable`, and the login page
+  tells the clinician to try again shortly rather than that they were refused.
+  Neither carries any further detail. Every Epic call that fails is an
+  `EpicOutboundException` carrying its call and its section 5 category
+  (`network` for no answer, `server` for a `5xx`, `cert/auth` for our own
+  credential refused, `data` for an unusable answer); only the first two are
+  unavailable. The other two remain refusals, and are `ERROR`s needing follow-up,
+  since a key or a registration is likely wrong. A dropped connection counts as
+  no answer, exactly as a timeout does: both leave Epic unreachable.
+- **D24: a refused or unavailable launch invalidates any session already in the
+  browser** before redirecting, whoever it belongs to. This follows D9, and
+  leaves no previous User signed in on a shared workstation.
+
+### Outbound calls and resilience
+
+- **D25: one outbound client.** Discovery, the JWKS fetch and the token call all
+  go through one `epicRestClient` (`EpicRestClientConfig`), built from Spring
+  Boot's auto-configured `RestClient.Builder` — so every call is observed as
+  every client of the service's is (`http.client.requests`, a client span) — on
+  the JDK client with redirects off. The connect and read timeouts are
+  `APP_EPIC_CONNECT_TIMEOUT` and `APP_EPIC_READ_TIMEOUT`, 2 and 5 seconds by
+  default. There is no circuit breaker: login volume is low and the edge
+  throttle (D19) bounds the load. Its one interceptor, `EpicOutboundInterceptor`,
+  logs "Epic outbound call started" and "completed" at `INFO` with the call's
+  name (`app.epic.call`: `discovery`, `jwks` or `token`, named by the call site as
+  a request attribute), the method, `url.full` with no query, fragment or user
+  info, the status and `event.duration_ms`; a call that got no answer is
+  "Epic outbound call failed" at `ERROR`, `network`, with the failure's stack
+  under its type name alone. Bodies and headers are never read. It meters every
+  call on the `epic.outbound` timer and every call that got no answer or a `5xx`
+  on the `epic.outbound.errors` counter — a name of its own, as Prometheus allows
+  one type per metric name — both tagged `call`. It also writes the call's W3C
+  `traceparent`: the deployment installs no propagator, so an inbound
+  `traceparent` is ignored (ADR 0003), and the outbound header is set here
+  rather than by turning propagation on for every request.
+- **D26: retries.** The token call is never retried: the code is single-use and
+  the clinician can relaunch, and neither the client nor the JDK resends a
+  `POST`, a read timeout included. Discovery runs on first use and a successful
+  read is kept for 24 hours by the injected `Clock`; a failed one is kept for no
+  time, is `unavailable`, and is retried on the next launch. Epic's keys are kept
+  the same 24 hours, or until discovery names another `jwks_uri`. An `id_token`
+  whose `kid` the kept keys lack is never accepted from them: the JWKS is
+  refetched up to 3 times, after 1, 2 and 4 seconds (`EpicRetryPause`, a seam so
+  tests see the waits without spending them), each refetch a `WARN` with its
+  attempt number. Still unknown, the token is refused — no key matches, the
+  decoder's `invalid_id_token`, audited as `INVALID_SIGNATURE` once the protocol
+  reasons are recorded — with one
+  `ERROR` (`data`, follow-up), and discovery is read again at once in case Epic
+  moved its keys; a failure of that read is not the Login's. A JWKS fetch that
+  fails is not one of those refetches: it is Epic unavailable, at once.
+
+### Deviation: discovery on first use, not at startup
+
+App-Standards SSO §4 says startup fails if the provider's metadata cannot be
+fetched. Here discovery runs on first use instead (spec section 11): password
+Login must not depend on Epic being reachable when the application deploys, and
+a deployment whose Epic is down must still start and serve every password User.
+The cost is that a wrong `APP_EPIC_OAUTH_ISSUER` is found by the first launch
+rather than by the deploy; it shows as `unavailable` (no answer) or `refused`
+(an `ERROR` under `data`, needing follow-up), never as a dead end.
 
 ### Deviation: the account reasons are audit-only
 
@@ -209,3 +279,12 @@ events and names no account.
   its public keys from KMS instead.
 - A key leak is contained by promotion: a redeploy with a fresh active key and
   the leaked key removed takes it out of the JWKS at once.
+- A key Epic withdraws from its own JWKS can still verify an `id_token` for up
+  to 24 hours, from the keys this service kept. Epic's rotation adds a key before
+  it signs with it, which the unknown-`kid` refetch absorbs; a withdrawal for
+  compromise is an incident, and a restart drops what was kept.
+- An `id_token` signed by a key Epic has not yet published holds its callback
+  for up to 7 seconds of waits plus three fetches. Login volume is low, and the
+  alternative — refusing a clinician whose Epic just rotated — is worse.
+- `epic.outbound.errors{call="jwks"}` persisting is the signal that Epic's keys
+  are unreachable; `/infra/README.md` carries the alert rule.

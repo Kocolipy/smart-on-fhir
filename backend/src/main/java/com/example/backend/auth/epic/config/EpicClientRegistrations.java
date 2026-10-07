@@ -15,7 +15,9 @@ import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
  *
  * <p>Built on each lookup from the settings and from discovery, so startup never contacts Epic
  * (D26) — and a registration Spring Security caches nowhere, which keeps a deployment's Epic
- * endpoints exactly what discovery says they are now.
+ * endpoints exactly what discovery last said, at most 24 hours ago. A lookup that finds Epic
+ * unavailable fails with the {@code EpicOutboundException} discovery threw, which reaches the
+ * Epic failure handler at the authorize hop and at the callback alike.
  *
  * <ul>
  *   <li>client authentication {@code private_key_jwt} (D7): the token call adds our client

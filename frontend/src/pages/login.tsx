@@ -21,6 +21,25 @@ const CHANGED_CREDENTIAL_MESSAGE = "Your password was changed. Sign in with your
  */
 const EPIC_REFUSED_MESSAGE = "Sign-in from Epic was refused";
 
+/**
+ * Shown when an Epic launch landed here because Epic could not be reached
+ * (`/?signin=unavailable`): a timeout or an Epic server error. Distinct from a
+ * refusal, because relaunching shortly may well succeed.
+ */
+const EPIC_UNAVAILABLE_MESSAGE = "Sign-in from Epic is temporarily unavailable. Try again shortly.";
+
+/** The notice for the `?signin=` marker an Epic launch landed with; any other says nothing. */
+function epicNoticeFor(signin: string | null): string | null {
+  switch (signin) {
+    case "refused":
+      return EPIC_REFUSED_MESSAGE;
+    case "unavailable":
+      return EPIC_UNAVAILABLE_MESSAGE;
+    default:
+      return null;
+  }
+}
+
 /** Always shown: a clinician signs in by opening the application from Epic, not here. */
 const CLINICIANS_LINE = "Clinicians: open this application from Epic.";
 
@@ -35,16 +54,15 @@ export function Login() {
   const carried = location.state as SessionRouteState | null;
   // An Epic launch arrives by full-page navigation, so it carries a query
   // marker rather than router state; the two never coincide.
-  const epicRefused = new URLSearchParams(location.search).get("signin") === "refused";
-  const notice = epicRefused
-    ? EPIC_REFUSED_MESSAGE
-    : carried?.passwordChanged === true
+  const notice =
+    epicNoticeFor(new URLSearchParams(location.search).get("signin")) ??
+    (carried?.passwordChanged === true
       ? CHANGED_CREDENTIAL_MESSAGE
       : carried?.inactive === true
         ? INACTIVE_MESSAGE
         : carried?.expired === true
           ? EXPIRED_MESSAGE
-          : null;
+          : null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

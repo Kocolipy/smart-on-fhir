@@ -126,6 +126,32 @@ groups:
             confirm the instance is up and was not restarted into a configuration that
             no longer schedules the job.
 
+  - name: epic-login
+    rules:
+      # Epic's id_token signing keys unreachable. The JWKS is fetched only when an
+      # id_token names a key the kept JWKS lacks, so an error here is a clinician's
+      # launch landing at the unavailable notice; errors in every 5-minute window for 5
+      # minutes running mean Epic's keys are not coming back on their own. The series
+      # exist at zero from startup while Epic Login is on (EpicOutboundInterceptor).
+      - alert: EpicJwksFetchFailing
+        expr: >
+          sum(increase(epic_outbound_errors_total{call="jwks"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Epic's JWKS cannot be fetched, so Epic Login is unavailable
+          description: >
+            Fetches of Epic's id_token signing keys have timed out or been answered 5xx
+            for 5 minutes. Each such launch lands at /?signin=unavailable; clinicians
+            cannot sign in from Epic, while password Login is unaffected.
+          runbook: >
+            Read the "Epic outbound call failed" and "Epic sign-in failed" ERROR records
+            with app.epic.call="jwks" for the category (network: no answer, server:
+            Epic's 5xx) and Epic's jwks_uri host. Check outbound connectivity from the
+            instance to that host, then Epic's status page. Nothing in this service is
+            retried for it: the next launch fetches again.
+
   - name: provisioning-surface-recordings
     rules:
       # Writes applied without lost-update protection, per connector. If-Match is

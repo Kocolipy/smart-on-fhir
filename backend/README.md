@@ -321,7 +321,10 @@ not an EC P-384 private key in PKCS#8 PEM, when the next key and its `kid` are
 not set together, when the two `kid`s are equal, or when a timeout is not
 positive. An empty variable counts as unset. The error names the variable and
 the rule, **never the value**, and the bound settings print with both keys
-redacted. Startup does not contact Epic.
+redacted. Startup does not contact Epic: discovery runs on the first launch and
+is kept for 24 hours, so a wrong issuer or an unreachable Epic shows on the first
+launch — as the login page's "temporarily unavailable" notice when Epic gives no
+answer within the timeouts or answers `5xx` — never as a failed deploy (ADR 0013).
 
 Generate a key with `openssl genpkey -algorithm EC -pkeyopt
 ec_paramgen_curve:P-384`. The PEM may be given on one line, with or without its

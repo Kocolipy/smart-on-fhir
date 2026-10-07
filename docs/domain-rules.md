@@ -121,6 +121,13 @@ Epic was refused". It is audited once, as a `LOGIN_FAILURE` with login method
 reason is the audit trail's alone: the operational log says only "Epic sign-in
 refused", because the reason tells whether an account exists.
 
+**Epic being unavailable is not a refusal.** When Epic does not answer in time,
+or answers with a server error, on any of the calls a Login makes, the launch
+lands at `/?signin=unavailable`, its session ended the same way, and the login
+page says to try again shortly. It names no User — none was ever resolved — and
+is audited as a `LOGIN_FAILURE` with login method `sso` and `EPIC_UNAVAILABLE`,
+counting toward no failure run.
+
 **A refusal never lengthens a failure run.** Epic checked the credential, not
 this service, so a refused launch is no evidence of guessing — and counting it
 would let a clinician whose Epic ID is a case variant of a User's `userName`

@@ -448,12 +448,19 @@ paths:
         `launch`, `aud` set to `APP_EPIC_FHIR_BASE`, a `state`, a `nonce`, and a
         PKCE S256 `code_challenge`. The pending request is kept in the session.
 
-        With no launch pending it lands at `/?signin=refused`, its session ended.
+        Epic's endpoints come from OIDC discovery, read here on first use and kept
+        for 24 hours (D26). When Epic gives no answer within the read or connect
+        timeout, or answers `5xx`, the browser lands at `/?signin=unavailable`; a
+        discovery answer that is no usable document lands at `/?signin=refused`.
+        With no launch pending it lands at `/?signin=refused`. Either way its
+        session is ended (D23, D24).
       operationId: authorizeEpicLogin
       security: []
       responses:
         "302":
-          description: To Epic's authorization endpoint, or to `/?signin=refused`.
+          description: >-
+            To Epic's authorization endpoint, to `/?signin=refused`, or — Epic
+            unavailable — to `/?signin=unavailable`.
           headers:
             Location:
               description: Where the browser goes next.
@@ -482,8 +489,11 @@ paths:
         SPA's `GET /api/auth/me` takes over. Epic's access token and the rest of
         its token response are discarded (D8).
 
-        Any OAuth error or failed check lands at `/?signin=refused`, its session
-        ended, with no further detail (D23, D24).
+        Any OAuth error or failed check lands at `/?signin=refused`. Epic being
+        unavailable — no answer within the timeouts, or a `5xx`, from discovery,
+        the JWKS or the token endpoint — lands at `/?signin=unavailable` instead.
+        The token call is made exactly once, never retried (D26). Either way the
+        session is ended, with no further detail (D23, D24).
 
         Served by the OAuth 2.0 login filter on the application chain rather than
         by a controller.
@@ -502,7 +512,9 @@ paths:
             type: string
       responses:
         "302":
-          description: To `/` signed in, or to `/?signin=refused`.
+          description: >-
+            To `/` signed in, to `/?signin=refused`, or — Epic unavailable — to
+            `/?signin=unavailable`.
           headers:
             Location:
               description: Where the browser goes next.

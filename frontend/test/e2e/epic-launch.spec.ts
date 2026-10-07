@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 import { expect, test } from "@playwright/test";
 
 import { DEV_ROLES } from "./auth.helpers";
@@ -18,7 +20,14 @@ import {
  * provisioned User opens our launch route, passes the launcher's authorization
  * and our callback, and lands on `/showcase` signed in as that User with the
  * Permissions its Groups confer; a launch for a Practitioner no User is
- * provisioned for lands on the login page's refused notice instead.
+ * provisioned for lands on the login page's refused notice instead, and a
+ * launch whose token call the launcher cannot answer lands on the unavailable
+ * notice.
+ *
+ * The unavailable case pauses the launcher's container for the length of one
+ * callback, which would stall any other launch in flight, so the spec's cases
+ * run one after another in a single worker (`mode: "default"`: in order, and
+ * a failure skips nothing after it).
  *
  * Epic Login's E2E conditional gate (frontend/AGENTS.md). It runs only in the
  * `epic` project, which `make epic-integration-test` declares by exporting the
@@ -37,6 +46,10 @@ import {
 const FHIR_BASE = process.env.E2E_EPIC_FHIR_BASE ?? "";
 /** Our JWKS as the launcher container reaches it, to verify our client assertion. */
 const JWKS_URL = process.env.E2E_EPIC_JWKS_URL ?? "";
+/** The launcher's Docker container, paused to make its token endpoint unreachable. */
+const LAUNCHER_CONTAINER = process.env.E2E_EPIC_LAUNCHER_CONTAINER ?? "";
+
+test.describe.configure({ mode: "default" });
 
 /** The Practitioner ID, and so the `userName` of the User it links to (D2, D3). */
 const PRACTITIONER = `${E2E_PREFIX}epic-${runId()}`;
@@ -139,6 +152,53 @@ test("a provider EHR launch for an unprovisioned Practitioner lands on the refus
     await expect(page).toHaveURL(/\/\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
   } finally {
+    await clinician.close();
+  }
+});
+
+test("a provider EHR launch whose token endpoint is unreachable lands on the unavailable notice", async ({
+  browser,
+}) => {
+  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
+  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expect(LAUNCHER_CONTAINER, "E2E_EPIC_LAUNCHER_CONTAINER names the launcher's container").not.toBe(
+    "",
+  );
+
+  // Who the launch is for does not matter: the Login never gets as far as a User.
+  const practitioner = `${E2E_PREFIX}epic-unavailable-${runId()}`;
+  const clinician = await freshBrowser(browser);
+  let paused = false;
+  try {
+    const page = await clinician.newPage();
+    // The launch, our authorize hop and the launcher's authorization, one hop
+    // at a time with the browser's own cookies, up to the redirect back to our
+    // callback. Playwright cannot hold a navigation reached by a redirect, so
+    // the browser is not walked there itself.
+    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(practitioner) });
+    let next = `/api/auth/epic/launch?${launch.toString()}`;
+    for (const hop of ["our authorize hop", "the launcher's authorize", "our callback"]) {
+      const answer = await page.request.get(next, { maxRedirects: 0 });
+      expect(answer.status(), `redirected to ${hop}`).toBe(302);
+      next = answer.headers()["location"];
+    }
+    expect(new URL(next, "http://localhost").pathname).toBe("/api/auth/epic/callback");
+
+    // The launcher becomes unreachable before our callback redeems the code,
+    // so our one token call gets no answer and times out (D23, D26).
+    execFileSync("docker", ["pause", LAUNCHER_CONTAINER]);
+    paused = true;
+    await page.goto(next);
+
+    // Past the backend's read timeout (APP_EPIC_READ_TIMEOUT, 5 seconds by default).
+    await expect(page).toHaveURL(/\/\?signin=unavailable$/, { timeout: 20_000 });
+    await expect(page.getByRole("status")).toHaveText(
+      "Sign-in from Epic is temporarily unavailable. Try again shortly.",
+    );
+  } finally {
+    if (paused) {
+      execFileSync("docker", ["unpause", LAUNCHER_CONTAINER]);
+    }
     await clinician.close();
   }
 });

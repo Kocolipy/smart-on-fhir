@@ -11,6 +11,7 @@ const INACTIVE = "You were signed out because you were inactive. Please sign in 
 const EXPIRED = "Your session ended. Please sign in again.";
 const CHANGED = "Your password was changed. Sign in with your new password.";
 const EPIC_REFUSED = "Sign-in from Epic was refused";
+const EPIC_UNAVAILABLE = "Sign-in from Epic is temporarily unavailable. Try again shortly.";
 const CLINICIANS = "Clinicians: open this application from Epic.";
 
 function renderLogin(login: AuthContextState["login"], state?: SessionRouteState, search = "") {
@@ -68,6 +69,35 @@ describe("Login", () => {
     renderLogin(vi.fn(), undefined, "?signin=refused");
 
     expect(screen.getByRole("status").textContent).toBe(EPIC_REFUSED);
+  });
+
+  it("says a sign-in from Epic is unavailable when the launch landed unavailable", () => {
+    renderLogin(vi.fn(), undefined, "?signin=unavailable");
+
+    expect(screen.getByRole("status").textContent).toBe(EPIC_UNAVAILABLE);
+  });
+
+  // An Epic landing is a fresh navigation, so it wins over any router state the
+  // history entry happens to carry.
+  it("says Epic is unavailable over a carried expiry", () => {
+    renderLogin(vi.fn(), { expired: true }, "?signin=unavailable");
+
+    expect(screen.getByRole("status").textContent).toBe(EPIC_UNAVAILABLE);
+  });
+
+  it("tells clinicians where they sign in beside the unavailable notice", () => {
+    renderLogin(vi.fn(), undefined, "?signin=unavailable");
+
+    expect(screen.getByText(CLINICIANS).textContent).toBe(CLINICIANS);
+  });
+
+  it("keeps the password form working beside the unavailable notice", async () => {
+    const login = vi.fn<AuthContextState["login"]>().mockResolvedValue(undefined);
+    renderLogin(login, undefined, "?signin=unavailable");
+
+    await submit();
+
+    expect(login).toHaveBeenCalledWith("ada", "secret-value");
   });
 
   it("says nothing for a signin marker it does not know", () => {

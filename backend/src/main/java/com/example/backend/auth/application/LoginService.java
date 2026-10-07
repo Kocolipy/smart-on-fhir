@@ -193,11 +193,25 @@ public class LoginService {
     }
 
     /**
+     * Records an Epic Login that ended before any login decision, for {@code reason}: a
+     * {@code LOGIN_FAILURE} under method {@code sso} naming nobody, since no User was ever
+     * resolved, which counts toward no failure run (D12). Epic being unavailable (D23) ends a
+     * Login so.
+     *
+     * <p>The record only: the Epic failure handler, which knows how the Login ended, writes its
+     * one log record itself and sends the browser on (D24).
+     */
+    public void recordEpicFailure(EpicLoginFailureReason reason) {
+        attempts.recordRefusal(null, audited(reason), AuditLoginMethod.SSO);
+    }
+
+    /**
      * An Epic refusal as the audit trail's own vocabulary, which password Login's refusals share.
      * Exhaustive, so a reason added to the list cannot reach the trail unmapped.
      */
     private static AuditRefusalReason audited(EpicLoginFailureReason reason) {
         return switch (reason) {
+            case EPIC_UNAVAILABLE -> AuditRefusalReason.EPIC_UNAVAILABLE;
             case UNKNOWN_ACCOUNT -> AuditRefusalReason.UNKNOWN_ACCOUNT;
             case ACCOUNT_DISABLED -> AuditRefusalReason.ACCOUNT_DISABLED;
             case ACCOUNT_LOCKED -> AuditRefusalReason.ACCOUNT_LOCKED;

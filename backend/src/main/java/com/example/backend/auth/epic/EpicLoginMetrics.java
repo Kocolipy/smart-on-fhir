@@ -5,7 +5,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * The {@code epic.login} counter (spec section 5): one count per Epic Login that ended, tagged by
- * its {@code outcome} and, for a refusal, its {@code reason}.
+ * its {@code outcome} — {@code success}, {@code refused} or {@code unavailable} — and, for the
+ * last two, its {@code reason}.
  *
  * <p>A success carries {@code reason=none}, so every series of the meter has the same tag keys,
  * which Prometheus requires of one metric name. A refusal carries its reason by the name the
@@ -20,13 +21,19 @@ public final class EpicLoginMetrics {
     /** The reason tag's value on a success, which has none. */
     static final String NO_REASON = "none";
 
+    /** The reason tag's value on an unavailable outcome, the one reason it has. */
+    static final String UNAVAILABLE_REASON = "EPIC_UNAVAILABLE";
+
     private final MeterRegistry registry;
 
     private final Counter successes;
 
+    private final Counter unavailable;
+
     public EpicLoginMetrics(MeterRegistry registry) {
         this.registry = registry;
         this.successes = counter("success", NO_REASON);
+        this.unavailable = counter("unavailable", UNAVAILABLE_REASON);
     }
 
     /** Counts an Epic Login that signed a User in. */
@@ -42,6 +49,15 @@ public final class EpicLoginMetrics {
     public void refused(String reason) {
         // The registry hands back the one meter per outcome and reason, registering it once.
         counter("refused", reason).increment();
+    }
+
+    /**
+     * Counts an Epic Login that could not complete because Epic was unavailable (D23), under
+     * {@code outcome=unavailable} and the one reason that outcome has, {@code EPIC_UNAVAILABLE}
+     * as the audit trail records it.
+     */
+    public void unavailable() {
+        unavailable.increment();
     }
 
     private Counter counter(String outcome, String reason) {
