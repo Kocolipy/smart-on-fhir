@@ -135,32 +135,10 @@ public record AuditEvent(
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
     }
 
-    /** An event that names no login method, which is every event but a login's. */
-    public AuditEvent(
-            UUID id,
-            Instant occurredAt,
-            AuditOperation operation,
-            AuditOutcome outcome,
-            UUID actorId,
-            UUID subjectId,
-            String resourceType,
-            UUID resourceId,
-            List<String> changedPaths,
-            String statusClass,
-            String errorCode,
-            String httpMethod,
-            String httpPath,
-            String requestId,
-            Integer resultCount,
-            String filterShape,
-            String role,
-            List<String> permissions) {
-        this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
-                changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
-                filterShape, role, permissions, null);
-    }
-
-    /** An event that names no Permissions, which is every event but a token's issue or rotation. */
+    /**
+     * An event that names neither Permissions nor a login method, which is every event but a
+     * token's issue or rotation and a login's.
+     */
     public AuditEvent(
             UUID id,
             Instant occurredAt,
@@ -181,6 +159,6 @@ public record AuditEvent(
             String role) {
         this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
                 changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
-                filterShape, role, List.of());
+                filterShape, role, List.of(), null);
     }
 }

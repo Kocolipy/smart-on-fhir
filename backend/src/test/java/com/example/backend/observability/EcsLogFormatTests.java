@@ -239,7 +239,9 @@ class EcsLogFormatTests {
 
         assertThatIsValidEcs(record);
         assertThatClassifiedAs(record, "user-authentication", "process", "user", "allowed");
-        assertThat(record.has("app")).as("an exact action keeps no local name").isFalse();
+        // The record does carry app.login.method (D15); what it must not carry is a local name.
+        assertThat(record.at("/app/event/action").isMissingNode())
+                .as("an exact action keeps no local name").isTrue();
         assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/log/level").asText()).isEqualTo("INFO");

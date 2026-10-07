@@ -4,13 +4,13 @@ import com.example.backend.auth.epic.ClientAssertionSigner;
 import com.example.backend.auth.epic.EpicLoginMetrics;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicProviderMetadata;
+import com.example.backend.auth.epic.EpicSignIn;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -22,9 +22,6 @@ import org.springframework.web.client.RestClient;
  */
 @Configuration
 public class EpicSecurityConfig {
-
-    /** The name the Epic Login success handler, a web adapter, is registered under. */
-    static final String SUCCESS_HANDLER = "epicLoginSuccessHandler";
 
     @Bean
     @Conditional(EpicLoginEnabled.class)
@@ -42,7 +39,7 @@ public class EpicSecurityConfig {
             @Qualifier(EpicRestClientConfig.EPIC_REST_CLIENT) RestClient epicRestClient,
             ClientAssertionSigner signer,
             Clock clock,
-            @Qualifier(SUCCESS_HANDLER) AuthenticationSuccessHandler signIn) {
+            EpicSignIn signIn) {
         return new EpicLoginFlow(settings, new EpicClientRegistrations(settings, metadata),
                 epicRestClient, signer, clock, signIn);
     }

@@ -1008,7 +1008,8 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 null,
                 null,
-                permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList());
+                permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList(),
+                null);
     }
 
     private AuditEvent event(

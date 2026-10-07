@@ -6,6 +6,7 @@ import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.controller.SessionEstablishment;
 import com.example.backend.auth.epic.EpicLoginMetrics;
 import com.example.backend.auth.epic.EpicLoginSettings;
+import com.example.backend.auth.epic.EpicSignIn;
 import com.example.backend.auth.epic.EpicSignInRedirect;
 import com.example.backend.auth.epic.FhirUserReference;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,10 +18,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
-import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.stereotype.Component;
 
 /**
@@ -42,13 +39,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
  * Epic security configuration so that the configuration need not depend on a web adapter: it is
- * found by its name, {@value #BEAN_NAME}, as the {@link AuthenticationSuccessHandler} it is.
+ * found by its type, {@link EpicSignIn}.
  */
-@Component(EpicLoginSuccessHandler.BEAN_NAME)
-public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
-
-    /** The name the Epic security configuration finds this handler by. */
-    public static final String BEAN_NAME = "epicLoginSuccessHandler";
+@Component
+public class EpicLoginSuccessHandler implements EpicSignIn {
 
     /** The {@code id_token} claim naming the signed-in FHIR user (SMART App Launch). */
     static final String FHIR_USER_CLAIM = "fhirUser";
@@ -63,14 +57,11 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     public EpicLoginSuccessHandler(
             LoginService login,
-            SecurityContextRepository securityContextRepository,
-            SessionAuthenticationStrategy sessionAuthenticationStrategy,
-            CsrfTokenRepository csrfTokenRepository,
+            SessionEstablishment sessionEstablishment,
             ObjectProvider<EpicLoginSettings> settings,
             EpicLoginMetrics metrics) {
         this.login = login;
-        this.sessionEstablishment = new SessionEstablishment(
-                securityContextRepository, sessionAuthenticationStrategy, csrfTokenRepository);
+        this.sessionEstablishment = sessionEstablishment;
         this.settings = settings;
         this.metrics = metrics;
     }

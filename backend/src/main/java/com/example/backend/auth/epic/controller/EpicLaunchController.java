@@ -2,6 +2,7 @@ package com.example.backend.auth.epic.controller;
 
 import com.example.backend.auth.epic.EpicLaunchContext;
 import com.example.backend.auth.epic.EpicLoginSettings;
+import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.auth.epic.EpicSignInRedirect;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,17 +35,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class EpicLaunchController {
 
-    static final String LAUNCH_PATH = "/api/auth/epic/launch";
-
-    static final String AUTHORIZE_PATH = "/api/auth/epic/authorize";
-
     private final Optional<EpicLoginSettings> settings;
 
     public EpicLaunchController(Optional<EpicLoginSettings> settings) {
         this.settings = settings;
     }
 
-    @GetMapping(LAUNCH_PATH)
+    @GetMapping(EpicRoutes.LAUNCH)
     public void launch(
             @RequestParam(name = "iss", required = false) String iss,
             @RequestParam(name = "launch", required = false) String launch,
@@ -61,11 +58,11 @@ public class EpicLaunchController {
             previous.invalidate();
         }
         EpicLaunchContext.hold(request.getSession(true), launch);
-        response.sendRedirect(request.getContextPath() + AUTHORIZE_PATH);
+        response.sendRedirect(request.getContextPath() + EpicRoutes.AUTHORIZE);
     }
 
     /** Reached only when no launch is pending: the authorize hop has nothing to send to Epic. */
-    @GetMapping(AUTHORIZE_PATH)
+    @GetMapping(EpicRoutes.AUTHORIZE)
     public void authorizeWithoutLaunch(HttpServletRequest request, HttpServletResponse response)
             throws IOException {
         EpicSignInRedirect.refused(request, response);

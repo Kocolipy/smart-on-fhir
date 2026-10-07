@@ -21,13 +21,18 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.stereotype.Component;
 
 /**
  * The session work every Login ends in, once it has decided who signed in: the step that turns
  * the caller's session into a signed-in one. What counts as a successful login is the Login
  * path's own; everything here is the session and CSRF work only a web adapter can do, shared so
  * no Login path can establish a session differently from another.
+ *
+ * <p>A component, injected into each Login path's web adapter, so every one of them is handed the
+ * same instance over the chain's own repositories rather than assembling one of its own.
  */
+@Component
 public class SessionEstablishment {
 
     /**

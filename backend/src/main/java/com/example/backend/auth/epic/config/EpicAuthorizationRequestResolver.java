@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic.config;
 
 import com.example.backend.auth.epic.EpicLaunchContext;
+import com.example.backend.auth.epic.EpicRoutes;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.Optional;
@@ -32,18 +33,16 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  */
 final class EpicAuthorizationRequestResolver implements OAuth2AuthorizationRequestResolver {
 
-    /** The internal hop's path. */
-    static final String AUTHORIZE_PATH = "/api/auth/epic/authorize";
-
     private static final RequestMatcher AUTHORIZE =
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, AUTHORIZE_PATH);
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, EpicRoutes.AUTHORIZE);
 
     private final DefaultOAuth2AuthorizationRequestResolver spring;
 
     private final URI fhirBase;
 
     EpicAuthorizationRequestResolver(ClientRegistrationRepository registrations, URI fhirBase) {
-        this.spring = new DefaultOAuth2AuthorizationRequestResolver(registrations, AUTHORIZE_PATH);
+        this.spring =
+                new DefaultOAuth2AuthorizationRequestResolver(registrations, EpicRoutes.AUTHORIZE);
         this.spring.setAuthorizationRequestCustomizer(
                 OAuth2AuthorizationRequestCustomizers.withPkce());
         this.fhirBase = fhirBase;

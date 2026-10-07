@@ -217,7 +217,8 @@ public final class LogEvent {
 
     /**
      * How a Login proved who signed in, {@code password} or {@code sso} (Epic Login, D15), on the
-     * {@code session-start} record — the same spelling the audit trail's login events carry.
+     * accepted {@code user-authentication} and the {@code session-start} records — the same
+     * spelling the audit trail's login events carry.
      * ECS names no such field, so it is under this service's own {@code app} namespace.
      */
     public static final String LOGIN_METHOD = "app.login.method";

@@ -113,15 +113,7 @@ public class LoginService {
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
-        attempts.recordSuccess(authentication.getName(), retainedSessionId);
-        UUID userId = identities.resolveUserId(authentication.getName());
-        // Set explicitly: the session's principal index that carries user.id for later
-        // requests is written only after this returns.
-        try (LogContext.Scope resolved = LogContext.userId(userId)) {
-            LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
-                    .log();
-        }
-        return new LoginOutcome(authentication, userId, identities.roleMappingHash());
+        return succeeded(authentication, retainedSessionId, AuditLoginMethod.PASSWORD);
     }
 
     /**
@@ -161,12 +153,23 @@ public class LoginService {
                         user, null, user.getAuthorities());
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
+        return succeeded(authentication, retainedSessionId, AuditLoginMethod.SSO);
+    }
 
-        attempts.recordSuccess(user.getUsername(), retainedSessionId, AuditLoginMethod.SSO);
-        UUID userId = identities.resolveUserId(user.getUsername());
+    /**
+     * The tail every accepted Login shares, whichever way it proved who signed in: the success
+     * recorded against the User, the {@code LOGIN} record naming the User and the login method
+     * (D15), and the outcome the caller establishes the session from.
+     */
+    private LoginOutcome succeeded(
+            Authentication authentication, String retainedSessionId, AuditLoginMethod method) {
+        attempts.recordSuccess(authentication.getName(), retainedSessionId, method);
+        UUID userId = identities.resolveUserId(authentication.getName());
+        // Set explicitly: the session's principal index that carries user.id for later
+        // requests is written only after this returns.
         try (LogContext.Scope resolved = LogContext.userId(userId)) {
             LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
-                    .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())
+                    .addKeyValue(LogEvent.LOGIN_METHOD, method.value())
                     .log();
         }
         return new LoginOutcome(authentication, userId, identities.roleMappingHash());

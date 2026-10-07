@@ -3,6 +3,7 @@ package com.example.backend.auth.epic.config;
 import com.example.backend.auth.epic.ClientAssertionSigner;
 import com.example.backend.auth.epic.EpicJwkSource;
 import com.example.backend.auth.epic.EpicLoginSettings;
+import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.auth.epic.EpicSignInRedirect;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -75,9 +76,6 @@ import org.springframework.web.client.RestClient;
  */
 public final class EpicLoginFlow {
 
-    /** The callback, the one route whose absolute URL is {@code APP_EPIC_REDIRECT_URI}. */
-    static final String CALLBACK_PATH = "/api/auth/epic/callback";
-
     /** The clock skew {@code exp} and {@code iat} are checked with (flow step 4). */
     static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
 
@@ -118,7 +116,7 @@ public final class EpicLoginFlow {
                 // The SPA's root is the login page; naming it keeps Spring Security from
                 // generating one of its own.
                 .loginPage("/")
-                .loginProcessingUrl(CALLBACK_PATH)
+                .loginProcessingUrl(EpicRoutes.CALLBACK)
                 .clientRegistrationRepository(registrations)
                 .authorizedClientRepository(NOTHING_KEPT)
                 .authorizationEndpoint(authorize -> authorize
