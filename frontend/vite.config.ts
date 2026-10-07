@@ -15,7 +15,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:8080",
+      // Not the string shorthand, which also sets `changeOrigin: true`: the
+      // backend must see the browser's own Host, as it does in production where
+      // it serves the SPA itself, or its redirects — Epic Login's `302 /` among
+      // them — name localhost:8080, where there is no SPA, instead of this server.
+      "/api": { target: "http://localhost:8080", changeOrigin: false },
     },
     // Vite full-reloads *every* connected page when a watched `.html` under
     // the project root changes, and it watches the whole root. A finishing

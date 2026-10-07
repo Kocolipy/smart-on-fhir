@@ -83,27 +83,28 @@ public record EpicLoginProperties(
      * otherwise gives it back parsed: each URL as a {@link URI} and each key, with its
      * {@code kid}, as an {@link EpicSigningKey}. Called only with the switch on.
      *
-     * @param httpAllowed whether the {@code dev} profile is active, the one case in which the
-     *                    three URLs may be {@code http} (D21)
+     * @param devProfile whether the {@code dev} profile is active, the one case in which the
+     *                   three URLs may be {@code http} (D21) and {@code fhirUser} may be the
+     *                   local launcher's relative {@code Practitioner/{id}}
      * @return the accepted configuration
      * @throws InvalidEpicConfigurationException naming the first variable found wanting
      */
-    public EpicLoginSettings validate(boolean httpAllowed) {
+    public EpicLoginSettings validate(boolean devProfile) {
         require(FHIR_BASE, fhirBase);
         require(OAUTH_ISSUER, oauthIssuer);
         require(CLIENT_ID, clientId);
         require(REDIRECT_URI, redirectUri);
         require(CLIENT_KEY, clientKey);
         require(CLIENT_KEY_ID, clientKeyId);
-        URI fhirBaseUrl = secureUrl(FHIR_BASE, fhirBase, httpAllowed);
-        URI oauthIssuerUrl = secureUrl(OAUTH_ISSUER, oauthIssuer, httpAllowed);
-        URI redirectUrl = secureUrl(REDIRECT_URI, redirectUri, httpAllowed);
+        URI fhirBaseUrl = secureUrl(FHIR_BASE, fhirBase, devProfile);
+        URI oauthIssuerUrl = secureUrl(OAUTH_ISSUER, oauthIssuer, devProfile);
+        URI redirectUrl = secureUrl(REDIRECT_URI, redirectUri, devProfile);
         EpicSigningKey active = new EpicSigningKey(clientKeyId, p384Key(CLIENT_KEY, clientKey));
         EpicSigningKeys signingKeys = new EpicSigningKeys(active, nextSigningKey());
         requirePositive(CONNECT_TIMEOUT, connectTimeout);
         requirePositive(READ_TIMEOUT, readTimeout);
         return new EpicLoginSettings(fhirBaseUrl, oauthIssuerUrl, clientId, redirectUrl,
-                signingKeys, connectTimeout, readTimeout);
+                signingKeys, connectTimeout, readTimeout, devProfile);
     }
 
     /**

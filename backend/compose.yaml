@@ -1,4 +1,4 @@
-# Exact patch + digest on both images. These back the tests — Playwright runs
+# Exact patch + digest on both dependency images. These back the tests — Playwright runs
 # against a real Postgres and a real Redis — so a floating `18-alpine` tag means
 # a green run today and an unexplained red one after an upstream rebuild.
 # Refresh both tag and digest together (see /README.md, "Toolchain pins").
@@ -29,6 +29,35 @@ services:
       - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # The SMART Health IT launcher: a local stand-in for Epic, for a real SMART EHR
+  # launch with no Epic sandbox (/docs/epic-smart-login.md, section 7 step 8).
+  # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
+  # `make infra-up` still starts only Postgres and Redis. Start it with
+  # `make epic-launcher-up`; backend/README.md, "Local Epic launcher", has the
+  # APP_EPIC_* values that point at it. Upstream publishes `latest` only, so the
+  # digest is the pin.
+  smart-launcher:
+    image: smartonfhir/smart-launcher-2:latest@sha256:72bd3e3c682ce4c74e6dddb605d89acad7c8aae446ae38079e8dfe8455b84793
+    profiles: ["epic-launcher"]
+    ports:
+      - "9009:80"
+    # The launcher fetches our JWKS to verify the client assertion, from the
+    # backend running on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # 127.0.0.1, not localhost: the launcher listens on IPv4 only, and
+    # `localhost` resolves to ::1 first inside the container.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1/keys').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
       interval: 5s
       timeout: 3s
       retries: 10

@@ -14,6 +14,9 @@ import java.time.Duration;
  * @param signingKeys    the active and optional next signing key
  * @param connectTimeout the outbound connect timeout (D25)
  * @param readTimeout    the outbound read timeout (D25)
+ * @param relativeFhirUserAllowed whether {@code fhirUser} may also be the relative
+ *                       {@code Practitioner/{id}} the local SMART launcher issues: the dev
+ *                       profile only, as with D21's {@code http} allowance
  */
 public record EpicLoginSettings(
         URI fhirBase,
@@ -22,5 +25,6 @@ public record EpicLoginSettings(
         URI redirectUri,
         EpicSigningKeys signingKeys,
         Duration connectTimeout,
-        Duration readTimeout) {
+        Duration readTimeout,
+        boolean relativeFhirUserAllowed) {
 }

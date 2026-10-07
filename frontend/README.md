@@ -140,12 +140,14 @@ it makes the same change voluntarily. Password history refuses the seed
 password afterwards, so this is one-way for that database. The specs read these
 environment variables; the SPA reads none of them:
 
-| Variable                    | Default                   | Used for                                                                                                                |
-| --------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `E2E_ADMIN_PASSWORD`        | `E2e-Bootstrap-Secret-4m` | the seeded Admin's password in the suite                                                                                |
-| `APP_LOCKOUT_MAX_ATTEMPTS`  | `3`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
-| `APP_DEV_FIXTURES_PASSWORD` | `Dev-Fixture-P@ssw0rd`    | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                           |
-| `E2E_BACKEND_URL`           | `http://localhost:8080`   | SCIM calls that bypass the Vite proxy                                                                                   |
+| Variable                    | Default                          | Used for                                                                                                                         |
+| --------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_ADMIN_PASSWORD`        | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                         |
+| `APP_LOCKOUT_MAX_ATTEMPTS`  | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)          |
+| `APP_DEV_FIXTURES_PASSWORD` | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                    |
+| `E2E_BACKEND_URL`           | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                            |
+| `E2E_EPIC_FHIR_BASE`        | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make epic-integration-test` sets it) |
+| `E2E_EPIC_JWKS_URL`         | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make epic-integration-test` sets it)                                             |
 
 The backend's development role mapping seeds one User per Role when it runs with
 `APP_DEV_FIXTURES_ENABLED=true` (as `backend/.env.example` sets): `account-admin`,

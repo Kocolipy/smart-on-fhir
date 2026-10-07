@@ -99,6 +99,7 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
             return Optional.empty();
         }
         return FhirUserReference.practitionerId(
-                user.getIdToken().getClaimAsString(FHIR_USER_CLAIM), epicSettings.fhirBase());
+                user.getIdToken().getClaimAsString(FHIR_USER_CLAIM), epicSettings.fhirBase(),
+                epicSettings.relativeFhirUserAllowed());
     }
 }

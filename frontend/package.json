@@ -23,6 +23,7 @@
     "test:coverage": "vitest --run --coverage",
     "test:arch": "depcruise --config test/.dependency-cruiser.cjs src && vitest --run test/arch",
     "test:e2e": "playwright test",
+    "test:e2e:epic": "playwright test --project=epic",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:mutation": "stryker run",

@@ -183,3 +183,68 @@ stop_group() {
   done
   kill -KILL -- "-$pid" 2>/dev/null || true
 }
+
+# --- Full-stack E2E runs ----------------------------------------------------
+#
+# The lifecycle `make integration-test` and `make epic-integration-test` share:
+# compose dependencies, the backend under spring-boot:run, then Playwright,
+# which starts the Vite dev server itself. A caller runs `stack_up`, exports
+# whatever its backend and specs need, then `stack_e2e`. Everything started is
+# torn down on exit unless KEEP_UP=1.
+
+STACK_COMPOSE=()
+stack_backend_pid=""
+
+stack_cleanup() {
+  local status=$?
+  trap - INT TERM EXIT
+  if [[ ${KEEP_UP:-0} == 1 ]]; then
+    log "KEEP_UP=1 — leaving the backend and the compose services running"
+  else
+    log "tearing down"
+    stop_group "$stack_backend_pid"
+    "${STACK_COMPOSE[@]}" down >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+
+# stack_up <description> [compose profile]
+#
+# Checks the toolchain, starts the compose services (with the profile, when
+# given), exports backend/.env and sets BACKEND_PORT. Refuses to run against a
+# leftover backend or dev server: the suite would pass or fail against code that
+# is not the tree under test.
+stack_up() {
+  local description=$1 profile=${2:-}
+  require_node
+  require_maven
+  require_cmd curl
+  require_docker
+  [[ -d $FRONTEND_DIR/node_modules ]] ||
+    die "frontend/node_modules missing — run 'make bootstrap' first."
+
+  STACK_COMPOSE=(docker compose -f "$BACKEND_DIR/compose.yaml")
+  [[ -z $profile ]] || STACK_COMPOSE+=(--profile "$profile")
+  trap stack_cleanup INT TERM EXIT
+
+  log "starting $description"
+  "${STACK_COMPOSE[@]}" up -d --wait
+
+  load_backend_env
+  BACKEND_PORT="${SERVER_PORT:-8080}"
+  require_port_free "$BACKEND_PORT" "the backend"
+  require_port_free 5173 "the Vite dev server Playwright starts"
+}
+
+# stack_e2e <npm script>
+#
+# Starts the backend with the environment exported so far, waits for it, then
+# runs the frontend's Playwright script.
+stack_e2e() {
+  local script=$1
+  bg_start stack_backend_pid backend "$BACKEND_DIR" "$MVN" -q -DskipTests spring-boot:run
+  wait_for_http "http://localhost:$BACKEND_PORT/actuator/health" backend 180 "$stack_backend_pid"
+
+  log "running 'npm run $script' (Playwright starts the Vite dev server itself)"
+  (cd "$FRONTEND_DIR" && "$NPM" run "$script")
+}

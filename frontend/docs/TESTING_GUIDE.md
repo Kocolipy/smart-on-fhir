@@ -188,6 +188,15 @@ Running one project alone still runs every project ahead of it in the chain.
 `playwright.config.ts` carries the reason beside each `dependencies` line;
 update both together.
 
+The `epic` project sits outside that chain. It holds `epic-launch.spec.ts`, Epic
+Login's E2E gate, and is declared only when `E2E_EPIC_FHIR_BASE` is set, which
+`make epic-integration-test` does after starting the SMART launcher and a backend
+pointed at it; `npm run test:e2e` never declares it, so the main suite never
+needs the launcher. It depends on `setup` alone: it replays the Admin session
+only to issue a SCIM token, and the one sign-in it makes — the Epic launch — is
+of a User it provisions itself. The routing arch test still reads its
+`testMatch`, so the spec counts as routed either way.
+
 ### Routing a new spec
 
 Each project in `playwright.config.ts` names its specs explicitly with a

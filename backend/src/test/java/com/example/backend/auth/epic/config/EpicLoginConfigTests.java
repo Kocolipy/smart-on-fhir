@@ -200,6 +200,27 @@ class EpicLoginConfigTests {
                 .run(context -> assertThat(context.getBean(EpicReleaseGate.class).open()).isTrue());
     }
 
+    /**
+     * The dev profile alone accepts the relative {@code fhirUser} the local SMART launcher
+     * issues, decided where D21's {@code http} allowance is.
+     */
+    @Test
+    void theDevProfileAllowsARelativeFhirUser() {
+        withEnvironment(validEnvironment())
+                .withInitializer(context -> context.getEnvironment().setActiveProfiles("dev"))
+                .run(context -> assertThat(
+                        context.getBean(EpicLoginSettings.class).relativeFhirUserAllowed())
+                        .isTrue());
+    }
+
+    @Test
+    void outsideTheDevProfileARelativeFhirUserIsNotAllowed() {
+        withEnvironment(validEnvironment())
+                .run(context -> assertThat(
+                        context.getBean(EpicLoginSettings.class).relativeFhirUserAllowed())
+                        .isFalse());
+    }
+
     /** Even in the dev profile, only {@code http} is added — no other scheme. */
     @Test
     void theDevProfileStillRefusesAnyOtherScheme() {
