@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -105,8 +106,8 @@ public class AuthController {
                 body.username(), body.password(), existing == null ? null : existing.getId());
         Authentication authentication = outcome.authentication();
 
-        HttpSession signedIn = sessionEstablishment.establish(
-                authentication, outcome.userId(), outcome.roleMappingHash(), request, response);
+        HttpSession signedIn = sessionEstablishment.establish(authentication, outcome.userId(),
+                outcome.roleMappingHash(), AuditLoginMethod.PASSWORD, request, response);
         return userResponse(authentication, signedIn);
     }
 

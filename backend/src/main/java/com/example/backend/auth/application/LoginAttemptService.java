@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
@@ -96,13 +97,14 @@ public class LoginAttemptService {
     public void recordFailure(String username, AuditRefusalReason reason) {
         Optional<ScimUser> found = find(username);
         if (found.isEmpty()) {
-            audit.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT);
+            audit.recordLoginFailure(
+                    null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD);
             return;
         }
 
         ScimUser user = found.get();
         failures.count(user);
-        audit.recordLoginFailure(user.id(), reason);
+        audit.recordLoginFailure(user.id(), reason, AuditLoginMethod.PASSWORD);
     }
 
     /**
@@ -124,6 +126,18 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordSuccess(String username, String retainedSessionId) {
+        recordSuccess(username, retainedSessionId, AuditLoginMethod.PASSWORD);
+    }
+
+    /**
+     * {@link #recordSuccess(String, String)} for a Login made by {@code method}: an Epic Login's
+     * success is recorded exactly as a password Login's — failure run cleared, dormancy basis
+     * moved, {@code LOGIN_SUCCESS} fail-closed, other sessions revoked after commit — and differs
+     * only in the method its {@code LOGIN_SUCCESS} names (D15).
+     */
+    @Transactional
+    public void recordSuccess(
+            String username, String retainedSessionId, AuditLoginMethod method) {
         find(username).ifPresent(user -> {
             ScimLoginState cleared = user.login().withFailureRunCleared();
             if (cleared != user.login()) {
@@ -139,7 +153,7 @@ public class LoginAttemptService {
             if (!user.login().isPasswordChangeRequired()) {
                 users.recordAuthentication(user.id(), clock.instant());
             }
-            audit.recordLoginSuccess(user.id());
+            audit.recordLoginSuccess(user.id(), method);
             afterCommit.run(() -> sessions.revokeAllExcept(user.id(), retainedSessionId));
         });
     }

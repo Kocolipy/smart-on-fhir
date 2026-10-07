@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.observability.LogContext;
@@ -65,7 +66,8 @@ class SessionEstablishmentTests {
         String preLoginId = request.getSession().getId();
 
         establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, request, new MockHttpServletResponse());
+                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
+                request, new MockHttpServletResponse());
 
         assertThat(request.getSession(false).getId()).isNotEqualTo(preLoginId);
     }
@@ -76,7 +78,8 @@ class SessionEstablishmentTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
 
         HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, request, new MockHttpServletResponse());
+                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
+                request, new MockHttpServletResponse());
 
         MockHttpServletRequest later = new MockHttpServletRequest();
         later.setSession(signedIn);
@@ -88,7 +91,7 @@ class SessionEstablishmentTests {
     @Test
     void theCurrentThreadCarriesTheAuthentication() {
         establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH,
+                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
                 new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(authentication);
@@ -101,7 +104,7 @@ class SessionEstablishmentTests {
     @Test
     void theSessionIsIndexedByTheUsersStableId() {
         HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH,
+                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
                 new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME))
@@ -112,7 +115,7 @@ class SessionEstablishmentTests {
     @Test
     void theSessionRecordsTheRoleMappingHash() {
         HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH,
+                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
                 new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.getAttribute(RoleMappingSessions.HASH_ATTRIBUTE))
@@ -126,7 +129,8 @@ class SessionEstablishmentTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
         csrfTokenRepository.saveToken(csrfTokenRepository.generateToken(request), request, response);
 
-        establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH, request, response);
+        establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
+                AuditLoginMethod.PASSWORD, request, response);
 
         assertThat(csrfTokenRepository.loadToken(request)).isNull();
     }
@@ -142,8 +146,8 @@ class SessionEstablishmentTests {
         request.getSession().setMaxInactiveInterval(523);
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            establishment.establish(
-                    authentication, USER_ID, ROLE_MAPPING_HASH, request, new MockHttpServletResponse());
+            establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
+                    AuditLoginMethod.PASSWORD, request, new MockHttpServletResponse());
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.ACTION, "session-start"))
                     .singleElement()
@@ -156,6 +160,21 @@ class SessionEstablishmentTests {
                         assertThat(CapturedLog.fields(record))
                                 .containsEntry(LogEvent.SESSION_MAX_INACTIVE_INTERVAL, 523);
                     });
+        }
+    }
+
+    /** D15: the record says how the Login proved who signed in, as the audit trail spells it. */
+    @Test
+    void theSessionStartRecordCarriesTheLoginMethod() {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
+                    AuditLoginMethod.SSO, new MockHttpServletRequest(),
+                    new MockHttpServletResponse());
+
+            assertThat(captured.withAction(Level.TRACE, LogEvent.ACTION, "session-start"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.LOGIN_METHOD, "sso"));
         }
     }
 }

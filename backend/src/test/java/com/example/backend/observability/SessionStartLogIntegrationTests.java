@@ -105,7 +105,11 @@ class SessionStartLogIntegrationTests {
         assertThat(record.at("/session/max_inactive_interval").asInt())
                 .isEqualTo(idleTimeoutSeconds);
         assertThat(record.at("/user/id").asText()).isNotBlank();
-        assertThat(record.has("app")).as("an exact action keeps no local name").isFalse();
+        assertThat(record.at("/app/event/action").isMissingNode())
+                .as("an exact action keeps no local name").isTrue();
+        assertThat(record.at("/app/login/method").asText())
+                .as("D15: a password Login's session-start names its method")
+                .isEqualTo("password");
 
         assertThat(signedInCookie).as("the login rotated the id").isNotEqualTo(anonymousCookie);
         List<String> forbidden = List.of(

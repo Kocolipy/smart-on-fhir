@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
@@ -89,7 +90,7 @@ class AuditTrailServiceTests {
                 new AuditFilterShape.Presence(AuditFilterShape.Attribute.MEMBERS, false),
                 new AuditFilterShape.Comparison(
                         AuditFilterShape.Attribute.META_CREATED, AuditFilterShape.Operator.GT, false)));
-        trail.recordLoginSuccess(SUBJECT);
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
                 AuditOperation.SCIM_USER_LIST, AuditOperation.SCIM_GROUP_LIST,
@@ -136,7 +137,7 @@ class AuditTrailServiceTests {
     }
     @Test
     void anAcceptedLoginIsRecordedAgainstTheAccountsStableId() {
-        trail.recordLoginSuccess(SUBJECT);
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGIN_SUCCESS);
@@ -149,9 +150,38 @@ class AuditTrailServiceTests {
         assertThat(event.errorCode()).isNull();
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.changedPaths()).isEmpty();
+        assertThat(event.permissions()).as("a login names no Permissions").isEmpty();
         assertThat(event.httpMethod()).isEqualTo("POST");
         assertThat(event.requestId()).isEqualTo("req-1");
         assertThat(event.id()).isNotNull();
+    }
+
+    /** D15: each login event carries how it was attempted, in the recorded spelling. */
+    @Test
+    void anAcceptedLoginRecordsItsLoginMethod() {
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.SSO);
+
+        assertThat(events.appended).extracting(AuditEvent::loginMethod)
+                .containsExactly("password", "sso");
+    }
+
+    @Test
+    void aRefusedLoginRecordsItsLoginMethod() {
+        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD);
+        trail.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.SSO);
+
+        assertThat(events.appended).extracting(AuditEvent::loginMethod)
+                .containsExactly("password", "sso");
+    }
+
+    /** Only a login names a method; a logout, like every other event, carries none. */
+    @Test
+    void anEventOtherThanALoginCarriesNoLoginMethod() {
+        trail.recordLogout(SUBJECT);
+
+        assertThat(events.only().loginMethod()).isNull();
     }
 
     @Test
@@ -173,7 +203,7 @@ class AuditTrailServiceTests {
     @Test
     void everyEventCarriesItsOwnIdentity() {
         trail.recordLogout(SUBJECT);
-        trail.recordLoginSuccess(SUBJECT);
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
 
         assertThat(events.appended).extracting(AuditEvent::id).doesNotContainNull();
         assertThat(events.appended.get(0).id()).isNotEqualTo(events.appended.get(1).id());
@@ -181,7 +211,7 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusedLoginNamesTheReasonAndNoActor() {
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGIN_FAILURE);
@@ -199,7 +229,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedLoginAgainstAnUnknownNameRecordsNoSubjectAtAll() {
-        trail.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT);
+        trail.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD);
 
         AuditEvent event = events.only();
         assertThat(event.subjectId()).isNull();
@@ -237,8 +267,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void everyEventAboutTheLoginIdentityNamesTheScimUserResourceType() {
-        trail.recordLoginSuccess(SUBJECT);
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
+        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
         trail.recordLogout(SUBJECT);
         trail.recordLockoutSet(SUBJECT);
         trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
@@ -846,7 +876,7 @@ class AuditTrailServiceTests {
 
         assertThatThrownBy(() -> trail.recordPasswordChangeRequired(ACTOR, SUBJECT))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordLoginSuccess(SUBJECT))
+        assertThatThrownBy(() -> trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordLogout(SUBJECT))
                 .isInstanceOf(IllegalStateException.class);
@@ -875,7 +905,7 @@ class AuditTrailServiceTests {
     void aFailOpenAppendRaisesAnAlertAndDoesNotPropagate() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
         trail.recordLockoutSet(SUBJECT);
         trail.recordScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
         trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
@@ -895,7 +925,7 @@ class AuditTrailServiceTests {
     void anAlertNamesTheFailuresOwnTypeAndNothingElse() {
         events.failWith(new IllegalArgumentException("would name the submitted value"));
 
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
 
         assertThat(alerts.failures).containsExactly(IllegalArgumentException.class);
     }
@@ -961,7 +991,7 @@ class AuditTrailServiceTests {
         AuditTrail isolated = new AuditTrailService(
                 events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
 
-        isolated.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+        isolated.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
 
         assertThat(transactions.definitions)
                 .as("the fail-open append's transaction definitions")
