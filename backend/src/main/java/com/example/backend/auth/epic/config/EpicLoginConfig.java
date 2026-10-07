@@ -26,7 +26,10 @@ import org.springframework.core.env.Profiles;
 @EnableConfigurationProperties(EpicLoginProperties.class)
 public class EpicLoginConfig {
 
-    /** The one profile allowed {@code http} URLs, for the local Docker launcher (D21). */
+    /**
+     * The one profile allowed {@code http} URLs (D21) and the relative {@code fhirUser}
+     * {@code Practitioner/{id}}, both for the local Docker launcher.
+     */
     static final String DEV_PROFILE = "dev";
 
     @Bean

@@ -14,14 +14,20 @@ import java.util.Optional;
  * absorbed by configuration, never by loosening this — a Patient, a RelatedPerson, another
  * organisation's server, a versioned reference or a query all name nobody here.
  *
+ * <p>The one exception is the dev profile's, decided where D21's {@code http} allowance is
+ * ({@link EpicLoginSettings#relativeFhirUserAllowed()}): the local SMART Health IT launcher
+ * issues the relative {@code Practitioner/{id}}, which no configuration can make absolute, so in
+ * that profile alone the relative form is accepted too, under the same rules — the type exactly
+ * {@code Practitioner}, a non-blank {@code id}, and nothing after it.
+ *
  * <p>The ID it yields is what links the clinician to a User (D2): the User whose stored
  * {@code userName} equals it exactly (D3). Neither the claim nor the ID is ever logged or
  * audited (spec section 5).
  */
 public final class FhirUserReference {
 
-    /** The one resource type a clinician's {@code fhirUser} may name. */
-    private static final String PRACTITIONER = "/Practitioner/";
+    /** The one resource type a clinician's {@code fhirUser} may name, as a relative reference. */
+    private static final String PRACTITIONER = "Practitioner/";
 
     private FhirUserReference() {
     }
@@ -29,12 +35,27 @@ public final class FhirUserReference {
     /**
      * The Practitioner ID {@code fhirUser} names under {@code fhirBase}, or empty when the claim
      * is absent or has any other form.
+     *
+     * @param relativeAllowed whether the relative {@code Practitioner/{id}} is accepted as well,
+     *                        which is so in the dev profile only
      */
-    public static Optional<String> practitionerId(String fhirUser, URI fhirBase) {
-        String prefix = fhirBase.toString() + PRACTITIONER;
-        if (fhirUser == null || !fhirUser.startsWith(prefix)) {
+    public static Optional<String> practitionerId(
+            String fhirUser, URI fhirBase, boolean relativeAllowed) {
+        if (fhirUser == null) {
             return Optional.empty();
         }
+        String absolute = fhirBase.toString() + "/" + PRACTITIONER;
+        if (fhirUser.startsWith(absolute)) {
+            return idAfter(fhirUser, absolute);
+        }
+        if (relativeAllowed && fhirUser.startsWith(PRACTITIONER)) {
+            return idAfter(fhirUser, PRACTITIONER);
+        }
+        return Optional.empty();
+    }
+
+    /** What follows {@code prefix}, if it is a non-blank id with nothing after it. */
+    private static Optional<String> idAfter(String fhirUser, String prefix) {
         String id = fhirUser.substring(prefix.length());
         if (id.isBlank() || id.chars().anyMatch(FhirUserReference::endsTheId)) {
             return Optional.empty();

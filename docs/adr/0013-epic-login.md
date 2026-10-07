@@ -66,7 +66,10 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    `epicRestClient`; `iss`, `aud`/`azp`, `exp` and `iat` with a 30-second skew
    from the injected `Clock`, and `nonce`. No user-info call is made.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
-   non-blank `id` and nothing after it (`FhirUserReference`).
+   non-blank `id` and nothing after it (`FhirUserReference`). The dev profile
+   alone also accepts the relative `Practitioner/{id}` under the same rules,
+   because the local SMART launcher issues no other form; it is decided where
+   D21's `http` allowance is, and outside the dev profile parsing is unchanged.
 6. **Login decision.** `LoginService.logInFromEpic` accepts the User whose stored
    `userName` equals the id exactly, refuses a deactivated or locked one, and
    records the success exactly as password Login does, in one transaction.

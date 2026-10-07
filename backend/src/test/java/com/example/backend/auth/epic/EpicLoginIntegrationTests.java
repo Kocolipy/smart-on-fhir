@@ -218,6 +218,19 @@ class EpicLoginIntegrationTests {
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
     }
 
+    /**
+     * The dev profile alone also accepts the relative {@code Practitioner/{id}} the local SMART
+     * launcher issues as {@code fhirUser}; this context runs in it.
+     */
+    @Test
+    void inTheDevProfileARelativeFhirUserSignsThePractitionerIn() throws Exception {
+        String practitioner = provision();
+
+        Landing landing = completeAs("Practitioner/" + practitioner, launch(null));
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+    }
+
     @Test
     void theSignedInSessionIsTheUsersWithThePermissionsItsGroupsConfer() throws Exception {
         String practitioner = provisionInAdminGroup();
@@ -401,7 +414,12 @@ class EpicLoginIntegrationTests {
 
     /** The clinician authorizes at Epic as {@code practitioner}, and Epic calls us back. */
     private Landing complete(String practitioner, Launched launched) throws Exception {
-        epic.signInAs(FHIR_BASE + "/Practitioner/" + practitioner);
+        return completeAs(FHIR_BASE + "/Practitioner/" + practitioner, launched);
+    }
+
+    /** {@link #complete}, with Epic's {@code id_token} naming the clinician as {@code fhirUser}. */
+    private Landing completeAs(String fhirUser, Launched launched) throws Exception {
+        epic.signInAs(fhirUser);
         HttpResponse<Void> atEpic = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(launched.epicAuthorize()).GET().build(),
                 HttpResponse.BodyHandlers.discarding());
