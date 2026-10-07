@@ -22,8 +22,10 @@ import { freshBrowser, rowOf } from "./scim.helpers";
  */
 
 const DORMANT = "dormant";
-// Free of the user name, which the password policy refuses inside a new password.
-const CHOSEN = "Returned-After-Absence-9z";
+// Free of the user name, which the password policy refuses inside a new password. Fresh per
+// run: startup seeding resets the fixture's password but not its password history, so a
+// password an earlier run chose is still refused as a reuse.
+const CHOSEN = `Returned-After-Absence-${Date.now().toString(36)}`;
 
 const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
 
