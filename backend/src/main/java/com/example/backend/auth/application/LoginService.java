@@ -119,7 +119,7 @@ public class LoginService {
     }
 
     /**
-     * The login decision for an Epic Login (spec flow step 6): the clinician Epic proved, named
+     * The login decision for an Epic Login (ADR 0013, flow step 6): the clinician Epic proved, named
      * by the Practitioner ID its {@code fhirUser} carried, becomes an authentication — or a
      * refusal.
      *
@@ -186,8 +186,9 @@ public class LoginService {
             UUID subjectId, EpicLoginFailureReason reason) {
         attempts.recordRefusal(subjectId, audited(reason), AuditLoginMethod.SSO);
         // Generic on purpose: the reason tells whether an account exists, so it is the audit
-        // trail's alone (spec section 11), and no user field — the refused User is named there,
-        // and a session the browser happened to carry is not whom the launch was for.
+        // trail's alone (ADR 0013, "the account reasons are audit-only"), and no user field —
+        // the refused User is named there, and a session the browser happened to carry is not
+        // whom the launch was for.
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             LogEvent.refused(log, Operation.EPIC_LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
                     .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())

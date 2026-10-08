@@ -43,8 +43,8 @@ class EpicLoginConfigTests {
     }
 
     /**
-     * Every variable spec section 5 names, given as the process environment gives it — so this is
-     * the binding a deployment gets, relaxed-binding names included.
+     * Every variable ADR 0013's configuration table names, given as the process environment
+     * gives it — so this is the binding a deployment gets, relaxed-binding names included.
      */
     @Test
     void everyEpicVariableIsBoundFromTheEnvironmentAndOpensTheGate() {

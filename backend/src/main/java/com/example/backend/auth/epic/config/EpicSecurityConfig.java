@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
 /**
- * Epic Login on the application chain (spec section 6): the {@link EpicLoginFlow} the chain
+ * Epic Login on the application chain (ADR 0013, flow steps 2–4): the {@link EpicLoginFlow} the chain
  * applies while {@code APP_EPIC_ENABLED} is on, and what it is built from — discovery and Epic's
  * keys, each fetched on first use and kept (D26), so startup never contacts Epic.
  *

@@ -365,7 +365,7 @@ paths:
       summary: Get our public JWKS for Epic
       description: |
         The public keys Epic verifies our `private_key_jwt` client assertions
-        against (Epic Login, `/docs/epic-smart-login.md`, D7 and D14): the active
+        against (Epic Login, `/docs/adr/0013-epic-login.md`, D7 and D14): the active
         signing key and, when `APP_EPIC_CLIENT_NEXT_KEY` is configured, the next
         key, in that order. Each is an EC P-384 public key for ES384 signatures,
         under its configured `kid`. Assertions are signed by the active key only;
@@ -443,7 +443,7 @@ paths:
       tags: [Authentication]
       summary: Redirect to Epic's authorization endpoint
       description: |
-        The internal hop between the launch and Epic (flow step 2). With a launch
+        The internal hop between the launch and Epic (ADR 0013, flow step 2). With a launch
         pending, the browser is redirected to Epic's discovered
         `authorization_endpoint` with `response_type=code`, `client_id`, the
         registered `redirect_uri`, `scope=launch openid fhirUser`, the pending
@@ -481,7 +481,7 @@ paths:
       summary: Complete an Epic Login
       description: |
         The redirect URI registered with Epic, whose absolute URL is
-        `APP_EPIC_REDIRECT_URI` (flow steps 3–7). The pending request is taken
+        `APP_EPIC_REDIRECT_URI` (ADR 0013, flow steps 3–7). The pending request is taken
         out of the store first, atomically, so a replayed or concurrent callback
         finds none and Epic is not called (D27). `state` is compared with it in
         constant time, an OAuth `error` from Epic is refused, and `code` must be

@@ -191,6 +191,22 @@ Once `APP_EPIC_MFA_EVIDENCE_REQUIRED` is on, the `id_token`'s `amr` must name a
 second factor (or `mfa`), a token without one is refused as `INVALID_CLAIMS`,
 and the factor recorded is the one `amr` named. Password Login carries no factor.
 
+**Epic signs nobody out** — an Epic session is an ordinary session from the moment
+it starts, bounded by the idle timeout and the absolute session lifetime, and
+ended by the next launch in that browser. Signing out of Epic does not end it, and
+Epic's access token, never kept, is not revoked: ADR 0013 records both as an
+accepted risk (D13).
+
+**A suspected compromise is a deactivation** — an Epic-linked User suspected
+compromised is deactivated in the directory, which revokes its sessions once the
+deactivation commits and refuses every later launch as `ACCOUNT_DISABLED`; the
+Epic organisation, whose credential it was, is told. A forced password change does
+not apply: an Epic Login presents no password of this service's (D20).
+
+**Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
+nonce, the PKCE verifier, Epic's `id_token` and access token, our client assertion
+and our signing keys appear in no log record and no audit event (D22).
+
 ## Identity provisioning
 
 ### SCIM target model

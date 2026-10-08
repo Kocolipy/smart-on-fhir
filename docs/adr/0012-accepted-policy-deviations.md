@@ -8,7 +8,8 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Two entries are open work, not settled decisions:
-as-8 and dp-3.
+as-8 and dp-3; the Epic Login addendum below extends as-8 to the Epic signing key and
+adds ck-4 (key storage) beside it, open for the same reason.
 
 ## Context
 
@@ -97,8 +98,9 @@ change-required flag, and the session stays confined until the User replaces it
 ## Addendum: Epic Login (ADR 0013)
 
 ADR 0013 adds a second way to sign in, Epic Login — a SMART on FHIR EHR launch for
-clinicians — beside password Login, which is unchanged. It changes the ac-2 entry
-above.
+clinicians — beside password Login, which is unchanged. It changes the ac-2,
+ac-12 and as-8 entries above, and ck-4 (key storage) joins as-8 as open work. The
+entries below take precedence over those rows of the table where they differ.
 
 - **ac-2 MFA enforcement — met on the Epic path, still a deviation for password
   Login.** An Epic Login is multi-factor because the Epic organisation enforces MFA
@@ -111,6 +113,21 @@ above.
   `amr` names. Password Login stays the single-factor deviation recorded in the
   table, for the non-clinicians who use it and for the Bootstrap Admin, which can
   never sign in through Epic.
-
-The ac-12 (SSO for internal users) and as-8 (secrets management, which gains the
-Epic signing key) entries are revisited in Epic Login's documentation step.
+- **ac-12 SSO for internal users — met for clinicians, still a deviation for
+  everyone else.** Clinicians now sign in through their own organisation: an Epic
+  Login is an OpenID Connect sign-in at the Epic organisation's IdP, which proves
+  the clinician and enforces its own MFA (ADR 0013, D1, D17). Non-clinicians — and
+  the Bootstrap Admin, which can never sign in through Epic (D6) — keep password
+  Login, the application's own authentication interface, so for them ac-12 stays
+  the deviation recorded in the table. A User may hold both (ADR 0013, D5).
+- **as-8 Secrets management — still open, and extended to name the Epic signing
+  key.** Epic Login adds a private key: the EC P-384 key that signs the client
+  assertion Epic's token endpoint authenticates us by, with an optional next key
+  published for rotation (`APP_EPIC_CLIENT_KEY`, `APP_EPIC_CLIENT_NEXT_KEY`; ADR
+  0013, D7, D14, D16). Like the application's other secrets it is deployment
+  environment configuration for now, validated at startup and never logged (D22).
+  The target is an AWS KMS-held key that signs through the KMS API, so the private
+  key never leaves KMS; signing sits behind `ClientAssertionSigner`, so that
+  change replaces one implementation. **ck-4 Key storage** fails for the same key
+  and closes with it. Both stay open until the KMS signer exists, and a production
+  deployment of Epic Login must treat them as as-8 below says it must.

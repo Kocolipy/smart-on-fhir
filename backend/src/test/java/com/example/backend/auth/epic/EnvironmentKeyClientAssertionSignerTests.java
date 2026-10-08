@@ -21,7 +21,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * The {@code private_key_jwt} client assertion (D7, D14; spec section 7 step 4), as Epic's token
+ * The {@code private_key_jwt} client assertion (ADR 0013, D7, D14), as Epic's token
  * endpoint reads it: signed ES384 by the active key under the active {@code kid}, verifiable
  * against our published JWKS, identifying the client to that one endpoint for a few minutes.
  */

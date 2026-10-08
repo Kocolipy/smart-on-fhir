@@ -1,14 +1,14 @@
 package com.example.backend.auth.domain;
 
 /**
- * Why an Epic Login was refused (spec section 5, "Audit"): the closed list an Epic
+ * Why an Epic Login was refused (ADR 0013, "Audit"): the closed list an Epic
  * {@code LOGIN_FAILURE} carries exactly one of, and the {@code reason} tag of the
  * {@code epic.login} counter, both spelled as the constant's name.
  *
  * <p>The reasons are audit-only. The browser is told nothing but {@code /?signin=refused}
- * (D23), and the operational log says only "Epic sign-in refused" (spec section 11): the
- * account reasons in particular tell whether an account exists, which an investigation needs
- * and an operational log reader does not.
+ * (D23), and the operational log says only "Epic sign-in refused" (ADR 0013, "the account
+ * reasons are audit-only"): the account reasons in particular tell whether an account exists,
+ * which an investigation needs and an operational log reader does not.
  *
  * <p>The three account reasons are recorded by the login decision (flow step 6); every other
  * one by the Epic failure handler (flow step 8). Each is recorded once.

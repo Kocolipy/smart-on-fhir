@@ -22,7 +22,7 @@ import java.util.Optional;
  *
  * <p>The ID it yields is what links the clinician to a User (D2): the User whose stored
  * {@code userName} equals it exactly (D3). Neither the claim nor the ID is ever logged or
- * audited (spec section 5).
+ * audited (ADR 0013, "Audit").
  */
 public final class FhirUserReference {
 

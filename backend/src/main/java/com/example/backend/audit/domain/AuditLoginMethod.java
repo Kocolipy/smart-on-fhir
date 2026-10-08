@@ -1,7 +1,7 @@
 package com.example.backend.audit.domain;
 
 /**
- * How a Login proved who was signing in (Epic Login spec, D15): the login method a
+ * How a Login proved who was signing in (ADR 0013, D15): the login method a
  * {@code LOGIN_SUCCESS} and a {@code LOGIN_FAILURE} carry, and the operational
  * {@code session-start} with them.
  *

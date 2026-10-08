@@ -224,7 +224,7 @@ public final class EpicLoginFlow {
     }
 
     /**
-     * The section 5 failure in a token call that failed, if it is one: Epic's
+     * The error-category failure (ADR 0013, "Log") in a token call that failed, if it is one: Epic's
      * {@code invalid_client} refusing our assertion, or whatever the client met on the way —
      * no answer, a {@code 5xx}, a {@code 401}, an answer it could not read.
      */

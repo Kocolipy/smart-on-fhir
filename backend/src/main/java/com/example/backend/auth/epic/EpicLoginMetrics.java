@@ -4,7 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * The {@code epic.login} counter (spec section 5): one count per Epic Login that ended, tagged by
+ * The {@code epic.login} counter (ADR 0013, "Metrics"): one count per Epic Login that ended, tagged by
  * its {@code outcome} — {@code success}, {@code refused} or {@code unavailable} — and, for the
  * last two, its {@code reason}.
  *
