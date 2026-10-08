@@ -8,6 +8,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -79,7 +80,7 @@ class EpicLoginDecisionTests {
     void anAcceptedEpicLoginCarriesTheAuthoritiesOfAUserInNoMappedGroup() {
         users.given(ScimIdentities.user("eACTIVE"));
 
-        assertThat(login.logInFromEpic("eACTIVE", null).authentication().getAuthorities())
+        assertThat(attested("eACTIVE").authentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactlyInAnyOrder("ROLE_USER", "counter:read", "counter:write");
     }
@@ -89,7 +90,7 @@ class EpicLoginDecisionTests {
     void anAcceptedEpicLoginCarriesNoPasswordHash() {
         users.given(ScimIdentities.user("eACTIVE"));
 
-        Object principal = login.logInFromEpic("eACTIVE", null).authentication().getPrincipal();
+        Object principal = attested("eACTIVE").authentication().getPrincipal();
 
         assertThat(((UserDetails) principal).getPassword()).isNull();
     }
@@ -98,8 +99,18 @@ class EpicLoginDecisionTests {
     void anAcceptedEpicLoginNamesTheRoleMappingItsAuthoritiesWereResolvedUnder() {
         users.given(ScimIdentities.user("eACTIVE"));
 
-        assertThat(login.logInFromEpic("eACTIVE", null).roleMappingHash())
+        assertThat(attested("eACTIVE").roleMappingHash())
                 .isEqualTo(TestRoleMappings.superuserOnly().hash());
+    }
+
+    /** D17: the factor the Login was made with is on its {@code LOGIN_SUCCESS}. */
+    @Test
+    void anAcceptedEpicLoginRecordsItsMfaFactorOnTheLoginSuccess() {
+        users.given(ScimIdentities.user("eACTIVE"));
+
+        login.logInFromEpic("eACTIVE", null, AuditMfaFactor.OTP);
+
+        assertThat(audit.mfaFactors()).containsExactly(AuditMfaFactor.OTP);
     }
 
     /** D3: normalization lowercases, but Epic IDs are case-sensitive. */
@@ -286,7 +297,7 @@ class EpicLoginDecisionTests {
         users.given(ScimIdentities.user("eACTIVE"));
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            login.logInFromEpic("eACTIVE", null);
+            attested("eACTIVE");
 
             List<ILoggingEvent> records =
                     captured.withAction(Level.INFO, LogEvent.ACTION, "user-authentication");
@@ -314,9 +325,14 @@ class EpicLoginDecisionTests {
 
     /** The reason {@code practitionerId}'s Epic Login was refused for. */
     private EpicLoginFailureReason refusalOf(String practitionerId) {
-        Throwable refused = catchThrowable(() -> login.logInFromEpic(practitionerId, null));
+        Throwable refused = catchThrowable(() -> attested(practitionerId));
         assertThat(refused).as("the Epic Login was refused")
                 .isInstanceOf(EpicLoginRefusedException.class);
         return ((EpicLoginRefusedException) refused).reason();
+    }
+
+    /** An Epic Login for {@code practitionerId}, its MFA attested by the Epic organisation. */
+    private LoginService.LoginOutcome attested(String practitionerId) {
+        return login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);
     }
 }

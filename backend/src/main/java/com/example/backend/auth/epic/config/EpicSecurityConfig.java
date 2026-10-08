@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic.config;
 
+import com.example.backend.auth.domain.PendingAuthorizations;
 import com.example.backend.auth.epic.ClientAssertionSigner;
 import com.example.backend.auth.epic.EpicJwkSource;
 import com.example.backend.auth.epic.EpicLoginMetrics;
@@ -63,9 +64,11 @@ public class EpicSecurityConfig {
             ClientAssertionSigner signer,
             Clock clock,
             EpicSignIn signIn,
-            EpicSignInFailure signInFailure) {
+            EpicSignInFailure signInFailure,
+            PendingAuthorizations pendingAuthorizations) {
         return new EpicLoginFlow(settings, new EpicClientRegistrations(settings, metadata),
-                epicRestClient, epicKeys, signer, clock, signIn, signInFailure);
+                epicRestClient, epicKeys, signer, clock, signIn, signInFailure,
+                pendingAuthorizations);
     }
 
     /** Always present, so the success and failure handlers have it whether or not the flow is. */

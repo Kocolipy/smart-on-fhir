@@ -13,8 +13,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p><strong>No default credentials.</strong> Every URL, the client id and both keys default to
  * absent, because this repository is public: a default here would be a published value any
- * deployment that forgot the variable would ship. Only the switch (off) and the two timeouts
- * (2s connect, 5s read, D25) have defaults, and they are written here — not in
+ * deployment that forgot the variable would ship. Only the two switches (both off) and the two
+ * timeouts (2s connect, 5s read, D25) have defaults, and they are written here — not in
  * {@code application.yaml}, which a deployment may replace wholesale — so they are facts about the
  * code.
  *
@@ -38,6 +38,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param clientNextKeyId  {@code APP_EPIC_CLIENT_NEXT_KEY_ID}, the next key's {@code kid}
  * @param connectTimeout   {@code APP_EPIC_CONNECT_TIMEOUT}, default 2s
  * @param readTimeout      {@code APP_EPIC_READ_TIMEOUT}, default 5s
+ * @param mfaEvidenceRequired {@code APP_EPIC_MFA_EVIDENCE_REQUIRED}, default off: whether the
+ *                         {@code id_token} must carry MFA evidence in {@code amr} (D17). Off
+ *                         while the Epic organisation's MFA is an attestation; turned on once
+ *                         Epic confirms it sends the claim on an EHR launch (spec section 8)
  */
 @ConfigurationProperties("app.epic")
 public record EpicLoginProperties(
@@ -51,7 +55,8 @@ public record EpicLoginProperties(
         String clientNextKey,
         String clientNextKeyId,
         Duration connectTimeout,
-        Duration readTimeout) {
+        Duration readTimeout,
+        Boolean mfaEvidenceRequired) {
 
     /** D25's outbound connect timeout, when {@code APP_EPIC_CONNECT_TIMEOUT} is unset. */
     public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(2);
@@ -76,6 +81,7 @@ public record EpicLoginProperties(
         clientNextKeyId = unsetIfBlank(clientNextKeyId);
         connectTimeout = connectTimeout == null ? DEFAULT_CONNECT_TIMEOUT : connectTimeout;
         readTimeout = readTimeout == null ? DEFAULT_READ_TIMEOUT : readTimeout;
+        mfaEvidenceRequired = mfaEvidenceRequired != null && mfaEvidenceRequired;
     }
 
     /**
@@ -104,7 +110,7 @@ public record EpicLoginProperties(
         requirePositive(CONNECT_TIMEOUT, connectTimeout);
         requirePositive(READ_TIMEOUT, readTimeout);
         return new EpicLoginSettings(fhirBaseUrl, oauthIssuerUrl, clientId, redirectUrl,
-                signingKeys, connectTimeout, readTimeout, devProfile);
+                signingKeys, connectTimeout, readTimeout, devProfile, mfaEvidenceRequired);
     }
 
     /**
@@ -147,7 +153,8 @@ public record EpicLoginProperties(
                 + ", clientNextKey=" + redacted(clientNextKey)
                 + ", clientNextKeyId=" + clientNextKeyId
                 + ", connectTimeout=" + connectTimeout
-                + ", readTimeout=" + readTimeout + "]";
+                + ", readTimeout=" + readTimeout
+                + ", mfaEvidenceRequired=" + mfaEvidenceRequired + "]";
     }
 
     private static String redacted(String key) {

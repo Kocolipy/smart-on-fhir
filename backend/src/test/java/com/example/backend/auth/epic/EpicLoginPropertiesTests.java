@@ -16,7 +16,8 @@ class EpicLoginPropertiesTests {
         EpicLoginProperties properties = new EpicLoginProperties(true,
                 "https://fhir.example.org/api/FHIR/R4", "https://fhir.example.org/oauth2",
                 "epic-client-id", "https://app.example.org/api/auth/epic/callback",
-                "ACTIVE-KEY-SENTINEL", "active-kid", "NEXT-KEY-SENTINEL", "next-kid", null, null);
+                "ACTIVE-KEY-SENTINEL", "active-kid", "NEXT-KEY-SENTINEL", "next-kid",
+                null, null, true);
 
         assertThat(properties.toString()).isEqualTo("EpicLoginProperties[enabled=true"
                 + ", fhirBase=https://fhir.example.org/api/FHIR/R4"
@@ -25,26 +26,50 @@ class EpicLoginPropertiesTests {
                 + ", redirectUri=https://app.example.org/api/auth/epic/callback"
                 + ", clientKey=[REDACTED], clientKeyId=active-kid"
                 + ", clientNextKey=[REDACTED], clientNextKeyId=next-kid"
-                + ", connectTimeout=PT2S, readTimeout=PT5S]");
+                + ", connectTimeout=PT2S, readTimeout=PT5S, mfaEvidenceRequired=true]");
     }
 
     /** An unset key is shown as unset, so the output still says which keys were configured. */
     @Test
     void toStringShowsAnUnsetKeyAsNull() {
         EpicLoginProperties properties = new EpicLoginProperties(
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
 
         assertThat(properties.toString()).isEqualTo("EpicLoginProperties[enabled=false"
                 + ", fhirBase=null, oauthIssuer=null, clientId=null, redirectUri=null"
                 + ", clientKey=null, clientKeyId=null, clientNextKey=null, clientNextKeyId=null"
-                + ", connectTimeout=PT2S, readTimeout=PT5S]");
+                + ", connectTimeout=PT2S, readTimeout=PT5S, mfaEvidenceRequired=false]");
+    }
+
+    /**
+     * D17: until Epic confirms it sends {@code amr} on an EHR launch, an unset MFA switch leaves
+     * the Epic organisation's MFA an attestation.
+     */
+    @Test
+    void anUnsetMfaEvidenceSwitchIsOff() {
+        EpicLoginProperties properties = new EpicLoginProperties(
+                null, null, null, null, null, null, null, null, null, null, null, null);
+
+        assertThat(properties.mfaEvidenceRequired()).isFalse();
+    }
+
+    /** The switch, set, reaches the accepted configuration. */
+    @Test
+    void aSetMfaEvidenceSwitchReachesTheSettings() {
+        EpicLoginProperties properties = new EpicLoginProperties(true,
+                "https://fhir.example.org/api/FHIR/R4", "https://fhir.example.org/oauth2",
+                "epic-client-id", "https://app.example.org/api/auth/epic/callback",
+                EpicTestKeys.pem(EpicTestKeys.p384KeyPair()), "active-kid", null, null,
+                null, null, true);
+
+        assertThat(properties.validate(false).mfaEvidenceRequired()).isTrue();
     }
 
     /** An unset switch is off. */
     @Test
     void anUnsetSwitchIsOff() {
         EpicLoginProperties properties = new EpicLoginProperties(
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
 
         assertThat(properties.enabled()).isFalse();
     }
@@ -53,7 +78,7 @@ class EpicLoginPropertiesTests {
     @Test
     void aSwitchSetToFalseIsOff() {
         EpicLoginProperties properties = new EpicLoginProperties(
-                false, null, null, null, null, null, null, null, null, null, null);
+                false, null, null, null, null, null, null, null, null, null, null, null);
 
         assertThat(properties.enabled()).isFalse();
     }

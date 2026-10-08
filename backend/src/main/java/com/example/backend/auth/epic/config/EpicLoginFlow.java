@@ -1,5 +1,7 @@
 package com.example.backend.auth.epic.config;
 
+import com.example.backend.auth.domain.PendingAuthorizations;
+import com.example.backend.auth.epic.CauseChain;
 import com.example.backend.auth.epic.ClientAssertionSigner;
 import com.example.backend.auth.epic.EpicJwkSource;
 import com.example.backend.auth.epic.EpicLoginSettings;
@@ -106,6 +108,10 @@ public final class EpicLoginFlow {
 
     private final EpicSignInFailure signInFailure;
 
+    private final EpicAuthorizationRequests pendingRequests;
+
+    private final boolean mfaEvidenceRequired;
+
     EpicLoginFlow(
             EpicLoginSettings settings,
             ClientRegistrationRepository registrations,
@@ -114,7 +120,8 @@ public final class EpicLoginFlow {
             ClientAssertionSigner signer,
             Clock clock,
             AuthenticationSuccessHandler signIn,
-            EpicSignInFailure signInFailure) {
+            EpicSignInFailure signInFailure,
+            PendingAuthorizations pendingAuthorizations) {
         this.registrations = registrations;
         this.authorizationRequests =
                 new EpicAuthorizationRequestResolver(registrations, settings.fhirBase());
@@ -123,10 +130,16 @@ public final class EpicLoginFlow {
         this.clock = clock;
         this.signIn = signIn;
         this.signInFailure = signInFailure;
+        this.pendingRequests = new EpicAuthorizationRequests(pendingAuthorizations);
+        this.mfaEvidenceRequired = settings.mfaEvidenceRequired();
     }
 
     /** Adds Epic Login to {@code http}, the application chain. */
     public void applyTo(HttpSecurity http) {
+        // Ahead of the login filter: the callback's pending request is taken, and the callback
+        // checked, before Spring Security sees it (D18, D27).
+        http.addFilterBefore(new EpicCallbackFilter(pendingRequests, signInFailure),
+                OAuth2LoginAuthenticationFilter.class);
         http.oauth2Login(oauth2 -> oauth2
                 // The SPA's root is the login page; naming it keeps Spring Security from
                 // generating one of its own.
@@ -135,7 +148,8 @@ public final class EpicLoginFlow {
                 .clientRegistrationRepository(registrations)
                 .authorizedClientRepository(NOTHING_KEPT)
                 .authorizationEndpoint(authorize -> authorize
-                        .authorizationRequestResolver(authorizationRequests))
+                        .authorizationRequestResolver(authorizationRequests)
+                        .authorizationRequestRepository(pendingRequests))
                 .tokenEndpoint(token -> token.accessTokenResponseClient(tokenCall))
                 .userInfoEndpoint(userInfo -> userInfo.oidcUserService(EpicLoginFlow::identityOnly))
                 .successHandler(signIn)
@@ -219,7 +233,7 @@ public final class EpicLoginFlow {
         if (OAuth2ErrorCodes.INVALID_CLIENT.equals(failure.getError().getErrorCode())) {
             return Optional.of(EpicOutboundException.credentialRefused(400));
         }
-        return EpicOutboundException.firstInChain(failure, RestClientException.class)
+        return CauseChain.firstOf(failure, RestClientException.class)
                 .map(outbound -> EpicOutboundException.of(EpicOutboundCall.TOKEN, outbound));
     }
 
@@ -239,7 +253,8 @@ public final class EpicLoginFlow {
         OidcIdTokenValidator claims = new OidcIdTokenValidator(registration);
         claims.setClock(clock);
         claims.setClockSkew(CLOCK_SKEW);
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(List.of(timestamps, claims)));
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                List.of(timestamps, claims, new EpicIdTokenChecks(mfaEvidenceRequired))));
         return decoder;
     }
 

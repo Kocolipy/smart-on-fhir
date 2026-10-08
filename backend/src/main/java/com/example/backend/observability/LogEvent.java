@@ -216,6 +216,19 @@ public final class LogEvent {
     public static final String EPIC_CALL = "app.epic.call";
 
     /**
+     * Which input an Epic Login refused for its bounds — {@code iss}, {@code launch} or
+     * {@code code} (spec D10, D18) — on the "Epic sign-in refused" record. The field's name only,
+     * never its value (D22). Under this service's own {@code app} namespace.
+     */
+    public static final String EPIC_INPUT_FIELD = "app.epic.input.field";
+
+    /**
+     * The bound that input broke: {@code missing}, {@code length}, {@code charset} or
+     * {@code mismatch}. Under this service's own {@code app} namespace.
+     */
+    public static final String EPIC_INPUT_RULE = "app.epic.input.rule";
+
+    /**
      * Which retry of an operation a record reports, from 1. Under this service's own {@code app}
      * namespace: ECS names no such field.
      */

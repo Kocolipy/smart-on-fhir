@@ -5,6 +5,7 @@ import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -37,6 +38,8 @@ public final class RecordingAuditTrail implements AuditTrail {
 
     private final List<AuditLoginMethod> loginMethods = new ArrayList<>();
 
+    private final List<AuditMfaFactor> mfaFactors = new ArrayList<>();
+
     /** One recorded call: what it said happened, and the ids and reason it named. */
     public record Recorded(
             AuditOperation operation, UUID actorId, UUID subjectId, String detail) {
@@ -60,15 +63,26 @@ public final class RecordingAuditTrail implements AuditTrail {
         return List.copyOf(loginMethods);
     }
 
+    /**
+     * The MFA factor of every recorded {@code LOGIN_SUCCESS}, in order, {@code null} where it
+     * carried none — kept beside {@link #recorded()} for the reason {@link #loginMethods()} is.
+     */
+    public List<AuditMfaFactor> mfaFactors() {
+        return java.util.Collections.unmodifiableList(new ArrayList<>(mfaFactors));
+    }
+
     public void reset() {
         recorded.clear();
         loginMethods.clear();
+        mfaFactors.clear();
     }
 
     @Override
-    public void recordLoginSuccess(UUID accountId, AuditLoginMethod method) {
+    public void recordLoginSuccess(
+            UUID accountId, AuditLoginMethod method, AuditMfaFactor factor) {
         recorded.add(new Recorded(AuditOperation.LOGIN_SUCCESS, accountId, accountId, null));
         loginMethods.add(method);
+        mfaFactors.add(factor);
     }
 
     @Override

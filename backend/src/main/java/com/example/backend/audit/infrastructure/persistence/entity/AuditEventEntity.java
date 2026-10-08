@@ -101,6 +101,10 @@ public class AuditEventEntity {
     @Column(name = "login_method", updatable = false)
     private String loginMethod;
 
+    /** The MFA factor of an Epic {@code LOGIN_SUCCESS}; null for anything else. */
+    @Column(name = "mfa_factor", updatable = false)
+    private String mfaFactor;
+
     protected AuditEventEntity() {
     }
 
@@ -123,7 +127,8 @@ public class AuditEventEntity {
             String filterShape,
             String roleName,
             String permissions,
-            String loginMethod) {
+            String loginMethod,
+            String mfaFactor) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -143,6 +148,7 @@ public class AuditEventEntity {
         this.roleName = roleName;
         this.permissions = permissions;
         this.loginMethod = loginMethod;
+        this.mfaFactor = mfaFactor;
     }
 
     /*

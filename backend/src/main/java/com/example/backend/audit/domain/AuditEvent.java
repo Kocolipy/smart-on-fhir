@@ -57,6 +57,10 @@ import java.util.UUID;
  * @param loginMethod   how a {@code LOGIN_SUCCESS} or {@code LOGIN_FAILURE} was attempted —
  *                      {@code password} or {@code sso}, rendered from {@link AuditLoginMethod}
  *                      (D15) — or {@code null} for every other operation
+ * @param mfaFactor     the MFA factor an Epic {@code LOGIN_SUCCESS} was made with (D17) —
+ *                      {@code idp-attested} while the Epic organisation's MFA is attested, or the
+ *                      factor its {@code amr} named — rendered from {@link AuditMfaFactor}, or
+ *                      {@code null} for every other event, a password Login's included
  */
 public record AuditEvent(
         UUID id,
@@ -77,7 +81,8 @@ public record AuditEvent(
         String filterShape,
         String role,
         List<String> permissions,
-        String loginMethod) {
+        String loginMethod,
+        String mfaFactor) {
 
     /**
      * A SCIM connector, as the audit trail names it.
@@ -159,6 +164,6 @@ public record AuditEvent(
             String role) {
         this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
                 changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
-                filterShape, role, List.of(), null);
+                filterShape, role, List.of(), null, null);
     }
 }

@@ -299,19 +299,27 @@ with no Epic variable at all, and every `/api/auth/epic/**` path answers `404`
 ahead of the session, CSRF and authorization checks, mirroring
 `APP_SCIM_ENABLED=false`.
 
-| Variable                      | Required when enabled | Default | Meaning                                                                   |
-| ----------------------------- | --------------------- | ------- | ------------------------------------------------------------------------- |
-| `APP_EPIC_ENABLED`            | —                     | `false` | The feature switch                                                        |
-| `APP_EPIC_FHIR_BASE`          | yes                   | none    | The one allowed launch `iss`, sent as `aud`, and the prefix of `fhirUser` |
-| `APP_EPIC_OAUTH_ISSUER`       | yes                   | none    | OIDC issuer, for discovery and the `id_token` `iss`                       |
-| `APP_EPIC_CLIENT_ID`          | yes                   | none    | Epic client id                                                            |
-| `APP_EPIC_REDIRECT_URI`       | yes                   | none    | Absolute callback URL as registered (path `/api/auth/epic/callback`)      |
-| `APP_EPIC_CLIENT_KEY`         | yes                   | none    | Active signing key: EC P-384 private key, PKCS#8 PEM                      |
-| `APP_EPIC_CLIENT_KEY_ID`      | yes                   | none    | The active key's `kid`                                                    |
-| `APP_EPIC_CLIENT_NEXT_KEY`    | no                    | none    | Next key, published but never used to sign; set with its `kid`            |
-| `APP_EPIC_CLIENT_NEXT_KEY_ID` | no                    | none    | The next key's `kid`; must differ from the active one                     |
-| `APP_EPIC_CONNECT_TIMEOUT`    | no                    | `2s`    | Connect timeout for every outbound Epic call                              |
-| `APP_EPIC_READ_TIMEOUT`       | no                    | `5s`    | Read timeout for every outbound Epic call                                 |
+| Variable                         | Required when enabled | Default | Meaning                                                                   |
+| -------------------------------- | --------------------- | ------- | ------------------------------------------------------------------------- |
+| `APP_EPIC_ENABLED`               | —                     | `false` | The feature switch                                                        |
+| `APP_EPIC_FHIR_BASE`             | yes                   | none    | The one allowed launch `iss`, sent as `aud`, and the prefix of `fhirUser` |
+| `APP_EPIC_OAUTH_ISSUER`          | yes                   | none    | OIDC issuer, for discovery and the `id_token` `iss`                       |
+| `APP_EPIC_CLIENT_ID`             | yes                   | none    | Epic client id                                                            |
+| `APP_EPIC_REDIRECT_URI`          | yes                   | none    | Absolute callback URL as registered (path `/api/auth/epic/callback`)      |
+| `APP_EPIC_CLIENT_KEY`            | yes                   | none    | Active signing key: EC P-384 private key, PKCS#8 PEM                      |
+| `APP_EPIC_CLIENT_KEY_ID`         | yes                   | none    | The active key's `kid`                                                    |
+| `APP_EPIC_CLIENT_NEXT_KEY`       | no                    | none    | Next key, published but never used to sign; set with its `kid`            |
+| `APP_EPIC_CLIENT_NEXT_KEY_ID`    | no                    | none    | The next key's `kid`; must differ from the active one                     |
+| `APP_EPIC_CONNECT_TIMEOUT`       | no                    | `2s`    | Connect timeout for every outbound Epic call                              |
+| `APP_EPIC_READ_TIMEOUT`          | no                    | `5s`    | Read timeout for every outbound Epic call                                 |
+| `APP_EPIC_MFA_EVIDENCE_REQUIRED` | no                    | `false` | Require MFA evidence in the `id_token`'s `amr` (D17); see below           |
+
+`APP_EPIC_MFA_EVIDENCE_REQUIRED` stays off until Epic confirms it sends `amr` on
+an EHR launch (spec section 8). Off, the Epic organisation's MFA is an
+attestation and every Epic `LOGIN_SUCCESS` records the factor `idp-attested`.
+On, a token whose `amr` names no RFC 8176 second factor and not `mfa` is
+refused as `INVALID_CLAIMS`, and the factor recorded is the one `amr` named;
+ADR 0013 lists the factors accepted.
 
 **No default credentials**: this repository is public, so no URL, client id or
 key has a fallback anywhere. With the switch on, startup fails fast when a
