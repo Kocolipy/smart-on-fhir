@@ -78,6 +78,9 @@ public final class FakeEpic implements AutoCloseable {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /** The exchange attribute a {@code /token} request's form is kept under once it is read. */
+    private static final String TOKEN_FORM = "fake-epic.token-form";
+
     /** The query on the JWKS URI discovery advertises. */
     public static final String JWKS_QUERY = "release=current-fake-epic-query";
 
@@ -266,11 +269,34 @@ public final class FakeEpic implements AutoCloseable {
     }
 
     /**
-     * Every {@code /token} request's form, in order. Test-only: the fake is Epic, the one party
-     * that is sent the code and the verifier.
+     * Every {@code /token} request's form, in order, whether or not {@code /token} answered it.
+     * Test-only: the fake is Epic, the one party that is sent the code and the verifier.
      */
     public List<Map<String, String>> tokenRequests() {
         return List.copyOf(tokenForms);
+    }
+
+    /**
+     * Records in {@code seen} every ADR 0013 D22 value this instance was sent or handed out: each
+     * authorization request's {@code state}, {@code nonce} and {@code launch}; each token
+     * request's {@code code}, verifier and client assertion; and each {@code id_token} it minted,
+     * with the access token beside it.
+     */
+    D22Values handled(D22Values seen) {
+        for (Map<String, String> authorize : authorizeRequests()) {
+            seen.add("state", authorize.get("state"))
+                    .add("nonce", authorize.get("nonce"))
+                    .add("launch", authorize.get("launch"));
+        }
+        for (Map<String, String> token : tokenRequests()) {
+            seen.add("code", token.get("code"))
+                    .add("code_verifier", token.get("code_verifier"))
+                    .add("client_assertion", token.get("client_assertion"));
+        }
+        for (String idToken : List.copyOf(idTokens)) {
+            seen.add("id_token", idToken).add("access_token", accessToken);
+        }
+        return seen;
     }
 
     /**
@@ -331,6 +357,12 @@ public final class FakeEpic implements AutoCloseable {
                     (name, values) -> headers.put(name.toLowerCase(java.util.Locale.ROOT),
                             List.copyOf(values)));
             tokenRequestHeaders.add(headers);
+            // Read here rather than in the handler, so a request the test made /token fail is
+            // recorded too: what we sent Epic is the same whether or not Epic answers it.
+            Map<String, String> form = parse(new String(
+                    exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            tokenForms.add(form);
+            exchange.setAttribute(TOKEN_FORM, form);
         }
         Failure failure = failures.get(endpoint);
         if (failure == null) {
@@ -422,9 +454,8 @@ public final class FakeEpic implements AutoCloseable {
     }
 
     private void token(HttpExchange exchange) throws IOException {
-        Map<String, String> form = parse(new String(
-                exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-        tokenForms.add(form);
+        @SuppressWarnings("unchecked")
+        Map<String, String> form = (Map<String, String>) exchange.getAttribute(TOKEN_FORM);
         if (tokenDelay.isPositive()) {
             try {
                 Thread.sleep(tokenDelay);

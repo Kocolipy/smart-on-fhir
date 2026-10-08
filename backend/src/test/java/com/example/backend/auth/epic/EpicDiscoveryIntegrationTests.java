@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.auth.epic.EpicMeters.Ending;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
 import io.micrometer.core.instrument.Counter;
@@ -13,19 +15,24 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
@@ -54,7 +61,9 @@ class EpicDiscoveryIntegrationTests {
 
     private static final String FHIR_BASE = "https://fhir.example.org/api/FHIR/R4";
 
-    private static final int EPIC_PORT = freePort();
+    private static final int EPIC_PORT = EpicTestFixtures.freePort();
+
+    private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
 
     @DynamicPropertySource
     static void epicLoginOn(DynamicPropertyRegistry registry) {
@@ -64,7 +73,7 @@ class EpicDiscoveryIntegrationTests {
         registry.add("app.epic.client-id", () -> "epic-client-id");
         registry.add("app.epic.redirect-uri",
                 () -> "https://app.example.org/api/auth/epic/callback");
-        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(EpicTestKeys.p384KeyPair()));
+        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
         registry.add("app.epic.client-key-id", () -> "active-kid");
         registry.add("app.epic.connect-timeout", () -> "1s");
         registry.add("app.epic.read-timeout", () -> "1s");
@@ -92,6 +101,9 @@ class EpicDiscoveryIntegrationTests {
 
     @Autowired
     private MeterRegistry meters;
+
+    @Autowired
+    private Environment environment;
 
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
@@ -214,15 +226,71 @@ class EpicDiscoveryIntegrationTests {
                 .containsEntry(LogEvent.EPIC_CALL, "discovery"));
     }
 
+    // ---- D22 and the meters, on each way discovery fails (ADR 0013, "Masking", "Metrics") -------
+
+    /**
+     * Each way discovery fails, with how the Login ends. The {@code epic.outbound.errors} counter
+     * moves for a call that got no answer or a {@code 5xx} only, and every launch here times
+     * discovery once: a failed read is never kept.
+     */
+    static Stream<Arguments> discoveryFailures() {
+        return Stream.of(
+                Arguments.of(FakeEpic.Failure.STALL, Ending.unavailable("discovery", "discovery")),
+                Arguments.of(FakeEpic.Failure.SERVER_ERROR,
+                        Ending.unavailable("discovery", "discovery")),
+                Arguments.of(FakeEpic.Failure.MALFORMED, Ending.refused("IDP_ERROR", "discovery")));
+    }
+
+    /**
+     * The one D22 value a launch has handled when discovery fails — the {@code launch}, held for
+     * the authorize hop — and the signing key's material, in neither the log the launch wrote nor
+     * the audit trail. {@code EpicLoginRedactionIntegrationTests} holds every later path to it.
+     */
+    @ParameterizedTest(name = "a discovery {0} puts no D22 value in the log or the audit trail")
+    @MethodSource("discoveryFailures")
+    void aDiscoveryFailurePutsNoD22ValueInTheLogOrTheAuditTrail(FakeEpic.Failure failure,
+            Ending ending) throws Exception {
+        epic.failing(FakeEpic.Endpoint.DISCOVERY, failure);
+        D22Values seen = new D22Values().signingKey("active signing key", ACTIVE_KEY);
+
+        String log;
+        try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
+            authorize(seen.launch());
+            log = logs.lines();
+        }
+
+        assertThat(log).as("the records the launch wrote").isNotEmpty();
+        seen.assertNoneIn("the log", log);
+        seen.assertNoneInTheAuditTrail(jdbc);
+    }
+
+    @ParameterizedTest(name = "a discovery {0} moves the Epic Login meters under the expected tags")
+    @MethodSource("discoveryFailures")
+    void aDiscoveryFailureMovesTheEpicLoginMetersUnderTheExpectedTags(FakeEpic.Failure failure,
+            Ending ending) throws Exception {
+        epic.failing(FakeEpic.Endpoint.DISCOVERY, failure);
+        Map<String, Double> before = EpicMeters.read(meters);
+
+        authorize();
+
+        assertThat(EpicMeters.change(before, EpicMeters.read(meters)))
+                .isEqualTo(ending.expected());
+    }
+
     /** The launch session, and the authorize hop's answer to it. */
     private record Hop(Cookie launched, MvcResult result) {
     }
 
     /** Epic opens the launch URL, and the browser follows it to the authorize hop. */
     private Hop authorize() throws Exception {
+        return authorize("launch-context-from-hyperspace");
+    }
+
+    /** {@link #authorize()}, Epic's launch URL carrying {@code launchValue} as {@code launch}. */
+    private Hop authorize(String launchValue) throws Exception {
         MvcResult launch = mvc.perform(get("/api/auth/epic/launch")
-                        .param("iss", FHIR_BASE)
-                        .param("launch", "launch-context-from-hyperspace"))
+                        .queryParam("iss", FHIR_BASE)
+                        .queryParam("launch", launchValue))
                 .andReturn();
         assertThat(launch.getResponse().getStatus()).as("the launch redirects").isEqualTo(302);
         Cookie issued = launch.getResponse().getCookie(sessionCookieName);
@@ -251,18 +319,5 @@ class EpicDiscoveryIntegrationTests {
 
     private static String sessionId(Cookie session) {
         return new String(Base64.getDecoder().decode(session.getValue()), StandardCharsets.UTF_8);
-    }
-
-    private static int freePort() {
-        // Test-only: binds an ephemeral local port just to learn a free number for the fake
-        // Epic, and closes at once. Nothing is ever sent over it, so there is no traffic for
-        // TLS to protect.
-        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
-        try (ServerSocket socket = new ServerSocket(0)) {
-            socket.setReuseAddress(true);
-            return socket.getLocalPort();
-        } catch (IOException unavailable) {
-            throw new IllegalStateException(unavailable);
-        }
     }
 }
