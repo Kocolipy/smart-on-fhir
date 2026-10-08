@@ -259,6 +259,15 @@ under) and its OpenID Connect issuer (`APP_EPIC_OAUTH_ISSUER`). Exactly one per
 deployment, because a Practitioner ID is unique only within one organisation.
 _Avoid_: SSO, sign-on, identity provider (for the organisation)
 
+**MFA factor**:
+The second factor an EHR launch's Login was made with, recorded on its
+`LOGIN_SUCCESS`. While Epic has not confirmed that the `id_token` carries `amr`,
+it is `idp-attested`: the Epic issuer enforces MFA at its own sign-in. Once
+`APP_EPIC_MFA_EVIDENCE_REQUIRED` is on, it is the possession or inherence factor
+`amr` named (`otp`, `hwk`, …), or `mfa` when `amr` names none, and a launch
+without one is refused. A password Login carries no MFA factor.
+_Avoid_: MFA method, authentication method, acr
+
 **Failure run**:
 The consecutive failures recorded against one User: rejected Logins, and wrong
 current passwords on the self-service password change. It counts password

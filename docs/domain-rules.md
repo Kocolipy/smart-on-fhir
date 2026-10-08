@@ -154,6 +154,43 @@ Login paths. The authorities are the ones password Login gives the same User.
 the rest of the token response are discarded; nothing from Epic is stored, and no
 FHIR API is called.
 
+**Input bounds** — what the browser hands a Login is checked before it is held,
+sent to Epic or redeemed:
+
+| Input              | Bound                                                                                              | Refused as       |
+| ------------------ | -------------------------------------------------------------------------------------------------- | ---------------- |
+| `iss` (launch)     | present, and exactly `APP_EPIC_FHIR_BASE` as a string: no case folding, no trailing-slash trimming | `ISS_MISMATCH`   |
+| `launch` (launch)  | 1–8192 characters of printable ASCII (`!` to `~`), no whitespace                                   | `INVALID_LAUNCH` |
+| `state` (callback) | the pending request's own, compared in constant time                                               | `INVALID_STATE`  |
+| `code` (callback)  | 1–8192 characters of printable ASCII, no whitespace                                                | `INVALID_CODE`   |
+
+A refused input is logged by its field and the rule it broke — `missing`,
+`length`, `charset` or `mismatch` — and never by its value.
+
+**Single use** — the pending authorization request a launch leaves (its `state`,
+nonce and PKCE verifier) belongs to the browser session that made it, and the
+first callback takes it, before checking anything. A second callback with the
+same `state` — replayed, or racing the first — finds nothing and is refused as
+`INVALID_STATE` without Epic being called, so at most one of them signs anyone
+in. Epic's authorization codes are single-use besides.
+
+**Protocol refusals** — anything else short of a Login lands at
+`/?signin=refused` exactly as an account refusal does, its session ended, and
+is audited once with no subject and its reason: Epic answering the callback with
+an OAuth error (`IDP_ERROR`), Epic's token endpoint refusing the code
+(`TOKEN_EXCHANGE_FAILED`), an `id_token` whose signature does not verify or is
+not RS256 (`INVALID_SIGNATURE`), one whose `iss`, `aud`, `azp`, `exp`, `iat`
+(30 seconds of clock skew either way) or `nonce` fails (`INVALID_CLAIMS`), and a
+`fhirUser` that is not a Practitioner of this deployment's FHIR base
+(`INVALID_FHIR_USER`).
+
+**MFA** — an Epic Login is multi-factor because the Epic organisation enforces
+MFA at its own sign-in. Until Epic confirms the `id_token` says so, that is an
+attestation, and each Epic `LOGIN_SUCCESS` records its factor as `idp-attested`.
+Once `APP_EPIC_MFA_EVIDENCE_REQUIRED` is on, the `id_token`'s `amr` must name a
+second factor (or `mfa`), a token without one is refused as `INVALID_CLAIMS`,
+and the factor recorded is the one `amr` named. Password Login carries no factor.
+
 ## Identity provisioning
 
 ### SCIM target model

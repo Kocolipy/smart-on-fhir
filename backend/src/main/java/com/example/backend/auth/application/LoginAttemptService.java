@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
@@ -142,18 +143,22 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordSuccess(String username, String retainedSessionId) {
-        recordSuccess(username, retainedSessionId, AuditLoginMethod.PASSWORD);
+        recordSuccess(username, retainedSessionId, AuditLoginMethod.PASSWORD, null);
     }
 
     /**
      * {@link #recordSuccess(String, String)} for a Login made by {@code method}: an Epic Login's
      * success is recorded exactly as a password Login's — failure run cleared, dormancy basis
      * moved, {@code LOGIN_SUCCESS} fail-closed, other sessions revoked after commit — and differs
-     * only in the method its {@code LOGIN_SUCCESS} names (D15).
+     * only in the method its {@code LOGIN_SUCCESS} names (D15) and the MFA factor it carries
+     * (D17).
+     *
+     * @param mfaFactor the MFA factor an Epic Login was made with, or {@code null} for a password
+     *     Login, which carries none
      */
     @Transactional
-    public void recordSuccess(
-            String username, String retainedSessionId, AuditLoginMethod method) {
+    public void recordSuccess(String username, String retainedSessionId,
+            AuditLoginMethod method, AuditMfaFactor mfaFactor) {
         find(username).ifPresent(user -> {
             ScimLoginState cleared = user.login().withFailureRunCleared();
             if (cleared != user.login()) {
@@ -169,7 +174,7 @@ public class LoginAttemptService {
             if (!user.login().isPasswordChangeRequired()) {
                 users.recordAuthentication(user.id(), clock.instant());
             }
-            audit.recordLoginSuccess(user.id(), method);
+            audit.recordLoginSuccess(user.id(), method, mfaFactor);
             afterCommit.run(() -> sessions.revokeAllExcept(user.id(), retainedSessionId));
         });
     }

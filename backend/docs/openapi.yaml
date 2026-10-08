@@ -400,10 +400,12 @@ paths:
         (D9): any session the browser holds is ended here, whoever it belongs
         to, and the launch continues in a new one.
 
-        `iss` must equal `APP_EPIC_FHIR_BASE` exactly (D10) and `launch` must be
-        present; the launch is then held in the new session and the browser is
-        sent on to `/api/auth/epic/authorize`. Anything else lands at
-        `/?signin=refused`, with no further detail.
+        `iss` must equal `APP_EPIC_FHIR_BASE` exactly, compared as a string and
+        never normalized (D10), and `launch` must be 1–8192 characters of
+        printable ASCII with no whitespace (D18); the launch is then held in the
+        new session and the browser is sent on to `/api/auth/epic/authorize`.
+        Anything else lands at `/?signin=refused`, with no further detail, and
+        is audited as `ISS_MISMATCH` or `INVALID_LAUNCH`.
 
         Public: the browser arrives from Epic with no session of ours. A
         navigation, not an API call: every answer is a redirect.
@@ -446,7 +448,8 @@ paths:
         `authorization_endpoint` with `response_type=code`, `client_id`, the
         registered `redirect_uri`, `scope=launch openid fhirUser`, the pending
         `launch`, `aud` set to `APP_EPIC_FHIR_BASE`, a `state`, a `nonce`, and a
-        PKCE S256 `code_challenge`. The pending request is kept in the session.
+        PKCE S256 `code_challenge`. The pending request is kept for this session
+        alone, in the session store, until the callback takes it (D27).
 
         Epic's endpoints come from OIDC discovery, read here on first use and kept
         for 24 hours (D26). When Epic gives no answer within the read or connect
@@ -479,9 +482,14 @@ paths:
       description: |
         The redirect URI registered with Epic, whose absolute URL is
         `APP_EPIC_REDIRECT_URI` (flow steps 3–7). The pending request is taken
-        out of the session, `state` is checked, and the code is redeemed once at
-        Epic's token endpoint with the PKCE verifier and our `private_key_jwt`
-        client assertion. The `id_token` is validated against Epic's JWKS, and its
+        out of the store first, atomically, so a replayed or concurrent callback
+        finds none and Epic is not called (D27). `state` is compared with it in
+        constant time, an OAuth `error` from Epic is refused, and `code` must be
+        1–8192 characters of printable ASCII with no whitespace (D18). The code
+        is then redeemed once at Epic's token endpoint with the PKCE verifier and
+        our `private_key_jwt` client assertion. The `id_token` is validated
+        against Epic's JWKS — RS256 only; `iss`, `aud`, `azp`, `exp` and `iat`
+        with a 30-second skew; the `nonce`, in constant time — and its
         `fhirUser` must be `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. The User
         whose `userName` equals that id exactly is signed in as password Login
         would sign it in — the same authorities, a rotated session id, the
@@ -489,14 +497,17 @@ paths:
         SPA's `GET /api/auth/me` takes over. Epic's access token and the rest of
         its token response are discarded (D8).
 
-        Any OAuth error or failed check lands at `/?signin=refused`. Epic being
+        Any OAuth error or failed check lands at `/?signin=refused`, audited
+        with its reason (`INVALID_STATE`, `INVALID_CODE`, `IDP_ERROR`,
+        `TOKEN_EXCHANGE_FAILED`, `INVALID_SIGNATURE`, `INVALID_CLAIMS`,
+        `INVALID_FHIR_USER`, or an account reason). Epic being
         unavailable — no answer within the timeouts, or a `5xx`, from discovery,
         the JWKS or the token endpoint — lands at `/?signin=unavailable` instead.
         The token call is made exactly once, never retried (D26). Either way the
         session is ended, with no further detail (D23, D24).
 
-        Served by the OAuth 2.0 login filter on the application chain rather than
-        by a controller.
+        Served by filters on the application chain — the callback check ahead of
+        the OAuth 2.0 login filter — rather than by a controller.
       operationId: completeEpicLogin
       security: []
       parameters:
@@ -3437,6 +3448,31 @@ components:
             D15; one Epic organisation per deployment, so `sso` means Epic).
             `null` for every other operation, and for a login recorded before
             the method was.
+        mfaFactor:
+          type: [string, "null"]
+          enum:
+            [
+              idp-attested,
+              mfa,
+              otp,
+              hwk,
+              swk,
+              sms,
+              tel,
+              sc,
+              fpt,
+              face,
+              iris,
+              retina,
+              vbm,
+              null,
+            ]
+          description: |
+            The MFA factor an Epic `LOGIN_SUCCESS` was made with (Epic Login, D17):
+            `idp-attested` while the Epic organisation's MFA is an attestation,
+            or — once `APP_EPIC_MFA_EVIDENCE_REQUIRED` is on — the RFC 8176 factor
+            the `id_token`'s `amr` named. `null` for every other event, a password
+            Login's included, and for a login recorded before the factor was.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]

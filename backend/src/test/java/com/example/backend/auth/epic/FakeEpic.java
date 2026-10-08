@@ -43,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -143,6 +144,21 @@ public final class FakeEpic implements AutoCloseable {
             Collections.synchronizedList(new ArrayList<>());
 
     private volatile String fhirUser;
+
+    private final List<Map<String, String>> tokenForms =
+            Collections.synchronizedList(new ArrayList<>());
+
+    private final Map<String, String> rememberedAtAuthorize = new ConcurrentHashMap<>();
+
+    private volatile String authorizeError;
+
+    private volatile Duration tokenDelay = Duration.ZERO;
+
+    private volatile Consumer<JWTClaimsSet.Builder> idTokenClaims = claims -> { };
+
+    private volatile JWSAlgorithm idTokenAlgorithm = JWSAlgorithm.RS256;
+
+    private volatile boolean forgingIdTokenSignatures;
 
     /** The access token this instance hands out, which nothing on our side may keep. */
     public final String accessToken = "epic-access-" + UUID.randomUUID();
@@ -249,6 +265,51 @@ public final class FakeEpic implements AutoCloseable {
         rejectingOurAssertion = true;
     }
 
+    /**
+     * Every {@code /token} request's form, in order. Test-only: the fake is Epic, the one party
+     * that is sent the code and the verifier.
+     */
+    public List<Map<String, String>> tokenRequests() {
+        return List.copyOf(tokenForms);
+    }
+
+    /**
+     * From now on {@code /authorize} remembers {@code value} as the request's {@code parameter}
+     * instead of what it was sent, so {@code /token} holds the redemption to it: a
+     * {@code redirect_uri} or a {@code code_challenge} our token call cannot match.
+     */
+    public void rememberingAtAuthorize(String parameter, String value) {
+        rememberedAtAuthorize.put(parameter, value);
+    }
+
+    /** From now on {@code /authorize} answers with the OAuth {@code error}, and no code. */
+    public void answeringAuthorizeWithError(String error) {
+        authorizeError = error;
+    }
+
+    /** From now on {@code /token} waits {@code delay} before it answers. */
+    public void slowingTokenBy(Duration delay) {
+        tokenDelay = delay;
+    }
+
+    /** From now on every {@code id_token}'s claims are what they were, then {@code change}d. */
+    public void mintingIdTokensWith(Consumer<JWTClaimsSet.Builder> change) {
+        idTokenClaims = change;
+    }
+
+    /** From now on every {@code id_token} is signed with {@code algorithm}, by the same RSA key. */
+    public void signingIdTokensWith(JWSAlgorithm algorithm) {
+        idTokenAlgorithm = algorithm;
+    }
+
+    /**
+     * From now on every {@code id_token} is signed by a key Epic never published, under the
+     * {@code kid} of the one it did: a forged signature.
+     */
+    public void forgingIdTokenSignatures() {
+        forgingIdTokenSignatures = true;
+    }
+
     /** Why {@code /token} refused each request it refused; empty when it refused none. */
     public List<String> tokenRefusals() {
         return List.copyOf(tokenRefusals);
@@ -343,10 +404,18 @@ public final class FakeEpic implements AutoCloseable {
     private void authorize(HttpExchange exchange) throws IOException {
         Map<String, String> query = parse(exchange.getRequestURI().getRawQuery());
         authorizeRequests.add(query);
-        String code = "code-" + UUID.randomUUID();
-        issuedCodes.put(code, query);
-        String location = query.get("redirect_uri")
-                + "?code=" + encode(code) + "&state=" + encode(query.get("state"));
+        String location;
+        if (authorizeError != null) {
+            location = query.get("redirect_uri") + "?error=" + encode(authorizeError)
+                    + "&state=" + encode(query.get("state"));
+        } else {
+            String code = "code-" + UUID.randomUUID();
+            Map<String, String> remembered = new LinkedHashMap<>(query);
+            remembered.putAll(rememberedAtAuthorize);
+            issuedCodes.put(code, remembered);
+            location = query.get("redirect_uri")
+                    + "?code=" + encode(code) + "&state=" + encode(query.get("state"));
+        }
         exchange.getResponseHeaders().add("Location", location);
         exchange.sendResponseHeaders(302, -1);
         exchange.close();
@@ -355,6 +424,14 @@ public final class FakeEpic implements AutoCloseable {
     private void token(HttpExchange exchange) throws IOException {
         Map<String, String> form = parse(new String(
                 exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        tokenForms.add(form);
+        if (tokenDelay.isPositive()) {
+            try {
+                Thread.sleep(tokenDelay);
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
+            }
+        }
         String refusal = rejectingOurAssertion ? "assertion rejected" : refusalOf(form);
         if (refusal != null) {
             tokenRefusals.add(refusal);
@@ -430,20 +507,20 @@ public final class FakeEpic implements AutoCloseable {
 
     private String idToken(String nonce) {
         Instant now = Instant.now();
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
                 .issuer(issuer)
                 .subject("epic-subject-" + UUID.randomUUID())
                 .audience(clientId)
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(now.plus(Duration.ofMinutes(5))))
                 .claim("nonce", nonce)
-                .claim("fhirUser", fhirUser)
-                .build();
+                .claim("fhirUser", fhirUser);
+        idTokenClaims.accept(claims);
         RSAKey key = signingKey;
-        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                .type(JOSEObjectType.JWT).keyID(key.getKeyID()).build(), claims);
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(idTokenAlgorithm)
+                .type(JOSEObjectType.JWT).keyID(key.getKeyID()).build(), claims.build());
         try {
-            jwt.sign(new RSASSASigner(key));
+            jwt.sign(new RSASSASigner(forgingIdTokenSignatures ? newSigningKey() : key));
         } catch (JOSEException impossible) {
             throw new IllegalStateException(impossible);
         }

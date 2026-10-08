@@ -36,6 +36,33 @@ public enum AuditRefusalReason {
      */
     EPIC_UNAVAILABLE,
 
+    /** An Epic launch whose {@code launch} was missing or outside D18's bounds. */
+    INVALID_LAUNCH,
+
+    /** An Epic launch whose {@code iss} was missing or not exactly the configured FHIR base. */
+    ISS_MISMATCH,
+
+    /** An Epic callback with no pending authorization request, or a {@code state} that differs. */
+    INVALID_STATE,
+
+    /** An Epic callback whose {@code code} was missing or outside D18's bounds. */
+    INVALID_CODE,
+
+    /** Epic answered with an OAuth {@code error}, or an unusable discovery document. */
+    IDP_ERROR,
+
+    /** Epic's token endpoint refused the code exchange. */
+    TOKEN_EXCHANGE_FAILED,
+
+    /** An Epic {@code id_token} whose signature could not be verified. */
+    INVALID_SIGNATURE,
+
+    /** An Epic {@code id_token} claim that failed, the MFA evidence D17 requires included. */
+    INVALID_CLAIMS,
+
+    /** An Epic {@code id_token} whose {@code fhirUser} names no Practitioner here. */
+    INVALID_FHIR_USER,
+
     /** A refusal this service does not have its own name for yet. */
     OTHER
 }

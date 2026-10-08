@@ -86,24 +86,7 @@ public final class EpicOutboundException extends AuthenticationException {
 
     /** The first Epic call failure in {@code failure}'s cause chain, if there is one. */
     public static Optional<EpicOutboundException> in(Throwable failure) {
-        return firstInChain(failure, EpicOutboundException.class);
-    }
-
-    /**
-     * The first {@code type} in {@code failure}'s cause chain, {@code failure} itself included,
-     * if there is one. A cause that points to itself ends the walk.
-     */
-    public static <T extends Throwable> Optional<T> firstInChain(
-            Throwable failure, Class<T> type) {
-        for (Throwable link = failure; link != null; link = link.getCause()) {
-            if (type.isInstance(link)) {
-                return Optional.of(type.cast(link));
-            }
-            if (link.getCause() == link) {
-                break;
-            }
-        }
-        return Optional.empty();
+        return CauseChain.firstOf(failure, EpicOutboundException.class);
     }
 
     /** Whether Epic was unavailable (D23): no answer, or a {@code 5xx}. */

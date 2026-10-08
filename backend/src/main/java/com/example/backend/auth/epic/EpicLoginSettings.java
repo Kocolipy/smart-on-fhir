@@ -17,6 +17,9 @@ import java.time.Duration;
  * @param relativeFhirUserAllowed whether {@code fhirUser} may also be the relative
  *                       {@code Practitioner/{id}} the local SMART launcher issues: the dev
  *                       profile only, as with D21's {@code http} allowance
+ * @param mfaEvidenceRequired whether the {@code id_token} must carry MFA evidence in
+ *                       {@code amr}, the factor recorded being taken from it (D17); otherwise
+ *                       the factor is recorded as {@code idp-attested}
  */
 public record EpicLoginSettings(
         URI fhirBase,
@@ -26,5 +29,6 @@ public record EpicLoginSettings(
         EpicSigningKeys signingKeys,
         Duration connectTimeout,
         Duration readTimeout,
-        boolean relativeFhirUserAllowed) {
+        boolean relativeFhirUserAllowed,
+        boolean mfaEvidenceRequired) {
 }

@@ -20,9 +20,12 @@ import {
  * provisioned User opens our launch route, passes the launcher's authorization
  * and our callback, and lands on `/showcase` signed in as that User with the
  * Permissions its Groups confer; a launch for a Practitioner no User is
- * provisioned for lands on the login page's refused notice instead, and a
+ * provisioned for lands on the login page's refused notice instead, as does a
+ * launch whose `iss` is not exactly the configured FHIR base (D10), and a
  * launch whose token call the launcher cannot answer lands on the unavailable
- * notice.
+ * notice. The other protocol refusals — a forged or replayed callback, a bad
+ * `id_token` — cannot be forged through the launcher, and are the backend's
+ * fake-Epic integration tests' (`EpicProtocolIntegrationTests`).
  *
  * The unavailable case pauses the launcher's container for the length of one
  * callback, which would stall any other launch in flight, so the spec's cases
@@ -146,6 +149,31 @@ test("a provider EHR launch for an unprovisioned Practitioner lands on the refus
   const clinician = await freshBrowser(browser);
   try {
     const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(unprovisioned) });
+    const page = await clinician.newPage();
+    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+
+    await expect(page).toHaveURL(/\/\?signin=refused$/);
+    await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
+  } finally {
+    await clinician.close();
+  }
+});
+
+test("a launch whose iss is not exactly the FHIR base lands on the refused notice", async ({
+  browser,
+}) => {
+  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
+  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+
+  // The launcher's own FHIR base with a trailing slash: `iss` is compared as an
+  // exact string, never normalized (D10), so the launch is refused before any
+  // redirect to the launcher.
+  const clinician = await freshBrowser(browser);
+  try {
+    const launch = new URLSearchParams({
+      iss: `${FHIR_BASE}/`,
+      launch: launchOptions(`${E2E_PREFIX}epic-wrong-iss-${runId()}`),
+    });
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 

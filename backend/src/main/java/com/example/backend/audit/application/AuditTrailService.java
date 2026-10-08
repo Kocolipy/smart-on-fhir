@@ -7,6 +7,7 @@ import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
@@ -166,7 +167,8 @@ public class AuditTrailService implements AuditTrail {
      */
     @Transactional
     @Override
-    public void recordLoginSuccess(UUID accountId, AuditLoginMethod method) {
+    public void recordLoginSuccess(
+            UUID accountId, AuditLoginMethod method, AuditMfaFactor factor) {
         append(loginEvent(
                 AuditOperation.LOGIN_SUCCESS,
                 AuditOutcome.SUCCESS,
@@ -175,7 +177,8 @@ public class AuditTrailService implements AuditTrail {
                 NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null,
-                method));
+                method,
+                factor));
     }
 
     /**
@@ -216,7 +219,8 @@ public class AuditTrailService implements AuditTrail {
                 changedPaths,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name(),
-                method));
+                method,
+                null));
     }
 
     /**
@@ -1028,6 +1032,7 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 null,
                 permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList(),
+                null,
                 null);
     }
 
@@ -1041,10 +1046,13 @@ public class AuditTrailService implements AuditTrail {
             String statusClass,
             String errorCode) {
         return event(operation, outcome, actorId, subjectId, resourceType, changedPaths,
-                statusClass, errorCode, null);
+                statusClass, errorCode, null, null);
     }
 
-    /** {@link #event} carrying a login method, which only a login event has. */
+    /**
+     * {@link #event} carrying a login method and, on an Epic success, an MFA factor, which only a
+     * login event has.
+     */
     private AuditEvent event(
             AuditOperation operation,
             AuditOutcome outcome,
@@ -1054,7 +1062,8 @@ public class AuditTrailService implements AuditTrail {
             List<String> changedPaths,
             String statusClass,
             String errorCode,
-            String loginMethod) {
+            String loginMethod,
+            String mfaFactor) {
         AuditRequest request = requests.current();
         return new AuditEvent(
                 UUID.randomUUID(),
@@ -1075,13 +1084,16 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 null,
                 List.of(),
-                loginMethod);
+                loginMethod,
+                mfaFactor);
     }
 
     /**
      * A login event: one about the User the attempt named, carrying how the Login was attempted
-     * (D15), rendered here from the closed {@link AuditLoginMethod} so the stored spelling is this
-     * slice's own.
+     * (D15) and, on an Epic success, the MFA factor (D17), each rendered here from its closed set
+     * so the stored spelling is this slice's own.
+     *
+     * @param factor the MFA factor, or {@code null} for every event but an Epic success
      */
     private AuditEvent loginEvent(
             AuditOperation operation,
@@ -1091,9 +1103,11 @@ public class AuditTrailService implements AuditTrail {
             List<String> changedPaths,
             String statusClass,
             String errorCode,
-            AuditLoginMethod method) {
+            AuditLoginMethod method,
+            AuditMfaFactor factor) {
         return event(operation, outcome, actorId, subjectId, AuditEvent.USER_RESOURCE_TYPE,
-                changedPaths, statusClass, errorCode, method.value());
+                changedPaths, statusClass, errorCode, method.value(),
+                factor == null ? null : factor.value());
     }
 
     /**

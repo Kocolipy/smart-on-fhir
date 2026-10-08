@@ -28,11 +28,22 @@ import java.util.UUID;
 public interface AuditTrail {
 
     /**
-     * Records an accepted login.
+     * Records an accepted login that carries no MFA factor: a password Login's.
      *
      * @param method how the Login proved who was signing in (D15)
      */
-    void recordLoginSuccess(UUID accountId, AuditLoginMethod method);
+    default void recordLoginSuccess(UUID accountId, AuditLoginMethod method) {
+        recordLoginSuccess(accountId, method, null);
+    }
+
+    /**
+     * Records an accepted login.
+     *
+     * @param method how the Login proved who was signing in (D15)
+     * @param factor the MFA factor an Epic Login was made with (D17), or {@code null} for a
+     *               Login that carries none
+     */
+    void recordLoginSuccess(UUID accountId, AuditLoginMethod method, AuditMfaFactor factor);
 
     /**
      * Records a refused login.

@@ -26,7 +26,7 @@ unrecorded, each looks like a gap and invites someone to re-litigate it in code.
 | as-4 Authentication rate-limiting    | No application-layer limiter             | Throttling is the deployment edge's job for `/scim/v2/**`, Login and change-password (`/infra/README.md`, "Edge throttling"). The application keeps only per-request safety bounds — parser, body and page limits — which are not rate limiting.                                                         |
 | as-8 Secrets management              | No secret-store requirement              | **Open.** Secrets stay deployment environment configuration. A store-backed injection path (SSM SecureString or equivalent) with fail-fast on a missing value is not built.                                                                                                                              |
 | dp-3 Data in transit encryption      | TLS unspecified beyond "TLS at the edge" | **Open.** No minimum version, cipher policy or internal-hop TLS is specified. HSTS is Spring Security's default — sent only on a request the application sees as secure, never with `preload` — and no forwarded-headers strategy is configured, so behind a TLS-terminating edge the edge must send it. |
-| ac-2 MFA enforcement                 | Privileged login stays single-factor     | Password Login is the deliberate authentication model.                                                                                                                                                                                                                                                   |
+| ac-2 MFA enforcement                 | Privileged login stays single-factor     | Password Login is the deliberate authentication model. Epic Login meets ac-2 on its own path: see the addendum below.                                                                                                                                                                                    |
 | ac-4 Access review                   | No periodic privilege re-attestation     | Role assignment is directory-derived Group membership (ADR 0010) and every change is audited, but no review cycle exists.                                                                                                                                                                                |
 | ac-12 SSO for internal services      | No organisational IdP authentication     | SCIM provisions identity; password Login remains the application's own authentication interface.                                                                                                                                                                                                         |
 | st-3 Public vulnerability disclosure | No `security.txt` or reporting channel   | Out of scope for this capability.                                                                                                                                                                                                                                                                        |
@@ -93,3 +93,24 @@ change-required flag, and the session stays confined until the User replaces it
   deployment must close both before it relies on this application.
 - A deployment that exposes the service without edge throttling is misconfigured,
   since as-4 is met nowhere else.
+
+## Addendum: Epic Login (ADR 0013)
+
+ADR 0013 adds a second way to sign in, Epic Login — a SMART on FHIR EHR launch for
+clinicians — beside password Login, which is unchanged. It changes the ac-2 entry
+above.
+
+- **ac-2 MFA enforcement — met on the Epic path, still a deviation for password
+  Login.** An Epic Login is multi-factor because the Epic organisation enforces MFA
+  at its own sign-in (ADR 0013, D17). For now that is an organisational
+  attestation, referenced from ADR 0013: Epic has not confirmed that an EHR
+  launch's `id_token` carries `acr` or `amr`, so every Epic `LOGIN_SUCCESS` records
+  its MFA factor as `idp-attested`. Once Epic confirms the claim,
+  `APP_EPIC_MFA_EVIDENCE_REQUIRED` turns the attestation into a check: a token
+  without a second factor in `amr` is refused, and the factor recorded is the one
+  `amr` names. Password Login stays the single-factor deviation recorded in the
+  table, for the non-clinicians who use it and for the Bootstrap Admin, which can
+  never sign in through Epic.
+
+The ac-12 (SSO for internal users) and as-8 (secrets management, which gains the
+Epic signing key) entries are revisited in Epic Login's documentation step.
