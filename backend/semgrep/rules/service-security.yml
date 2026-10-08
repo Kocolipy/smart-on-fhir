@@ -222,9 +222,26 @@ rules:
       - metavariable-regex:
           metavariable: $LOG
           regex: (?i).*log.*
+      # Two families of name, either of which refuses the call.
+      #
+      # The first matches anywhere in the argument, so `newPassword` and `token.value()` are
+      # caught along with the bare names. It already covers Epic Login's `id_token` and
+      # `access_token`, both being tokens.
+      #
+      # The second is the rest of Epic Login's never-logged values (ADR 0013, D22): the
+      # authorization `code`, `state`, `nonce`, `launch`, the PKCE verifier, the client
+      # assertion, and the private key material of the signing keys `APP_EPIC_CLIENT_KEY`
+      # and `APP_EPIC_CLIENT_NEXT_KEY`. They are matched as a whole identifier — a segment
+      # of the argument between characters that cannot be part of a Java name or a
+      # kebab-case property — because `code` and `state` are also the tail of names that
+      # are fine to log: `statusCode`, `ERROR_CODE`, `stateRule`. The keys' `kid`s
+      # (`clientKeyId`, `APP_EPIC_CLIENT_KEY_ID`) are deliberately outside it: a `kid` is
+      # public, published in our JWKS, and the startup record logs both by design (D14).
+      # This is the second line of defence; the first is that no code path hands any of
+      # these values to a logging call at all.
       - metavariable-regex:
           metavariable: $VALUE
-          regex: (?i).*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie|filter).*
+          regex: "(?is)(.*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie|filter).*|(.*[^a-z0-9_$-])?(code|auth(orization)?_?code|state|nonce|launch|(pkce_?|code_?)?verifier|(client_?)?assertion|private_?key|pem|client[_-]?(next[_-]?)?key|app_epic_client_(next_)?key)([^a-z0-9_$-]|$))"
 
   - id: be-mdc-direct-access
     languages: [java]
