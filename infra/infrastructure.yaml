@@ -125,7 +125,7 @@ Parameters:
     NoEcho: true
     MinLength: 8
 
-  # Epic Login (/docs/epic-smart-login.md). Off unless AppEpicEnabled is true, and
+  # Epic Login (/docs/adr/0013-epic-login.md). Off unless AppEpicEnabled is true, and
   # then none of the other AppEpic* parameters is read. No default carries a
   # value: with the switch on, the service refuses to start until every required
   # one is set and well formed (backend/README.md, "Epic Login"). An empty
@@ -195,6 +195,14 @@ Parameters:
     Description: Outbound Epic read timeout, e.g. 5s (APP_EPIC_READ_TIMEOUT); empty means 5s
     Type: String
     Default: ""
+
+  AppEpicMfaEvidenceRequired:
+    Description: >-
+      Require MFA evidence in the Epic id_token's amr (APP_EPIC_MFA_EVIDENCE_REQUIRED); turn
+      on only once Epic confirms it sends amr on an EHR launch (ADR 0013, D17)
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
 
   # Logging
   AppEnvironment:
@@ -571,6 +579,7 @@ Resources:
           APP_EPIC_CLIENT_NEXT_KEY_ID=${AppEpicClientNextKeyId}
           APP_EPIC_CONNECT_TIMEOUT=${AppEpicConnectTimeout}
           APP_EPIC_READ_TIMEOUT=${AppEpicReadTimeout}
+          APP_EPIC_MFA_EVIDENCE_REQUIRED=${AppEpicMfaEvidenceRequired}
           APP_ENVIRONMENT=${AppEnvironment}
           LOG_FILE=/var/log/backend/backend.json
           EOF

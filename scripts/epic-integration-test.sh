@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Epic Login's E2E conditional gate: a real SMART EHR launch, end to end, with
-# the SMART Health IT launcher standing in for Epic (/docs/epic-smart-login.md,
-# section 7 step 8). frontend/AGENTS.md carries its trigger and when it passes.
+# the SMART Health IT launcher standing in for Epic (/docs/adr/0013-epic-login.md).
+# frontend/AGENTS.md carries its trigger and when it passes.
 #
 # Brings up Postgres, Redis and the launcher (the compose `epic-launcher`
 # profile), starts the backend in the dev profile with Epic Login pointed at the

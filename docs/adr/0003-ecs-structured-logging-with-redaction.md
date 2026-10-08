@@ -729,7 +729,7 @@ files. The redaction rules and the field names are unchanged.
 
 Epic Login's calls to Epic — discovery, the JWKS and the token call — are the first records
 of a call this service makes rather than answers. Two operations and four shapes are added,
-each on an existing `event.action` value, since the spec puts every Epic record under
+each on an existing `event.action` value, since ADR 0013 puts every Epic record under
 `user-authentication`:
 
 | Record                                            | Shape                | Level   | `app.event.action`  | `event.category` | `event.type`          |
@@ -752,7 +752,7 @@ and no outcome, which is the retried operation's to state. Neither a body nor a 
 Epic call is read for a record.
 
 **Follow-up by category.** `error` gains an overload taking `error.follow_up_action`, because
-the Epic Login spec's section 5 table says per category whether an Epic failure needs a
+ADR 0013's error-category table says per category whether an Epic failure needs a
 person: `network` (a timeout, or no connection) and `server` (Epic's `5xx`) do not — Epic
 being down is not this service's to fix, and the clinician is told to retry — while
 `cert/auth` (Epic refusing our own credential) and `data` (an answer that is not what was
@@ -764,3 +764,50 @@ The `ERROR` an Epic call failure ends in is written once, by the Epic failure ha
 the outbound record of the call itself. A `5xx` is an answer, so its outbound record is the
 `INFO` "completed", and only the handler's record is an `ERROR`; a timeout has both the
 outbound `ERROR` and the handler's, each naming the call.
+
+## Addendum (2026-10-08): D22's names (ADR 0013)
+
+Epic Login handles values that must never reach a log record or the audit trail (ADR 0013,
+D22): the authorization `code`, `launch`, `state`, `nonce`, the PKCE verifier, the `id_token`,
+the access token, the client assertion, and the private key material of the active and next
+signing keys. The first line of defence is the one the Decision above already holds every call
+site to: no code path hands any of them to a logging or audit call. These names now join the
+redaction as a second line behind it.
+
+**The scan.** `be-log-sensitive-value` refuses a value whose name says it is a secret being
+passed to a logging call. Its pattern gains a second family of names beside the original one:
+
+- The original family matches anywhere in the argument (`newPassword`, `token.value()`), and
+  already covers `id_token` and `access_token`, both being tokens.
+- The new family is D22's remaining names — `code`, `authorizationCode`, `state`, `nonce`,
+  `launch`, `verifier` / `codeVerifier` / `code_verifier`, `assertion` / `clientAssertion`,
+  `privateKey`, `pem`, `clientKey`, `clientNextKey`, `APP_EPIC_CLIENT_KEY` and
+  `APP_EPIC_CLIENT_NEXT_KEY` — matched as a **whole identifier**: a segment of the argument
+  bounded by characters that cannot be part of a Java name or a kebab-case property. Matching
+  them anywhere, as the first family does, would refuse `statusCode`, `ERROR_CODE` and
+  `stateRule`, which are fine to log.
+- The signing keys' `kid`s (`clientKeyId`, `APP_EPIC_CLIENT_KEY_ID` and its next-key twin) are
+  deliberately outside it, and the whole-identifier match is what keeps them out: a `kid` is
+  public — Epic reads it from our JWKS — and the startup record logs both by design (ADR 0013,
+  D14), so that each key promotion leaves a record.
+
+One existing call site matched and is suppressed with its reason: `EpicLoginFailureHandler`'s
+failed-call `ERROR` passes `failed.code()`, the failure's `error.code` — the HTTP status it maps
+to, never anything Epic sent.
+
+**The test.** `EpicLoginRedactionIntegrationTests` extends the redaction tests above
+(`EcsLogFormatTests`, `JdbcErrorLogRedactionTests`) to Epic Login. It drives a successful Login,
+one refused for each reason the audit trail knows, and each way Epic can be unavailable past
+discovery, through the in-JVM fake Epic the Epic integration tests share, captures the whole
+encoded log stream with `EcsLogCapture` and the whole audit trail after it, and asserts neither
+holds any D22 value that Login actually handled — each gathered from both ends of the Login, and
+the signing keys' material as PEM body and as the JWK `d`. Discovery failing needs a context whose
+discovery has never succeeded, so `EpicDiscoveryIntegrationTests` holds those paths to the same
+property. The test browser sends its parameters as a real query string, so a record that read the
+query would fail it as surely as one that read a parameter.
+
+**The retired spec.** The Epic Login spec this ADR's 2026-10-07 addendum cited was retired into
+ADR 0013 with this change. That addendum's two references to it — the Epic records' placement
+under `user-authentication`, and the per-category follow-up table — were repointed in place to
+ADR 0013, which carries both unchanged. Nothing else in that addendum was edited, and what it
+decided stands as written.

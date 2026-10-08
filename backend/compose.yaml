@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   # The SMART Health IT launcher: a local stand-in for Epic, for a real SMART EHR
-  # launch with no Epic sandbox (/docs/epic-smart-login.md, section 7 step 8).
+  # launch with no Epic sandbox (/docs/adr/0013-epic-login.md).
   # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
   # `make infra-up` still starts only Postgres and Redis. Start it with
   # `make epic-launcher-up`; backend/README.md, "Local Epic launcher", has the

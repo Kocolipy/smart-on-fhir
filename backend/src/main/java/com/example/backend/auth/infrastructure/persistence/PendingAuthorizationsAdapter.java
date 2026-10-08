@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
  * ends, so two concurrent requests would each have found the attribute, and each removed it.
  *
  * <p>Keyed by the session id, the value is scoped to the browser session that began the Login
- * (spec section 11, "session-scoped state"): no other session can take it, and when the launch's
+ * (ADR 0013's deviation "session-scoped `state`"): no other session can take it, and when the launch's
  * session ends, the key expires on its own.
  */
 @Component

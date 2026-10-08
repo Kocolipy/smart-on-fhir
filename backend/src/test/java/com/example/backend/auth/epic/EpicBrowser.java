@@ -57,10 +57,10 @@ final class EpicBrowser {
     MvcResult open(String iss, String launch, Cookie jar) throws Exception {
         MockHttpServletRequestBuilder opened = get("/api/auth/epic/launch");
         if (iss != null) {
-            opened.param("iss", iss);
+            opened.queryParam("iss", iss);
         }
         if (launch != null) {
-            opened.param("launch", launch);
+            opened.queryParam("launch", launch);
         }
         if (jar != null) {
             opened.cookie(jar);
@@ -70,7 +70,15 @@ final class EpicBrowser {
 
     /** An ordinary launch, through our authorize hop, up to the redirect to Epic. */
     Launched launch(Cookie jar) throws Exception {
-        MvcResult launch = open(fhirBase, LAUNCH, jar);
+        return launch(LAUNCH, jar);
+    }
+
+    /**
+     * {@link #launch(Cookie)}, Epic's launch URL carrying {@code launchValue} as
+     * {@code launch}.
+     */
+    Launched launch(String launchValue, Cookie jar) throws Exception {
+        MvcResult launch = open(fhirBase, launchValue, jar);
         assertThat(launch.getResponse().getStatus()).as("the launch redirects").isEqualTo(302);
         Cookie session = cookieOf(launch);
         assertThat(session).as("a session cookie was issued").isNotNull();
@@ -102,8 +110,9 @@ final class EpicBrowser {
             redirected.cookie(jar);
         }
         // Each parameter by itself: a raw query handed to MockMvc as a URI template would be
-        // encoded a second time.
-        query.forEach(redirected::param);
+        // encoded a second time. As query parameters, so the request carries the query string a
+        // browser's would, and a record that read it would show in a test's capture.
+        query.forEach(redirected::queryParam);
         MvcResult result = mvc.perform(redirected).andReturn();
         return new Landing(result, cookieOf(result), jar);
     }

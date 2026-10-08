@@ -20,7 +20,7 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 
 /**
- * The one interceptor on {@code epicRestClient} (D25, spec section 5): every Epic call is
+ * The one interceptor on {@code epicRestClient} (ADR 0013, D25): every Epic call is
  * logged, measured and traced here, whichever call site made it.
  *
  * <ul>

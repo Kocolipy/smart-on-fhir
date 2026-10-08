@@ -385,39 +385,40 @@ of silently disarming an alert.
 
 ## Parameters Reference
 
-| Parameter              | Description                                   | Required | Default               |
-| ---------------------- | --------------------------------------------- | -------- | --------------------- |
-| VpcId                  | Existing VPC ID                               | Yes      | -                     |
-| PublicSubnet1Id        | Public subnet 1                               | Yes      | -                     |
-| PublicSubnet2Id        | Public subnet 2                               | Yes      | -                     |
-| PrivateSubnet1Id       | Private subnet 1                              | Yes      | -                     |
-| PrivateSubnet2Id       | Private subnet 2                              | Yes      | -                     |
-| CreateKeyPair          | Create key pair                               | No       | true                  |
-| KeyName                | Key pair name                                 | No       | spring-backend-key    |
-| InstanceType           | EC2 type                                      | No       | t3.small              |
-| SSHLocation            | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
-| DBInstanceClass        | RDS instance type                             | No       | db.t3.micro           |
-| DBAllocatedStorage     | RDS storage, GB (20–100)                      | No       | 20                    |
-| DBName                 | PostgreSQL database name                      | No       | backend               |
-| DBUsername             | PostgreSQL master username                    | No       | backend               |
-| DBPassword             | Database password                             | Yes      | -                     |
-| RedisNodeType          | ElastiCache node type                         | No       | cache.t3.micro        |
-| RedisPassword          | Redis password                                | No       | (empty)               |
-| AppBootstrapUsername   | Bootstrap Admin's username                    | No       | admin                 |
-| AppBootstrapPassword   | Bootstrap Admin's password                    | Yes      | -                     |
-| AppEpicEnabled         | Epic Login switch (`APP_EPIC_ENABLED`)        | No       | false                 |
-| AppEpicFhirBase        | Epic FHIR base URL, https                     | If Epic  | (empty)               |
-| AppEpicOauthIssuer     | Epic OIDC issuer, https                       | If Epic  | (empty)               |
-| AppEpicClientId        | Epic client id (NoEcho)                       | If Epic  | (empty)               |
-| AppEpicRedirectUri     | Registered callback URL, https                | If Epic  | (empty)               |
-| AppEpicClientKey       | Active EC P-384 key, one-line PEM (NoEcho)    | If Epic  | (empty)               |
-| AppEpicClientKeyId     | Active key's `kid`                            | If Epic  | (empty)               |
-| AppEpicClientNextKey   | Next key, one-line PEM (NoEcho)               | No       | (empty)               |
-| AppEpicClientNextKeyId | Next key's `kid`, set with the next key       | No       | (empty)               |
-| AppEpicConnectTimeout  | Outbound Epic connect timeout                 | No       | (empty) = 2s          |
-| AppEpicReadTimeout     | Outbound Epic read timeout                    | No       | (empty) = 5s          |
-| AppEnvironment         | `service.environment` on every log record     | No       | production            |
-| LogRetentionDays       | Retention of the `/<stack>/backend` log group | No       | 90                    |
+| Parameter                  | Description                                   | Required | Default               |
+| -------------------------- | --------------------------------------------- | -------- | --------------------- |
+| VpcId                      | Existing VPC ID                               | Yes      | -                     |
+| PublicSubnet1Id            | Public subnet 1                               | Yes      | -                     |
+| PublicSubnet2Id            | Public subnet 2                               | Yes      | -                     |
+| PrivateSubnet1Id           | Private subnet 1                              | Yes      | -                     |
+| PrivateSubnet2Id           | Private subnet 2                              | Yes      | -                     |
+| CreateKeyPair              | Create key pair                               | No       | true                  |
+| KeyName                    | Key pair name                                 | No       | spring-backend-key    |
+| InstanceType               | EC2 type                                      | No       | t3.small              |
+| SSHLocation                | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
+| DBInstanceClass            | RDS instance type                             | No       | db.t3.micro           |
+| DBAllocatedStorage         | RDS storage, GB (20–100)                      | No       | 20                    |
+| DBName                     | PostgreSQL database name                      | No       | backend               |
+| DBUsername                 | PostgreSQL master username                    | No       | backend               |
+| DBPassword                 | Database password                             | Yes      | -                     |
+| RedisNodeType              | ElastiCache node type                         | No       | cache.t3.micro        |
+| RedisPassword              | Redis password                                | No       | (empty)               |
+| AppBootstrapUsername       | Bootstrap Admin's username                    | No       | admin                 |
+| AppBootstrapPassword       | Bootstrap Admin's password                    | Yes      | -                     |
+| AppEpicEnabled             | Epic Login switch (`APP_EPIC_ENABLED`)        | No       | false                 |
+| AppEpicFhirBase            | Epic FHIR base URL, https                     | If Epic  | (empty)               |
+| AppEpicOauthIssuer         | Epic OIDC issuer, https                       | If Epic  | (empty)               |
+| AppEpicClientId            | Epic client id (NoEcho)                       | If Epic  | (empty)               |
+| AppEpicRedirectUri         | Registered callback URL, https                | If Epic  | (empty)               |
+| AppEpicClientKey           | Active EC P-384 key, one-line PEM (NoEcho)    | If Epic  | (empty)               |
+| AppEpicClientKeyId         | Active key's `kid`                            | If Epic  | (empty)               |
+| AppEpicClientNextKey       | Next key, one-line PEM (NoEcho)               | No       | (empty)               |
+| AppEpicClientNextKeyId     | Next key's `kid`, set with the next key       | No       | (empty)               |
+| AppEpicConnectTimeout      | Outbound Epic connect timeout                 | No       | (empty) = 2s          |
+| AppEpicReadTimeout         | Outbound Epic read timeout                    | No       | (empty) = 5s          |
+| AppEpicMfaEvidenceRequired | Require MFA evidence in `amr` (D17)           | No       | false                 |
+| AppEnvironment             | `service.environment` on every log record     | No       | production            |
+| LogRetentionDays           | Retention of the `/<stack>/backend` log group | No       | 90                    |
 
 The `AppEpic*` parameters become the `APP_EPIC_*` variables of
 `backend/README.md`'s "Epic Login" section; with `AppEpicEnabled=false` none is
@@ -453,7 +454,7 @@ The service signs Epic client assertions with the **active** key
 `GET /api/auth/epic/jwks.json`, where Epic fetches it. The next key is published
 but never signs. The service has no expiry or rotation logic of its own: a key is
 published for exactly as long as configuration names it, and every step below is
-an operator's redeploy (`/docs/epic-smart-login.md`, D14).
+an operator's redeploy (`/docs/adr/0013-epic-login.md`, D14).
 
 A redeploy here means changing the variables the service starts with and
 restarting it. The stack's `UserData` writes `/opt/backend/.env` when the

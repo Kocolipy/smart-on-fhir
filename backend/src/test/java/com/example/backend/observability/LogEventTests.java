@@ -588,7 +588,7 @@ class LogEventTests {
                 .isEqualTo("session.max_inactive_interval");
     }
 
-    // ---- Epic Login's outbound records (spec section 5) ---------------------------------------
+    // ---- Epic Login's outbound records (ADR 0013, D25) ----------------------------------------
 
     /** {@code error} with its follow-up chosen: Epic being down needs no person of ours. */
     @Test

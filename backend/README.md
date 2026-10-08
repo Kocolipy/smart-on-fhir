@@ -293,7 +293,7 @@ whatever a replaced config file happens to say.
 
 ### Epic Login
 
-Epic SMART on FHIR EHR launch Login (`/docs/epic-smart-login.md`, section 5).
+Epic SMART on FHIR EHR launch Login (`/docs/adr/0013-epic-login.md`, the sole authority on it).
 **Off by default**, and then nothing below is read or required: the app starts
 with no Epic variable at all, and every `/api/auth/epic/**` path answers `404`
 ahead of the session, CSRF and authorization checks, mirroring
@@ -315,7 +315,7 @@ ahead of the session, CSRF and authorization checks, mirroring
 | `APP_EPIC_MFA_EVIDENCE_REQUIRED` | no                    | `false` | Require MFA evidence in the `id_token`'s `amr` (D17); see below           |
 
 `APP_EPIC_MFA_EVIDENCE_REQUIRED` stays off until Epic confirms it sends `amr` on
-an EHR launch (spec section 8). Off, the Epic organisation's MFA is an
+an EHR launch (ADR 0013, "Open items"). Off, the Epic organisation's MFA is an
 attestation and every Epic `LOGIN_SUCCESS` records the factor `idp-attested`.
 On, a token whose `amr` names no RFC 8176 second factor and not `mfa` is
 refused as `INVALID_CLAIMS`, and the factor recorded is the one `amr` named;

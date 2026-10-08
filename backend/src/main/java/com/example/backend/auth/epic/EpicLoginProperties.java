@@ -41,7 +41,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param mfaEvidenceRequired {@code APP_EPIC_MFA_EVIDENCE_REQUIRED}, default off: whether the
  *                         {@code id_token} must carry MFA evidence in {@code amr} (D17). Off
  *                         while the Epic organisation's MFA is an attestation; turned on once
- *                         Epic confirms it sends the claim on an EHR launch (spec section 8)
+ *                         Epic confirms it sends the claim on an EHR launch (ADR 0013, "Open items")
  */
 @ConfigurationProperties("app.epic")
 public record EpicLoginProperties(

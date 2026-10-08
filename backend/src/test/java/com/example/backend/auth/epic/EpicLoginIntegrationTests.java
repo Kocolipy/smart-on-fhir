@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic;
 
+import static com.example.backend.auth.epic.EpicPractitioners.unprovisioned;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,25 +15,19 @@ import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
-import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.ScimLoginState;
-import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import com.nimbusds.jose.jwk.JWKSet;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
-import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -72,11 +67,10 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * Epic Login's happy path end to end (spec flow steps 1–7, section 7 steps 5 and 6): a clinician
+ * Epic Login's happy path end to end (ADR 0013, flow steps 1–7): a clinician
  * whose Practitioner FHIR ID is the {@code userName} of a provisioned User opens the application
  * from Epic and is signed in exactly as password Login would sign them in.
  *
@@ -109,7 +103,7 @@ class EpicLoginIntegrationTests {
 
     private static final String ACTIVE_KID = "active-2026-04";
 
-    private static final String PASSWORD = "a-perfectly-good-passphrase";
+    private static final String PASSWORD = EpicPractitioners.PASSWORD;
 
     /** The Admin group, which the test role mapping maps to the Superuser Role. */
     private static final UUID ADMIN_GROUP = UUID.fromString("00000000-0000-4000-8000-00000000a001");
@@ -122,7 +116,7 @@ class EpicLoginIntegrationTests {
     private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
 
     /** One port for the class, so the issuer the context is configured with names each fake. */
-    private static final int EPIC_PORT = freePort();
+    private static final int EPIC_PORT = EpicTestFixtures.freePort();
 
     @DynamicPropertySource
     static void epicLoginOn(DynamicPropertyRegistry registry) {
@@ -197,25 +191,23 @@ class EpicLoginIntegrationTests {
 
     private FakeEpic epic;
 
-    private final List<UUID> seeded = new ArrayList<>();
+    private EpicPractitioners practitioners;
 
     @BeforeEach
     void setUp() throws IOException {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID, this::publishedJwks);
+        epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID,
+                () -> EpicTestFixtures.publishedJwks(ourJwks));
+        practitioners = new EpicPractitioners(users, passwordEncoder, transactionManager, jdbc);
         PAUSES.clear();
     }
 
     @AfterEach
     void tearDown() {
         epic.close();
-        for (UUID id : seeded) {
-            jdbc.update("DELETE FROM scim_group_members WHERE user_id = ?", id);
-            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
-        }
-        seeded.clear();
+        practitioners.removeAll();
     }
 
     // ---- the launch and the authorize redirect ------------------------------------------------
@@ -242,7 +234,7 @@ class EpicLoginIntegrationTests {
     /** Flow step 7: the browser lands at {@code /}, and the SPA's {@code /me} path takes over. */
     @Test
     void theCallbackLandsAtTheApplicationRoot() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Landing landing = signInFromEpic(practitioner, null);
 
@@ -256,7 +248,7 @@ class EpicLoginIntegrationTests {
      */
     @Test
     void inTheDevProfileARelativeFhirUserSignsThePractitionerIn() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Landing landing = completeAs("Practitioner/" + practitioner, launch(null));
 
@@ -291,7 +283,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theSessionIdIsRotatedBySigningIn() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Landing landing = signInFromEpic(practitioner, null);
 
@@ -300,17 +292,18 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theSessionIsIndexedByTheUsersStableId() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Landing landing = signInFromEpic(practitioner, null);
 
-        assertThat(sessionRepository.findByPrincipalName(idOf(practitioner).toString()))
+        assertThat(sessionRepository.findByPrincipalName(
+                practitioners.idOf(practitioner).toString()))
                 .containsOnlyKeys(sessionId(landing.signedIn()));
     }
 
     @Test
     void theSessionRecordsTheRoleMappingItsPermissionsWereResolvedUnder() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Landing landing = signInFromEpic(practitioner, null);
 
@@ -321,7 +314,7 @@ class EpicLoginIntegrationTests {
     /** A token fetched while the launch was pending is the pre-login one, and is refused after. */
     @Test
     void aCsrfTokenFetchedBeforeTheCallbackIsRefusedAfterIt() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         Launched launched = launch(null);
         Map<String, String> preLoginToken = csrfToken(launched.session());
 
@@ -337,24 +330,25 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aSuccessfulEpicLoginMovesTheDormancyBasis() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         Instant before = Instant.now();
 
         signInFromEpic(practitioner, null);
 
-        assertThat(users.findById(idOf(practitioner)).orElseThrow().login().lastAuthenticatedAt())
+        assertThat(users.findById(practitioners.idOf(practitioner)).orElseThrow()
+                .login().lastAuthenticatedAt())
                 .isAfterOrEqualTo(before);
     }
 
     @Test
     void aSuccessfulEpicLoginIsAuditedAsALoginSuccessByMethodSso() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         signInFromEpic(practitioner, null);
 
         assertThat(jdbc.queryForList(
                 "SELECT login_method FROM audit_events WHERE operation = 'LOGIN_SUCCESS'"
-                        + " AND subject_id = ?", String.class, idOf(practitioner)))
+                        + " AND subject_id = ?", String.class, practitioners.idOf(practitioner)))
                 .containsExactly("sso");
     }
 
@@ -364,33 +358,35 @@ class EpicLoginIntegrationTests {
      */
     @Test
     void anEpicLoginAfterAPasswordLoginEndsThePasswordSession() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         Cookie byPassword = logIn(practitioner, null);
 
         Cookie byEpic = signInFromEpic(practitioner, null).signedIn();
 
         assertThat(status(get("/api/auth/me"), byPassword)).isEqualTo(401);
-        assertThat(sessionRepository.findByPrincipalName(idOf(practitioner).toString()))
+        assertThat(sessionRepository.findByPrincipalName(
+                practitioners.idOf(practitioner).toString()))
                 .containsOnlyKeys(sessionId(byEpic));
     }
 
     /** D9: every launch is a fresh Login, whoever the browser was signed in as. */
     @Test
     void aLaunchWhileAnotherUsersSessionIsPresentReplacesIt() throws Exception {
-        String clinician = provision();
-        String colleague = provision();
+        String clinician = practitioners.provision();
+        String colleague = practitioners.provision();
         Cookie colleaguesSession = logIn(colleague, null);
 
         Landing landing = signInFromEpic(clinician, colleaguesSession);
 
         assertThat(status(get("/api/auth/me"), colleaguesSession)).isEqualTo(401);
-        assertThat(sessionRepository.findByPrincipalName(idOf(colleague).toString())).isEmpty();
+        assertThat(sessionRepository.findByPrincipalName(
+                practitioners.idOf(colleague).toString())).isEmpty();
         assertThat(me(landing.signedIn()).username()).isEqualTo(clinician);
     }
 
     @Test
     void theEpicLoginCounterRecordsASuccess() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         double before = successes();
 
         signInFromEpic(practitioner, null);
@@ -401,7 +397,7 @@ class EpicLoginIntegrationTests {
     /** D8: the access token, the id_token and the launch context are used and dropped. */
     @Test
     void nothingFromEpicsTokenResponseIsStored() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         signInFromEpic(practitioner, null);
 
@@ -424,7 +420,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aDeactivatedUserLandsAtTheRefusedNotice() throws Exception {
-        String practitioner = provisionDeactivated();
+        String practitioner = practitioners.provisionDeactivated();
 
         Landing landing = signInFromEpic(practitioner, null);
 
@@ -434,7 +430,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aLockedUserLandsAtTheRefusedNotice() throws Exception {
-        String practitioner = provisionLocked();
+        String practitioner = practitioners.provisionLocked();
 
         Landing landing = signInFromEpic(practitioner, null);
 
@@ -453,7 +449,7 @@ class EpicLoginIntegrationTests {
     /** D24, whoever the session belonged to: a colleague's is not left signed in either. */
     @Test
     void aRefusedLaunchLeavesNoColleagueSignedIn() throws Exception {
-        String colleague = provision();
+        String colleague = practitioners.provision();
         Cookie colleaguesSession = logIn(colleague, null);
 
         signInFromEpic(unprovisioned(), colleaguesSession);
@@ -464,27 +460,27 @@ class EpicLoginIntegrationTests {
     /** The refusal outlives the login decision's rolled-back transaction. */
     @Test
     void aRefusedDeactivatedUserIsAuditedAsALoginFailureBySsoWithItsReason() throws Exception {
-        String practitioner = provisionDeactivated();
+        String practitioner = practitioners.provisionDeactivated();
 
         signInFromEpic(practitioner, null);
 
         assertThat(jdbc.queryForList(
                 "SELECT error_code || '/' || login_method FROM audit_events"
                         + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
-                String.class, idOf(practitioner)))
+                String.class, practitioners.idOf(practitioner)))
                 .containsExactly("ACCOUNT_DISABLED/sso");
     }
 
     @Test
     void aRefusedLockedUserIsAuditedAsALoginFailureBySsoWithItsReason() throws Exception {
-        String practitioner = provisionLocked();
+        String practitioner = practitioners.provisionLocked();
 
         signInFromEpic(practitioner, null);
 
         assertThat(jdbc.queryForList(
                 "SELECT error_code || '/' || login_method FROM audit_events"
                         + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
-                String.class, idOf(practitioner)))
+                String.class, practitioners.idOf(practitioner)))
                 .containsExactly("ACCOUNT_LOCKED/sso");
     }
 
@@ -511,7 +507,7 @@ class EpicLoginIntegrationTests {
     /** D12: Epic checked the credential, so a refusal is no evidence of guessing. */
     @Test
     void aRefusedLaunchNeverLengthensTheFailureRun() throws Exception {
-        String practitioner = provisionDeactivated();
+        String practitioner = practitioners.provisionDeactivated();
 
         signInFromEpic(practitioner, null);
 
@@ -522,7 +518,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theEpicLoginCounterRecordsARefusalWithItsReason() throws Exception {
-        String practitioner = provisionLocked();
+        String practitioner = practitioners.provisionLocked();
         double before = refusals("ACCOUNT_LOCKED");
 
         signInFromEpic(practitioner, null);
@@ -552,7 +548,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aTokenEndpoint5xxLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -563,7 +559,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aTokenEndpointTimeoutLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -575,7 +571,7 @@ class EpicLoginIntegrationTests {
     /** D26: the code is single-use, so a token call that timed out is not sent again. */
     @Test
     void aTokenEndpointTimeoutMakesExactlyOneTokenRequest() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
         signInFromEpic(practitioner, null);
@@ -585,7 +581,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aTokenEndpoint5xxMakesExactlyOneTokenRequest() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
 
         signInFromEpic(practitioner, null);
@@ -596,7 +592,7 @@ class EpicLoginIntegrationTests {
     /** The fake's new key is not in the kept JWKS, so the id_token sends us to fetch it. */
     @Test
     void aJwks5xxLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -607,7 +603,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aJwksTimeoutLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -619,7 +615,7 @@ class EpicLoginIntegrationTests {
     /** A fetch that failed is Epic unavailable, not a reason to try again within the Login. */
     @Test
     void aJwksFetchThatFailedIsNotRetried() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
 
         signInFromEpic(practitioner, null);
@@ -629,7 +625,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void anUnavailableEpicIsAuditedAsALoginFailureBySsoNamingNobody() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
         int before = unavailableFailures();
 
@@ -641,7 +637,7 @@ class EpicLoginIntegrationTests {
     /** D24: the launch's session does not outlive a Login Epic could not complete. */
     @Test
     void anUnavailableLaunchEndsTheSessionTheBrowserHeld() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -651,17 +647,18 @@ class EpicLoginIntegrationTests {
 
     @Test
     void anUnavailableLaunchSignsNobodyIn() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
 
         signInFromEpic(practitioner, null);
 
-        assertThat(sessionRepository.findByPrincipalName(idOf(practitioner).toString())).isEmpty();
+        assertThat(sessionRepository.findByPrincipalName(
+                practitioners.idOf(practitioner).toString())).isEmpty();
     }
 
     @Test
     void theEpicLoginCounterRecordsAnUnavailableLaunch() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
         double before = unavailables();
 
@@ -672,7 +669,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void anUnavailableLaunchIsNotCountedAsARefusal() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
         double before = allRefusals();
 
@@ -681,10 +678,13 @@ class EpicLoginIntegrationTests {
         assertThat(allRefusals()).isEqualTo(before);
     }
 
-    /** Spec section 5: a timeout is {@code network}, and Epic being down needs no follow-up. */
+    /**
+     * ADR 0013's error categories: a timeout is {@code network}, and Epic being down needs no
+     * follow-up.
+     */
     @Test
     void aTokenEndpointTimeoutIsOneErrorUnderTheNetworkCategory() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
         List<Map<String, Object>> errors = signInFailureErrors(practitioner);
@@ -697,7 +697,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aTokenEndpoint5xxIsOneErrorUnderTheServerCategoryWithEpicsStatus() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
 
         List<Map<String, Object>> errors = signInFailureErrors(practitioner);
@@ -711,7 +711,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aJwks5xxIsOneErrorNamingTheJwksCall() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
 
         List<Map<String, Object>> errors = signInFailureErrors(practitioner);
@@ -721,10 +721,13 @@ class EpicLoginIntegrationTests {
                 .containsEntry(LogEvent.EPIC_CALL, "jwks"));
     }
 
-    /** Spec section 5: Epic refusing our assertion is a key or registration problem. */
+    /**
+     * ADR 0013's error categories: Epic refusing our assertion is a key or registration
+     * problem.
+     */
     @Test
     void epicRefusingOurAssertionIsRefused() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.rejectingOurAssertion();
 
         Landing landing = completeAllowingRefusal(practitioner, launch(null));
@@ -735,7 +738,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void epicRefusingOurAssertionIsOneErrorUnderCertAuthNeedingFollowUp() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.rejectingOurAssertion();
 
         List<Map<String, Object>> errors;
@@ -752,7 +755,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aMalformedJwksIsRefused() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
 
         Landing landing = signInFromEpic(practitioner, null);
@@ -763,7 +766,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aMalformedJwksIsOneErrorUnderTheDataCategoryNeedingFollowUp() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
 
         List<Map<String, Object>> errors = signInFailureErrors(practitioner);
@@ -774,11 +777,11 @@ class EpicLoginIntegrationTests {
                 .containsEntry(LogEvent.EPIC_CALL, "jwks"));
     }
 
-    // ---- the outbound client (D25, spec section 5) ---------------------------------------------
+    // ---- the outbound client (ADR 0013, D25) ----------------------------------------------------
 
     @Test
     void eachOutboundCallIsLoggedStartedThenCompletedWithItsName() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         List<String> logged;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -798,7 +801,7 @@ class EpicLoginIntegrationTests {
     @Test
     void aCompletedCallRecordsTheMethodTheUrlWithNoQueryTheStatusAndTheDuration()
             throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         Map<String, Object> jwks;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -819,7 +822,7 @@ class EpicLoginIntegrationTests {
     /** The JWKS URI discovery names carries a query, which no record repeats. */
     @Test
     void noOutboundRecordCarriesAQuery() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         String everything;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -834,7 +837,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aCallThatTimedOutIsLoggedAsFailedUnderTheNetworkCategory() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
         Map<String, Object> failed;
@@ -854,7 +857,7 @@ class EpicLoginIntegrationTests {
     /** Neither a body nor a header reaches the outbound log: not Epic's tokens, not our assertion. */
     @Test
     void noOutboundRecordCarriesWhatEpicSentBack() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         String everything;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -871,7 +874,7 @@ class EpicLoginIntegrationTests {
     /** D25: Epic's side of the call can be joined to ours. */
     @Test
     void theTokenCallCarriesAW3cTraceparent() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
 
         signInFromEpic(practitioner, null);
 
@@ -882,7 +885,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theOutboundTimerCountsTheTokenCall() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         long before = outboundCalls("token");
 
         signInFromEpic(practitioner, null);
@@ -892,7 +895,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theOutboundErrorCounterCountsAToken5xxUnderItsCall() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
         double before = outboundErrors("token");
 
@@ -903,7 +906,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theOutboundErrorCounterCountsAJwksTimeoutUnderItsCall() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
         double before = outboundErrors("jwks");
 
@@ -914,7 +917,7 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aSuccessfulLoginCountsNoOutboundError() throws Exception {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         double before = outboundErrors("token") + outboundErrors("jwks");
 
         signInFromEpic(practitioner, null);
@@ -926,20 +929,20 @@ class EpicLoginIntegrationTests {
 
     @Test
     void aSecondLaunchReadsDiscoveryFromWhatWasKept() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         int before = epic.requests(FakeEpic.Endpoint.DISCOVERY);
 
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
 
         assertThat(epic.requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(before);
     }
 
     @Test
     void aKnownKidIsVerifiedWithTheKeptKeysWithNoFetch() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         int before = epic.requests(FakeEpic.Endpoint.JWKS);
 
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
 
         assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before);
     }
@@ -947,11 +950,11 @@ class EpicLoginIntegrationTests {
     /** D26: a key Epic never publishes is refetched for three times, and then refused. */
     @Test
     void anUnknownKidIsRefetchedThreeTimesBeforeTheRefusal() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         epic.rotateSigningKey(Integer.MAX_VALUE);
         int before = epic.requests(FakeEpic.Endpoint.JWKS);
 
-        Landing landing = signInFromEpic(provision(), null);
+        Landing landing = signInFromEpic(practitioners.provision(), null);
 
         assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 3);
         assertThat(landing.callback().getResponse().getRedirectedUrl())
@@ -960,11 +963,11 @@ class EpicLoginIntegrationTests {
 
     @Test
     void theRefetchesWaitOneThenTwoThenFourSeconds() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         epic.rotateSigningKey(Integer.MAX_VALUE);
         PAUSES.clear();
 
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
 
         assertThat(PAUSES).containsExactly(
                 Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4));
@@ -972,12 +975,12 @@ class EpicLoginIntegrationTests {
 
     @Test
     void eachRefetchIsAWarningWithItsAttemptAndTheLastFailureAnError() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         epic.rotateSigningKey(Integer.MAX_VALUE);
 
         List<String> logged;
         try (CapturedLog captured = CapturedLog.attach()) {
-            signInFromEpic(provision(), null);
+            signInFromEpic(practitioners.provision(), null);
             logged = captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "epic.jwks_refetch")
                     .stream()
                     .map(record -> record.getLevel() + " "
@@ -991,11 +994,11 @@ class EpicLoginIntegrationTests {
     /** D26: still unknown, Epic may have moved its keys, so discovery is read again. */
     @Test
     void aKidStillUnknownAfterTheRefetchesRefetchesDiscovery() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         epic.rotateSigningKey(Integer.MAX_VALUE);
         int before = epic.requests(FakeEpic.Endpoint.DISCOVERY);
 
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
 
         assertThat(epic.requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(before + 1);
     }
@@ -1003,11 +1006,11 @@ class EpicLoginIntegrationTests {
     /** A rotation Epic publishes a moment late is found by the refetches, and accepted. */
     @Test
     void aRotatedKeyPublishedOnTheSecondRefetchIsAccepted() throws Exception {
-        signInFromEpic(provision(), null);
+        signInFromEpic(practitioners.provision(), null);
         epic.rotateSigningKey(2);
         int before = epic.requests(FakeEpic.Endpoint.JWKS);
 
-        Landing landing = signInFromEpic(provision(), null);
+        Landing landing = signInFromEpic(practitioners.provision(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
         assertThat(epic.requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 2);
@@ -1089,55 +1092,15 @@ class EpicLoginIntegrationTests {
 
     // ---- helpers ------------------------------------------------------------------------------
 
-    /** An active User whose userName is a fresh, mixed-case Practitioner ID, with a password. */
-    private String provision() {
-        String practitioner = "ePract" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        ScimUser created = new TransactionTemplate(transactionManager).execute(status -> users.create(
-                ScimUser.created(
-                        UUID.randomUUID(),
-                        ScimIdentities.profile(practitioner, true),
-                        passwordEncoder.encode(PASSWORD),
-                        ScimIdentities.NOW)));
-        seeded.add(created.id());
-        return practitioner;
-    }
-
-    /** A fresh Practitioner ID no User is provisioned under. */
-    private static String unprovisioned() {
-        return "eNobody" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-    }
-
-    /** {@link #provision()}, then deactivated, as the directory would. */
-    private String provisionDeactivated() {
-        String practitioner = provision();
-        UUID id = idOf(practitioner);
-        new TransactionTemplate(transactionManager).executeWithoutResult(
-                status -> users.updateActive(id, false, Instant.now()));
-        return practitioner;
-    }
-
-    /** {@link #provision()}, then locked by a failure run reaching the limit. */
-    private String provisionLocked() {
-        String practitioner = provision();
-        UUID id = idOf(practitioner);
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            ScimLoginState login = users.findById(id).orElseThrow().login();
-            users.updateLoginState(id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
-        });
-        return practitioner;
-    }
-
-    /** {@link #provision()}, and a member of the Admin group, so its Permissions are mapped. */
+    /**
+     * {@link EpicPractitioners#provision()}, and a member of the Admin group, so its
+     * Permissions are mapped.
+     */
     private String provisionInAdminGroup() {
-        String practitioner = provision();
+        String practitioner = practitioners.provision();
         jdbc.update("INSERT INTO scim_group_members (group_id, user_id) VALUES (?, ?)",
-                ADMIN_GROUP, idOf(practitioner));
+                ADMIN_GROUP, practitioners.idOf(practitioner));
         return practitioner;
-    }
-
-    private UUID idOf(String userName) {
-        return jdbc.queryForObject(
-                "SELECT resource_id FROM scim_users WHERE user_name = ?", UUID.class, userName);
     }
 
     /** A password Login, from {@code jar} when there is one; the signed-in session cookie. */
@@ -1289,29 +1252,8 @@ class EpicLoginIntegrationTests {
         return all.toString();
     }
 
-    private JWKSet publishedJwks() {
-        try {
-            return JWKSet.parse(ourJwks.document());
-        } catch (ParseException malformed) {
-            throw new IllegalStateException(malformed);
-        }
-    }
-
     /** The id a session cookie names in the store: Spring Session writes it Base64-encoded. */
     private static String sessionId(Cookie session) {
         return new String(Base64.getDecoder().decode(session.getValue()), StandardCharsets.UTF_8);
-    }
-
-    private static int freePort() {
-        // Test-only: binds an ephemeral local port just to learn a free number for the fake
-        // Epic, and closes at once. Nothing is ever sent over it, so there is no traffic for
-        // TLS to protect.
-        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
-        try (ServerSocket socket = new ServerSocket(0)) {
-            socket.setReuseAddress(true);
-            return socket.getLocalPort();
-        } catch (IOException unavailable) {
-            throw new IllegalStateException(unavailable);
-        }
     }
 }

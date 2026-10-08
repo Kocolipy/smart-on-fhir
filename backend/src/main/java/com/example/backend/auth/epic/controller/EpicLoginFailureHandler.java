@@ -37,18 +37,19 @@ import org.springframework.stereotype.Component;
  * <p>Epic being unavailable — no answer in time, or a {@code 5xx}, from discovery, the JWKS or
  * the token endpoint — is recorded as a {@code LOGIN_FAILURE} under method {@code sso} with
  * {@code EPIC_UNAVAILABLE} and no subject, the {@code epic.login} count under
- * {@code outcome=unavailable}, and one {@code ERROR} naming the call and its section 5 category,
+ * {@code outcome=unavailable}, and one {@code ERROR} naming the call and its error category,
  * with no follow-up — Epic being down is not ours to fix. The browser lands at
  * {@code /?signin=unavailable}.
  *
- * <p>Anything else is a refusal with its exact section 5 reason: a {@code LOGIN_FAILURE} under
- * method {@code sso} naming nobody — no User was looked up — counted toward no failure run (D12),
- * the {@code epic.login} count under {@code outcome=refused} and the reason, and one {@code WARN}
- * saying only "Epic sign-in refused", with the field and rule of a refused input but never its
- * value and never the reason, which is the audit trail's alone (spec section 11). Epic refusing
- * our own credential ({@code cert/auth}) or answering with something unusable ({@code data}) is
- * also an {@code ERROR} — one that needs a person, since a key or a registration is likely wrong.
- * The browser lands at {@code /?signin=refused}.
+ * <p>Anything else is a refusal with its exact reason (ADR 0013, "Audit"): a
+ * {@code LOGIN_FAILURE} under method {@code sso} naming nobody — no User was looked up — counted
+ * toward no failure run (D12), the {@code epic.login} count under {@code outcome=refused} and the
+ * reason, and one {@code WARN} saying only "Epic sign-in refused", with the field and rule of a
+ * refused input but never its value and never the reason, which is the audit trail's alone
+ * (ADR 0013, "the account reasons are audit-only"). Epic refusing our own credential
+ * ({@code cert/auth}) or answering with something unusable ({@code data}) is also an
+ * {@code ERROR} — one that needs a person, since a key or a registration is likely wrong. The
+ * browser lands at {@code /?signin=refused}.
  *
  * <p>Either way the session the browser held is ended first, whoever it belonged to, and the
  * browser told nothing more (D23, D24).
@@ -97,7 +98,7 @@ public class EpicLoginFailureHandler implements EpicSignInFailure {
     }
 
     /**
-     * The section 5 reason for a refusal Spring Security's OAuth 2.0 login raised, read from what
+     * The reason (ADR 0013, "Audit") for a refusal Spring Security's OAuth 2.0 login raised, read from what
      * failed — never from a message, which can quote what Epic sent.
      *
      * <ul>
@@ -162,13 +163,17 @@ public class EpicLoginFailureHandler implements EpicSignInFailure {
     }
 
     /**
-     * The one {@code ERROR} of a failed Epic call: which call, and its section 5
-     * {@code error.category} and code, followed up unless Epic was merely unavailable. No user:
+     * The one {@code ERROR} of a failed Epic call: which call, and its {@code error.category}
+     * (ADR 0013, "Log") and code, followed up unless Epic was merely unavailable. No user:
      * the browser's session, if it had one, is not whom the launch was for.
      */
     private static void logFailedCall(EpicOutboundException failed) {
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
-            LogEvent.error(log, Operation.EPIC_LOGIN, failed.code(), failed.category(),
+            // be-log-sensitive-value matches any value named "code", for Epic's authorization
+            // code (ADR 0013, D22). This one is the failed call's error.code -- the HTTP status
+            // the failure maps to, never a value Epic sent -- so it is suppressed on this one
+            // record and nowhere else.
+            LogEvent.error(log, Operation.EPIC_LOGIN, failed.code(), failed.category(), // nosemgrep: be-log-sensitive-value
                             !failed.unavailable(), Category.NETWORK, Type.ERROR)
                     .addKeyValue(LogEvent.EPIC_CALL, failed.call().tag())
                     .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())

@@ -1,7 +1,7 @@
 package com.example.backend.audit.domain;
 
 /**
- * The multi-factor authentication an Epic {@code LOGIN_SUCCESS} was made with (Epic Login spec,
+ * The multi-factor authentication an Epic {@code LOGIN_SUCCESS} was made with (ADR 0013,
  * D17): a closed set, as every classification crossing the {@link AuditTrail} is, so no value
  * Epic sent can reach the trail as text.
  *
