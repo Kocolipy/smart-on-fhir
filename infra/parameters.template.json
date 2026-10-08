@@ -116,6 +116,10 @@
     "ParameterValue": ""
   },
   {
+    "ParameterKey": "AppEpicMfaEvidenceRequired",
+    "ParameterValue": "false"
+  },
+  {
     "ParameterKey": "AppEnvironment",
     "ParameterValue": "production"
   },
