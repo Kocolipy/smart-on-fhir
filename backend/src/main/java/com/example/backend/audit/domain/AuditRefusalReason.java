@@ -15,6 +15,12 @@ package com.example.backend.audit.domain;
  * every one of these is the same bare {@code 401}. The distinction lives in the
  * audit trail, which is read by an administrator, not returned to whoever
  * submitted the credentials.
+ *
+ * <p>The Epic Login values ({@code EPIC_UNAVAILABLE} through {@code INVALID_FHIR_USER}, and the
+ * account reasons it shares with password Login) are the ones Epic Login's own closed list,
+ * {@code EpicLoginFailureReason}, carries, each under the same name. Each is described here as
+ * what the trail records, for the administrator reading it; Epic Login's list describes when it
+ * decides on each.
  */
 public enum AuditRefusalReason {
 
@@ -36,7 +42,10 @@ public enum AuditRefusalReason {
      */
     EPIC_UNAVAILABLE,
 
-    /** An Epic launch whose {@code launch} was missing or outside D18's bounds. */
+    /**
+     * An Epic launch whose {@code launch} was missing or outside D18's bounds, or that had none
+     * pending at the authorize hop.
+     */
     INVALID_LAUNCH,
 
     /** An Epic launch whose {@code iss} was missing or not exactly the configured FHIR base. */
@@ -60,7 +69,10 @@ public enum AuditRefusalReason {
     /** An Epic {@code id_token} claim that failed, the MFA evidence D17 requires included. */
     INVALID_CLAIMS,
 
-    /** An Epic {@code id_token} whose {@code fhirUser} names no Practitioner here. */
+    /**
+     * An Epic {@code id_token} whose {@code fhirUser} was absent, or not a Practitioner on the
+     * configured FHIR base. A Practitioner no account here is linked to is {@code UNKNOWN_ACCOUNT}.
+     */
     INVALID_FHIR_USER,
 
     /** A refusal this service does not have its own name for yet. */
