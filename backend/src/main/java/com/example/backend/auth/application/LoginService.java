@@ -115,7 +115,8 @@ public class LoginService {
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
-        return succeeded(authentication, retainedSessionId, AuditLoginMethod.PASSWORD, null);
+        attempts.recordPasswordSuccess(authentication.getName(), retainedSessionId);
+        return succeeded(authentication, AuditLoginMethod.PASSWORD);
     }
 
     /**
@@ -171,7 +172,8 @@ public class LoginService {
                         user, null, user.getAuthorities());
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
-        return succeeded(authentication, retainedSessionId, AuditLoginMethod.SSO, mfaFactor);
+        attempts.recordEpicSuccess(authentication.getName(), retainedSessionId, mfaFactor);
+        return succeeded(authentication, AuditLoginMethod.SSO);
     }
 
     /**
@@ -234,16 +236,11 @@ public class LoginService {
     }
 
     /**
-     * The tail every accepted Login shares, whichever way it proved who signed in: the success
-     * recorded against the User, the {@code LOGIN} record naming the User and the login method
-     * (D15) and, for an Epic Login, the MFA factor (D17), and the outcome the caller establishes
-     * the session from.
-     *
-     * @param mfaFactor the Epic Login's MFA factor, or {@code null} for a password Login
+     * The tail every accepted Login shares once its success is recorded against the User,
+     * whichever way it proved who signed in: the {@code LOGIN} record naming the User and the
+     * login method (D15), and the outcome the caller establishes the session from.
      */
-    private LoginOutcome succeeded(Authentication authentication, String retainedSessionId,
-            AuditLoginMethod method, AuditMfaFactor mfaFactor) {
-        attempts.recordSuccess(authentication.getName(), retainedSessionId, method, mfaFactor);
+    private LoginOutcome succeeded(Authentication authentication, AuditLoginMethod method) {
         UUID userId = identities.resolveUserId(authentication.getName());
         // Set explicitly: the session's principal index that carries user.id for later
         // requests is written only after this returns.
