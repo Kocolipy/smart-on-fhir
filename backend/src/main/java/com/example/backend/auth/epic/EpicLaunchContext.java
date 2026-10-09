@@ -11,6 +11,14 @@ import java.util.Optional;
  *
  * <p>It is opaque to us — it carries the clinician's Hyperspace context, which is why no login
  * hint is sent — and it is never logged or audited (D22).
+ *
+ * <p>Unlike the pending authorization request, which waits under its own Redis key and is taken
+ * atomically (D27), this lives in the session and its take is not atomic: two concurrent
+ * authorize hops in one session could each send it on. That is deliberate, not an oversight. The
+ * launch is no credential of ours — Epic alone decides what it is worth — and each such hop holds
+ * its pending request under the same session-keyed entry, the later replacing the earlier, so
+ * still only one callback can complete. A refused or unavailable Login ends the session (D24),
+ * which takes this value with it and leaves the pending entry unreachable until it expires.
  */
 public final class EpicLaunchContext {
 

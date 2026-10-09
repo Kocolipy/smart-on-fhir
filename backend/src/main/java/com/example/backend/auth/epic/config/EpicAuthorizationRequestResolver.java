@@ -23,13 +23,13 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  * scope — a {@code nonce}, each random value carrying well over 128 bits; PKCE adds a
  * {@code code_verifier} of 43 or more characters and its S256 {@code code_challenge}. To that this
  * adds the two parameters an EHR launch needs: the pending {@code launch}, taken out of the
- * session so it is used once, and {@code aud}, the FHIR base the launch was accepted for. No
- * login hint is sent.
+ * session ({@link EpicLaunchContext}), and {@code aud}, the FHIR base the launch was accepted
+ * for. No login hint is sent.
  *
- * <p>The pending request — {@code state}, the nonce and the verifier — is kept by the
- * authorization-request repository in the HTTP session, which lives in Redis, so the callback may
- * land on any node. With no launch pending this resolves nothing, and the hop's own handler
- * refuses the request.
+ * <p>The pending request — {@code state}, the nonce and the verifier — is kept by
+ * {@link EpicAuthorizationRequests} under its own Redis key, not in the HTTP session, so the
+ * callback may land on any node and takes it exactly once (D27). With no launch pending this
+ * resolves nothing, and the hop's own handler refuses the request.
  */
 final class EpicAuthorizationRequestResolver implements OAuth2AuthorizationRequestResolver {
 
