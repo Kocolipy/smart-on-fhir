@@ -1,7 +1,6 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.application.EpicLoginOutcome.FailedCall;
 import com.example.backend.auth.application.EpicLoginOutcome.Refused;
 import com.example.backend.auth.application.EpicLoginOutcome.SignedIn;
@@ -96,7 +95,8 @@ public class EpicLoginOutcomeService {
             logFailedCall(refused.failedCall(), sessionHash);
             counts.failedCall(refused.failedCall().call(), refused.failedCall().category());
         }
-        attempts.recordRefusal(refused.subjectId(), audited(refused.reason()), AuditLoginMethod.SSO);
+        attempts.recordRefusal(
+                refused.subjectId(), refused.reason().audited(), AuditLoginMethod.SSO);
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             LoggingEventBuilder warning = inSession(LogEvent.refused(
                             log, Operation.EPIC_LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
@@ -118,7 +118,8 @@ public class EpicLoginOutcomeService {
             logFailedCall(call, sessionHash);
         }
         counts.failedCall(call.call(), call.category());
-        attempts.recordRefusal(null, AuditRefusalReason.EPIC_UNAVAILABLE, AuditLoginMethod.SSO);
+        attempts.recordRefusal(
+                null, EpicLoginFailureReason.EPIC_UNAVAILABLE.audited(), AuditLoginMethod.SSO);
         counts.unavailable();
     }
 
@@ -152,27 +153,5 @@ public class EpicLoginOutcomeService {
             record.addKeyValue(LogEvent.SESSION_HASH, sessionHash);
         }
         return record;
-    }
-
-    /**
-     * An Epic refusal as the audit trail's own vocabulary, which password Login's refusals share.
-     * Exhaustive, so a reason added to the list cannot reach the trail unmapped.
-     */
-    private static AuditRefusalReason audited(EpicLoginFailureReason reason) {
-        return switch (reason) {
-            case INVALID_LAUNCH -> AuditRefusalReason.INVALID_LAUNCH;
-            case ISS_MISMATCH -> AuditRefusalReason.ISS_MISMATCH;
-            case INVALID_STATE -> AuditRefusalReason.INVALID_STATE;
-            case INVALID_CODE -> AuditRefusalReason.INVALID_CODE;
-            case IDP_ERROR -> AuditRefusalReason.IDP_ERROR;
-            case TOKEN_EXCHANGE_FAILED -> AuditRefusalReason.TOKEN_EXCHANGE_FAILED;
-            case INVALID_SIGNATURE -> AuditRefusalReason.INVALID_SIGNATURE;
-            case INVALID_CLAIMS -> AuditRefusalReason.INVALID_CLAIMS;
-            case INVALID_FHIR_USER -> AuditRefusalReason.INVALID_FHIR_USER;
-            case EPIC_UNAVAILABLE -> AuditRefusalReason.EPIC_UNAVAILABLE;
-            case UNKNOWN_ACCOUNT -> AuditRefusalReason.UNKNOWN_ACCOUNT;
-            case ACCOUNT_DISABLED -> AuditRefusalReason.ACCOUNT_DISABLED;
-            case ACCOUNT_LOCKED -> AuditRefusalReason.ACCOUNT_LOCKED;
-        };
     }
 }

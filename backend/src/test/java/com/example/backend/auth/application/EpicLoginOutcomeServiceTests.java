@@ -31,6 +31,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * How an Epic Login's ending is recorded ({@link EpicLoginOutcomeService}): for each outcome, the
@@ -98,6 +100,20 @@ class EpicLoginOutcomeServiceTests {
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, refused, "ACCOUNT_LOCKED"));
         assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
+    }
+
+    /**
+     * ADR 0013, "Audit": an Epic {@code LOGIN_FAILURE} carries its reason spelled as the reason's
+     * own name — every reason on the list, so one added to it is held to the same.
+     */
+    @ParameterizedTest(name = "{0} is audited as {0}")
+    @EnumSource(value = EpicLoginFailureReason.class, mode = EnumSource.Mode.EXCLUDE,
+            names = "EPIC_UNAVAILABLE")
+    void everyRefusalIsAuditedUnderItsOwnName(EpicLoginFailureReason reason) {
+        outcomes.record(Refused.because(reason), SESSION);
+
+        assertThat(audit.recorded()).extracting(RecordingAuditTrail.Recorded::detail)
+                .containsExactly(reason.name());
     }
 
     @Test
@@ -227,6 +243,13 @@ class EpicLoginOutcomeServiceTests {
         assertThatThrownBy(() -> Refused.call(
                         EpicLoginFailureReason.TOKEN_EXCHANGE_FAILED, token5xx))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** No outcome is no ending: nothing to record, and a caller's bug rather than a refusal. */
+    @Test
+    void noOutcomeIsRefusedAsANullPointer() {
+        assertThatThrownBy(() -> outcomes.record(null, SESSION))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
