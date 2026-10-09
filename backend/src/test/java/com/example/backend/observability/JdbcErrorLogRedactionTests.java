@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -35,7 +34,6 @@ import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -58,8 +56,7 @@ import tools.jackson.databind.json.JsonMapper;
  * this class knew to expect it.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
+@Import(ContainerTestConfiguration.class)
 class JdbcErrorLogRedactionTests {
 
     private static final String JDBC_ERROR_LOGGER = "org.hibernate.orm.jdbc.error";

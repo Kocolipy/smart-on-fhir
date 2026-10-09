@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.RequestIdFilter;
@@ -28,7 +27,6 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -47,8 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
  * a Superuser without a Role per combination.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
+@Import(ContainerTestConfiguration.class)
 class ConnectorTokenPermissionsIntegrationTests {
 
     private static final String ADMIN = "test-admin";

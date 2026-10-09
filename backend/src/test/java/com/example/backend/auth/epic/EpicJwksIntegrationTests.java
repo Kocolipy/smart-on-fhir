@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.jwk.JWKSet;
@@ -39,7 +38,7 @@ import org.springframework.web.context.WebApplicationContext;
  * <p>The switch-off half, a {@code 404}, is {@link EpicReleaseGateIntegrationTests}'.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 @ExtendWith(OutputCaptureExtension.class)
 class EpicJwksIntegrationTests {
 

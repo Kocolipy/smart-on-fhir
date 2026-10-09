@@ -373,9 +373,21 @@ public final class FakeEpic implements AutoCloseable {
         requests.shutdownNow();
     }
 
+    /**
+     * Every answer closes its connection. A fake lives for one test, but the context's HTTP client
+     * outlives it and pools keep-alive connections to the port the next test's fake binds again.
+     * A pooled connection to a fake already stopped fails the next request on it, and the client
+     * retries a {@code GET} but never a {@code POST} — so the token call failed as {@code network}
+     * whenever it drew one, at random.
+     */
+    private static void closingTheConnection(HttpExchange exchange) {
+        exchange.getResponseHeaders().set("Connection", "close");
+    }
+
     /** One request to {@code endpoint}: counted, then failed as the test asked, or answered. */
     private void serve(Endpoint endpoint, HttpExchange exchange, Handler handler)
             throws IOException {
+        closingTheConnection(exchange);
         requestCounts.computeIfAbsent(endpoint, ignored -> new AtomicInteger()).incrementAndGet();
         if (endpoint == Endpoint.TOKEN) {
             Map<String, List<String>> headers = new LinkedHashMap<>();
@@ -460,6 +472,7 @@ public final class FakeEpic implements AutoCloseable {
 
     /** Remembers the request and answers as Epic does once the clinician has authorized. */
     private void authorize(HttpExchange exchange) throws IOException {
+        closingTheConnection(exchange);
         Map<String, String> query = parse(exchange.getRequestURI().getRawQuery());
         authorizeRequests.add(query);
         String location;

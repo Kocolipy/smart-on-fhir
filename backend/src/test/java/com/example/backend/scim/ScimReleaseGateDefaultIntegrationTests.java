@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.config.ScimReleaseGate;
 import jakarta.servlet.Filter;
@@ -44,7 +43,7 @@ import org.springframework.web.context.WebApplicationContext;
  * chain.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class ScimReleaseGateDefaultIntegrationTests {
 
     @Autowired

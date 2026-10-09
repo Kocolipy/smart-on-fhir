@@ -46,7 +46,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -69,7 +68,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-@TestPropertySource(properties = "app.scim.enabled=true")
 class ScimConditionalWriteIntegrationTests {
 
     private static final String USERS = "/scim/v2/Users";
@@ -185,10 +183,10 @@ class ScimConditionalWriteIntegrationTests {
 
         groupVersion = version(GROUPS, group);
         MvcResult groupPatched = mvc.perform(as(tokenA, withBody(patch(GROUPS + "/" + group),
-                patchOp("{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Patched\"}"))))
-                .andReturn();
+                patchOp("{\"op\":\"replace\",\"path\":\"displayName\","
+                        + "\"value\":\"Unconditional Patched\"}")))).andReturn();
         assertApplied(groupPatched, group, groupVersion);
-        assertThat(groupDisplayName(group)).isEqualTo("Patched");
+        assertThat(groupDisplayName(group)).isEqualTo("Unconditional Patched");
 
         assertThat(status(as(tokenA, delete(GROUPS + "/" + group)))).isEqualTo(204);
         assertThat(status(as(tokenA, get(GROUPS + "/" + group)))).isEqualTo(404);

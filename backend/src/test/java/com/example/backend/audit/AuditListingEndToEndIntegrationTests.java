@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.DormancyTestClockConfiguration;
 import com.example.backend.auth.MutableClock;
@@ -43,7 +42,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -79,9 +77,7 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest
 @Import({
         ContainerTestConfiguration.class,
-        InMemorySessionRegistryConfiguration.class,
         DormancyTestClockConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
 class AuditListingEndToEndIntegrationTests {
 
     private static final String SCIM = "/scim/v2";

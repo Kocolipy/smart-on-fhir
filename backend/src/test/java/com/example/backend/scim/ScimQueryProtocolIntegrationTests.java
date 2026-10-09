@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -36,7 +35,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -59,8 +57,7 @@ import tools.jackson.databind.node.ObjectNode;
  * seed without deleting anything that is not this class's own.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
+@Import(ContainerTestConfiguration.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ScimQueryProtocolIntegrationTests {
 

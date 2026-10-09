@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -42,7 +41,7 @@ import tools.jackson.databind.json.JsonMapper;
  * that recorded the refusal rather than about one that recorded nothing.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class ScimRefusalRedactionTests {
 
     private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");

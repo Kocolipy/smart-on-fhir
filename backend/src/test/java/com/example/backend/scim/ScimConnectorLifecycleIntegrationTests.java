@@ -9,7 +9,6 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -45,7 +44,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -70,12 +68,7 @@ import org.springframework.web.context.WebApplicationContext;
  * not a mapping's opinion of them.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
-// The release gate is closed by default, and a closed gate answers 404 ahead of
-// authentication — which is exactly what this test must see PAST in order to observe the
-// bearer chain at all. Opened here rather than in the shared test configuration so the
-// gate's own default stays testable against the value a deployment would get.
-@TestPropertySource(properties = "app.scim.enabled=true")
+@Import(ContainerTestConfiguration.class)
 class ScimConnectorLifecycleIntegrationTests {
 
     /** A SCIM path that exists as a namespace but has no handler yet. */

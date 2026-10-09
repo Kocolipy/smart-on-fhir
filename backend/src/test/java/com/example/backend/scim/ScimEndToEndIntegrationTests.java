@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
@@ -49,7 +48,7 @@ import tools.jackson.databind.json.JsonMapper;
  * would quietly test a different deployment from the one the criterion describes.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class ScimEndToEndIntegrationTests {
 
     private static final String BASE = "/scim/v2";

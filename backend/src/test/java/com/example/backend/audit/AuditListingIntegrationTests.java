@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
 import java.sql.Timestamp;
@@ -48,7 +47,7 @@ import tools.jackson.databind.json.JsonMapper;
  * test's own rows from another method — cannot reach an assertion.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class AuditListingIntegrationTests {
 
     private static final String LISTING = "/api/admin/audit-events";

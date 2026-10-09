@@ -78,9 +78,8 @@ class AdminAccountEndpointTests {
     private WebApplicationContext context;
 
     /**
-     * The session registry, in memory, from {@link InMemorySessionRegistryConfiguration}. The
-     * deployed one is Redis-backed and this context has no Redis, but the reason to replace it is
-     * not only that: a fake can be asked what it holds, so the removed-endpoint test below proves
+     * The session registry, in memory, from {@link InMemorySessionRegistryConfiguration}. A fake
+     * can be asked what it holds, so the removed-endpoint test below proves
      * a request to the old disable path revoked nothing rather than merely returning 404.
      *
      * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —

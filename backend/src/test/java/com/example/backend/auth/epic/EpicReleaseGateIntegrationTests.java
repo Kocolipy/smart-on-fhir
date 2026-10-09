@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +30,7 @@ import org.springframework.web.context.WebApplicationContext;
  * would give an unknown route, and not the single-page shell.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class EpicReleaseGateIntegrationTests {
 
     @Autowired

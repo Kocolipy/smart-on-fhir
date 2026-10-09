@@ -52,7 +52,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.LockedException;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -75,7 +74,6 @@ import org.springframework.transaction.support.TransactionTemplate;
         ContainerTestConfiguration.class,
         InMemorySessionRegistryConfiguration.class,
         DormancyTestClockConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
 class DormancyIntegrationTests {
 
     private static final Duration PAST_LOCKOUT =
