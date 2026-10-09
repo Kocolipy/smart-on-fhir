@@ -845,3 +845,16 @@ login decision and the two Epic handlers in turn. Three things change in what th
   password's can. `be-log-sensitive-value` matches any value named `hash`, but not the call that
   adds this field, so nothing is suppressed for it. `session-start` and the password Login
   records do not carry it yet.
+
+## Addendum (2026-10-09): the refresh token joins D22's names (ADR 0013, #24)
+
+Epic Login now keeps Epic's access token, refresh token and `id_token` for the session it signs
+in (ADR 0013's addendum of the same date), so the refresh token is a D22 value beside the other
+two, and the `id_token` is treated as the credentials are. The scan needs no change:
+`be-log-sensitive-value`'s original family already matches any name containing `token`, so
+`refresh_token` and `refreshToken` are refused as `id_token` and `access_token` were. The value
+type that holds the three, `EpicTokenSet`, renders each by its presence alone in `toString()`, so
+a record or a message that printed one would carry none of them.
+`EpicLoginRedactionIntegrationTests` has Epic issue a refresh token on every path it drives,
+searches for it beside the other D22 values, and also searches every answer the callback gave the
+browser.

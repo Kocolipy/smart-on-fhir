@@ -9,8 +9,7 @@ import com.example.backend.auth.epic.EpicOutboundCall;
 import com.example.backend.auth.epic.EpicOutboundException;
 import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.auth.epic.EpicSignInFailure;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import com.example.backend.auth.epic.EpicTokenHandOff;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -19,8 +18,6 @@ import java.util.Optional;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
@@ -32,7 +29,6 @@ import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
@@ -74,11 +70,13 @@ import org.springframework.web.client.RestClientException;
  *       {@code iss}, {@code aud} (and {@code azp} when there are
  *       several audiences), {@code exp} and {@code iat} with a 30-second skew from the injected
  *       {@link Clock}, and the {@code nonce}.
- *   <li><b>Identity only (D8).</b> No user-info call is made and nothing from the token response
- *       is kept: the authorized client — the access token with it — is not saved anywhere, and
- *       the login filter neither rotates the session nor saves a security context, so Epic's
- *       {@code id_token} never reaches the session store. The success handler establishes the
- *       session from our own Login instead.
+ *   <li><b>The Epic tokens, for the signed-in session alone.</b> No user-info call is made. The
+ *       authorized client — the access token and any refresh token — is held on the callback's
+ *       request alone ({@link EpicTokenHandOff}), and the login filter neither rotates the session
+ *       nor saves a security context, so nothing from Epic reaches the pre-login session. The
+ *       success handler establishes the session from our own Login instead, and only then keeps
+ *       the access token, refresh token and {@code id_token} on it (ADR 0013, addendum
+ *       2026-10-09, superseding D8 for those three); the launch context is still dropped.
  * </ul>
  *
  * <p>Any OAuth error or failed check, and any Epic call that failed — discovery at the authorize
@@ -146,7 +144,7 @@ public final class EpicLoginFlow {
                 .loginPage("/")
                 .loginProcessingUrl(EpicRoutes.CALLBACK)
                 .clientRegistrationRepository(registrations)
-                .authorizedClientRepository(NOTHING_KEPT)
+                .authorizedClientRepository(EpicTokenHandOff.REPOSITORY)
                 .authorizationEndpoint(authorize -> authorize
                         .authorizationRequestResolver(authorizationRequests)
                         .authorizationRequestRepository(pendingRequests))
@@ -262,29 +260,4 @@ public final class EpicLoginFlow {
     private static OidcUser identityOnly(OidcUserRequest request) {
         return new DefaultOidcUser(List.of(), request.getIdToken());
     }
-
-    /** D8: the authorized client, and the access token in it, is kept nowhere. */
-    private static final OAuth2AuthorizedClientRepository NOTHING_KEPT =
-            new OAuth2AuthorizedClientRepository() {
-                @Override
-                public <T extends OAuth2AuthorizedClient> T loadAuthorizedClient(
-                        String clientRegistrationId, Authentication principal,
-                        HttpServletRequest request) {
-                    return null;
-                }
-
-                @Override
-                public void saveAuthorizedClient(OAuth2AuthorizedClient authorizedClient,
-                        Authentication principal, HttpServletRequest request,
-                        HttpServletResponse response) {
-                    // Deliberately nothing: Epic's access token is used for nothing (D8).
-                }
-
-                @Override
-                public void removeAuthorizedClient(String clientRegistrationId,
-                        Authentication principal, HttpServletRequest request,
-                        HttpServletResponse response) {
-                    // Nothing was kept, so there is nothing to remove.
-                }
-            };
 }

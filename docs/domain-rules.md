@@ -157,9 +157,23 @@ dormancy basis even while the flag is set. The flag itself is neither read into
 the session nor cleared, so the same User's password Login is still confined
 (ADR 0008's 2026-10-09 addendum).
 
-**Identity only** — Epic's access token, the patient and encounter context, and
-the rest of the token response are discarded; nothing from Epic is stored, and no
-FHIR API is called.
+**Identity, and the Epic tokens for the session** — the Login decides who signed
+in from the `id_token` alone. A successful Epic Login then keeps the **Epic
+tokens** — Epic's access token, with its expiry and granted scope, the refresh
+token when Epic issues one, and the `id_token` — server-side, on the session it
+signed in and under that session's signed-in id only. A refused or unavailable
+launch keeps nothing, and a password Login's session holds none. The tokens live
+exactly as long as the session: logout, the idle timeout, the absolute session
+lifetime, every session revocation and the next launch in that browser each
+leave nothing to retrieve, and a session holding them is stored no longer than
+its remaining absolute lifetime, however recently it was used. An expired
+access token ends nothing; the refresh
+token and the `id_token` stay with the session. Only backend code reads them, by
+session: no response carries them, `/api/auth/me` included, and the SPA holds no
+Epic credential. The patient and encounter context and the rest of the token
+response are discarded, and no FHIR API is called yet. Today Epic issues no
+refresh token, because the Login asks only for `launch openid fhirUser`
+(ADR 0013's 2026-10-09 addendum).
 
 **Input bounds** — what the browser hands a Login is checked before it is held,
 sent to Epic or redeemed:
@@ -200,9 +214,10 @@ and the factor recorded is the one `amr` named. Password Login carries no factor
 
 **Epic signs nobody out** — an Epic session is an ordinary session from the moment
 it starts, bounded by the idle timeout and the absolute session lifetime, and
-ended by the next launch in that browser. Signing out of Epic does not end it, and
-Epic's access token, never kept, is not revoked: ADR 0013 records both as an
-accepted risk (D13).
+ended by the next launch in that browser. Signing out of Epic does not end it.
+Ending it drops the Epic tokens it holds but does not revoke them at Epic: the
+access token stays valid there until it expires, and a refresh token, once one
+is issued, for its own lifetime. ADR 0013 records both as an accepted risk (D13).
 
 **A suspected compromise is a deactivation** — an Epic-linked User suspected
 compromised is deactivated in the directory, which revokes its sessions once the
@@ -213,8 +228,9 @@ change-required flag it sets confines only the User's password Login. It still
 ends every session the User holds, an Epic one included.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
-nonce, the PKCE verifier, Epic's `id_token` and access token, our client assertion
-and our signing keys appear in no log record and no audit event (D22).
+nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, our
+client assertion and our signing keys appear in no log record and no audit event
+(D22).
 
 ## Identity provisioning
 

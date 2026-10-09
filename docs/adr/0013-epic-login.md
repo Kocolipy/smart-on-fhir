@@ -9,7 +9,10 @@ design spec it was built from (`docs/epic-smart-login.md`, removed in that chang
 git history keeps it). This ADR is now the sole authority on Epic Login: every
 decision D1–D28, the flow, the interfaces, the accepted risk D13, the IM8 policy
 position and the App-Standards deviations are recorded here. Its addendum on
-ADR-0012 updates the ac-2, ac-12 and as-8 entries there.
+ADR-0012 updates the ac-2, ac-12 and as-8 entries there. Its own addendum of
+2026-10-09 (#24), at the end, supersedes D8 for Epic's access token, refresh
+token and `id_token`, which are now kept server-side for the life of the session
+an Epic Login signs in; the passages it changes say so where they stand.
 
 The items under "Open items" below are confirmations from outside the code. Each
 is answered by recording it here, and none of them changes a decision.
@@ -38,8 +41,9 @@ Out of scope, deliberately:
 
 - standalone launch, a "Sign in with Epic" button, or patient-facing (MyChart)
   Login;
-- using patient or encounter launch context, storing Epic's access token, refresh
-  tokens, or any FHIR API call;
+- using patient or encounter launch context, or any FHIR API call. Storing Epic's
+  access token and refresh token was out of scope too, until the 2026-10-09
+  addendum kept them for the session; using them, refreshing included, still is;
 - just-in-time provisioning: an Epic Login never creates or modifies a User;
 - single sign-out with Epic;
 - signing-key generation, scheduling or expiry: key rotation is operated outside
@@ -109,7 +113,10 @@ Security's authorization-request filter build the request.
    skew from the injected `Clock` (an `iat` more than 30 seconds ahead refused),
    the `nonce` in constant time (`EpicIdTokenChecks`), and the MFA evidence once
    D17's switch is on; any of them failing is `INVALID_CLAIMS`. No user-info call
-   is made. The access token and the rest of the token response are dropped.
+   is made. The access token, any refresh token and the `id_token` are handed to
+   the success handler on the callback's request alone, which keeps them only if
+   step 7 signs a session in (the 2026-10-09 addendum); the rest of the token
+   response is dropped.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
    non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
    refused as `INVALID_FHIR_USER`. The dev profile
@@ -128,8 +135,9 @@ Security's authorization-request filter build the request.
 7. **Session.** `SessionEstablishment`, shared with password Login, rotates the
    session id, saves the security context, sets the principal index and the
    role-mapping hash, drops the pre-login CSRF token and logs `session-start`
-   (method `sso`). The answer is `302 /`; the SPA's `/api/auth/me` →
-   `authenticated` → `/showcase` path follows.
+   (method `sso`). Then, on the signed-in session alone, the success handler
+   keeps Epic's tokens (the 2026-10-09 addendum). The answer is `302 /`; the
+   SPA's `/api/auth/me` → `authenticated` → `/showcase` path follows.
 8. **Any refusal or OAuth error** at any step lands at `/?signin=refused`, and
    Epic being unreachable at `/?signin=unavailable` (D23) — neither with any
    detail, and both with the browser's session ended first (D24).
@@ -173,11 +181,14 @@ it signed in — and the accepted one the MFA factor (ADR 0003, addendum
 2026-10-09).
 
 The login filter is configured to neither rotate the session nor save a security
-context of its own, and the authorized client is saved nowhere. The success
-handler, a web adapter, establishes the session from our own Login instead. That
-is what keeps Epic's `id_token` and access token out of the session store (D8),
-and it means an Epic session is built by exactly the code that builds a password
-one.
+context of its own, and the authorized client is held on the callback's request
+alone (`EpicTokenHandOff`), never in a session. The success handler, a web
+adapter, establishes the session from our own Login instead. That is what keeps
+everything Epic sent out of the pre-login session, and it means an Epic session
+is built by exactly the code that builds a password one. Only after that, and
+only for an accepted Login, does the success handler keep Epic's access token,
+refresh token and `id_token` on the signed-in session (the 2026-10-09 addendum,
+superseding D8 for those three).
 
 ### Network paths
 
@@ -256,7 +267,10 @@ resilience", and D13 under "Accepted risk"; the rest follow here.
   so the refusal does not say the account exists. Password Login stays its
   recovery path.
 - **D8: identity only.** The patient and encounter context and the access token
-  are discarded, and nothing from Epic is stored.
+  are discarded, and nothing from Epic is stored. _Superseded for the access
+  token, the refresh token and the `id_token` by the 2026-10-09 addendum_: those
+  three are kept server-side for the life of the session the Login signs in. The
+  patient and encounter context are still discarded.
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
 - **D10: `iss` is required** on the launch URL and must exactly equal
@@ -333,8 +347,9 @@ resilience", and D13 under "Accepted risk"; the rest follow here.
   the local Docker launcher, and that profile alone also accepts the launcher's
   relative `fhirUser` (flow step 5).
 - **D22: never logged or audited.** The authorization code, `launch`, `state`,
-  `nonce`, the PKCE verifier, the `id_token`, the access token, the client
-  assertion, and the private key material of the active and next signing keys.
+  `nonce`, the PKCE verifier, the `id_token`, the access token, the refresh token
+  (the 2026-10-09 addendum), the client assertion, and the private key material
+  of the active and next signing keys.
   A startup validation error names the variable, never its value. The first line
   of defence is that no code path hands any of them to a log or audit call; the
   second is the ADR-0003 redaction at the logging boundary, which knows these
@@ -374,7 +389,9 @@ resilience", and D13 under "Accepted risk"; the rest follow here.
 - **D28: data classification is the data owner's.** Until the data owner
   classifies the application's data (an open item, below), the controls assume
   User PII and no clinical data, which D8 guarantees: nothing clinical Epic sends
-  is kept.
+  is kept. The tokens the 2026-10-09 addendum keeps are credentials, not clinical
+  data, and today's scope (`launch openid fhirUser`) reads none; a ticket that
+  adds FHIR scopes makes them a key to clinical data, and revisits this.
 
 ### Audit
 
@@ -441,7 +458,8 @@ records the operations, shapes and fields.
   as a second line of defence behind never logging the values: Semgrep's
   `be-log-sensitive-value`, which refuses a value whose name says it is a secret
   being passed to a logging call, also matches `code`, `state`, `nonce`,
-  `launch`, the PKCE verifier, `id_token`, `access_token`, `client_assertion`,
+  `launch`, the PKCE verifier, `id_token`, `access_token`, `refresh_token` (all
+  three by the rule's original "token" family), `client_assertion`,
   and the signing-key variables `APP_EPIC_CLIENT_KEY` and
   `APP_EPIC_CLIENT_NEXT_KEY` (`clientKey`, `clientNextKey`, `privateKey`, a
   `pem`). The keys' `kid`s (`APP_EPIC_CLIENT_KEY_ID`,
@@ -545,12 +563,20 @@ Micrometer, on the existing Prometheus registry:
   the 15-minute idle timeout and the 8-hour absolute session lifetime, and the
   next launch in that browser replaces it (D9). Single sign-out with Epic is out
   of scope.
-- **Epic's access token stays valid at Epic until it expires.** The token
-  response's access token is dropped the moment the `id_token` is read (D8): it
-  is never stored, logged, audited or sent to the browser, so nothing in this
-  system can present it, and it is not revoked when our session ends. Revoking a
-  token nobody holds would add a call to Epic on every logout and protect
-  nothing (App-Standards SSO §5, a deviation below).
+- **Epic's tokens stay valid at Epic until they expire.** As first decided, the
+  token response's access token was dropped the moment the `id_token` was read
+  (D8), and revoking a token nobody held would have protected nothing. Since the
+  2026-10-09 addendum the access token, and a refresh token whenever Epic issues
+  one, are **kept** for the life of the session, and the risk now applies to
+  kept tokens: ending the session drops them from the store, but nothing revokes
+  them at Epic. The access token stays valid there until its `expires_in` runs
+  out; a refresh token stays valid for its own, longer lifetime, which makes it
+  the more valuable of the two. Neither is logged, audited or sent to the
+  browser, so after the session ends only someone who had already copied one out
+  of the session store could present it (App-Standards SSO §5, a deviation
+  below). Revocation at session end is for the ticket that first asks Epic for a
+  refresh token (`offline_access` / `online_access`, #10), once Epic's
+  revocation support is confirmed (an open item, below).
 
 ### Policy position (IM8 spec-compliance, 2026-10-06)
 
@@ -595,7 +621,7 @@ each with its rationale in the section that follows the table.
 | SSO §2: entry point `/oauth2/authorization/{registrationId}`                                        | `/api/auth/epic/launch` and `/callback`                                     |
 | SSO §4: verify MFA evidence in `acr` / `amr`                                                        | Organisational attestation until Epic confirms the claim (D17)              |
 | SSO §3.3: success audit includes registration ID and issuer                                         | Implied by D4                                                               |
-| SSO §5: tokens of an invalidated session are revoked                                                | Epic's access token is not revoked (D13)                                    |
+| SSO §5: tokens of an invalidated session are revoked                                                | Epic's kept tokens are dropped, not revoked (D13)                           |
 | Logging §2.2: no reason that reveals whether the account exists                                     | `UNKNOWN_ACCOUNT` / `ACCOUNT_DISABLED` / `ACCOUNT_LOCKED` in the audit only |
 
 ### Deviation: discovery on first use, not at startup
@@ -694,12 +720,17 @@ so both are fixed by the deployment's configuration and the login method `sso`
 already says which one it was. Repeating a constant on every event would record
 nothing an investigation cannot read from the deployment.
 
-### Deviation: Epic's access token is not revoked
+### Deviation: Epic's tokens are not revoked
 
-SSO §5 revokes the tokens of an invalidated session. Epic's access token is not
-revoked (D13): it is dropped as soon as the `id_token` has been read, never stored,
-logged or sent to the browser, so ending our session leaves nothing that could
-present it. It expires at Epic on its own.
+SSO §5 revokes the tokens of an invalidated session. Epic's tokens are not
+revoked (D13). As first decided, the access token was dropped as soon as the
+`id_token` had been read, so ending our session left nothing that could present
+it. Since the 2026-10-09 addendum the access token and any refresh token are kept
+for the session, and ending the session — every way it ends — removes them from
+the store with it, but makes no call to Epic: the access token expires there on
+its own, and a refresh token lives out its own lifetime. Today Epic issues no
+refresh token, because the authorize request asks for neither `offline_access`
+nor `online_access`; the ticket that asks for one also decides revocation.
 
 ### Deviation: the account reasons are audit-only
 
@@ -728,6 +759,10 @@ changes a decision.
   launch, and which values mean MFA (D17). A yes turns
   `APP_EPIC_MFA_EVIDENCE_REQUIRED` on.
 - The data owner classifies the application's data (D28).
+- The Epic team confirms whether Epic exposes a token revocation endpoint
+  (RFC 7009) for this registration, so the ticket that first requests a refresh
+  token can revoke kept tokens when the session ends (D13, the 2026-10-09
+  addendum).
 
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
 audience, R4, `openid fhirUser`, our public JWKS URL, the launch URL and redirect
@@ -766,4 +801,124 @@ values belong in `/infra/README.md` once registered.
   are unreachable; `/infra/README.md` carries the alert rule.
 - A signed-out Epic clinician's session lives on until its idle bound, its
   absolute lifetime or the next launch (D13); a shared workstation relies on the
-  next launch or the idle bound to end it.
+  next launch or the idle bound to end it. The Epic tokens it holds (the
+  2026-10-09 addendum) live exactly as long.
+- An Epic session is told apart from a password one by one more thing since the
+  2026-10-09 addendum: the Epic tokens it holds, which only the backend can read.
+
+## Addendum (2026-10-09): Epic's tokens are kept for the session (#24)
+
+**Supersedes D8 for the access token, the refresh token and the `id_token`.**
+D8 discarded everything from Epic's token response. Backend features need to
+act at Epic on behalf of the signed-in clinician, so a successful Epic Login now
+keeps Epic's tokens server-side, bound to the session it signs in, as the
+**Epic tokens** (`/CONTEXT.md`). The patient and encounter launch context are
+still discarded, and no FHIR API is called yet.
+
+**What is kept** (`EpicTokenSet`): the access token's value; its expiry, Epic's
+`expires_in` made an absolute instant on the injected `Clock`; the `scope` it was
+granted; the refresh token, when Epic issues one; and the raw `id_token`. Epic
+issues a refresh token only to a registration allowed one that asks for
+`offline_access` or `online_access`, and the authorize request asks only for
+`launch openid fhirUser` (flow step 2), so today the refresh token is always
+absent and the access token reads no FHIR resource. Adding the scopes, and
+refreshing, are a later ticket's (#10). An expired access token reports so by
+the injected clock (`EpicTokenSet.isExpired`), and expiry ends nothing: the
+refresh token and the `id_token` stay with the session.
+
+**Only on a successful Epic Login, and only under the signed-in id.** The login
+filter's authorized-client repository was `NOTHING_KEPT`; it is now
+`EpicTokenHandOff.REPOSITORY`, which holds the authorized client on the callback
+request alone. The filter still neither rotates the session nor saves a security
+context. `EpicLoginSuccessHandler`, once the login decision has accepted the User
+and `SessionEstablishment.establish` has rotated and signed in the session, takes
+the client back (`EpicTokenCapture`) and writes the tokens to the signed-in
+session as the attribute `app.epic.tokens` (`EpicTokens.SESSION_ATTRIBUTE`). A
+refused or unavailable launch never takes them, and they end with its request;
+the pre-login session id holds nothing.
+
+**Mechanism: a session attribute, not a key of its own.** A Spring Session
+attribute inherits everything a session's end already does — id rotation at sign
+in, the idle timeout, the absolute session lifetime, logout, every session
+revocation trigger in `/docs/domain-rules.md` (one session per User, a forced
+change, a lockout, deactivation, a SCIM password or `userName` change or
+`DELETE`, losing a mapped Group, a role-mapping change at startup, the dormancy
+job), and D9 and D24's invalidation by the next launch — with no cleanup code to
+forget on a future path. A separate Redis key,
+as `PendingAuthorizations` keeps the pending request, was rejected: it would need
+an explicit delete on every one of those paths. D27's reason for its own key,
+atomic single use across concurrent requests, does not arise for tokens written
+once at sign-in and only read after. The attribute is Java-serialized like every
+other session attribute; the type holds only strings, an instant and a sorted set
+of strings.
+
+**Retrieval** is the `EpicTokens` port, `forSession(sessionId)` →
+`Optional<EpicTokenSet>`, whose adapter (`EpicTokensAdapter`) reads the session
+through Spring Session's repository without touching its last-access time. It
+answers empty for a password Login's session, an unknown or ended session, and
+no id. The absolute session lifetime is the one end the repository does not
+know: it is enforced on a session's next request, so the adapter applies the
+same policy on the same clock, and hands nothing out once the lifetime is over
+even if no request has ended the session yet.
+
+**Storage is bounded by the remaining absolute lifetime.** The store expires a
+session its idle bound after its last request, and every request renews that,
+so near the lifetime's end the idle bound alone would keep a session stored up
+to that bound past it. For a session holding the tokens, the idle bound is
+therefore cut to what remains of the lifetime whenever that is the shorter
+(`AbsoluteSessionLifetimePolicy.idleBoundAt`: whole seconds rounded down, never
+under one): when the success handler writes them, and again on every later
+request, in `AbsoluteSessionLifetimeFilter`, before the request's renewal is
+saved, so a renewal cannot undo it. Far from the end — at sign-in, normally — the
+cut does not bite and the idle timeout behaves as for any session; a session
+without Epic tokens is never touched. The store's expiry of a token-holding
+session therefore never lands past its absolute lifetime. One residue is Spring
+Session's: the indexed repository keeps an expired session's Redis key five
+minutes past its expiry so it can still read the session when Redis reports the
+expiry, so the bytes can remain that long past the lifetime's end, during which
+the repository, and so the adapter, answers nothing for the session. That grace
+is the same for a session that idles out; removing it would mean replacing the
+repository's expiry handling, and it was left as it is.
+`EpicTokensStorageLifetimeIntegrationTests` holds both bounds against real Redis.
+
+**Never leaves the backend.** No endpoint returns any of the three tokens —
+`/api/auth/me` and `docs/openapi.yaml` are unchanged — and the SPA keeps no
+SMART credential. `ArchitectureTest.epic_tokens_never_reach_a_rest_controller`
+holds that no REST controller depends on `EpicTokenSet` or `EpicTokens`; the
+one web adapter that writes them, the success handler, answers only with a
+redirect.
+
+**D22 covers all three.** The refresh token joins D22's names, and the
+`id_token`, which carries the clinician's identity claims, is treated as the
+credentials are. `EpicTokenSet.toString()` names each token by its presence
+alone, and its null checks name the argument, never a value. Semgrep's
+`be-log-sensitive-value` already refuses `refresh_token` and `refreshToken` by
+its original family of names (they contain `token`), so the rule is unchanged.
+`EpicLoginRedactionIntegrationTests` now has Epic issue a refresh token on every
+path, searches for it beside the other D22 values, and searches every answer the
+callback gave the browser as well as the log and the audit trail;
+`EpicTokensIntegrationTests` holds the callback's answer and `/api/auth/me` to
+carrying none of the three.
+
+**Not encrypted at rest by the application — an accepted risk, for now.** The
+access and refresh tokens are bearer credentials at rest in Redis, the refresh
+token the longer-lived and more valuable. They sit beside what each session
+already holds there — its security context and authorities, under the session
+id that is this service's own bearer credential — behind the same controls:
+the cache is reachable only from the application's security group, and needs
+the AUTH token with TLS in transit when a Redis password is configured. The
+deployed single-node cluster has no at-rest encryption (`/infra/infrastructure.yaml`,
+`RedisCluster`).
+Application-level encryption would need a key held in the same environment as
+the Redis credentials (the position D16 records for the signing key), and would
+protect only against a compromise of Redis alone; today's tokens grant
+`launch openid fhirUser` and no refresh token exists. The ticket that adds FHIR
+scopes or a refresh token (#10) revisits this — envelope encryption of the
+tokens under a KMS key, or an encrypted replication group — together with
+revocation (D13).
+
+**D13 applies to kept tokens.** Ending a session drops its tokens from the store
+but does not revoke them at Epic: the access token stays valid until it expires,
+and a refresh token, once one is issued, for its own lifetime. The accepted risk
+and the SSO §5 deviation above are updated to say so, and Epic's revocation
+support is an open item.

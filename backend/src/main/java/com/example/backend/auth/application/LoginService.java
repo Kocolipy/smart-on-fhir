@@ -139,7 +139,8 @@ public class LoginService {
      * transaction, so a success the trail cannot record is not a success.
      *
      * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
-     * (D8); the Practitioner ID is not logged.
+     * here: Epic's tokens are kept by the web adapter, on the session it signs in, only once this
+     * has accepted the User (ADR 0013's 2026-10-09 addendum); the Practitioner ID is not logged.
      *
      * <p>A refusal is recorded here, through {@link EpicLoginOutcomeService}, so no caller can
      * refuse an Epic Login without the record: its {@code LOGIN_FAILURE} names its
