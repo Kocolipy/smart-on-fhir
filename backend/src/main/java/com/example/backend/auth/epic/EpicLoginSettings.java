@@ -15,8 +15,8 @@ import java.time.Duration;
  * @param connectTimeout the outbound connect timeout (D25)
  * @param readTimeout    the outbound read timeout (D25)
  * @param relativeFhirUserAllowed whether {@code fhirUser} may also be the relative
- *                       {@code Practitioner/{id}} the local SMART launcher issues: the dev
- *                       profile only, as with D21's {@code http} allowance
+ *                       {@code Practitioner/{id}} the local SMART launcher issues
+ *                       ({@link EpicDevAllowances#relativeFhirUser()})
  * @param mfaEvidenceRequired whether the {@code id_token} must carry MFA evidence in
  *                       {@code amr}, the factor recorded being taken from it (D17); otherwise
  *                       the factor is recorded as {@code idp-attested}

@@ -14,10 +14,11 @@ import java.util.Optional;
  * absorbed by configuration, never by loosening this — a Patient, a RelatedPerson, another
  * organisation's server, a versioned reference or a query all name nobody here.
  *
- * <p>The one exception is the dev profile's, decided where D21's {@code http} allowance is
- * ({@link EpicLoginSettings#relativeFhirUserAllowed()}): the local SMART Health IT launcher
- * issues the relative {@code Practitioner/{id}}, which no configuration can make absolute, so in
- * that profile alone the relative form is accepted too, under the same rules — the type exactly
+ * <p>The one exception is the local launcher's
+ * ({@link EpicLoginSettings#relativeFhirUserAllowed()}, granted to the dev profile alone): the
+ * local SMART Health IT launcher issues the relative {@code Practitioner/{id}}, which no
+ * configuration can make absolute, so there the relative form is accepted too, under the same
+ * rules — the type exactly
  * {@code Practitioner}, a non-blank {@code id}, and nothing after it.
  *
  * <p>The ID it yields is what links the clinician to a User (D2): the User whose stored

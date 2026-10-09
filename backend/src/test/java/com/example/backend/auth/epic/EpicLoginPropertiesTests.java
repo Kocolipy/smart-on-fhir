@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -62,7 +63,36 @@ class EpicLoginPropertiesTests {
                 EpicTestKeys.pem(EpicTestKeys.p384KeyPair()), "active-kid", null, null,
                 null, null, true);
 
-        assertThat(properties.validate(false).mfaEvidenceRequired()).isTrue();
+        assertThat(properties.validate(EpicDevAllowances.NONE).mfaEvidenceRequired()).isTrue();
+    }
+
+    /** The {@code http} allowance (D21) admits {@code http} URLs and grants nothing else. */
+    @Test
+    void theHttpAllowanceAloneLeavesARelativeFhirUserRefused() {
+        EpicLoginSettings settings = withUrls("http://localhost:8099/v/r4/fhir")
+                .validate(new EpicDevAllowances(true, false));
+
+        assertThat(settings.fhirBase()).hasScheme("http");
+        assertThat(settings.relativeFhirUserAllowed()).isFalse();
+    }
+
+    /** The relative {@code fhirUser} allowance grants that and leaves D21 in force. */
+    @Test
+    void theRelativeFhirUserAllowanceAloneLeavesHttpRefused() {
+        assertThat(withUrls("https://fhir.example.org/api/FHIR/R4")
+                .validate(new EpicDevAllowances(false, true))
+                .relativeFhirUserAllowed())
+                .isTrue();
+        assertThatThrownBy(() -> withUrls("http://localhost:8099/v/r4/fhir")
+                .validate(new EpicDevAllowances(false, true)))
+                .isInstanceOf(InvalidEpicConfigurationException.class)
+                .hasMessageContaining("must be an absolute https URL");
+    }
+
+    private static EpicLoginProperties withUrls(String url) {
+        return new EpicLoginProperties(true, url, url, "epic-client-id", url,
+                EpicTestKeys.pem(EpicTestKeys.p384KeyPair()), "active-kid", null, null,
+                null, null, false);
     }
 
     /** An unset switch is off. */

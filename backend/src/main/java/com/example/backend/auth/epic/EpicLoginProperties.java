@@ -89,28 +89,27 @@ public record EpicLoginProperties(
      * otherwise gives it back parsed: each URL as a {@link URI} and each key, with its
      * {@code kid}, as an {@link EpicSigningKey}. Called only with the switch on.
      *
-     * @param devProfile whether the {@code dev} profile is active, the one case in which the
-     *                   three URLs may be {@code http} (D21) and {@code fhirUser} may be the
-     *                   local launcher's relative {@code Practitioner/{id}}
+     * @param allowances the local launcher's relaxations this deployment grants, if any
      * @return the accepted configuration
      * @throws InvalidEpicConfigurationException naming the first variable found wanting
      */
-    public EpicLoginSettings validate(boolean devProfile) {
+    public EpicLoginSettings validate(EpicDevAllowances allowances) {
         require(FHIR_BASE, fhirBase);
         require(OAUTH_ISSUER, oauthIssuer);
         require(CLIENT_ID, clientId);
         require(REDIRECT_URI, redirectUri);
         require(CLIENT_KEY, clientKey);
         require(CLIENT_KEY_ID, clientKeyId);
-        URI fhirBaseUrl = secureUrl(FHIR_BASE, fhirBase, devProfile);
-        URI oauthIssuerUrl = secureUrl(OAUTH_ISSUER, oauthIssuer, devProfile);
-        URI redirectUrl = secureUrl(REDIRECT_URI, redirectUri, devProfile);
+        URI fhirBaseUrl = secureUrl(FHIR_BASE, fhirBase, allowances.httpUrls());
+        URI oauthIssuerUrl = secureUrl(OAUTH_ISSUER, oauthIssuer, allowances.httpUrls());
+        URI redirectUrl = secureUrl(REDIRECT_URI, redirectUri, allowances.httpUrls());
         EpicSigningKey active = new EpicSigningKey(clientKeyId, p384Key(CLIENT_KEY, clientKey));
         EpicSigningKeys signingKeys = new EpicSigningKeys(active, nextSigningKey());
         requirePositive(CONNECT_TIMEOUT, connectTimeout);
         requirePositive(READ_TIMEOUT, readTimeout);
         return new EpicLoginSettings(fhirBaseUrl, oauthIssuerUrl, clientId, redirectUrl,
-                signingKeys, connectTimeout, readTimeout, devProfile, mfaEvidenceRequired);
+                signingKeys, connectTimeout, readTimeout, allowances.relativeFhirUser(),
+                mfaEvidenceRequired);
     }
 
     /**
@@ -174,8 +173,8 @@ public record EpicLoginProperties(
     }
 
     /**
-     * D21: an absolute URL with a host, whose scheme is {@code https} — or {@code http}, in the
-     * dev profile only. A value {@link URI} cannot parse is refused the same way, and the parser's
+     * D21: an absolute URL with a host, whose scheme is {@code https} — or {@code http}, where
+     * the local launcher's allowance grants it. A value {@link URI} cannot parse is refused the same way, and the parser's
      * exception, which quotes its input, is dropped rather than chained.
      */
     private static URI secureUrl(String variable, String value, boolean httpAllowed) {
