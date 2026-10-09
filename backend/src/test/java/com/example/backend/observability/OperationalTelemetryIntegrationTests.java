@@ -387,6 +387,9 @@ class OperationalTelemetryIntegrationTests {
                 "DormancyJobFailed",
                 "DormancyJobNotRunning",
                 "EpicJwksFetchFailing",
+                "EpicEndpointUnavailable",
+                "EpicClientCredentialRefused",
+                "EpicLoginRefusalsSurge",
                 "scim:unconditional_writes:rate1h");
         assertThat(rules.get("ScimAuthenticationFailuresSustained")).contains("status=\"401\"");
         assertThat(rules.get("LoginAuthenticationFailuresSustained")).contains("status=\"401\"");
@@ -399,6 +402,12 @@ class OperationalTelemetryIntegrationTests {
         assertThat(rules.get("DormancyJobNotRunning")).contains("job=\"dormancy\"");
         assertThat(rules.get("EpicJwksFetchFailing"))
                 .contains("epic_outbound_errors_total{call=\"jwks\"}");
+        assertThat(rules.get("EpicEndpointUnavailable"))
+                .contains("epic_outbound_errors_total{call=~\"token|discovery\"}");
+        assertThat(rules.get("EpicClientCredentialRefused"))
+                .contains("epic_login_failed_calls_total{call=\"token\", error_category=\"cert/auth\"}");
+        assertThat(rules.get("EpicLoginRefusalsSurge"))
+                .contains("epic_login_total{outcome=\"refused\"}");
     }
 
     /**

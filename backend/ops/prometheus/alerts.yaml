@@ -146,11 +146,76 @@ groups:
             for 5 minutes. Each such launch lands at /?signin=unavailable; clinicians
             cannot sign in from Epic, while password Login is unaffected.
           runbook: >
-            Read the "Epic outbound call failed" and "Epic sign-in failed" ERROR records
-            with app.epic.call="jwks" for the category (network: no answer, server:
-            Epic's 5xx) and Epic's jwks_uri host. Check outbound connectivity from the
-            instance to that host, then Epic's status page. Nothing in this service is
-            retried for it: the next launch fetches again.
+            Read the ERROR records with app.epic.call="jwks" for the category — "Epic
+            outbound call failed" when Epic gave no answer (network), "Epic sign-in
+            failed" when it answered 5xx (server) — and Epic's jwks_uri host. Check
+            outbound connectivity from the instance to that host, then Epic's status page.
+            Nothing in this service is retried for it: the next launch fetches again.
+      # Epic's token or discovery endpoint unreachable: the same condition as the JWKS
+      # rule above for the two calls every launch makes. Discovery is read on the first
+      # launch after startup and once a day after; the token call on every launch.
+      - alert: EpicEndpointUnavailable
+        expr: >
+          sum by (call) (increase(epic_outbound_errors_total{call=~"token|discovery"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Epic's token or discovery endpoint is unavailable, so Epic Login is too
+          description: >
+            Calls to Epic's token or discovery endpoint have timed out or been answered
+            5xx for 5 minutes. Each such launch lands at /?signin=unavailable; clinicians
+            cannot sign in from Epic, while password Login is unaffected.
+          runbook: >
+            The call label names the endpoint. Read its ERROR records (app.epic.call)
+            for the category: "Epic outbound call failed" (network) carries the host in
+            url.full; for "Epic sign-in failed" (server), take it from that call's "Epic
+            outbound call completed" record in the same trace. Check outbound connectivity
+            from the instance to that host, then Epic's status page. Nothing is retried:
+            the next launch calls again.
+      # Epic refused our own credential: invalid_client, or our client assertion rejected.
+      # This never passes on its own — a signing key or the registration is wrong — so a
+      # single one pages, unlike Epic being down. The token call is the only one that
+      # presents our credential, so a 401 from discovery or the JWKS is not this.
+      - alert: EpicClientCredentialRefused
+        expr: >
+          sum(increase(epic_login_failed_calls_total{call="token", error_category="cert/auth"}[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Epic refused this service's client credential
+          description: >
+            Epic's token endpoint answered invalid_client or rejected the signed client
+            assertion. Every Epic launch is refused until it is fixed; the ERROR record
+            carries error.follow_up_action=true.
+          runbook: >
+            Compare the kid in the startup record (app.epic.client_key_id) with the keys
+            Epic holds for the registration, and the JWKS this service publishes at
+            /api/auth/epic/jwks.json with what Epic last fetched. A key promoted before
+            Epic picked it up, or a client ID that does not match APP_EPIC_CLIENT_ID, is
+            the usual cause.
+      # Refused Epic Logins well above a clinic's normal rate: a broken integration
+      # (a wrong APP_EPIC_FHIR_BASE refuses every launch as ISS_MISMATCH), Practitioner
+      # IDs not provisioned, or someone replaying launches. The reason label says which.
+      - alert: EpicLoginRefusalsSurge
+        expr: >
+          sum(rate(epic_login_total{outcome="refused"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Epic Logins are being refused at an unusual rate
+          description: >
+            More than three Epic Logins a minute have been refused for 10 minutes. The
+            browser is told only /?signin=refused, so clinicians see a refusal without a
+            reason.
+          runbook: >
+            Break epic_login_total{outcome="refused"} down by reason. ISS_MISMATCH or
+            INVALID_LAUNCH across the board points at configuration (APP_EPIC_FHIR_BASE,
+            the launch URL Epic holds); UNKNOWN_ACCOUNT at Practitioner IDs the
+            directory has not provisioned; INVALID_STATE or INVALID_CODE at replayed or
+            stale callbacks. The audit trail's LOGIN_FAILURE rows under method sso name
+            the refused User where there was one.
 
   - name: provisioning-surface-recordings
     rules:

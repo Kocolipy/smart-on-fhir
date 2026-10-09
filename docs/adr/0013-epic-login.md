@@ -461,8 +461,12 @@ Micrometer, on the existing Prometheus registry:
   outbound status tells apart, can be alerted on;
 - `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
   (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
-- an alert rule, `EpicJwksFetchFailing` (`/infra/README.md`, "Alerts"), fires
-  when `epic.outbound.errors{call="jwks"}` persists for 5 minutes.
+- alert rules (`/infra/README.md`, "Alerts"): `EpicJwksFetchFailing` and
+  `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
+  for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
+  on any `cert/auth` failure of the token call, the one that presents our
+  credential; and `EpicLoginRefusalsSurge` when refusals stay
+  above 3 a minute for 10 minutes (IM8 lm-16).
 
 ### Outbound calls and resilience
 
