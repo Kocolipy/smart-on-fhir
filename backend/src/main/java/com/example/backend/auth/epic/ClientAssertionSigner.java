@@ -12,8 +12,9 @@ import java.net.URI;
  * environment variable ({@link EnvironmentKeyClientAssertionSigner}); the target is an AWS
  * KMS-held key that signs through the KMS API, so the private key never leaves KMS. Callers see
  * only the finished assertion, so that change stays inside one implementation. The token call
- * (a later step) therefore puts this assertion in the request's {@code client_assertion}
- * parameter itself rather than handing a private JWK to a library signer.
+ * ({@code EpicLoginFlow}) therefore puts this assertion in the request's
+ * {@code client_assertion} parameter itself rather than handing a private JWK to a library
+ * signer.
  *
  * <p>The assertion is a bearer credential for the token endpoint until it expires: it is never
  * logged or audited (D22).
