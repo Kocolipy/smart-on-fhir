@@ -60,7 +60,9 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code id_token} for the {@code fhirUser} the test asked for, carrying the nonce it was sent.
  *
  * <p>Its token response carries an access token and patient and encounter context, as Epic's
- * does, under values unique to this instance, so a test can show none of them is kept (D8).
+ * does, and a refresh token once asked to, under values unique to this instance, so a test can
+ * show where each is kept and where none of them is: the tokens for the signed-in session alone,
+ * the launch context nowhere (ADR 0013, addendum 2026-10-09).
  *
  * <p>It can also be Epic on a bad day: any of discovery, the JWKS and {@code /token} can be made
  * to stall past our read timeout, answer {@code 503}, or answer {@code 200} with a body that is
@@ -167,8 +169,20 @@ public final class FakeEpic implements AutoCloseable {
 
     private volatile boolean forgingIdTokenSignatures;
 
-    /** The access token this instance hands out, which nothing on our side may keep. */
+    /**
+     * The access token this instance hands out, which our side keeps only for the session the
+     * Login signs in, and never logs, audits or sends to the browser.
+     */
     public final String accessToken = "epic-access-" + UUID.randomUUID();
+
+    /**
+     * The refresh token this instance hands out once {@link #issuingRefreshTokens()} is called — as
+     * Epic does only for a registration allowed one, asked for {@code offline_access} or
+     * {@code online_access}. Kept as the access token is.
+     */
+    public final String refreshToken = "epic-refresh-" + UUID.randomUUID();
+
+    private volatile boolean issuingRefreshTokens;
 
     /** The patient context of the token response, which nothing on our side may keep. */
     public final String patient = "epic-patient-" + UUID.randomUUID();
@@ -267,6 +281,11 @@ public final class FakeEpic implements AutoCloseable {
         signingKey = newSigningKey();
     }
 
+    /** From now on every token response carries {@link #refreshToken} beside the access token. */
+    public void issuingRefreshTokens() {
+        issuingRefreshTokens = true;
+    }
+
     /** From now on {@code /token} refuses our client assertion, as Epic does a key it does not know. */
     public void rejectingOurAssertion() {
         rejectingOurAssertion = true;
@@ -284,7 +303,7 @@ public final class FakeEpic implements AutoCloseable {
      * Records in {@code seen} every ADR 0013 D22 value this instance was sent or handed out: each
      * authorization request's {@code state}, {@code nonce} and {@code launch}; each token
      * request's {@code code}, verifier and client assertion; and each {@code id_token} it minted,
-     * with the access token beside it.
+     * with the access token beside it, and the refresh token while it issues one.
      */
     D22Values handled(D22Values seen) {
         for (Map<String, String> authorize : authorizeRequests()) {
@@ -299,6 +318,9 @@ public final class FakeEpic implements AutoCloseable {
         }
         for (String idToken : List.copyOf(idTokens)) {
             seen.add("id_token", idToken).add("access_token", accessToken);
+            if (issuingRefreshTokens) {
+                seen.add("refresh_token", refreshToken);
+            }
         }
         return seen;
     }
@@ -483,6 +505,9 @@ public final class FakeEpic implements AutoCloseable {
         response.put("expires_in", 3600);
         response.put("scope", "launch openid fhirUser");
         response.put("id_token", idToken);
+        if (issuingRefreshTokens) {
+            response.put("refresh_token", refreshToken);
+        }
         response.put("patient", patient);
         response.put("encounter", encounter);
         respond(exchange, 200, JSON.writeValueAsString(response));

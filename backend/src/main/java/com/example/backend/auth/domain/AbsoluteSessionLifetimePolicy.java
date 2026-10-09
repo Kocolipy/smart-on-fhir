@@ -38,4 +38,26 @@ public record AbsoluteSessionLifetimePolicy(Duration maxLifetime) {
         Objects.requireNonNull(now, "now");
         return createdAt.plus(maxLifetime).isBefore(now);
     }
+
+    /**
+     * The idle bound a session created at {@code createdAt} may be stored under as of
+     * {@code now}, so that the store keeps it no longer than this policy allows: the session's
+     * own {@code idleBound} while the lifetime's end is at least that far off, and otherwise
+     * what remains of the lifetime.
+     *
+     * <p>A store expires a session its idle bound after its last access, and every request
+     * renews that, so near the lifetime's end the idle bound alone would keep the session
+     * stored past it. What remains is counted in whole seconds rounded down, so the store's
+     * expiry never lands after the end, and is never less than one second: to the servlet API
+     * an idle bound of zero or less means the session never times out. An {@code idleBound} of
+     * zero or less means that too, so what remains bounds it.
+     */
+    public Duration idleBoundAt(Duration idleBound, Instant createdAt, Instant now) {
+        Objects.requireNonNull(idleBound, "idleBound");
+        Duration remaining = Duration.between(now, createdAt.plus(maxLifetime));
+        if (idleBound.isPositive() && idleBound.compareTo(remaining) <= 0) {
+            return idleBound;
+        }
+        return Duration.ofSeconds(Math.max(1, remaining.toSeconds()));
+    }
 }

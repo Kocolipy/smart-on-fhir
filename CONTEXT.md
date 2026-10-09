@@ -259,6 +259,13 @@ under) and its OpenID Connect issuer (`APP_EPIC_OAUTH_ISSUER`). Exactly one per
 deployment, because a Practitioner ID is unique only within one organisation.
 _Avoid_: SSO, sign-on, identity provider (for the organisation)
 
+**Epic tokens**:
+The access token, refresh token and `id_token` from a successful EHR launch's
+Login, held server-side on the session it signed in for exactly that session's
+life, and read only by the backend; never sent to the browser, logged or
+audited. The refresh token is often absent: Epic issues one only when asked.
+_Avoid_: SMART token, FHIR token, OAuth token
+
 **MFA factor**:
 The second factor an EHR launch's Login was made with, recorded on its
 `LOGIN_SUCCESS`. While Epic has not confirmed that the `id_token` carries `amr`,

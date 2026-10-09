@@ -28,6 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -38,9 +39,12 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * refused for each reason the audit trail knows, and one for each way Epic can be unavailable
  * past discovery, each searched for every D22 value it handled — the {@code launch}, the
  * {@code state} and {@code nonce}, the authorization {@code code}, the PKCE verifier, the client
- * assertion, the {@code id_token}, the access token, and the private key material of both
- * signing keys — in the whole log stream it produced and the whole audit trail after it. The same
- * paths hold the {@code epic.login} and {@code epic.outbound} meters to the tags each should move.
+ * assertion, the {@code id_token}, the access token, the refresh token, and the private key
+ * material of both signing keys — in the whole log stream it produced, the whole audit trail after
+ * it, and every answer our callback gave the browser. Epic's three tokens are kept server-side for
+ * a signed-in session (ADR 0013, addendum 2026-10-09), and none of them leaves it this way. The
+ * same paths hold the {@code epic.login} and {@code epic.outbound} meters to the tags each should
+ * move.
  *
  * <p>The log is {@link EcsLogCapture} on the root logger, encoded by the production ECS encoder,
  * as {@code JdbcErrorLogRedactionTests} captures it: a value in a message, a field, a stack trace
@@ -80,8 +84,14 @@ class EpicLoginRedactionIntegrationTests {
 
     private EcsLogCapture logs;
 
+    /** Every answer the browser got from our callback, as text: status, headers and body. */
+    private final StringBuilder callbackAnswers = new StringBuilder();
+
     @BeforeEach
     void setUp() {
+        // Epic issues a refresh token on every path here, so it is searched for as a D22 value
+        // beside the access token and the id_token (ADR 0013, addendum 2026-10-09).
+        EPIC.fake().issuingRefreshTokens();
         logs = EcsLogCapture.attach(environment);
     }
 
@@ -104,7 +114,8 @@ class EpicLoginRedactionIntegrationTests {
     private static final Set<String> REDEEMED =
             with(CALLED_BACK, "code_verifier", "client_assertion");
 
-    private static final Set<String> TOKENS = with(REDEEMED, "id_token", "access_token");
+    private static final Set<String> TOKENS =
+            with(REDEEMED, "id_token", "access_token", "refresh_token");
 
     /** One way an Epic Login can go, played against this test's browser and fake Epic. */
     @FunctionalInterface
@@ -208,6 +219,7 @@ class EpicLoginRedactionIntegrationTests {
         assertThat(logs.records()).as("the records %s wrote", which).isNotEmpty();
         seen.assertNoneIn("the log", logs.lines());
         seen.assertNoneInTheAuditTrail(jdbc);
+        seen.assertNoneIn("the callback's answer", callbackAnswers.toString());
     }
 
     @ParameterizedTest(name = "{0} moves the Epic Login meters under the expected tags")
@@ -262,7 +274,12 @@ class EpicLoginRedactionIntegrationTests {
         seen.callback(callback);
         forged.accept(callback);
         seen.callback(callback);
-        browser.callback(callback, launched.session());
+        MockHttpServletResponse answer =
+                browser.callback(callback, launched.session()).callback().getResponse();
+        callbackAnswers.append(answer.getStatus()).append('\n');
+        answer.getHeaderNames().forEach(name -> callbackAnswers.append(name).append(": ")
+                .append(answer.getHeaders(name)).append('\n'));
+        callbackAnswers.append(answer.getContentAsString()).append('\n');
     }
 
     // ---- helpers ------------------------------------------------------------------------------

@@ -467,9 +467,13 @@ class EpicLoginIntegrationTests {
                 .containsEntry(LogEvent.MFA_FACTOR, "idp-attested");
     }
 
-    /** D8: the access token, the id_token and the launch context are used and dropped. */
+    /**
+     * What D8 still drops: the token response's patient and encounter launch context. Epic's
+     * three tokens are kept for the signed-in session (ADR 0013, addendum 2026-10-09), which
+     * {@link EpicTokensIntegrationTests} holds.
+     */
     @Test
-    void nothingFromEpicsTokenResponseIsStored() throws Exception {
+    void theLaunchContextFromEpicsTokenResponseIsNotStored() throws Exception {
         String practitioner = EPIC.practitioners().provision();
 
         EPIC.signInFromEpic(practitioner, null);
@@ -477,8 +481,7 @@ class EpicLoginIntegrationTests {
         FakeEpic epic = EPIC.fake();
         assertThat(epic.idTokens).hasSize(1);
         String everythingInRedis = everythingInRedis();
-        assertThat(List.of(epic.accessToken, epic.idTokens.getFirst(), epic.patient,
-                        epic.encounter))
+        assertThat(List.of(epic.patient, epic.encounter))
                 .allSatisfy(value -> assertThat(everythingInRedis).doesNotContain(value));
     }
 

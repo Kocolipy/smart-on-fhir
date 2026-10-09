@@ -1,6 +1,7 @@
 package com.example.backend.auth.config;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
+import com.example.backend.auth.domain.EpicTokens;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -13,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -35,7 +37,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>Does nothing when there is no existing session ({@code getSession(false)})
  * or the session has not outlived the policy: no session is created here, and
- * an unexpired one is left completely alone, idle-timeout renewal included.
+ * an unexpired one is left alone, idle-timeout renewal included — with one
+ * exception. A session holding Epic tokens ({@link EpicTokens}) has its idle
+ * bound cut to what remains of its lifetime once that is the shorter
+ * ({@link AbsoluteSessionLifetimePolicy#idleBoundAt}), so the renewal this
+ * request makes cannot keep the session, and the tokens on it, in the store past
+ * the lifetime's end (ADR 0013, addendum 2026-10-09). Far from the end the idle
+ * bound is untouched, and a session without Epic tokens is never touched.
  */
 public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
 
@@ -74,6 +82,13 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
                 SecurityContextHolder.clearContext();
                 request.setAttribute(ENDED_ATTRIBUTE, Boolean.TRUE);
                 recordEnded(owner);
+            } else if (session.getAttribute(EpicTokens.SESSION_ATTRIBUTE) != null) {
+                // This request renews the session for its idle bound again, so near the
+                // lifetime's end that bound would keep it, and Epic's tokens with it, stored past
+                // the end. Cut it back to what remains (ADR 0013, addendum 2026-10-09).
+                session.setMaxInactiveInterval((int) policy.idleBoundAt(
+                        Duration.ofSeconds(session.getMaxInactiveInterval()), createdAt,
+                        clock.instant()).toSeconds());
             }
         }
         chain.doFilter(request, response);
