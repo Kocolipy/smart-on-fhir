@@ -2,17 +2,13 @@ package com.example.backend.auth.epic;
 
 import static com.example.backend.auth.epic.EpicMeters.series;
 import static com.example.backend.auth.epic.EpicPractitioners.unprovisioned;
+import static com.example.backend.auth.epic.EpicTestEnvironment.FHIR_BASE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.epic.EpicMeters.Ending;
 import com.example.backend.observability.EcsLogCapture;
-import com.example.backend.observability.RequestIdFilter;
-import com.example.backend.scim.domain.ScimUserRepository;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.servlet.Filter;
-import java.io.IOException;
-import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,25 +19,19 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.web.context.WebApplicationContext;
 
 /**
  * ADR 0013's D22, end to end, as an ADR-0003 redaction test: an Epic Login that succeeds, one
@@ -66,103 +56,38 @@ import org.springframework.web.context.WebApplicationContext;
 @Import(ContainerTestConfiguration.class)
 class EpicLoginRedactionIntegrationTests {
 
-    private static final String FHIR_BASE = "https://fhir.example.org/api/FHIR/R4";
-
-    private static final String CLIENT_ID = "epic-client-id";
-
-    private static final String ACTIVE_KID = "active-2026-04";
-
-    private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
-
-    /** Published beside the active key and never used to sign, so its material is never needed. */
-    private static final KeyPair NEXT_KEY = EpicTestKeys.p384KeyPair();
-
-    private static final int EPIC_PORT = EpicTestFixtures.freePort();
+    /** A next key published beside the active one, so its material is searched for too. */
+    @RegisterExtension
+    static final EpicTestEnvironment EPIC = EpicTestEnvironment.epicLoginOn().withNextKey();
 
     @DynamicPropertySource
     static void epicLoginOn(DynamicPropertyRegistry registry) {
-        registry.add("app.epic.enabled", () -> "true");
-        registry.add("app.epic.fhir-base", () -> FHIR_BASE);
-        registry.add("app.epic.oauth-issuer", () -> "http://localhost:" + EPIC_PORT + "/oauth2");
-        registry.add("app.epic.client-id", () -> CLIENT_ID);
-        registry.add("app.epic.redirect-uri",
-                () -> "https://app.example.org/api/auth/epic/callback");
-        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
-        registry.add("app.epic.client-key-id", () -> ACTIVE_KID);
-        registry.add("app.epic.client-next-key", () -> EpicTestKeys.pem(NEXT_KEY));
-        registry.add("app.epic.client-next-key-id", () -> "next-2026-10");
-        registry.add("app.epic.connect-timeout", () -> "1s");
-        registry.add("app.epic.read-timeout", () -> "1s");
+        EPIC.register(registry);
     }
-
-    @Autowired
-    private WebApplicationContext context;
 
     @Autowired
     private Environment environment;
 
     @Autowired
-    private ScimUserRepository users;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private PlatformTransactionManager transactionManager;
-
-    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
-    private RequestIdFilter requestIdFilter;
-
-    @Autowired
-    @Qualifier("springSecurityFilterChain")
-    private Filter springSecurityFilterChain;
-
-    @Autowired
-    @Qualifier("springSessionRepositoryFilter")
-    private Filter springSessionRepositoryFilter;
-
-    @Autowired
     private MeterRegistry meters;
-
-    @Autowired
-    private EpicJwks ourJwks;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     /** No wait before a D26 JWKS refetch: this class is not about them. */
     @TestBean(methodName = EpicTestFixtures.NO_RETRY_PAUSE)
     private EpicRetryPause epicRetryPause;
 
-    private FakeEpic epic;
-
-    private EpicBrowser browser;
-
     private EcsLogCapture logs;
 
-    private EpicPractitioners practitioners;
-
     @BeforeEach
-    void setUp() throws IOException {
-        MockMvc mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(
-                        requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
-                .build();
-        epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID,
-                () -> EpicTestFixtures.publishedJwks(ourJwks));
-        practitioners = new EpicPractitioners(users, passwordEncoder, transactionManager, jdbc);
-        browser = new EpicBrowser(mvc, epic, sessionCookieName, FHIR_BASE);
+    void setUp() {
         logs = EcsLogCapture.attach(environment);
     }
 
     @AfterEach
     void tearDown() {
         logs.close();
-        epic.close();
-        practitioners.removeAll();
     }
 
     // ---- every path -------------------------------------------------------------------------
@@ -190,63 +115,65 @@ class EpicLoginRedactionIntegrationTests {
     static Stream<Arguments> everyPath() {
         return Stream.of(
                 Arguments.of("a successful Login", TOKENS, Ending.success("token"),
-                        (LoginPath) (test, seen) -> test.signIn(test.provisioned(), seen)),
+                        (LoginPath) (test, seen) -> test.signIn(EPIC.provisionedFhirUser(), seen)),
                 Arguments.of("an iss that is not the FHIR base", LAUNCHED,
                         Ending.refused("ISS_MISMATCH"),
-                        (LoginPath) (test, seen) -> test.browser.open(
+                        (LoginPath) (test, seen) -> EPIC.browser().open(
                                 "https://fhir.example.com/api/FHIR/R4", seen.launch(), null)),
                 Arguments.of("a launch carrying a space", LAUNCHED,
                         Ending.refused("INVALID_LAUNCH"),
-                        (LoginPath) (test, seen) -> test.browser.open(FHIR_BASE,
-                                "launch " + seen.launch(), null)),
+                        (LoginPath) (test, seen) -> EPIC.browser().open(
+                                FHIR_BASE, "launch " + seen.launch(), null)),
                 Arguments.of("a forged state", CALLED_BACK,
                         Ending.refused("INVALID_STATE"),
-                        (LoginPath) (test, seen) -> test.callBack(test.provisioned(), seen,
+                        (LoginPath) (test, seen) -> test.callBack(EPIC.provisionedFhirUser(), seen,
                                 callback -> callback.put("state", "forged-" + UUID.randomUUID()))),
                 Arguments.of("a code carrying a space", CALLED_BACK,
                         Ending.refused("INVALID_CODE"),
-                        (LoginPath) (test, seen) -> test.callBack(test.provisioned(), seen,
+                        (LoginPath) (test, seen) -> test.callBack(EPIC.provisionedFhirUser(), seen,
                                 callback -> callback.put("code", "bad " + UUID.randomUUID()))),
                 Arguments.of("an OAuth error from Epic", AUTHORIZED,
                         Ending.refused("IDP_ERROR"),
                         (LoginPath) (test, seen) -> {
-                            test.epic.answeringAuthorizeWithError("access_denied");
-                            test.signIn(test.provisioned(), seen);
+                            EPIC.fake().answeringAuthorizeWithError("access_denied");
+                            test.signIn(EPIC.provisionedFhirUser(), seen);
                         }),
                 Arguments.of("Epic refusing our client assertion", REDEEMED,
                         Ending.refusedByCall("TOKEN_EXCHANGE_FAILED", "token", "cert/auth", "token"),
                         (LoginPath) (test, seen) -> {
-                            test.epic.rejectingOurAssertion();
-                            test.signIn(test.provisioned(), seen);
+                            EPIC.fake().rejectingOurAssertion();
+                            test.signIn(EPIC.provisionedFhirUser(), seen);
                         }),
                 Arguments.of("a forged id_token signature", TOKENS,
                         Ending.refused("INVALID_SIGNATURE", "token"),
                         (LoginPath) (test, seen) -> {
-                            test.epic.forgingIdTokenSignatures();
-                            test.signIn(test.provisioned(), seen);
+                            EPIC.fake().forgingIdTokenSignatures();
+                            test.signIn(EPIC.provisionedFhirUser(), seen);
                         }),
                 Arguments.of("an id_token for another nonce", TOKENS,
                         Ending.refused("INVALID_CLAIMS", "token"),
                         (LoginPath) (test, seen) -> {
                             String forged = "forged-nonce-" + UUID.randomUUID();
                             seen.add("nonce", forged);
-                            test.epic.mintingIdTokensWith(claims -> claims.claim("nonce", forged));
-                            test.signIn(test.provisioned(), seen);
+                            EPIC.fake().mintingIdTokensWith(
+                                    claims -> claims.claim("nonce", forged));
+                            test.signIn(EPIC.provisionedFhirUser(), seen);
                         }),
                 Arguments.of("a fhirUser naming a Patient", TOKENS,
                         Ending.refused("INVALID_FHIR_USER", "token"),
                         (LoginPath) (test, seen) -> test.signIn(
-                                FHIR_BASE + "/Patient/" + unprovisioned(), seen)),
+                                FHIR_BASE + "/Patient/" + unprovisioned(),
+                                seen)),
                 Arguments.of("an unprovisioned Practitioner", TOKENS,
                         Ending.refused("UNKNOWN_ACCOUNT", "token"),
                         (LoginPath) (test, seen) -> test.signIn(
-                                FHIR_BASE + "/Practitioner/" + unprovisioned(), seen)),
+                                EPIC.browser().practitioner(unprovisioned()), seen)),
                 Arguments.of("a deactivated User", TOKENS,
                         Ending.refused("ACCOUNT_DISABLED", "token"),
-                        (LoginPath) (test, seen) -> test.signIn(test.deactivated(), seen)),
+                        (LoginPath) (test, seen) -> test.signIn(EPIC.deactivatedFhirUser(), seen)),
                 Arguments.of("a locked User", TOKENS,
                         Ending.refused("ACCOUNT_LOCKED", "token"),
-                        (LoginPath) (test, seen) -> test.signIn(test.locked(), seen)),
+                        (LoginPath) (test, seen) -> test.signIn(EPIC.lockedFhirUser(), seen)),
                 Arguments.of("a token endpoint 5xx", REDEEMED,
                         Ending.unavailable("token", "server", "token"),
                         (LoginPath) (test, seen) -> test.signInWhile(
@@ -268,11 +195,11 @@ class EpicLoginRedactionIntegrationTests {
     void noD22ValueReachesTheLogOrTheAuditTrail(String which, Set<String> handled,
             Ending ending, LoginPath path) throws Exception {
         D22Values seen = new D22Values()
-                .signingKey("active signing key", ACTIVE_KEY)
-                .signingKey("next signing key", NEXT_KEY);
+                .signingKey("active signing key", EPIC.activeKey())
+                .signingKey("next signing key", EPIC.nextKey());
 
         path.take(this, seen);
-        epic.handled(seen);
+        EPIC.fake().handled(seen);
 
         // The search is only worth its absences if the path handled what it was meant to, and
         // the capture saw the records the path wrote.
@@ -319,8 +246,8 @@ class EpicLoginRedactionIntegrationTests {
     /** {@link #signIn}, with {@code endpoint} failing as {@code failure} throughout. */
     private void signInWhile(FakeEpic.Endpoint endpoint, FakeEpic.Failure failure, D22Values seen)
             throws Exception {
-        epic.failing(endpoint, failure);
-        signIn(provisioned(), seen);
+        EPIC.fake().failing(endpoint, failure);
+        signIn(EPIC.provisionedFhirUser(), seen);
     }
 
     /**
@@ -329,6 +256,7 @@ class EpicLoginRedactionIntegrationTests {
      */
     private void callBack(String fhirUser, D22Values seen, Consumer<Map<String, String>> forged)
             throws Exception {
+        EpicBrowser browser = EPIC.browser();
         EpicBrowser.Launched launched = browser.launch(seen.launch(), null);
         Map<String, String> callback = browser.authorizeAtEpic(fhirUser, launched);
         seen.callback(callback);
@@ -338,19 +266,6 @@ class EpicLoginRedactionIntegrationTests {
     }
 
     // ---- helpers ------------------------------------------------------------------------------
-
-    /** {@code fhirUser} for an active User whose userName is a fresh Practitioner ID. */
-    private String provisioned() {
-        return FHIR_BASE + "/Practitioner/" + practitioners.provision();
-    }
-
-    private String deactivated() {
-        return FHIR_BASE + "/Practitioner/" + practitioners.provisionDeactivated();
-    }
-
-    private String locked() {
-        return FHIR_BASE + "/Practitioner/" + practitioners.provisionLocked();
-    }
 
     private static Set<String> with(Set<String> kinds, String... more) {
         Set<String> all = new TreeSet<>(kinds);

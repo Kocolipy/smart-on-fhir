@@ -1,35 +1,26 @@
 package com.example.backend.auth.epic;
 
+import static com.example.backend.auth.epic.EpicTestEnvironment.sessionId;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.auth.epic.EpicBrowser.Hop;
 import com.example.backend.auth.epic.EpicMeters.Ending;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.RequestIdFilter;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
@@ -39,10 +30,6 @@ import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 
 /**
  * Discovery failing at the launch (D23, D26): the authorize hop, which reads Epic's endpoints
@@ -52,46 +39,21 @@ import org.springframework.web.context.WebApplicationContext;
  *
  * <p>A context of its own, whose discovery never succeeds, so every launch here reads discovery
  * afresh: a failed read is kept for no time at all, and a successful one — which another test
- * class's context would have made — would be kept for 24 hours.
+ * class's context would have made — would be kept for 24 hours. Its own
+ * {@code @DynamicPropertySource} is what keeps it so ({@link EpicTestEnvironment}).
  */
 @SpringBootTest
 @ActiveProfiles("dev")
 @Import(ContainerTestConfiguration.class)
 class EpicDiscoveryIntegrationTests {
 
-    private static final String FHIR_BASE = "https://fhir.example.org/api/FHIR/R4";
-
-    private static final int EPIC_PORT = EpicTestFixtures.freePort();
-
-    private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
+    @RegisterExtension
+    static final EpicTestEnvironment EPIC = EpicTestEnvironment.epicLoginOn();
 
     @DynamicPropertySource
     static void epicLoginOn(DynamicPropertyRegistry registry) {
-        registry.add("app.epic.enabled", () -> "true");
-        registry.add("app.epic.fhir-base", () -> FHIR_BASE);
-        registry.add("app.epic.oauth-issuer", () -> "http://localhost:" + EPIC_PORT + "/oauth2");
-        registry.add("app.epic.client-id", () -> "epic-client-id");
-        registry.add("app.epic.redirect-uri",
-                () -> "https://app.example.org/api/auth/epic/callback");
-        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
-        registry.add("app.epic.client-key-id", () -> "active-kid");
-        registry.add("app.epic.connect-timeout", () -> "1s");
-        registry.add("app.epic.read-timeout", () -> "1s");
+        EPIC.register(registry);
     }
-
-    @Autowired
-    private WebApplicationContext context;
-
-    @Autowired
-    private RequestIdFilter requestIdFilter;
-
-    @Autowired
-    @Qualifier("springSecurityFilterChain")
-    private Filter springSecurityFilterChain;
-
-    @Autowired
-    @Qualifier("springSessionRepositoryFilter")
-    private Filter springSessionRepositoryFilter;
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
@@ -105,47 +67,26 @@ class EpicDiscoveryIntegrationTests {
     @Autowired
     private Environment environment;
 
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
-
-    private MockMvc mvc;
-
-    private FakeEpic epic;
-
-    @BeforeEach
-    void setUp() throws IOException {
-        mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
-                .build();
-        epic = FakeEpic.start(EPIC_PORT, "epic-client-id", "active-kid",
-                com.nimbusds.jose.jwk.JWKSet::new);
-    }
-
-    @AfterEach
-    void tearDown() {
-        epic.close();
-    }
-
     @Test
     void aDiscoveryTimeoutLandsAtTheUnavailableNotice() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
 
-        assertThat(authorize().result().getResponse().getRedirectedUrl())
+        assertThat(authorize().authorize().getResponse().getRedirectedUrl())
                 .isEqualTo("/?signin=unavailable");
     }
 
     @Test
     void aDiscovery5xxLandsAtTheUnavailableNotice() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
 
-        assertThat(authorize().result().getResponse().getRedirectedUrl())
+        assertThat(authorize().authorize().getResponse().getRedirectedUrl())
                 .isEqualTo("/?signin=unavailable");
     }
 
     /** D24: the launch's session does not outlive a launch Epic could not serve. */
     @Test
     void aDiscoveryFailureEndsTheLaunchSession() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
 
         Hop hop = authorize();
 
@@ -154,7 +95,7 @@ class EpicDiscoveryIntegrationTests {
 
     @Test
     void aDiscoveryFailureIsAuditedAsEpicUnavailable() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
         int before = unavailableFailures();
 
         authorize();
@@ -164,7 +105,7 @@ class EpicDiscoveryIntegrationTests {
 
     @Test
     void aDiscoveryFailureIsCountedUnderOutcomeUnavailable() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
         double before = unavailables();
 
         authorize();
@@ -178,7 +119,7 @@ class EpicDiscoveryIntegrationTests {
      */
     @Test
     void aDiscoveryTimeoutIsOneErrorUnderTheNetworkCategoryNamingDiscovery() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
 
         List<Map<String, Object>> errors;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -197,26 +138,26 @@ class EpicDiscoveryIntegrationTests {
     /** A failure is not kept (D26): the next launch reads discovery again. */
     @Test
     void eachLaunchAfterAFailureReadsDiscoveryAgain() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
         authorize();
 
         authorize();
 
-        assertThat(epic.requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(2);
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.DISCOVERY)).isEqualTo(2);
     }
 
     /** Epic answered, with no discovery document: a refusal, and an error to follow up. */
     @Test
     void aMalformedDiscoveryDocumentLandsAtTheRefusedNotice() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.MALFORMED);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.MALFORMED);
 
-        assertThat(authorize().result().getResponse().getRedirectedUrl())
+        assertThat(authorize().authorize().getResponse().getRedirectedUrl())
                 .isEqualTo("/?signin=refused");
     }
 
     @Test
     void aMalformedDiscoveryDocumentIsOneErrorUnderTheDataCategory() throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.MALFORMED);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.MALFORMED);
 
         List<Map<String, Object>> errors;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -257,12 +198,12 @@ class EpicDiscoveryIntegrationTests {
     @MethodSource("discoveryFailures")
     void aDiscoveryFailurePutsNoD22ValueInTheLogOrTheAuditTrail(FakeEpic.Failure failure,
             Ending ending) throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, failure);
-        D22Values seen = new D22Values().signingKey("active signing key", ACTIVE_KEY);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, failure);
+        D22Values seen = new D22Values().signingKey("active signing key", EPIC.activeKey());
 
         String log;
         try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
-            authorize(seen.launch());
+            EPIC.browser().authorizeHop(seen.launch(), null);
             log = logs.lines();
         }
 
@@ -275,7 +216,7 @@ class EpicDiscoveryIntegrationTests {
     @MethodSource("discoveryFailures")
     void aDiscoveryFailureMovesTheEpicLoginMetersUnderTheExpectedTags(FakeEpic.Failure failure,
             Ending ending) throws Exception {
-        epic.failing(FakeEpic.Endpoint.DISCOVERY, failure);
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, failure);
         Map<String, Double> before = EpicMeters.read(meters);
 
         authorize();
@@ -284,31 +225,9 @@ class EpicDiscoveryIntegrationTests {
                 .isEqualTo(ending.expected());
     }
 
-    /** The launch session, and the authorize hop's answer to it. */
-    private record Hop(Cookie launched, MvcResult result) {
-    }
-
-    /** Epic opens the launch URL, and the browser follows it to the authorize hop. */
-    private Hop authorize() throws Exception {
-        return authorize("launch-context-from-hyperspace");
-    }
-
-    /** {@link #authorize()}, Epic's launch URL carrying {@code launchValue} as {@code launch}. */
-    private Hop authorize(String launchValue) throws Exception {
-        MvcResult launch = mvc.perform(get("/api/auth/epic/launch")
-                        .queryParam("iss", FHIR_BASE)
-                        .queryParam("launch", launchValue))
-                .andReturn();
-        assertThat(launch.getResponse().getStatus()).as("the launch redirects").isEqualTo(302);
-        Cookie issued = launch.getResponse().getCookie(sessionCookieName);
-        assertThat(issued).as("the launch opened a session").isNotNull();
-        // A MockMvc request cookie, replayed in-process and never sent over the wire, so it has
-        // no transport for a Secure flag to protect.
-        // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false
-        Cookie session = new Cookie(issued.getName(), issued.getValue());
-        MvcResult hop = mvc.perform(
-                get(launch.getResponse().getRedirectedUrl()).cookie(session)).andReturn();
-        return new Hop(session, hop);
+    /** An ordinary launch, followed to the authorize hop. */
+    private static Hop authorize() throws Exception {
+        return EPIC.browser().authorizeHop(EpicBrowser.LAUNCH, null);
     }
 
     private int unavailableFailures() {
@@ -322,9 +241,5 @@ class EpicDiscoveryIntegrationTests {
         Counter counter = meters.find("epic.login").tag("outcome", "unavailable")
                 .tag("reason", "EPIC_UNAVAILABLE").counter();
         return counter == null ? 0 : counter.count();
-    }
-
-    private static String sessionId(Cookie session) {
-        return new String(Base64.getDecoder().decode(session.getValue()), StandardCharsets.UTF_8);
     }
 }

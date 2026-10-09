@@ -1,5 +1,9 @@
 package com.example.backend.auth.epic;
 
+import static com.example.backend.auth.epic.EpicTestEnvironment.sessionId;
+import static com.example.backend.auth.epic.EpicTestEnvironment.CLIENT_ID;
+import static com.example.backend.auth.epic.EpicTestEnvironment.FHIR_BASE;
+import static com.example.backend.auth.epic.EpicTestEnvironment.REDIRECT_URI;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
@@ -7,17 +11,12 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.RequestIdFilter;
-import com.example.backend.scim.domain.ScimUserRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jwt.JWTClaimsSet;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,15 +35,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.DataType;
@@ -53,18 +49,13 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.web.context.WebApplicationContext;
 
 /**
  * Epic Login's protocol hardening (ADR 0013, D10, D17, D18, D27, flow steps 1–5
@@ -72,68 +63,28 @@ import org.springframework.web.context.WebApplicationContext;
  * lands at {@code /?signin=refused} with its session ended, and is audited once as a
  * {@code LOGIN_FAILURE} under method {@code sso} with its exact reason (ADR 0013, "Audit").
  *
- * <p>Epic is a {@link FakeEpic} started for each test, told to forge whatever Epic or an attacker
- * could send; the browser is an {@link EpicBrowser} over the real filter chain and the real,
- * Redis-backed session store. The happy path and Epic being unavailable are
- * {@link EpicLoginIntegrationTests}'s.
+ * <p>Epic is a {@link FakeEpic} started for each test by the {@link EpicTestEnvironment}, told to
+ * forge whatever Epic or an attacker could send; the browser is an {@link EpicBrowser} over the
+ * real filter chain and the real, Redis-backed session store. The happy path and Epic being
+ * unavailable are {@link EpicLoginIntegrationTests}'s.
  */
 @SpringBootTest
 @ActiveProfiles("dev")
 @Import(ContainerTestConfiguration.class)
 class EpicProtocolIntegrationTests {
 
-    private static final String FHIR_BASE = "https://fhir.example.org/api/FHIR/R4";
-
-    private static final String CLIENT_ID = "epic-client-id";
-
-    private static final String REDIRECT_URI = "https://app.example.org/api/auth/epic/callback";
-
-    private static final String ACTIVE_KID = "active-2026-04";
-
-    private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
-
-    private static final int EPIC_PORT = EpicTestFixtures.freePort();
-
     private static final String REFUSED = "/?signin=refused";
+
+    @RegisterExtension
+    static final EpicTestEnvironment EPIC = EpicTestEnvironment.epicLoginOn();
 
     @DynamicPropertySource
     static void epicLoginOn(DynamicPropertyRegistry registry) {
-        registry.add("app.epic.enabled", () -> "true");
-        registry.add("app.epic.fhir-base", () -> FHIR_BASE);
-        registry.add("app.epic.oauth-issuer", () -> "http://localhost:" + EPIC_PORT + "/oauth2");
-        registry.add("app.epic.client-id", () -> CLIENT_ID);
-        registry.add("app.epic.redirect-uri", () -> REDIRECT_URI);
-        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
-        registry.add("app.epic.client-key-id", () -> ACTIVE_KID);
-        registry.add("app.epic.connect-timeout", () -> "1s");
-        registry.add("app.epic.read-timeout", () -> "1s");
+        EPIC.register(registry);
     }
 
     @Autowired
-    private WebApplicationContext context;
-
-    @Autowired
-    private ScimUserRepository users;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private PlatformTransactionManager transactionManager;
-
-    @Autowired
     private JdbcTemplate jdbc;
-
-    @Autowired
-    private RequestIdFilter requestIdFilter;
-
-    @Autowired
-    @Qualifier("springSecurityFilterChain")
-    private Filter springSecurityFilterChain;
-
-    @Autowired
-    @Qualifier("springSessionRepositoryFilter")
-    private Filter springSessionRepositoryFilter;
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
@@ -144,40 +95,9 @@ class EpicProtocolIntegrationTests {
     @Autowired
     private MeterRegistry meters;
 
-    @Autowired
-    private EpicJwks ourJwks;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
-
     /** No wait before a D26 JWKS refetch: this class is not about them. */
     @TestBean(methodName = EpicTestFixtures.NO_RETRY_PAUSE)
     private EpicRetryPause epicRetryPause;
-
-    private MockMvc mvc;
-
-    private FakeEpic epic;
-
-    private EpicBrowser browser;
-
-    private EpicPractitioners practitioners;
-
-    @BeforeEach
-    void setUp() throws IOException {
-        mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
-                .build();
-        epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID,
-                () -> EpicTestFixtures.publishedJwks(ourJwks));
-        practitioners = new EpicPractitioners(users, passwordEncoder, transactionManager, jdbc);
-        browser = new EpicBrowser(mvc, epic, sessionCookieName, FHIR_BASE);
-    }
-
-    @AfterEach
-    void tearDown() {
-        epic.close();
-        practitioners.removeAll();
-    }
 
     // ---- the launch (flow step 1, D10, D18) ---------------------------------------------------
 
@@ -205,7 +125,7 @@ class EpicProtocolIntegrationTests {
     @ParameterizedTest(name = "an iss {0} lands at the refused notice")
     @MethodSource("wrongIss")
     void aWrongIssLandsAtTheRefusedNotice(String which, String iss, String rule) throws Exception {
-        MvcResult launch = browser.open(iss, EpicBrowser.LAUNCH, null);
+        MvcResult launch = EPIC.browser().open(iss, EpicBrowser.LAUNCH, null);
 
         assertThat(launch.getResponse().getStatus()).isEqualTo(302);
         assertThat(launch.getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
@@ -216,7 +136,7 @@ class EpicProtocolIntegrationTests {
     void aWrongIssIsAuditedAsIssMismatch(String which, String iss, String rule) throws Exception {
         int before = refusalsAudited("ISS_MISMATCH");
 
-        browser.open(iss, EpicBrowser.LAUNCH, null);
+        EPIC.browser().open(iss, EpicBrowser.LAUNCH, null);
 
         assertThat(refusalsAudited("ISS_MISMATCH")).isEqualTo(before + 1);
     }
@@ -225,7 +145,7 @@ class EpicProtocolIntegrationTests {
     @MethodSource("wrongIss")
     void aWrongIssIsOneWarningNamingTheFieldAndTheRule(String which, String iss, String rule)
             throws Exception {
-        List<Map<String, Object>> warnings = refusalWarnings(() -> browser.open(
+        List<Map<String, Object>> warnings = refusalWarnings(() -> EPIC.browser().open(
                 iss, EpicBrowser.LAUNCH, null));
 
         assertThat(warnings).singleElement().satisfies(fields -> assertThat(fields)
@@ -237,7 +157,7 @@ class EpicProtocolIntegrationTests {
     @MethodSource("invalidLaunch")
     void anInvalidLaunchLandsAtTheRefusedNotice(String which, String launch, String rule)
             throws Exception {
-        MvcResult opened = browser.open(FHIR_BASE, launch, null);
+        MvcResult opened = EPIC.browser().open(FHIR_BASE, launch, null);
 
         assertThat(opened.getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
     }
@@ -248,7 +168,7 @@ class EpicProtocolIntegrationTests {
             throws Exception {
         int before = refusalsAudited("INVALID_LAUNCH");
 
-        browser.open(FHIR_BASE, launch, null);
+        EPIC.browser().open(FHIR_BASE, launch, null);
 
         assertThat(refusalsAudited("INVALID_LAUNCH")).isEqualTo(before + 1);
     }
@@ -258,7 +178,7 @@ class EpicProtocolIntegrationTests {
     void anInvalidLaunchIsOneWarningNamingTheFieldAndTheRule(String which, String launch,
             String rule) throws Exception {
         List<Map<String, Object>> warnings =
-                refusalWarnings(() -> browser.open(FHIR_BASE, launch, null));
+                refusalWarnings(() -> EPIC.browser().open(FHIR_BASE, launch, null));
 
         assertThat(warnings).singleElement().satisfies(fields -> assertThat(fields)
                 .containsEntry("app.epic.input.field", "launch")
@@ -273,8 +193,8 @@ class EpicProtocolIntegrationTests {
 
         String everything;
         try (CapturedLog captured = CapturedLog.attach()) {
-            browser.open(FHIR_BASE, launch, null);
-            browser.open(iss, "launch-" + launch.substring(14), null);
+            EPIC.browser().open(FHIR_BASE, launch, null);
+            EPIC.browser().open(iss, "launch-" + launch.substring(14), null);
             everything = captured.withAction(Level.TRACE, LogEvent.KIND, "event").stream()
                     .map(record -> record.getFormattedMessage() + CapturedLog.fields(record))
                     .collect(Collectors.joining("\n"));
@@ -288,9 +208,9 @@ class EpicProtocolIntegrationTests {
     /** D24: a refused launch ends whatever session the browser held. */
     @Test
     void aRefusedLaunchEndsTheSessionTheBrowserHeld() throws Exception {
-        Cookie held = browser.launch(null).session();
+        Cookie held = EPIC.browser().launch(null).session();
 
-        browser.open(FHIR_BASE + "/", EpicBrowser.LAUNCH, held);
+        EPIC.browser().open(FHIR_BASE + "/", EpicBrowser.LAUNCH, held);
 
         assertThat(sessionRepository.findById(sessionId(held))).isNull();
     }
@@ -299,7 +219,7 @@ class EpicProtocolIntegrationTests {
     void theEpicLoginCounterRecordsARefusedLaunchWithItsReason() throws Exception {
         double before = refusalsCounted("ISS_MISMATCH");
 
-        browser.open(null, EpicBrowser.LAUNCH, null);
+        EPIC.browser().open(null, EpicBrowser.LAUNCH, null);
 
         assertThat(refusalsCounted("ISS_MISMATCH")).isEqualTo(before + 1);
     }
@@ -309,7 +229,7 @@ class EpicProtocolIntegrationTests {
     void theAuthorizeHopWithNoLaunchPendingIsAuditedAsInvalidLaunch() throws Exception {
         int before = refusalsAudited("INVALID_LAUNCH");
 
-        MvcResult hop = mvc.perform(get("/api/auth/epic/authorize")).andReturn();
+        MvcResult hop = EPIC.mvc().perform(get("/api/auth/epic/authorize")).andReturn();
 
         assertThat(hop.getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_LAUNCH")).isEqualTo(before + 1);
@@ -319,30 +239,30 @@ class EpicProtocolIntegrationTests {
 
     @Test
     void theTokenCallSendsExactlyTheRegisteredRedirectUri() throws Exception {
-        browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        assertThat(epic.tokenRequests()).singleElement()
+        assertThat(EPIC.fake().tokenRequests()).singleElement()
                 .satisfies(form -> assertThat(form).containsEntry("redirect_uri", REDIRECT_URI));
     }
 
     /** At least 43 characters, and at least 256 bits: 32 random bytes or more, Base64URL. */
     @Test
     void theVerifierIsAtLeast43CharactersCarryingAtLeast256Bits() throws Exception {
-        browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        String verifier = epic.tokenRequests().getFirst().get("code_verifier");
+        String verifier = EPIC.fake().tokenRequests().getFirst().get("code_verifier");
         assertThat(verifier).hasSizeGreaterThanOrEqualTo(43).matches("[A-Za-z0-9_-]+");
         assertThat(Base64.getUrlDecoder().decode(verifier)).hasSizeGreaterThanOrEqualTo(32);
     }
 
     @Test
     void theChallengeIsTheBase64UrlOfTheSha256OfTheVerifier() throws Exception {
-        browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        String verifier = epic.tokenRequests().getFirst().get("code_verifier");
+        String verifier = EPIC.fake().tokenRequests().getFirst().get("code_verifier");
         byte[] digest = MessageDigest.getInstance("SHA-256")
                 .digest(verifier.getBytes(StandardCharsets.US_ASCII));
-        assertThat(epic.authorizeRequests().getFirst())
+        assertThat(EPIC.fake().authorizeRequests().getFirst())
                 .containsEntry("code_challenge",
                         Base64.getUrlEncoder().withoutPadding().encodeToString(digest))
                 .containsEntry("code_challenge_method", "S256");
@@ -352,7 +272,7 @@ class EpicProtocolIntegrationTests {
     void stateAndNonceAreUniqueOnEveryCall() throws Exception {
         List<Map<String, String>> sent = new ArrayList<>();
         for (int launch = 0; launch < 3; launch++) {
-            sent.add(FakeEpic.queryOf(browser.launch(null).epicAuthorize()));
+            sent.add(FakeEpic.queryOf(EPIC.browser().launch(null).epicAuthorize()));
         }
 
         assertThat(sent.stream().map(query -> query.get("state")).distinct()).hasSize(3);
@@ -362,7 +282,7 @@ class EpicProtocolIntegrationTests {
     /** The {@code launch} already carries the clinician's Hyperspace context. */
     @Test
     void noLoginHintIsSent() throws Exception {
-        Map<String, String> sent = FakeEpic.queryOf(browser.launch(null).epicAuthorize());
+        Map<String, String> sent = FakeEpic.queryOf(EPIC.browser().launch(null).epicAuthorize());
 
         assertThat(sent).containsKey("launch").doesNotContainKey("login_hint");
     }
@@ -372,40 +292,40 @@ class EpicProtocolIntegrationTests {
     /** A browser that never launched holds no pending request, and Epic is not called. */
     @Test
     void aCallbackWithNoPendingRequestIsRefusedWithoutATokenCall() throws Exception {
-        Map<String, String> callback = callbackFromEpic(practitioners.provision());
+        Map<String, String> callback = callbackFromEpic(EPIC.practitioners().provision());
         int before = refusalsAudited("INVALID_STATE");
 
-        EpicBrowser.Landing landing = browser.callback(callback, null);
+        EpicBrowser.Landing landing = EPIC.browser().callback(callback, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_STATE")).isEqualTo(before + 1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isZero();
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isZero();
     }
 
     @Test
     void aForgedStateIsRefusedAsInvalidStateWithoutATokenCall() throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
         callback.put("state", "forged-" + UUID.randomUUID());
         int before = refusalsAudited("INVALID_STATE");
 
-        EpicBrowser.Landing landing = browser.callback(callback, launched.session());
+        EpicBrowser.Landing landing = EPIC.browser().callback(callback, launched.session());
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_STATE")).isEqualTo(before + 1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isZero();
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isZero();
     }
 
     @Test
     void aCallbackWithNoStateIsRefusedAsInvalidState() throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
         callback.remove("state");
         int before = refusalsAudited("INVALID_STATE");
 
-        EpicBrowser.Landing landing = browser.callback(callback, launched.session());
+        EpicBrowser.Landing landing = EPIC.browser().callback(callback, launched.session());
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_STATE")).isEqualTo(before + 1);
@@ -414,18 +334,18 @@ class EpicProtocolIntegrationTests {
     /** A reused {@code state}: the same callback twice signs in once, and Epic is called once. */
     @Test
     void theSameCallbackTwiceIsRefusedTheSecondTimeWithoutATokenCall() throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
-        EpicBrowser.Landing first = browser.callback(callback, launched.session());
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
+        EpicBrowser.Landing first = EPIC.browser().callback(callback, launched.session());
         int before = refusalsAudited("INVALID_STATE");
 
-        EpicBrowser.Landing replayed = browser.callback(callback, launched.session());
+        EpicBrowser.Landing replayed = EPIC.browser().callback(callback, launched.session());
 
         assertThat(first.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
         assertThat(replayed.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_STATE")).isEqualTo(before + 1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
     }
 
     /**
@@ -435,17 +355,17 @@ class EpicProtocolIntegrationTests {
      */
     @Test
     void ofTwoConcurrentIdenticalCallbacksAtMostOneSucceedsAndEpicIsCalledOnce() throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
-        epic.slowingTokenBy(Duration.ofMillis(500));
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
+        EPIC.fake().slowingTokenBy(Duration.ofMillis(500));
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService browsers = Executors.newFixedThreadPool(2);
         List<Future<EpicBrowser.Landing>> landings;
         try {
             Callable<EpicBrowser.Landing> sameCallback = () -> {
                 start.await();
-                return browser.callback(callback, launched.session());
+                return EPIC.browser().callback(callback, launched.session());
             };
             landings = List.of(browsers.submit(sameCallback), browsers.submit(sameCallback));
             start.countDown();
@@ -463,15 +383,15 @@ class EpicProtocolIntegrationTests {
             }
         }
         assertThat(signedIn).isLessThanOrEqualTo(1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
     }
 
     /** The pending request — the verifier with it — is gone from the store once it is used. */
     @Test
     void theVerifierIsDiscardedAfterTheExchange() throws Exception {
-        browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        String verifier = epic.tokenRequests().getFirst().get("code_verifier");
+        String verifier = EPIC.fake().tokenRequests().getFirst().get("code_verifier");
         assertThat(everythingInRedis()).doesNotContain(verifier);
     }
 
@@ -479,15 +399,15 @@ class EpicProtocolIntegrationTests {
 
     @Test
     void anOAuthErrorFromEpicIsRefusedAsIdpErrorWithoutATokenCall() throws Exception {
-        epic.answeringAuthorizeWithError("access_denied");
+        EPIC.fake().answeringAuthorizeWithError("access_denied");
         int before = refusalsAudited("IDP_ERROR");
 
         EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+                EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("IDP_ERROR")).isEqualTo(before + 1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isZero();
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isZero();
     }
 
     /** Each {@code code} outside D18's bounds, and its rule. */
@@ -504,9 +424,9 @@ class EpicProtocolIntegrationTests {
     @MethodSource("invalidCode")
     void anInvalidCodeIsRefusedAsInvalidCodeWithoutATokenCall(String which, String code,
             String rule) throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
         if (code == null) {
             callback.remove("code");
         } else {
@@ -514,20 +434,20 @@ class EpicProtocolIntegrationTests {
         }
         int before = refusalsAudited("INVALID_CODE");
 
-        EpicBrowser.Landing landing = browser.callback(callback, launched.session());
+        EpicBrowser.Landing landing = EPIC.browser().callback(callback, launched.session());
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_CODE")).isEqualTo(before + 1);
-        assertThat(epic.requests(FakeEpic.Endpoint.TOKEN)).isZero();
+        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isZero();
     }
 
     @ParameterizedTest(name = "a code {0} is one WARN naming the field and the rule {2}")
     @MethodSource("invalidCode")
     void anInvalidCodeIsOneWarningNamingTheFieldAndTheRule(String which, String code,
             String rule) throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
         if (code == null) {
             callback.remove("code");
         } else {
@@ -535,7 +455,7 @@ class EpicProtocolIntegrationTests {
         }
 
         List<Map<String, Object>> warnings =
-                refusalWarnings(() -> browser.callback(callback, launched.session()));
+                refusalWarnings(() -> EPIC.browser().callback(callback, launched.session()));
 
         assertThat(warnings).singleElement().satisfies(fields -> assertThat(fields)
                 .containsEntry("app.epic.input.field", "code")
@@ -547,19 +467,19 @@ class EpicProtocolIntegrationTests {
     void aRefusedCallbackLogsNeitherTheCodeNorTheState() throws Exception {
         String forgedState = "forged-state-" + UUID.randomUUID();
         String badCode = "bad code " + UUID.randomUUID();
-        EpicBrowser.Launched first = browser.launch(null);
+        EpicBrowser.Launched first = EPIC.browser().launch(null);
         Map<String, String> forged =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), first);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), first);
         forged.put("state", forgedState);
-        EpicBrowser.Launched second = browser.launch(null);
+        EpicBrowser.Launched second = EPIC.browser().launch(null);
         Map<String, String> malformed =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), second);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), second);
         malformed.put("code", badCode);
 
         String everything;
         try (CapturedLog captured = CapturedLog.attach()) {
-            browser.callback(forged, first.session());
-            browser.callback(malformed, second.session());
+            EPIC.browser().callback(forged, first.session());
+            EPIC.browser().callback(malformed, second.session());
             everything = captured.withAction(Level.TRACE, LogEvent.KIND, "event").stream()
                     .map(record -> record.getFormattedMessage() + CapturedLog.fields(record))
                     .collect(Collectors.joining("\n"));
@@ -575,12 +495,12 @@ class EpicProtocolIntegrationTests {
     /** D24: a refused callback ends the launch's session. */
     @Test
     void aRefusedCallbackEndsTheSessionTheBrowserHeld() throws Exception {
-        EpicBrowser.Launched launched = browser.launch(null);
+        EpicBrowser.Launched launched = EPIC.browser().launch(null);
         Map<String, String> callback =
-                browser.authorizeAtEpic(browser.practitioner(practitioners.provision()), launched);
+                EPIC.browser().authorizeAtEpic(EPIC.provisionedFhirUser(), launched);
         callback.put("state", "forged");
 
-        browser.callback(callback, launched.session());
+        EPIC.browser().callback(callback, launched.session());
 
         assertThat(sessionRepository.findById(sessionId(launched.session()))).isNull();
     }
@@ -590,21 +510,22 @@ class EpicProtocolIntegrationTests {
     /** Epic's own record of the redirect URI is not the one our token call sends. */
     @Test
     void theTokenEndpointRefusingTheRedirectUriIsRefusedAsTokenExchangeFailed() throws Exception {
-        epic.rememberingAtAuthorize("redirect_uri", "https://elsewhere.example.org/callback");
+        EPIC.fake().rememberingAtAuthorize(
+                "redirect_uri", "https://elsewhere.example.org/callback");
 
         assertRefusedAs("TOKEN_EXCHANGE_FAILED",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
-        assertThat(epic.tokenRefusals()).containsExactly("redirect_uri");
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
+        assertThat(EPIC.fake().tokenRefusals()).containsExactly("redirect_uri");
     }
 
     /** Epic's own record of the challenge is not the hash of the verifier our call sends. */
     @Test
     void theTokenEndpointRefusingTheVerifierIsRefusedAsTokenExchangeFailed() throws Exception {
-        epic.rememberingAtAuthorize("code_challenge", "a-challenge-no-verifier-hashes-to");
+        EPIC.fake().rememberingAtAuthorize("code_challenge", "a-challenge-no-verifier-hashes-to");
 
         assertRefusedAs("TOKEN_EXCHANGE_FAILED",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
-        assertThat(epic.tokenRefusals()).containsExactly("code_verifier");
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
+        assertThat(EPIC.fake().tokenRefusals()).containsExactly("code_verifier");
     }
 
     /**
@@ -613,62 +534,62 @@ class EpicProtocolIntegrationTests {
      */
     @Test
     void theTokenEndpointRefusingAReplayedCodeIsRefusedAsTokenExchangeFailed() throws Exception {
-        String practitioner = browser.practitioner(practitioners.provision());
-        EpicBrowser.Launched first = browser.launch(null);
-        Map<String, String> firstCallback = browser.authorizeAtEpic(practitioner, first);
-        browser.callback(firstCallback, first.session());
-        EpicBrowser.Launched second = browser.launch(null);
-        Map<String, String> secondCallback = browser.authorizeAtEpic(practitioner, second);
+        String practitioner = EPIC.provisionedFhirUser();
+        EpicBrowser.Launched first = EPIC.browser().launch(null);
+        Map<String, String> firstCallback = EPIC.browser().authorizeAtEpic(practitioner, first);
+        EPIC.browser().callback(firstCallback, first.session());
+        EpicBrowser.Launched second = EPIC.browser().launch(null);
+        Map<String, String> secondCallback = EPIC.browser().authorizeAtEpic(practitioner, second);
         secondCallback.put("code", firstCallback.get("code"));
 
         assertRefusedAs("TOKEN_EXCHANGE_FAILED",
-                () -> browser.callback(secondCallback, second.session()));
-        assertThat(epic.tokenRefusals()).containsExactly("code");
+                () -> EPIC.browser().callback(secondCallback, second.session()));
+        assertThat(EPIC.fake().tokenRefusals()).containsExactly("code");
     }
 
     @Test
     void theTokenEndpointRefusingOurAssertionIsRefusedAsTokenExchangeFailed() throws Exception {
-        epic.rejectingOurAssertion();
+        EPIC.fake().rejectingOurAssertion();
 
         assertRefusedAs("TOKEN_EXCHANGE_FAILED",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     // ---- the id_token's signature (flow step 4) -----------------------------------------------
 
     @Test
     void anIdTokenSignedWithAnotherAlgorithmIsRefusedAsInvalidSignature() throws Exception {
-        epic.signingIdTokensWith(JWSAlgorithm.RS512);
+        EPIC.fake().signingIdTokensWith(JWSAlgorithm.RS512);
 
         assertRefusedAs("INVALID_SIGNATURE",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     @Test
     void anIdTokenWithAForgedSignatureIsRefusedAsInvalidSignature() throws Exception {
-        epic.forgingIdTokenSignatures();
+        EPIC.fake().forgingIdTokenSignatures();
 
         assertRefusedAs("INVALID_SIGNATURE",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     /** D26: a {@code kid} still unknown after the refetches, as ADR 0013 records it. */
     @Test
     void anIdTokenWhoseKidStaysUnknownIsRefusedAsInvalidSignature() throws Exception {
-        browser.signIn(browser.practitioner(practitioners.provision()), null);
-        epic.rotateSigningKey(Integer.MAX_VALUE);
+        EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
+        EPIC.fake().rotateSigningKey(Integer.MAX_VALUE);
 
         assertRefusedAs("INVALID_SIGNATURE",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     /** Epic's keys arrived but could not be read, so no signature could be checked. */
     @Test
     void anUnreadableJwksIsRefusedAsInvalidSignature() throws Exception {
-        epic.failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
+        EPIC.fake().failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.MALFORMED);
 
         assertRefusedAs("INVALID_SIGNATURE",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     // ---- the id_token's claims (flow step 4) --------------------------------------------------
@@ -705,30 +626,31 @@ class EpicProtocolIntegrationTests {
     @MethodSource("failingClaims")
     void anIdTokenWithFailingClaimsIsRefusedAsInvalidClaims(String which,
             Consumer<JWTClaimsSet.Builder> claims) throws Exception {
-        epic.mintingIdTokensWith(claims);
+        EPIC.fake().mintingIdTokensWith(claims);
 
         assertRefusedAs("INVALID_CLAIMS",
-                () -> browser.signIn(browser.practitioner(practitioners.provision()), null));
+                () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
     /** The 30-second skew is applied, not merely bounded: 20 seconds ahead is accepted. */
     @Test
     void anIatWithinTheClockSkewIsAccepted() throws Exception {
-        epic.mintingIdTokensWith(claims -> claims.issueTime(Date.from(Instant.now().plusSeconds(20))));
+        EPIC.fake().mintingIdTokensWith(
+                claims -> claims.issueTime(Date.from(Instant.now().plusSeconds(20))));
 
         EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+                EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
     }
 
     @Test
     void severalAudiencesWithOurClientAsAzpAreAccepted() throws Exception {
-        epic.mintingIdTokensWith(claims -> claims
+        EPIC.fake().mintingIdTokensWith(claims -> claims
                 .audience(List.of(CLIENT_ID, "someone-else")).claim("azp", CLIENT_ID));
 
         EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+                EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
     }
@@ -747,7 +669,7 @@ class EpicProtocolIntegrationTests {
     @MethodSource("foreignFhirUser")
     void aForeignFhirUserIsRefusedAsInvalidFhirUser(String which, String fhirUser)
             throws Exception {
-        assertRefusedAs("INVALID_FHIR_USER", () -> browser.signIn(fhirUser, null));
+        assertRefusedAs("INVALID_FHIR_USER", () -> EPIC.browser().signIn(fhirUser, null));
     }
 
     // ---- MFA (D17), with its switch off: attested by the Epic organisation --------------------
@@ -755,9 +677,9 @@ class EpicProtocolIntegrationTests {
     /** Until Epic confirms the claim, the factor is the organisation's attestation. */
     @Test
     void anEpicLoginSuccessRecordsTheFactorAsIdpAttested() throws Exception {
-        String practitioner = practitioners.provision();
+        String practitioner = EPIC.practitioners().provision();
 
-        browser.signIn(browser.practitioner(practitioner), null);
+        EPIC.signIn(practitioner, null);
 
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("idp-attested");
     }
@@ -765,10 +687,10 @@ class EpicProtocolIntegrationTests {
     /** With the switch off, whatever {@code amr} says is not what the factor is taken from. */
     @Test
     void anAmrIsNotReadWhileTheSwitchIsOff() throws Exception {
-        String practitioner = practitioners.provision();
-        epic.mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd", "otp")));
+        String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd", "otp")));
 
-        browser.signIn(browser.practitioner(practitioner), null);
+        EPIC.signIn(practitioner, null);
 
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("idp-attested");
     }
@@ -777,7 +699,7 @@ class EpicProtocolIntegrationTests {
     @Test
     void noMfaEvidenceIsRequiredWhileTheSwitchIsOff() throws Exception {
         EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+                EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
     }
@@ -831,6 +753,7 @@ class EpicProtocolIntegrationTests {
 
     /** Epic's redirect back to our callback for a fresh launch, as {@code practitioner}. */
     private Map<String, String> callbackFromEpic(String practitioner) throws Exception {
+        EpicBrowser browser = EPIC.browser();
         return browser.authorizeAtEpic(browser.practitioner(practitioner), browser.launch(null));
     }
 
@@ -885,10 +808,5 @@ class EpicProtocolIntegrationTests {
                     .map(CapturedLog::fields)
                     .toList();
         }
-    }
-
-    /** The id a session cookie names in the store: Spring Session writes it Base64-encoded. */
-    private static String sessionId(Cookie session) {
-        return new String(Base64.getDecoder().decode(session.getValue()), StandardCharsets.UTF_8);
     }
 }

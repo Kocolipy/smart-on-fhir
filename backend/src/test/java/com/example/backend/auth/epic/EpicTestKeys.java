@@ -50,22 +50,17 @@ public final class EpicTestKeys {
     }
 
     /**
-     * Registers Epic Login on, with every setting it needs: fixed endpoints and client id, and the
-     * given active and next private keys under the kids {@code active-2026-04} and
-     * {@code next-2026-10}.
+     * Registers Epic Login on with no fake Epic behind it, for a context that never signs anyone
+     * in: a fixed issuer, and the given active and next private keys under the kids
+     * {@code active-2026-04} and {@code next-2026-10}. The settings are
+     * {@link EpicTestEnvironment}'s, the one place an Epic Login setting is written, so this
+     * context and a signing-in one cannot drift apart.
      */
     public static void epicLoginOn(DynamicPropertyRegistry registry, Supplier<Object> activePem,
             Supplier<Object> nextPem) {
-        registry.add("app.epic.enabled", () -> "true");
-        registry.add("app.epic.fhir-base", () -> "https://fhir.example.org/api/FHIR/R4");
-        registry.add("app.epic.oauth-issuer", () -> "https://fhir.example.org/oauth2");
-        registry.add("app.epic.client-id", () -> "epic-client-id");
-        registry.add("app.epic.redirect-uri",
-                () -> "https://app.example.org/api/auth/epic/callback");
-        registry.add("app.epic.client-key", activePem);
-        registry.add("app.epic.client-key-id", () -> "active-2026-04");
-        registry.add("app.epic.client-next-key", nextPem);
-        registry.add("app.epic.client-next-key-id", () -> "next-2026-10");
+        EpicTestEnvironment.epicLoginSettings(
+                registry, "https://fhir.example.org/oauth2", activePem);
+        EpicTestEnvironment.nextKeyOn(registry, nextPem);
     }
 
     /**

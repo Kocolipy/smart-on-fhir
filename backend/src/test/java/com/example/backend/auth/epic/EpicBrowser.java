@@ -46,6 +46,10 @@ final class EpicBrowser {
     record Launched(Cookie session, URI epicAuthorize) {
     }
 
+    /** The launch session, and our authorize hop's answer to it, whatever that was. */
+    record Hop(Cookie launched, MvcResult authorize) {
+    }
+
     /** The callback's answer, the session it signed in, and the launch session before it. */
     record Landing(MvcResult callback, Cookie signedIn, Cookie launched) {
     }
@@ -68,6 +72,20 @@ final class EpicBrowser {
         return mvc.perform(opened).andReturn();
     }
 
+    /**
+     * An ordinary launch carrying {@code launchValue} as {@code launch}, followed to our authorize
+     * hop and stopped there, whatever the hop answers: for a test about the hop itself, such as
+     * discovery failing before the browser can be sent anywhere.
+     */
+    Hop authorizeHop(String launchValue, Cookie jar) throws Exception {
+        MvcResult launch = open(fhirBase, launchValue, jar);
+        assertThat(launch.getResponse().getStatus()).as("the launch redirects").isEqualTo(302);
+        Cookie session = cookieOf(launch);
+        assertThat(session).as("a session cookie was issued").isNotNull();
+        return new Hop(session, mvc.perform(
+                get(launch.getResponse().getRedirectedUrl()).cookie(session)).andReturn());
+    }
+
     /** An ordinary launch, through our authorize hop, up to the redirect to Epic. */
     Launched launch(Cookie jar) throws Exception {
         return launch(LAUNCH, jar);
@@ -78,15 +96,11 @@ final class EpicBrowser {
      * {@code launch}.
      */
     Launched launch(String launchValue, Cookie jar) throws Exception {
-        MvcResult launch = open(fhirBase, launchValue, jar);
-        assertThat(launch.getResponse().getStatus()).as("the launch redirects").isEqualTo(302);
-        Cookie session = cookieOf(launch);
-        assertThat(session).as("a session cookie was issued").isNotNull();
-        MvcResult authorize = mvc.perform(
-                get(launch.getResponse().getRedirectedUrl()).cookie(session)).andReturn();
+        Hop hop = authorizeHop(launchValue, jar);
+        MvcResult authorize = hop.authorize();
         assertThat(authorize.getResponse().getStatus()).as("the authorize hop redirects")
                 .isEqualTo(302);
-        return new Launched(session, URI.create(authorize.getResponse().getRedirectedUrl()));
+        return new Launched(hop.launched(), URI.create(authorize.getResponse().getRedirectedUrl()));
     }
 
     /**
@@ -117,10 +131,29 @@ final class EpicBrowser {
         return new Landing(result, cookieOf(result), jar);
     }
 
+    /**
+     * The rest of a {@code launched} Login: Epic's authorization as {@code fhirUser}, and the
+     * browser following Epic's redirect back to our callback from the launch session.
+     */
+    Landing complete(String fhirUser, Launched launched) throws Exception {
+        return callback(authorizeAtEpic(fhirUser, launched), launched.session());
+    }
+
+    /**
+     * {@link #complete}, holding Epic to having accepted every token request we sent it. For a
+     * test whose Login is meant to get past Epic's {@code /token}: a request of ours Epic refused —
+     * a bad assertion, a code or PKCE verifier that does not match — also lands at a notice, and
+     * must not pass for the outcome the test is about.
+     */
+    Landing completeAccepted(String fhirUser, Launched launched) throws Exception {
+        Landing landing = complete(fhirUser, launched);
+        assertThat(epic.tokenRefusals()).as("Epic accepted our token request").isEmpty();
+        return landing;
+    }
+
     /** A whole Login: launch, Epic's authorization as {@code fhirUser}, and our callback. */
     Landing signIn(String fhirUser, Cookie jar) throws Exception {
-        Launched launched = launch(jar);
-        return callback(authorizeAtEpic(fhirUser, launched), launched.session());
+        return complete(fhirUser, launch(jar));
     }
 
     /** {@code {fhirBase}/Practitioner/{practitioner}}, the {@code fhirUser} Epic names one by. */
