@@ -58,8 +58,9 @@ Ending the sessions a User already holds, because something about its identity,
 credential or authority changed.
 
 **Confined session**:
-A session issued while the User's change-required flag is set; it may only change
-the password or log out.
+A session issued by a password Login while the User's change-required flag is set;
+it may only change the password or log out. An Epic Login is never confined by
+the flag.
 
 ### Directory
 
@@ -295,7 +296,7 @@ deployment always has a way back in.
 
 **Change-required flag**:
 The application's mark that a User's current password was imposed by someone
-else and must be replaced before it may do anything else.
+else and must be replaced before a password Login may do anything else.
 _Avoid_: password expiry, temporary password
 
 **Forced password change**:

@@ -16,11 +16,16 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.GrantedAuthority;
@@ -180,6 +185,43 @@ class LoginIdentityServiceTests {
         assertThat(service.loadEpicLinkedUser("eRECOVERY")).isEmpty();
     }
 
+    /**
+     * Only a password Login is confined by the change-required flag: an Epic Login presents no
+     * password of ours (D20), so the imposed credential is not what it used. A flagged User signed
+     * in through Epic holds {@code ROLE_USER}, the baseline Permissions and its Role mapping
+     * Permissions, exactly as an unflagged one does.
+     */
+    @Test
+    void anEpicLoginOfAUserWithTheChangeRequiredFlagHoldsTheAuthoritiesOfAnUnflaggedOne() {
+        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
+                "eGRACE1", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
+        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
+
+        assertThat(mapped.loadEpicLinkedUser("eGRACE1").map(LoginIdentityServiceTests::authoritiesOf))
+                .contains(List.of("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write"));
+    }
+
+    /** A flagged User the Epic path links to is still reported locked when it is locked. */
+    @Test
+    void anEpicLoginReportsAFlaggedLockedUserAsLocked() {
+        users.given(ScimIdentities.userWithLoginState("eGRACE1", new ScimLoginState(
+                "hash", 3, Instant.parse("2026-09-24T07:00:00Z"), null, ScimIdentities.NOW)));
+
+        assertThat(service.loadEpicLinkedUser("eGRACE1").map(UserDetails::isAccountNonLocked))
+                .contains(false);
+    }
+
+    /** And deactivated when it is deactivated: only the authorities ignore the flag. */
+    @Test
+    void anEpicLoginReportsAFlaggedInactiveUserAsDisabled() {
+        ScimUser retired = users.given(ScimIdentities.inactiveUser("eRETIRED1"));
+        users.requirePasswordChange(retired.id(), ScimIdentities.NOW);
+
+        assertThat(service.loadEpicLinkedUser("eRETIRED1").map(UserDetails::isEnabled))
+                .contains(false);
+    }
+
     /** No Practitioner ID links to nobody, rather than failing the way normalizing one would. */
     @Test
     void aBlankOrMissingEpicPractitionerIdLinksToNoUser() {
@@ -221,6 +263,20 @@ class LoginIdentityServiceTests {
     }
 
     /**
+     * The marker is a hash the configured encoder produced, not an arbitrary string: only a
+     * real encoded value makes {@code DaoAuthenticationProvider} run a full comparison, at the
+     * cost of a genuine one, before refusing.
+     */
+    @Test
+    void reportsACredentiallessIdentityWithAPasswordTheConfiguredEncoderProduced() {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        String marker = service.loadUserByUsername("nopass").getPassword();
+
+        assertThat(passwordEncoder.encoded()).containsExactly(marker);
+    }
+
+    /**
      * The unmatchable marker is encoded once per process and reused. Argon2id is
      * deliberately expensive, so recomputing it on every credentialless login attempt would
      * hand an unauthenticated caller a way to spend this service's CPU at will — the cache
@@ -241,6 +297,33 @@ class LoginIdentityServiceTests {
         assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
         assertThat(second).isEqualTo(first);
         assertThat(third).isEqualTo(first);
+    }
+
+    /**
+     * Two first lookups that race still encode the marker once: the second, arriving while the
+     * first is mid-encode, waits for and reuses the first's marker rather than paying for its own
+     * Argon2id run. Otherwise a burst of credentialless attempts against a cold process would
+     * each spend one.
+     */
+    @Test
+    void twoConcurrentFirstLookupsEncodeTheMarkerOnce() throws Exception {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+        GatedPasswordEncoder gatedEncoder = new GatedPasswordEncoder();
+        LoginIdentityService gated = new LoginIdentityService(
+                users, groups, gatedEncoder, TestRoleMappings.superuserOnly());
+        FutureTask<UserDetails> first = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
+        FutureTask<UserDetails> second = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
+        new Thread(first).start();
+        gatedEncoder.awaitFirstEncode();
+        Thread secondThread = new Thread(second);
+        secondThread.start();
+        awaitBlocked(secondThread);
+
+        gatedEncoder.release();
+        first.get(5, TimeUnit.SECONDS);
+        second.get(5, TimeUnit.SECONDS);
+
+        assertThat(gatedEncoder.encodeCount()).isEqualTo(1);
     }
 
     /**
@@ -567,10 +650,19 @@ class LoginIdentityServiceTests {
 
         private final Map<String, Integer> encodeCounts = new HashMap<>();
 
+        private final List<String> encoded = new ArrayList<>();
+
         @Override
         public String encode(CharSequence rawPassword) {
             encodeCounts.merge(rawPassword.toString(), 1, Integer::sum);
-            return "encoded:" + rawPassword;
+            String hash = "encoded:" + rawPassword;
+            encoded.add(hash);
+            return hash;
+        }
+
+        /** Every value {@link #encode} returned, in order. */
+        List<String> encoded() {
+            return List.copyOf(encoded);
         }
 
         @Override
@@ -584,6 +676,58 @@ class LoginIdentityServiceTests {
 
         int totalEncodeCalls() {
             return encodeCounts.values().stream().mapToInt(Integer::intValue).sum();
+        }
+    }
+
+    /** Waits, up to five seconds, until {@code thread} is blocked waiting to enter a monitor. */
+    private static void awaitBlocked(Thread thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (thread.getState() != Thread.State.BLOCKED) {
+            assertThat(System.nanoTime()).as("the second lookup is waiting").isLessThan(deadline);
+            Thread.onSpinWait();
+        }
+    }
+
+    /**
+     * Counts its encodes, and holds the first one open until {@link #release} so a test can
+     * start a second caller while the first is mid-encode.
+     */
+    private static final class GatedPasswordEncoder implements PasswordEncoder {
+
+        private final AtomicInteger encodes = new AtomicInteger();
+
+        private final CountDownLatch firstEncodeStarted = new CountDownLatch(1);
+
+        private final CountDownLatch released = new CountDownLatch(1);
+
+        @Override
+        public String encode(CharSequence rawPassword) {
+            encodes.incrementAndGet();
+            firstEncodeStarted.countDown();
+            try {
+                assertThat(released.await(5, TimeUnit.SECONDS)).as("released").isTrue();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+            return "encoded:" + rawPassword;
+        }
+
+        @Override
+        public boolean matches(CharSequence rawPassword, String encodedPassword) {
+            return encode(rawPassword).equals(encodedPassword);
+        }
+
+        void awaitFirstEncode() throws InterruptedException {
+            assertThat(firstEncodeStarted.await(5, TimeUnit.SECONDS)).as("first encode").isTrue();
+        }
+
+        void release() {
+            released.countDown();
+        }
+
+        int encodeCount() {
+            return encodes.get();
         }
     }
 }

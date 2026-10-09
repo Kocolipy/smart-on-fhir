@@ -321,7 +321,11 @@ resilience", and D13 under "Accepted risk"; the rest follow here.
   revocation trigger, `/docs/domain-rules.md`) and refuses every later Epic Login
   as `ACCOUNT_DISABLED`. It is also reported to the Epic organisation, whose
   credential it was. Forced password change does not apply: an Epic Login
-  presents no password of ours.
+  presents no password of ours. For the same reason the change-required flag
+  does not confine an Epic Login: a flagged User signed in through Epic holds
+  the authorities it would hold unflagged, and the Login moves its dormancy
+  basis, while the flag stays set for its password Login (ADR 0008's 2026-10-09
+  addendum, #23).
 - **D21: `https` only, outside the dev profile.** `APP_EPIC_OAUTH_ISSUER`,
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and
@@ -736,7 +740,8 @@ values belong in `/infra/README.md` once registered.
   authorities (Spring Security's own `FACTOR_PASSWORD` aside, which records a
   credential the Epic path never presents), the same session bounds, the same
   one-session-per-User rule. Only the login method on the records tells them
-  apart.
+  apart — and, for a User whose change-required flag is set, the confinement,
+  which only a password session carries (D20).
 - The callback is served by a security filter, not a controller, so the API
   contract check lists it as filter-served rather than finding it in the handler
   mapping.

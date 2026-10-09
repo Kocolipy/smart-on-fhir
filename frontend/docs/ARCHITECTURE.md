@@ -279,10 +279,13 @@ cannot see is not requested either, so it never turns into a `403` on screen. A
 deep link to a page the session holds no Permission for is redirected to
 `/showcase`, exactly as any page it may not see.
 
-**Change-password route.** The backend confines a session whose password must be
-replaced (the change-required flag, see `/CONTEXT.md`): `GET /api/auth/me` and
-the login response report `passwordChangeRequired: true` with no Permission, and
-every endpoint but `POST /api/auth/change-password` and logout answers `403`.
+**Change-password route.** The backend confines a password Login's session whose
+password must be replaced (the change-required flag, see `/CONTEXT.md`): `GET
+/api/auth/me` and the login response report `passwordChangeRequired: true` with
+no Permission, and every endpoint but `POST /api/auth/change-password` and logout
+answers `403`. An Epic Login is never confined, flag or not, so its `/me` reports
+`passwordChangeRequired: false` and the launch lands on `/showcase`; the SPA
+needs no rule of its own for that, since it acts only on what `/me` reports.
 `AuthUser` carries that flag, and `resolveSessionRoute` confines such a session
 to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
 the login route, an unknown path (which falls back to login first) — redirects

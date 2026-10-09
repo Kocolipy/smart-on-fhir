@@ -145,10 +145,17 @@ fixed, it is not repeated on each audit event or stored per User.
 **Every launch is a fresh Login** — the launch ends whatever session the
 browser held, whoever it belonged to, and a refused launch leaves the browser
 signed out: a shared workstation is never left signed in as the previous User. A
-successful Epic Login is recorded exactly as a password Login is — failure run
-cleared, dormancy basis moved, `LOGIN_SUCCESS` with login method `sso`, every
-other session of the User revoked — so **one session per User** holds across both
-Login paths. The authorities are the ones password Login gives the same User.
+successful Epic Login is recorded as a password Login is — failure run cleared,
+dormancy basis moved, `LOGIN_SUCCESS` with login method `sso`, every other
+session of the User revoked — so **one session per User** holds across both
+Login paths. The authorities are the ones password Login gives the same User with
+the change-required flag clear: an Epic Login is **never a confined session**,
+because it presents no password of this service's and the flag marks an imposed
+password. A flagged User signed in through Epic holds its Permissions, `GET
+/api/auth/me` reports `passwordChangeRequired: false`, and the Login moves the
+dormancy basis even while the flag is set. The flag itself is neither read into
+the session nor cleared, so the same User's password Login is still confined
+(ADR 0008's 2026-10-09 addendum).
 
 **Identity only** — Epic's access token, the patient and encounter context, and
 the rest of the token response are discarded; nothing from Epic is stored, and no
@@ -201,7 +208,9 @@ accepted risk (D13).
 compromised is deactivated in the directory, which revokes its sessions once the
 deactivation commits and refuses every later launch as `ACCOUNT_DISABLED`; the
 Epic organisation, whose credential it was, is told. A forced password change does
-not apply: an Epic Login presents no password of this service's (D20).
+not apply: an Epic Login presents no password of this service's (D20), so the
+change-required flag it sets confines only the User's password Login. It still
+ends every session the User holds, an Epic one included.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
 nonce, the PKCE verifier, Epic's `id_token` and access token, our client assertion
@@ -713,8 +722,9 @@ logins right now, and is an Admin's. So:
   **change-required flag** (below); an Admin cannot unlock themselves.
 
 **Change-required flag** — application-owned state on a User saying its current
-password was imposed by somebody else and must be replaced before the User may do
-anything else. Stored as `password_change_required_since`: its presence is the
+password was imposed by somebody else and must be replaced before a password Login
+by the User may do anything else; an Epic Login is not confined by it (see
+**Confined session**). Stored as `password_change_required_since`: its presence is the
 flag, as `locked_at`'s is the lockout, and its value is when the change was last
 required. There is no deadline for the change; see **Dormancy basis** and ADR 0008. It is not a SCIM attribute, so setting it does not advance the version.
 It is **set** by every connector password write (create, PUT or PATCH carrying a
@@ -727,10 +737,16 @@ configuration. A credentialless User is unlocked or reactivated without it, havi
 no password to replace. It is **cleared** only by a successful self-service change;
 a connector write never clears it.
 
-**Confined session** — a session issued while the change-required flag is set. It
-holds no Permission and not even baseline access, a Superuser's included, so it may
-call only `GET /api/auth/me`, the self-service change and logout; every other
-endpoint, `/api/admin/**`, `/api/self` and `/api/session` included, answers `403`.
+**Confined session** — a session issued by a password Login while the
+change-required flag is set. It holds no Permission and not even baseline access,
+a Superuser's included, so it may call only `GET /api/auth/me`, the self-service
+change and logout; every other endpoint, `/api/admin/**`, `/api/self` and
+`/api/session` included, answers `403`. An Epic Login is never confined: it
+presents no password of this service's, so the imposed credential the flag marks
+is not what it used, and it receives the authorities the User would hold with the
+flag clear (ADR 0008's 2026-10-09 addendum). A User who only ever signs in
+through Epic therefore never has to replace the imposed password; that password
+still buys only a confined session.
 
 **Forced password change** — an action of a holder of `user:write`, setting the
 change-required flag on another User and ending every session it holds. The Admin
@@ -863,8 +879,9 @@ authorization: the backend refuses each operation to a caller lacking its
 Permission regardless.
 
 **Dormancy basis** — the instant a User's dormancy is measured from: its
-`lastAuthenticatedAt` — set by every successful Login made while no password
-change is required, by a completed self-service change, by an explicit
+`lastAuthenticatedAt` — set by every successful Login whose session is not
+confined (a password Login made while no password change is required, and every
+Epic Login), by a completed self-service change, by an explicit
 reactivation and by an administrator's Unlock of a lock — or, for a User that has
 had none of those, its creation time. The fallback is what keeps a User
 provisioned without a password from being dormant the moment it exists. A

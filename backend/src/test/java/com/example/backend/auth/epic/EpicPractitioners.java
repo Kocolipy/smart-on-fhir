@@ -61,6 +61,17 @@ final class EpicPractitioners {
         return practitioner;
     }
 
+    /**
+     * {@link #provision()}, then with the change-required flag set since {@code since}, as a
+     * connector password write, a forced password change or an Unlock leaves it.
+     */
+    String provisionRequiredToChangePassword(Instant since) {
+        String practitioner = provision();
+        UUID id = idOf(practitioner);
+        transactions.executeWithoutResult(status -> users.requirePasswordChange(id, since));
+        return practitioner;
+    }
+
     /** {@link #provision()}, then locked by a failure run reaching the limit. */
     String provisionLocked() {
         String practitioner = provision();

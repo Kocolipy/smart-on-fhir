@@ -145,15 +145,18 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordPasswordSuccess(String username, String retainedSessionId) {
-        recordSuccess(username, retainedSessionId,
+        recordSuccess(username, retainedSessionId, Confinement.BY_CHANGE_REQUIRED_FLAG,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.PASSWORD));
     }
 
     /**
-     * {@link #recordPasswordSuccess} for an Epic Login, recorded exactly as a password Login's —
-     * failure run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed, other
-     * sessions revoked after commit — and differing only in the method its {@code LOGIN_SUCCESS}
-     * names (D15) and the MFA factor it carries (D17).
+     * {@link #recordPasswordSuccess} for an Epic Login, recorded as a password Login's — failure
+     * run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed, other sessions revoked
+     * after commit — and differing in the method its {@code LOGIN_SUCCESS} names (D15), the MFA
+     * factor it carries (D17), and in moving the dormancy basis even while the User's
+     * change-required flag is set. An Epic Login is never confined by the flag
+     * ({@link LoginIdentityService#loadEpicLinkedUser}), so it is real use of the account. The flag
+     * itself is left set: only a successful password change clears it.
      *
      * @param mfaFactor the MFA factor the Epic Login was made with
      */
@@ -161,25 +164,31 @@ public class LoginAttemptService {
     public void recordEpicSuccess(
             String username, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
-        recordSuccess(username, retainedSessionId,
+        recordSuccess(username, retainedSessionId, Confinement.NONE,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.SSO, mfaFactor));
     }
 
-    private void recordSuccess(
-            String username, String retainedSessionId, Consumer<ScimUser> recordLoginSuccess) {
+    /**
+     * @param confinement whether the Login's session is confined while the change-required flag is
+     *     set — a password Login's is, an Epic Login's is not
+     */
+    private void recordSuccess(String username, String retainedSessionId, Confinement confinement,
+            Consumer<ScimUser> recordLoginSuccess) {
         find(username).ifPresent(user -> {
             ScimLoginState cleared = user.login().withFailureRunCleared();
             if (cleared != user.login()) {
                 users.updateLoginState(user.id(), cleared);
             }
             // A login moves the dormancy basis, the one thing the dormancy job measures from —
-            // unless the User still owes a required password change. Such a
-            // session can do nothing but change the password or log out, so it is not use of the
-            // account, and counting it would let an imposed credential that is never replaced
-            // stay live for as long as somebody keeps logging in with it. The change itself moves
-            // the basis instead (PasswordChangeService). Its own narrow write, so it neither
-            // advances the version nor rewrites the failure run.
-            if (!user.login().isPasswordChangeRequired()) {
+            // unless its session is confined because the User still owes a required password
+            // change. A confined session can do nothing but change the password or log out, so it
+            // is not use of the account, and counting it would let an imposed credential that is
+            // never replaced stay live for as long as somebody keeps logging in with it (ADR
+            // 0008). The change itself moves the basis instead (PasswordChangeService). Only a
+            // password Login is confined: an Epic Login presented no password of ours, so it is
+            // real use even while the flag is set (ADR 0008 addendum). Its own narrow write, so
+            // it neither advances the version nor rewrites the failure run.
+            if (!confinement.confines(user.login().isPasswordChangeRequired())) {
                 users.recordAuthentication(user.id(), clock.instant());
             }
             recordLoginSuccess.accept(user);
