@@ -167,7 +167,10 @@ bg_start() {
   local cmd
   cmd="$(printf '%q ' "$@")"
   set -m
-  bash -c "cd ${dir@Q} && ${cmd} 2>&1 | sed -u 's|^|[${label}] |'" &
+  # stdin from /dev/null: a background process group that reads the terminal is
+  # stopped by SIGTTIN, which froze Vite (its keyboard shortcuts read stdin) the
+  # first time a key was pressed in the `make dev` terminal.
+  bash -c "cd ${dir@Q} && ${cmd} 2>&1 | sed -u 's|^|[${label}] |'" </dev/null &
   _bg_pid=$!
   set +m
 }
