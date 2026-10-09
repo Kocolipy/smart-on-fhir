@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
@@ -27,7 +26,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -46,8 +44,7 @@ import tools.jackson.databind.json.JsonMapper;
  * itself from this and has no other way to find out.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
+@Import(ContainerTestConfiguration.class)
 class ScimDiscoveryIntegrationTests {
 
     private static final String BASE = "/scim/v2";

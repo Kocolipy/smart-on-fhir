@@ -40,7 +40,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -69,7 +68,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-@TestPropertySource(properties = "app.scim.enabled=true")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ScimConformanceFixtureTests {

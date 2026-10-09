@@ -21,7 +21,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -40,7 +39,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-@TestPropertySource(properties = "app.scim.enabled=true")
 class ScimSeedIntegrationTests {
 
     private static final String COUNT_RESOURCES = "SELECT count(*) FROM scim_resources";

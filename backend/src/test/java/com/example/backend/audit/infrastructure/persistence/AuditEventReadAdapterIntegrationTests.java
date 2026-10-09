@@ -3,7 +3,6 @@ package com.example.backend.audit.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
@@ -27,7 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * a context another test class may already have built.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class AuditEventReadAdapterIntegrationTests {
 
     @Autowired

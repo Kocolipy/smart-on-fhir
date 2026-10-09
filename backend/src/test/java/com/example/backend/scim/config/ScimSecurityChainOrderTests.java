@@ -1,7 +1,6 @@
 package com.example.backend.scim.config;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.auth.config.SecurityConfig;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -61,7 +60,7 @@ import org.springframework.security.web.session.DisableEncodeUrlFilter;
  * shares a context with the other tests that set no SCIM property.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class ScimSecurityChainOrderTests {
 
     /**

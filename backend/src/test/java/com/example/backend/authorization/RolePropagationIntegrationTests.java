@@ -61,7 +61,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(ContainerTestConfiguration.class)
 @ActiveProfiles("dev-mapping")
 @TestPropertySource(properties = {
-    "app.scim.enabled=true",
     "app.dev-fixtures.enabled=true",
     "app.dev-fixtures.password=" + RolePropagationIntegrationTests.FIXTURE_PASSWORD})
 class RolePropagationIntegrationTests {

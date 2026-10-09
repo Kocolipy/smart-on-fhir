@@ -6,7 +6,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * The session registry, in memory, for a full-context test that has no Redis.
+ * The session registry, in memory, for a full-context test that asserts on what the registry
+ * was asked to hold or revoke. Every context has Redis ({@link ContainerTestConfiguration}),
+ * so import this only where the test reads {@code InMemoryAccountSessions}: each extra
+ * import combination is a context, and its containers, of its own.
  *
  * <p>A top-level class rather than a nested {@code @TestConfiguration} in each test,
  * and the reason is the container. {@link ContainerTestConfiguration} declares the

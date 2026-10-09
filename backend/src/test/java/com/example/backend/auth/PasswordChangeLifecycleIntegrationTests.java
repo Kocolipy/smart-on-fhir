@@ -46,7 +46,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.session.data.redis.RedisIndexedSessionRepository;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -81,7 +80,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest
 @Import({ContainerTestConfiguration.class, DormancyTestClockConfiguration.class})
-@TestPropertySource(properties = "app.scim.enabled=true")
 class PasswordChangeLifecycleIntegrationTests {
 
     private static final String BASE = "/scim/v2";
