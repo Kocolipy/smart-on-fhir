@@ -258,6 +258,20 @@ public final class LogEvent {
      */
     public static final String LOGIN_METHOD = "app.login.method";
 
+    /**
+     * The MFA factor an accepted Epic Login was made with (ADR 0013, D17), on its
+     * {@code user-authentication} record — the same spelling its {@code LOGIN_SUCCESS} carries.
+     * Under this service's own {@code app} namespace.
+     */
+    public static final String MFA_FACTOR = "app.login.mfa_factor";
+
+    /**
+     * The session a record concerns, as {@link SessionHash} names it — never by its id. On the
+     * records an Epic Login ends in, so a refusal, which names no user, still correlates with the
+     * browser session it happened in. Log_Schema {@code session.hash}.
+     */
+    public static final String SESSION_HASH = "session.hash";
+
     /** The machine's host name, on the startup record. ECS {@code host.name}. */
     public static final String HOST_NAME = "host.name";
 
