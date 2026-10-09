@@ -3,30 +3,17 @@ package com.example.backend.auth.epic;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.observability.RequestIdFilter;
-import com.example.backend.scim.domain.ScimUserRepository;
-import jakarta.servlet.Filter;
-import java.io.IOException;
-import java.security.KeyPair;
 import java.util.List;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.web.context.WebApplicationContext;
 
 /**
  * D17 with its switch on — {@code APP_EPIC_MFA_EVIDENCE_REQUIRED=true}, once Epic confirms it
@@ -40,93 +27,27 @@ import org.springframework.web.context.WebApplicationContext;
 @Import(ContainerTestConfiguration.class)
 class EpicMfaEvidenceIntegrationTests {
 
-    private static final String FHIR_BASE = "https://fhir.example.org/api/FHIR/R4";
-
-    private static final String CLIENT_ID = "epic-client-id";
-
-    private static final String ACTIVE_KID = "active-2026-04";
-
-    private static final KeyPair ACTIVE_KEY = EpicTestKeys.p384KeyPair();
-
-    private static final int EPIC_PORT = EpicTestFixtures.freePort();
+    @RegisterExtension
+    static final EpicTestEnvironment EPIC =
+            EpicTestEnvironment.epicLoginOn().withMfaEvidenceRequired();
 
     @DynamicPropertySource
     static void epicLoginOnWithMfaEvidenceRequired(DynamicPropertyRegistry registry) {
-        registry.add("app.epic.enabled", () -> "true");
-        registry.add("app.epic.fhir-base", () -> FHIR_BASE);
-        registry.add("app.epic.oauth-issuer", () -> "http://localhost:" + EPIC_PORT + "/oauth2");
-        registry.add("app.epic.client-id", () -> CLIENT_ID);
-        registry.add("app.epic.redirect-uri",
-                () -> "https://app.example.org/api/auth/epic/callback");
-        registry.add("app.epic.client-key", () -> EpicTestKeys.pem(ACTIVE_KEY));
-        registry.add("app.epic.client-key-id", () -> ACTIVE_KID);
-        registry.add("app.epic.mfa-evidence-required", () -> "true");
+        EPIC.register(registry);
     }
-
-    @Autowired
-    private WebApplicationContext context;
-
-    @Autowired
-    private ScimUserRepository users;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private PlatformTransactionManager transactionManager;
 
     @Autowired
     private JdbcTemplate jdbc;
 
-    @Autowired
-    private RequestIdFilter requestIdFilter;
-
-    @Autowired
-    @Qualifier("springSecurityFilterChain")
-    private Filter springSecurityFilterChain;
-
-    @Autowired
-    @Qualifier("springSessionRepositoryFilter")
-    private Filter springSessionRepositoryFilter;
-
-    @Autowired
-    private EpicJwks ourJwks;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
-
     @TestBean(methodName = EpicTestFixtures.NO_RETRY_PAUSE)
     private EpicRetryPause epicRetryPause;
 
-    private FakeEpic epic;
-
-    private EpicBrowser browser;
-
-    private EpicPractitioners practitioners;
-
-    @BeforeEach
-    void setUp() throws IOException {
-        MockMvc mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
-                .build();
-        epic = FakeEpic.start(EPIC_PORT, CLIENT_ID, ACTIVE_KID,
-                () -> EpicTestFixtures.publishedJwks(ourJwks));
-        practitioners = new EpicPractitioners(users, passwordEncoder, transactionManager, jdbc);
-        browser = new EpicBrowser(mvc, epic, sessionCookieName, FHIR_BASE);
-    }
-
-    @AfterEach
-    void tearDown() {
-        epic.close();
-        practitioners.removeAll();
-    }
-
     @Test
     void aSecondFactorInAmrSignsInAndIsTheFactorRecorded() throws Exception {
-        String practitioner = practitioners.provision();
-        epic.mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd", "otp")));
+        String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd", "otp")));
 
-        EpicBrowser.Landing landing = browser.signIn(browser.practitioner(practitioner), null);
+        EpicBrowser.Landing landing = EPIC.signIn(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("otp");
@@ -135,10 +56,10 @@ class EpicMfaEvidenceIntegrationTests {
     /** RFC 8176's {@code mfa}, naming no factor of its own, is recorded as itself. */
     @Test
     void anAmrOfMfaAloneSignsInAndIsRecordedAsMfa() throws Exception {
-        String practitioner = practitioners.provision();
-        epic.mintingIdTokensWith(claims -> claims.claim("amr", List.of("mfa")));
+        String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("mfa")));
 
-        browser.signIn(browser.practitioner(practitioner), null);
+        EPIC.signIn(practitioner, null);
 
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("mfa");
     }
@@ -146,11 +67,11 @@ class EpicMfaEvidenceIntegrationTests {
     /** A password alone is one factor: no MFA evidence. */
     @Test
     void anAmrOfAPasswordAloneIsRefusedAsInvalidClaims() throws Exception {
-        epic.mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd")));
+        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd")));
         int before = refusalsAudited("INVALID_CLAIMS");
 
-        EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EpicBrowser.Landing landing = EPIC.browser().signIn(
+                EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
                 .isEqualTo("/?signin=refused");
@@ -160,11 +81,11 @@ class EpicMfaEvidenceIntegrationTests {
     /** An {@code acr} alone names no factor for the record, so it is no evidence here. */
     @Test
     void aTokenWithNoAmrIsRefusedAsInvalidClaims() throws Exception {
-        epic.mintingIdTokensWith(claims -> claims.claim("acr", "urn:epic:loa:2"));
+        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("acr", "urn:epic:loa:2"));
         int before = refusalsAudited("INVALID_CLAIMS");
 
-        EpicBrowser.Landing landing =
-                browser.signIn(browser.practitioner(practitioners.provision()), null);
+        EpicBrowser.Landing landing = EPIC.browser().signIn(
+                EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
                 .isEqualTo("/?signin=refused");
