@@ -3,6 +3,8 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.EpicLoginOutcome.Refused;
+import com.example.backend.auth.application.EpicLoginOutcome.SignedIn;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -47,14 +49,17 @@ public class LoginService {
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
     private final LoginIdentityService identities;
+    private final EpicLoginOutcomeService epicOutcomes;
 
     public LoginService(
             AuthenticationManager authenticationManager,
             LoginAttemptService attempts,
-            LoginIdentityService identities) {
+            LoginIdentityService identities,
+            EpicLoginOutcomeService epicOutcomes) {
         this.authenticationManager = authenticationManager;
         this.attempts = attempts;
         this.identities = identities;
+        this.epicOutcomes = epicOutcomes;
     }
 
     /**
@@ -136,36 +141,40 @@ public class LoginService {
      * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
      * (D8); the Practitioner ID is not logged.
      *
-     * <p>A refusal is recorded here, once, as password Login's is, so no caller can refuse an
-     * Epic Login without the record: a {@code LOGIN_FAILURE} under method {@code sso} with its
+     * <p>A refusal is recorded here, through {@link EpicLoginOutcomeService}, so no caller can
+     * refuse an Epic Login without the record: its {@code LOGIN_FAILURE} names its
      * {@link EpicLoginFailureReason} and the refused User's stable id — none for
-     * {@code UNKNOWN_ACCOUNT}, whose ID is not recorded at all — and a {@code WARN} that says only
-     * "Epic sign-in refused", because the reason tells whether an account exists. Unlike password
-     * Login's, it counts toward no failure run (D12).
+     * {@code UNKNOWN_ACCOUNT}, whose ID is not recorded at all — and, unlike password Login's,
+     * counts toward no failure run (D12). An acceptance is not: its {@code LOGIN_SUCCESS} is,
+     * fail-closed, but the Login has not ended until the caller has signed the session in, so
+     * the caller records the {@link SignedIn} it is handed once it has — after this transaction
+     * commits, and naming the session the User goes on to use.
      *
      * @param practitionerId    the Practitioner ID Epic's {@code id_token} named
      * @param retainedSessionId the id the caller's session is stored under, which the Login
      *                          continues in; {@code null} when it holds none
      * @param mfaFactor         the MFA factor the Login was made with (D17), recorded on its
      *                          {@code LOGIN_SUCCESS}
-     * @throws EpicLoginRefusedException when no acceptable User is linked to the Practitioner ID:
-     *     none matches it exactly, or the one that does is the Bootstrap Admin, deactivated or
-     *     locked
+     * @return how the decision ended — a {@link SignedIn} with the accepted Login, or a
+     *     {@link Refused}, already recorded, when no acceptable User is linked to the Practitioner
+     *     ID: none matches it exactly, or the one that does is the Bootstrap Admin, deactivated
+     *     or locked
      */
     @Transactional
-    public LoginOutcome logInFromEpic(
+    public EpicLoginDecision logInFromEpic(
             String practitionerId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Optional<UserDetails> linked = identities.loadEpicLinkedUser(practitionerId);
         if (linked.isEmpty()) {
             // No subject: the ID named nobody acceptable, and is itself never recorded.
-            throw refusedEpicLogin(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT);
+            return refused(Refused.account(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT),
+                    retainedSessionId);
         }
         UserDetails user = linked.get();
         if (!user.isEnabled() || !user.isAccountNonLocked()) {
-            throw refusedEpicLogin(identities.resolveUserId(user.getUsername()),
+            return refused(Refused.account(identities.resolveUserId(user.getUsername()),
                     user.isEnabled()
                             ? EpicLoginFailureReason.ACCOUNT_LOCKED
-                            : EpicLoginFailureReason.ACCOUNT_DISABLED);
+                            : EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
         }
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
@@ -173,83 +182,37 @@ public class LoginService {
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
         attempts.recordEpicSuccess(authentication.getName(), retainedSessionId, mfaFactor);
-        return succeeded(authentication, AuditLoginMethod.SSO);
+        LoginOutcome accepted = outcome(authentication);
+        return new EpicLoginDecision(
+                new SignedIn(accepted.userId(), mfaFactor), Optional.of(accepted));
+    }
+
+    private EpicLoginDecision refused(Refused refusal, String retainedSessionId) {
+        epicOutcomes.record(refusal, retainedSessionId);
+        return new EpicLoginDecision(refusal, Optional.empty());
     }
 
     /**
-     * An Epic Login refused by the login decision, recorded once: a {@code LOGIN_FAILURE} under
-     * method {@code sso} naming the reason and the refused User, which counts toward no failure
-     * run (D12).
-     *
-     * @param subjectId the refused User's stable id, or {@code null} when there is none to name
-     * @return the refusal, for the caller to throw
-     */
-    private EpicLoginRefusedException refusedEpicLogin(
-            UUID subjectId, EpicLoginFailureReason reason) {
-        attempts.recordRefusal(subjectId, audited(reason), AuditLoginMethod.SSO);
-        // Generic on purpose: the reason tells whether an account exists, so it is the audit
-        // trail's alone (ADR 0013, "the account reasons are audit-only"), and no user field —
-        // the refused User is named there, and a session the browser happened to carry is not
-        // whom the launch was for.
-        try (LogContext.Scope unresolved = LogContext.userId(null)) {
-            LogEvent.refused(log, Operation.EPIC_LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
-                    .addKeyValue(LogEvent.LOGIN_METHOD, AuditLoginMethod.SSO.value())
-                    .log();
-        }
-        return new EpicLoginRefusedException(reason);
-    }
-
-    /**
-     * Records an Epic Login that ended before any login decision, for {@code reason}: a
-     * {@code LOGIN_FAILURE} under method {@code sso} naming nobody, since no User was ever
-     * resolved, which counts toward no failure run (D12). Epic being unavailable (D23) ends a
-     * Login so, and so does every protocol refusal: a launch, callback or {@code id_token} that
-     * failed its checks before any User was looked up.
-     *
-     * <p>The record only: the Epic failure handler, which knows how the Login ended, writes its
-     * one log record itself and sends the browser on (D24).
-     */
-    public void recordEpicFailure(EpicLoginFailureReason reason) {
-        attempts.recordRefusal(null, audited(reason), AuditLoginMethod.SSO);
-    }
-
-    /**
-     * An Epic refusal as the audit trail's own vocabulary, which password Login's refusals share.
-     * Exhaustive, so a reason added to the list cannot reach the trail unmapped.
-     */
-    private static AuditRefusalReason audited(EpicLoginFailureReason reason) {
-        return switch (reason) {
-            case INVALID_LAUNCH -> AuditRefusalReason.INVALID_LAUNCH;
-            case ISS_MISMATCH -> AuditRefusalReason.ISS_MISMATCH;
-            case INVALID_STATE -> AuditRefusalReason.INVALID_STATE;
-            case INVALID_CODE -> AuditRefusalReason.INVALID_CODE;
-            case IDP_ERROR -> AuditRefusalReason.IDP_ERROR;
-            case TOKEN_EXCHANGE_FAILED -> AuditRefusalReason.TOKEN_EXCHANGE_FAILED;
-            case INVALID_SIGNATURE -> AuditRefusalReason.INVALID_SIGNATURE;
-            case INVALID_CLAIMS -> AuditRefusalReason.INVALID_CLAIMS;
-            case INVALID_FHIR_USER -> AuditRefusalReason.INVALID_FHIR_USER;
-            case EPIC_UNAVAILABLE -> AuditRefusalReason.EPIC_UNAVAILABLE;
-            case UNKNOWN_ACCOUNT -> AuditRefusalReason.UNKNOWN_ACCOUNT;
-            case ACCOUNT_DISABLED -> AuditRefusalReason.ACCOUNT_DISABLED;
-            case ACCOUNT_LOCKED -> AuditRefusalReason.ACCOUNT_LOCKED;
-        };
-    }
-
-    /**
-     * The tail every accepted Login shares once its success is recorded against the User,
-     * whichever way it proved who signed in: the {@code LOGIN} record naming the User and the
-     * login method (D15), and the outcome the caller establishes the session from.
+     * The {@code LOGIN} record of an accepted password Login, naming the User and the login method
+     * (D15), and the outcome the caller establishes the session from. An Epic Login's is
+     * {@link EpicLoginOutcomeService}'s, with every other record it ends in.
      */
     private LoginOutcome succeeded(Authentication authentication, AuditLoginMethod method) {
-        UUID userId = identities.resolveUserId(authentication.getName());
+        LoginOutcome outcome = outcome(authentication);
         // Set explicitly: the session's principal index that carries user.id for later
         // requests is written only after this returns.
-        try (LogContext.Scope resolved = LogContext.userId(userId)) {
+        try (LogContext.Scope resolved = LogContext.userId(outcome.userId())) {
             LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
                     .addKeyValue(LogEvent.LOGIN_METHOD, method.value())
                     .log();
         }
-        return new LoginOutcome(authentication, userId, identities.roleMappingHash());
+        return outcome;
+    }
+
+    /** What the caller establishes the session from, once the success is recorded. */
+    private LoginOutcome outcome(Authentication authentication) {
+        return new LoginOutcome(authentication, identities.resolveUserId(authentication.getName()),
+                identities.roleMappingHash());
     }
 
     /**
@@ -286,5 +249,19 @@ public class LoginService {
      */
     public record LoginOutcome(
             Authentication authentication, UUID userId, String roleMappingHash) {
+    }
+
+    /**
+     * How the Epic login decision ended: its {@link EpicLoginOutcome}, and the accepted Login the
+     * caller establishes the session from — present exactly when the outcome is
+     * {@link SignedIn}.
+     */
+    public record EpicLoginDecision(EpicLoginOutcome outcome, Optional<LoginOutcome> accepted) {
+
+        public EpicLoginDecision {
+            if (accepted.isPresent() != outcome instanceof SignedIn) {
+                throw new IllegalArgumentException("only a signed-in Login carries a session");
+            }
+        }
     }
 }

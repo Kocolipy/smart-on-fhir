@@ -214,7 +214,7 @@ class EpicLoginRedactionIntegrationTests {
                             test.signIn(test.provisioned(), seen);
                         }),
                 Arguments.of("Epic refusing our client assertion", REDEEMED,
-                        Ending.refused("TOKEN_EXCHANGE_FAILED", "token"),
+                        Ending.refusedByCall("TOKEN_EXCHANGE_FAILED", "token", "cert/auth", "token"),
                         (LoginPath) (test, seen) -> {
                             test.epic.rejectingOurAssertion();
                             test.signIn(test.provisioned(), seen);
@@ -248,17 +248,17 @@ class EpicLoginRedactionIntegrationTests {
                         Ending.refused("ACCOUNT_LOCKED", "token"),
                         (LoginPath) (test, seen) -> test.signIn(test.locked(), seen)),
                 Arguments.of("a token endpoint 5xx", REDEEMED,
-                        Ending.unavailable("token", "token"),
+                        Ending.unavailable("token", "server", "token"),
                         (LoginPath) (test, seen) -> test.signInWhile(
                                 FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR, seen)),
                 Arguments.of("a token endpoint timeout", REDEEMED,
-                        Ending.unavailable("token", "token"),
+                        Ending.unavailable("token", "network", "token"),
                         (LoginPath) (test, seen) -> test.signInWhile(
                                 FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL, seen)),
-                Arguments.of("a JWKS 5xx", TOKENS, Ending.unavailable("jwks", "token"),
+                Arguments.of("a JWKS 5xx", TOKENS, Ending.unavailable("jwks", "server", "token"),
                         (LoginPath) (test, seen) -> test.signInWhile(
                                 FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR, seen)),
-                Arguments.of("a JWKS timeout", TOKENS, Ending.unavailable("jwks", "token"),
+                Arguments.of("a JWKS timeout", TOKENS, Ending.unavailable("jwks", "network", "token"),
                         (LoginPath) (test, seen) -> test.signInWhile(
                                 FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL, seen)));
     }

@@ -1,7 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -13,11 +13,14 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.auth.RecordingEpicLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.application.LoginService.EpicLoginDecision;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -28,6 +31,7 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +54,7 @@ class EpicLoginDecisionTests {
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
+    private final RecordingEpicLoginCounts counts = new RecordingEpicLoginCounts();
 
     private LoginService login;
 
@@ -59,16 +64,18 @@ class EpicLoginDecisionTests {
         PasswordEncoder passwordEncoder = config.passwordEncoder();
         LoginIdentityService identities = new LoginIdentityService(
                 users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+        LoginAttemptService attempts = new LoginAttemptService(
+                users,
+                new InMemoryAccountSessions(),
+                new PendingCommit(),
+                new LockoutPolicy(5),
+                audit,
+                new MutableClock(NOW));
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
-                new LoginAttemptService(
-                        users,
-                        new InMemoryAccountSessions(),
-                        new PendingCommit(),
-                        new LockoutPolicy(5),
-                        audit,
-                        new MutableClock(NOW)),
-                identities);
+                attempts,
+                identities,
+                new EpicLoginOutcomeService(attempts, counts));
     }
 
     @Test
@@ -291,20 +298,74 @@ class EpicLoginDecisionTests {
                 .doesNotContain("eNOBODY");
     }
 
-    /** The accepted record says how the Login was made (D15), as the password one does. */
+    /** D17: the decision hands back what the accepted Login is recorded as, factor included. */
     @Test
-    void theAcceptedEpicLoginRecordNamesTheSsoMethod() {
+    void anAcceptedEpicLoginEndsSignedInAsItsUserWithItsMfaFactor() {
+        ScimUser active = users.given(ScimIdentities.user("eACTIVE"));
+
+        EpicLoginDecision decision = login.logInFromEpic("eACTIVE", null, AuditMfaFactor.OTP);
+
+        assertThat(decision.outcome())
+                .isEqualTo(new EpicLoginOutcome.SignedIn(active.id(), AuditMfaFactor.OTP));
+    }
+
+    /**
+     * An acceptance is recorded by the web adapter once the session is signed in, after this
+     * transaction commits: the decision writes no {@code user-authentication} record of it and
+     * moves no count.
+     */
+    @Test
+    void anAcceptedEpicLoginIsNotRecordedByTheDecision() {
         users.given(ScimIdentities.user("eACTIVE"));
 
         try (CapturedLog captured = CapturedLog.attach()) {
             attested("eACTIVE");
 
-            List<ILoggingEvent> records =
-                    captured.withAction(Level.INFO, LogEvent.ACTION, "user-authentication");
-            assertThat(records).singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.LOGIN_METHOD, "sso"));
+            assertThat(captured.withAction(Level.INFO, LogEvent.ACTION, "user-authentication"))
+                    .isEmpty();
         }
+        assertThat(counts.moved()).isEmpty();
+    }
+
+    /** SSO §3.4: a refusal names no user, so its session's hash is what it correlates by. */
+    @Test
+    void aRefusalsLogRecordNamesTheSessionByHash() {
+        users.given(ScimIdentities.inactiveUser("eRETIRED"));
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            login.logInFromEpic("eRETIRED", "launch-session", AuditMfaFactor.IDP_ATTESTED);
+
+            assertThat(captured.withAction(Level.WARN, LogEvent.ACTION, "user-authentication"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.SESSION_HASH,
+                                    SessionHash.of("launch-session")));
+        }
+    }
+
+    @Test
+    void aRefusalIsCountedUnderItsReason() {
+        users.given(ScimIdentities.inactiveUser("eRETIRED"));
+
+        refusalOf("eRETIRED");
+
+        assertThat(counts.moved()).containsExactly("refused:ACCOUNT_DISABLED");
+    }
+
+    /** Exactly a signed-in decision carries the Login a session is established from. */
+    @Test
+    void onlyASignedInDecisionCarriesAnAcceptedLogin() {
+        users.given(ScimIdentities.user("eACTIVE"));
+        LoginService.LoginOutcome accepted = attested("eACTIVE");
+        EpicLoginOutcome.SignedIn signedIn =
+                new EpicLoginOutcome.SignedIn(accepted.userId(), AuditMfaFactor.MFA);
+        EpicLoginOutcome refused =
+                EpicLoginOutcome.Refused.because(EpicLoginFailureReason.UNKNOWN_ACCOUNT);
+
+        assertThatThrownBy(() -> new EpicLoginDecision(signedIn, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new EpicLoginDecision(refused, Optional.of(accepted)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     /** The one {@code WARN} authentication record {@code practitionerId}'s refusal wrote. */
@@ -325,14 +386,16 @@ class EpicLoginDecisionTests {
 
     /** The reason {@code practitionerId}'s Epic Login was refused for. */
     private EpicLoginFailureReason refusalOf(String practitionerId) {
-        Throwable refused = catchThrowable(() -> attested(practitionerId));
-        assertThat(refused).as("the Epic Login was refused")
-                .isInstanceOf(EpicLoginRefusedException.class);
-        return ((EpicLoginRefusedException) refused).reason();
+        EpicLoginDecision decision =
+                login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);
+        assertThat(decision.accepted()).as("the Epic Login was refused").isEmpty();
+        assertThat(decision.outcome()).isInstanceOf(EpicLoginOutcome.Refused.class);
+        return ((EpicLoginOutcome.Refused) decision.outcome()).reason();
     }
 
-    /** An Epic Login for {@code practitionerId}, its MFA attested by the Epic organisation. */
+    /** An accepted Epic Login for {@code practitionerId}, its MFA attested by the Epic organisation. */
     private LoginService.LoginOutcome attested(String practitionerId) {
-        return login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);
+        return login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED)
+                .accepted().orElseThrow();
     }
 }

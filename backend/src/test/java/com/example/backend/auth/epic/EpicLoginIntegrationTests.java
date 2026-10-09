@@ -15,6 +15,7 @@ import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.domain.ScimUserRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -394,6 +395,38 @@ class EpicLoginIntegrationTests {
         assertThat(successes()).isEqualTo(before + 1);
     }
 
+    /**
+     * The accepted record is written once the session is signed in, so it names that session —
+     * the one the clinician goes on to use — by its hash, and carries the MFA factor (Logging
+     * §2.2, SSO §3.4).
+     */
+    @Test
+    void theAcceptedRecordNamesTheSignedInSessionByHashAndItsMfaFactor() throws Exception {
+        String practitioner = practitioners.provision();
+
+        Map<String, Object> accepted;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            accepted = captured.withAction(Level.INFO, LogEvent.ACTION, "user-authentication")
+                    .stream()
+                    .filter(record -> record.getLevel() == Level.INFO)
+                    .map(CapturedLog::fields)
+                    .filter(fields -> "sso".equals(fields.get(LogEvent.LOGIN_METHOD)))
+                    .collect(Collectors.collectingAndThen(Collectors.toList(),
+                            records -> {
+                                assertThat(records).as("one accepted record").hasSize(1);
+                                return records.getFirst();
+                            }));
+        }
+
+        Set<String> signedIn = sessionRepository.findByPrincipalName(
+                practitioners.idOf(practitioner).toString()).keySet();
+        assertThat(signedIn).hasSize(1);
+        assertThat(accepted)
+                .containsEntry(LogEvent.SESSION_HASH, SessionHash.of(signedIn.iterator().next()))
+                .containsEntry(LogEvent.MFA_FACTOR, "idp-attested");
+    }
+
     /** D8: the access token, the id_token and the launch context are used and dropped. */
     @Test
     void nothingFromEpicsTokenResponseIsStored() throws Exception {
@@ -471,19 +504,6 @@ class EpicLoginIntegrationTests {
                 .containsExactly("ACCOUNT_DISABLED/sso");
     }
 
-    @Test
-    void aRefusedLockedUserIsAuditedAsALoginFailureBySsoWithItsReason() throws Exception {
-        String practitioner = practitioners.provisionLocked();
-
-        signInFromEpic(practitioner, null);
-
-        assertThat(jdbc.queryForList(
-                "SELECT error_code || '/' || login_method FROM audit_events"
-                        + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
-                String.class, practitioners.idOf(practitioner)))
-                .containsExactly("ACCOUNT_LOCKED/sso");
-    }
-
     /** An unknown ID is not recorded: the audit trail holds no trace of the Practitioner ID. */
     @Test
     void anUnknownAccountRefusalRecordsNothingOfThePractitionerId() throws Exception {
@@ -496,27 +516,6 @@ class EpicLoginIntegrationTests {
     }
 
     @Test
-    void anUnknownAccountRefusalIsAuditedWithNoSubject() throws Exception {
-        int before = unknownAccountRefusals();
-
-        signInFromEpic(unprovisioned(), null);
-
-        assertThat(unknownAccountRefusals()).isEqualTo(before + 1);
-    }
-
-    /** D12: Epic checked the credential, so a refusal is no evidence of guessing. */
-    @Test
-    void aRefusedLaunchNeverLengthensTheFailureRun() throws Exception {
-        String practitioner = practitioners.provisionDeactivated();
-
-        signInFromEpic(practitioner, null);
-
-        assertThat(jdbc.queryForObject(
-                "SELECT failed_login_attempts FROM scim_users WHERE user_name = ?",
-                Integer.class, practitioner)).isZero();
-    }
-
-    @Test
     void theEpicLoginCounterRecordsARefusalWithItsReason() throws Exception {
         String practitioner = practitioners.provisionLocked();
         double before = refusals("ACCOUNT_LOCKED");
@@ -524,24 +523,6 @@ class EpicLoginIntegrationTests {
         signInFromEpic(practitioner, null);
 
         assertThat(refusals("ACCOUNT_LOCKED")).isEqualTo(before + 1);
-    }
-
-    @Test
-    void theEpicLoginCounterRecordsAnUnknownAccountRefusal() throws Exception {
-        double before = refusals("UNKNOWN_ACCOUNT");
-
-        signInFromEpic(unprovisioned(), null);
-
-        assertThat(refusals("UNKNOWN_ACCOUNT")).isEqualTo(before + 1);
-    }
-
-    @Test
-    void aRefusalIsNotCountedAsASuccess() throws Exception {
-        double before = successes();
-
-        signInFromEpic(unprovisioned(), null);
-
-        assertThat(successes()).isEqualTo(before);
     }
 
     // ---- Epic unavailable (D23, D24, D26) ------------------------------------------------------
@@ -667,29 +648,25 @@ class EpicLoginIntegrationTests {
         assertThat(unavailables()).isEqualTo(before + 1);
     }
 
-    @Test
-    void anUnavailableLaunchIsNotCountedAsARefusal() throws Exception {
-        String practitioner = practitioners.provision();
-        epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
-        double before = allRefusals();
-
-        signInFromEpic(practitioner, null);
-
-        assertThat(allRefusals()).isEqualTo(before);
-    }
-
     /**
      * ADR 0013's error categories: a timeout is {@code network}, and Epic being down needs no
-     * follow-up.
+     * follow-up. Logging §3.3: it is one {@code ERROR} in all — the outbound call's, which saw
+     * it fail — and not a second one when the Login ends for it.
      */
     @Test
     void aTokenEndpointTimeoutIsOneErrorUnderTheNetworkCategory() throws Exception {
         String practitioner = practitioners.provision();
         epic.failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
 
-        List<Map<String, Object>> errors = signInFailureErrors(practitioner);
+        List<ILoggingEvent> errors;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            signInFromEpic(practitioner, null);
+            errors = captured.withAction(Level.ERROR, LogEvent.ACTION, "user-authentication");
+        }
 
-        assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+        assertThat(errors).singleElement().satisfies(record -> assertThat(
+                        CapturedLog.fields(record))
+                .containsEntry(LogEvent.LOCAL_ACTION, "epic.outbound")
                 .containsEntry(LogEvent.ERROR_CATEGORY, "network")
                 .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
                 .containsEntry(LogEvent.EPIC_CALL, "token"));
@@ -1171,11 +1148,6 @@ class EpicLoginIntegrationTests {
         return counter == null ? 0 : counter.count();
     }
 
-    private double allRefusals() {
-        return meters.find("epic.login").tag("outcome", "refused").counters().stream()
-                .mapToDouble(Counter::count).sum();
-    }
-
     private long outboundCalls(String call) {
         Timer timer = meters.find("epic.outbound").tag("call", call).timer();
         return timer == null ? 0 : timer.count();
@@ -1217,14 +1189,6 @@ class EpicLoginIntegrationTests {
         Counter counter = meters.find("epic.login").tag("outcome", "refused")
                 .tag("reason", reason).counter();
         return counter == null ? 0 : counter.count();
-    }
-
-    /** Every Epic {@code UNKNOWN_ACCOUNT} refusal the audit trail holds, each naming nobody. */
-    private int unknownAccountRefusals() {
-        return jdbc.queryForObject("""
-                SELECT count(*) FROM audit_events
-                WHERE operation = 'LOGIN_FAILURE' AND error_code = 'UNKNOWN_ACCOUNT'
-                AND login_method = 'sso' AND subject_id IS NULL""", Integer.class);
     }
 
     /** Every key and value in the session store, as text: what the store would hand an attacker. */

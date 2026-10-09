@@ -10,8 +10,9 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * Epic Login's meters as one reading: every series of the {@code epic.login} counter, the
- * {@code epic.outbound} timer and the {@code epic.outbound.errors} counter, each by its name and
+ * Epic Login's meters as one reading: every series of the {@code epic.login} and
+ * {@code epic.login.failed_calls} counters, the {@code epic.outbound} timer and the
+ * {@code epic.outbound.errors} counter, each by its name and
  * every tag it carries — {@code epic.login{outcome=refused,reason=INVALID_STATE}} — to its count.
  *
  * <p>A test reads them before and after a Login and compares the {@link #change}, so a series
@@ -19,34 +20,47 @@ import java.util.stream.Collectors;
  */
 final class EpicMeters {
 
-    private static final String[] NAMES = {"epic.login", "epic.outbound", "epic.outbound.errors"};
+    private static final String[] NAMES = {
+        "epic.login", "epic.login.failed_calls", "epic.outbound", "epic.outbound.errors"};
 
     private EpicMeters() {
     }
 
     /**
      * How an Epic Login ended, as the meters see it: its {@code epic.login} outcome and reason,
-     * the calls to Epic it timed on {@code epic.outbound}, and the call it counted on
-     * {@code epic.outbound.errors}, if any.
+     * the calls to Epic it timed on {@code epic.outbound}, the call it counted on
+     * {@code epic.outbound.errors}, if any, and the call whose failure ended it with that
+     * failure's {@code error_category}, counted on {@code epic.login.failed_calls}, if any.
      */
-    record Ending(String outcome, String reason, List<String> calls, String failedCall) {
+    record Ending(String outcome, String reason, List<String> calls, String unansweredCall,
+            String endingCall, String endingCategory) {
 
         /** A Login that signed the clinician in, having timed {@code calls}. */
         static Ending success(String... calls) {
-            return new Ending("success", "none", List.of(calls), null);
+            return new Ending("success", "none", List.of(calls), null, null, null);
         }
 
-        /** A Login refused for {@code reason}, having timed {@code calls}. */
+        /** A Login refused for {@code reason}, no Epic call failing, having timed {@code calls}. */
         static Ending refused(String reason, String... calls) {
-            return new Ending("refused", reason, List.of(calls), null);
+            return new Ending("refused", reason, List.of(calls), null, null, null);
         }
 
         /**
-         * A Login Epic was unavailable for, as {@code failedCall} failed, having timed
-         * {@code calls}.
+         * A Login refused for {@code reason} because {@code failedCall} answered with something
+         * unusable, under {@code category}, having timed {@code calls}.
          */
-        static Ending unavailable(String failedCall, String... calls) {
-            return new Ending("unavailable", "EPIC_UNAVAILABLE", List.of(calls), failedCall);
+        static Ending refusedByCall(
+                String reason, String failedCall, String category, String... calls) {
+            return new Ending("refused", reason, List.of(calls), null, failedCall, category);
+        }
+
+        /**
+         * A Login Epic was unavailable for, as {@code failedCall} failed under {@code category}
+         * ({@code network} or {@code server}), having timed {@code calls}.
+         */
+        static Ending unavailable(String failedCall, String category, String... calls) {
+            return new Ending("unavailable", "EPIC_UNAVAILABLE", List.of(calls), failedCall,
+                    failedCall, category);
         }
 
         /** The {@link #change} a Login ending this way makes, and nothing else. */
@@ -56,8 +70,12 @@ final class EpicMeters {
             for (String call : calls) {
                 expected.merge(series("epic.outbound", "call", call), 1.0, Double::sum);
             }
-            if (failedCall != null) {
-                expected.put(series("epic.outbound.errors", "call", failedCall), 1.0);
+            if (unansweredCall != null) {
+                expected.put(series("epic.outbound.errors", "call", unansweredCall), 1.0);
+            }
+            if (endingCall != null) {
+                expected.put(series("epic.login.failed_calls",
+                        "call", endingCall, "error_category", endingCategory), 1.0);
             }
             return expected;
         }

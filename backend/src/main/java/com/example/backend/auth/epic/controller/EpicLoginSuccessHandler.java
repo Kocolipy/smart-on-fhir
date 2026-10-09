@@ -2,18 +2,17 @@ package com.example.backend.auth.epic.controller;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
-import com.example.backend.auth.application.EpicLoginRefusedException;
 import com.example.backend.auth.application.EpicSignInRefusedException;
+import com.example.backend.auth.application.EpicLoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.LoginService.EpicLoginDecision;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.controller.SessionEstablishment;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.EpicMfaEvidence;
-import com.example.backend.auth.epic.EpicLoginMetrics;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicSignIn;
 import com.example.backend.auth.epic.EpicSignInFailure;
-import com.example.backend.auth.epic.EpicSignInRedirect;
 import com.example.backend.auth.epic.FhirUserReference;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,9 +42,9 @@ import org.springframework.stereotype.Component;
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
  * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
  * A {@code fhirUser} of another form is a protocol refusal, {@code INVALID_FHIR_USER}, handed to
- * the one Epic failure handler, which records it. A User the login decision refused is audited
- * and logged there, once, and counted here under its reason; the counter is the web adapter's,
- * as the success count is.
+ * the one Epic failure handler, which records it. A User the login decision refused is recorded
+ * there; one it accepted is recorded here, through {@code EpicLoginOutcomeService}, once its
+ * session is signed in. Either way the browser lands where {@link EpicLoginLanding} sends it.
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
  * Epic security configuration so that the configuration need not depend on a web adapter: it is
@@ -63,21 +62,21 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
 
     private final ObjectProvider<EpicLoginSettings> settings;
 
-    private final EpicLoginMetrics metrics;
-
     private final EpicSignInFailure signInFailure;
+
+    private final EpicLoginOutcomeService outcomes;
 
     public EpicLoginSuccessHandler(
             LoginService login,
             SessionEstablishment sessionEstablishment,
             ObjectProvider<EpicLoginSettings> settings,
-            EpicLoginMetrics metrics,
-            EpicSignInFailure signInFailure) {
+            EpicSignInFailure signInFailure,
+            EpicLoginOutcomeService outcomes) {
         this.login = login;
         this.sessionEstablishment = sessionEstablishment;
         this.settings = settings;
-        this.metrics = metrics;
         this.signInFailure = signInFailure;
+        this.outcomes = outcomes;
     }
 
     @Override
@@ -102,21 +101,20 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
         // The session the launch began, which the Login continues in and so is the one session
         // of the User's that it keeps.
         HttpSession existing = request.getSession(false);
-        LoginOutcome outcome;
-        try {
-            outcome = login.logInFromEpic(practitionerId.get(),
-                    existing == null ? null : existing.getId(), factor.get());
-        } catch (EpicLoginRefusedException refused) {
-            // Audited and logged by the login decision already; counted here, and the browser
-            // signed out and sent to the refused notice with no detail (D23, D24).
-            metrics.refused(refused.reason().name());
-            EpicSignInRedirect.refused(request, response);
-            return;
+        EpicLoginDecision decision = login.logInFromEpic(practitionerId.get(),
+                existing == null ? null : existing.getId(), factor.get());
+        // A refusal is recorded by the login decision already. An acceptance is recorded here,
+        // once the session is signed in: after the decision's commit, so a Login that rolled back
+        // or never got its session is not counted a success, and naming the session the User
+        // goes on to use.
+        if (decision.accepted().isPresent()) {
+            LoginOutcome accepted = decision.accepted().get();
+            HttpSession signedIn = sessionEstablishment.establish(accepted.authentication(),
+                    accepted.userId(), accepted.roleMappingHash(), AuditLoginMethod.SSO,
+                    request, response);
+            outcomes.record(decision.outcome(), signedIn.getId());
         }
-        sessionEstablishment.establish(outcome.authentication(), outcome.userId(),
-                outcome.roleMappingHash(), AuditLoginMethod.SSO, request, response);
-        metrics.success();
-        EpicSignInRedirect.signedIn(request, response);
+        EpicLoginLanding.after(decision.outcome(), request, response);
     }
 
     /** The MFA factor the Login was made with, as {@link EpicMfaEvidence#factorOf} decides it. */

@@ -739,7 +739,7 @@ each on an existing `event.action` value, since ADR 0013 puts every Epic record 
 | "Epic outbound call failed": no answer at all     | `outboundFailed`     | `ERROR` | `epic.outbound`     | `network`        | `connection`, `error` |
 | a JWKS refetch for an unknown `kid`               | `jwksRefetchWarning` | `WARN`  | `epic.jwks_refetch` | `network`        | `connection`, `start` |
 | the `kid` still unknown after the refetches       | `error`              | `ERROR` | `epic.jwks_refetch` | `network`        | `error`               |
-| "Epic sign-in failed": an Epic call that failed   | `error`              | `ERROR` | `epic.login`        | `network`        | `error`               |
+| "Epic sign-in failed": an Epic call that answered | `error`              | `ERROR` | `epic.login`        | `network`        | `error`               |
 
 **Fields.** The outbound records carry `app.epic.call` (`discovery`, `jwks` or `token`), the
 method as `http.request.method`, and `url.full` narrowed to scheme, host, port and path —
@@ -760,10 +760,35 @@ asked for) do. Three `error.category` values join the declared ones for it: `net
 `server` and `cert/auth`, all from `Log_Schema.md` §Error; `data` now also covers an
 unusable answer from a service this one called.
 
-The `ERROR` an Epic call failure ends in is written once, by the Epic failure handler, beside
-the outbound record of the call itself. A `5xx` is an answer, so its outbound record is the
-`INFO` "completed", and only the handler's record is an `ERROR`; a timeout has both the
-outbound `ERROR` and the handler's, each naming the call.
+An Epic call failure is one `ERROR`, beside the outbound record of the call itself. A `5xx`, a
+refused credential or an unusable answer is an answer, so its outbound record is the `INFO`
+"completed", and the `ERROR` is "Epic sign-in failed", written when the Login ends for it. A
+call that got no answer has its `ERROR` already — the outbound "failed", with the stack — so
+the Login ending for it writes no second one (2026-10-09, below).
+
+## Addendum (2026-10-09): one record per Epic Login ending
+
+Epic Login's endings are recorded by one module, `EpicLoginOutcomeService`, rather than by the
+login decision and the two Epic handlers in turn. Three things change in what they emit:
+
+- **No second `ERROR` for a timeout.** Logging §3.3 says one event is logged once. A call that
+  got no answer was logged at `ERROR` by the outbound interceptor that saw it fail, so "Epic
+  sign-in failed" is no longer written for it. A `5xx` still has its one "Epic sign-in failed",
+  because its outbound record is an `INFO`. The interceptor's record stays the one because it is
+  also the only record of a failure no Login ends in (discovery reread after the JWKS refetches).
+- **The MFA factor on the accepted record.** An accepted Epic Login's `user-authentication`
+  record carries `app.login.mfa_factor` (ADR 0013, D17), so the operational stream has the
+  factor that Logging §2.2 asks for, not just the audit row.
+- **`session.hash` on every ending's record.** The accepted, refused and failed-call records of
+  an Epic Login carry `session.hash`: the first 64 bits of the SHA-256 of a session id
+  (`SessionHash`), and never the id, which is the session's bearer credential. A refusal names
+  the session the Login ran in. A success names the session it signed in, the one the User goes
+  on to use, and is recorded once that session is established, so after the login decision's
+  commit. A refusal names no user, so before this it could be correlated by `trace.id` alone
+  (SSO §3.4). A session id is a random UUID, so its hash cannot be guessed back the way a
+  password's can. `be-log-sensitive-value` matches any value named `hash`, but not the call that
+  adds this field, so nothing is suppressed for it. `session-start` and the password Login
+  records do not carry it yet.
 
 ## Addendum (2026-10-08): D22's names (ADR 0013)
 
@@ -791,9 +816,10 @@ passed to a logging call. Its pattern gains a second family of names beside the 
   public — Epic reads it from our JWKS — and the startup record logs both by design (ADR 0013,
   D14), so that each key promotion leaves a record.
 
-One existing call site matched and is suppressed with its reason: `EpicLoginFailureHandler`'s
-failed-call `ERROR` passes `failed.code()`, the failure's `error.code` — the HTTP status it maps
-to, never anything Epic sent.
+One existing call site matched and is suppressed with its reason: the failed-call `ERROR` passes
+`failed.code()`, the failure's `error.code` — the HTTP status it maps to, never anything Epic
+sent. It was `EpicLoginFailureHandler`'s, and is `EpicLoginOutcomeService`'s since the addendum
+of 2026-10-09.
 
 **The test.** `EpicLoginRedactionIntegrationTests` extends the redaction tests above
 (`EcsLogFormatTests`, `JdbcErrorLogRedactionTests`) to Epic Login. It drives a successful Login,

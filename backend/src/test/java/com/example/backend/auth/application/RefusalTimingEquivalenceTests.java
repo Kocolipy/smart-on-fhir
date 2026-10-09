@@ -8,6 +8,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.auth.RecordingEpicLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -67,16 +68,18 @@ class RefusalTimingEquivalenceTests {
         users.given(ScimIdentities.credentiallessUser("nopass"));
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
-        login = new LoginService(
-                config.authenticationManager(identities, passwordEncoder),
-                new LoginAttemptService(
+        LoginAttemptService attempts = new LoginAttemptService(
                         users,
                         new InMemoryAccountSessions(),
                         new PendingCommit(),
                         new LockoutPolicy(5),
                         new RecordingAuditTrail(),
-                        clock),
-                identities);
+                        clock);
+        login = new LoginService(
+                config.authenticationManager(identities, passwordEncoder),
+                attempts,
+                identities,
+                new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts()));
     }
 
     @Test

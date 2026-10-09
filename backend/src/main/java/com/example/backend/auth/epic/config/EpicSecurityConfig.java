@@ -3,7 +3,6 @@ package com.example.backend.auth.epic.config;
 import com.example.backend.auth.domain.PendingAuthorizations;
 import com.example.backend.auth.epic.ClientAssertionSigner;
 import com.example.backend.auth.epic.EpicJwkSource;
-import com.example.backend.auth.epic.EpicLoginMetrics;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicProviderMetadata;
 import com.example.backend.auth.epic.EpicRetryPause;
@@ -71,7 +70,10 @@ public class EpicSecurityConfig {
                 pendingAuthorizations);
     }
 
-    /** Always present, so the success and failure handlers have it whether or not the flow is. */
+    /**
+     * Always present, so the login decision and the failure handler can record an Epic Login's
+     * ending whether or not the flow is.
+     */
     @Bean
     public EpicLoginMetrics epicLoginMetrics(MeterRegistry registry) {
         return new EpicLoginMetrics(registry);

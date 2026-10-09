@@ -172,6 +172,10 @@ class EpicDiscoveryIntegrationTests {
         assertThat(unavailables()).isEqualTo(before + 1);
     }
 
+    /**
+     * Logging §3.3: one {@code ERROR} in all — the outbound call's, which saw it fail — and not a
+     * second one when the Login ends for it.
+     */
     @Test
     void aDiscoveryTimeoutIsOneErrorUnderTheNetworkCategoryNamingDiscovery() throws Exception {
         epic.failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
@@ -179,11 +183,12 @@ class EpicDiscoveryIntegrationTests {
         List<Map<String, Object>> errors;
         try (CapturedLog captured = CapturedLog.attach()) {
             authorize();
-            errors = captured.withAction(Level.ERROR, LogEvent.LOCAL_ACTION, "epic.login")
+            errors = captured.withAction(Level.ERROR, LogEvent.ACTION, "user-authentication")
                     .stream().map(CapturedLog::fields).toList();
         }
 
         assertThat(errors).singleElement().satisfies(fields -> assertThat(fields)
+                .containsEntry(LogEvent.LOCAL_ACTION, "epic.outbound")
                 .containsEntry(LogEvent.ERROR_CATEGORY, "network")
                 .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
                 .containsEntry(LogEvent.EPIC_CALL, "discovery"));
@@ -235,10 +240,12 @@ class EpicDiscoveryIntegrationTests {
      */
     static Stream<Arguments> discoveryFailures() {
         return Stream.of(
-                Arguments.of(FakeEpic.Failure.STALL, Ending.unavailable("discovery", "discovery")),
+                Arguments.of(FakeEpic.Failure.STALL,
+                        Ending.unavailable("discovery", "network", "discovery")),
                 Arguments.of(FakeEpic.Failure.SERVER_ERROR,
-                        Ending.unavailable("discovery", "discovery")),
-                Arguments.of(FakeEpic.Failure.MALFORMED, Ending.refused("IDP_ERROR", "discovery")));
+                        Ending.unavailable("discovery", "server", "discovery")),
+                Arguments.of(FakeEpic.Failure.MALFORMED,
+                        Ending.refusedByCall("IDP_ERROR", "discovery", "data", "discovery")));
     }
 
     /**
