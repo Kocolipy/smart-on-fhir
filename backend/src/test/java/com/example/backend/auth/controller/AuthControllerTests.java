@@ -14,9 +14,8 @@ import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
-import com.example.backend.auth.RecordingEpicLoginCounts;
+import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
-import com.example.backend.auth.application.EpicLoginOutcomeService;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
@@ -135,7 +134,7 @@ class AuthControllerTests {
                 users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
         controller = new AuthController(
                 new LoginService(manager, attempts, identities,
-                        new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts())),
+                        RecordingLoginCounts.uncounted(attempts)),
                 // The same flow against Postgres and Redis, the security filter chain included, is
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
@@ -234,6 +233,48 @@ class AuthControllerTests {
                 new MockHttpServletResponse()))
                 .isInstanceOf(BadCredentialsException.class);
         assertThat(request.getSession(false)).isNull();
+    }
+
+    /**
+     * A refused Login ends whatever session the browser held, whoever it belonged to, before its
+     * bare {@code 401} — the password analogue of ADR 0013's D24 — so a shared browser is never
+     * left signed in as the previous User after a sign-in that signed nobody in.
+     */
+    @Test
+    void aRefusedLoginEndsTheSessionTheBrowserHeld() {
+        MockHttpSession previousUsers = new MockHttpSession();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(previousUsers);
+        SecurityContextHolder.getContext().setAuthentication(
+                new TestingAuthenticationToken("grace", null, "ROLE_USER"));
+
+        assertThatThrownBy(() -> controller.login(
+                new AuthController.LoginRequest("ada", "wrong-password"),
+                request,
+                new MockHttpServletResponse()))
+                .isInstanceOf(BadCredentialsException.class);
+
+        assertThat(previousUsers.isInvalid()).isTrue();
+        assertThat(request.getSession(false)).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    /** Lockout and deactivation end it the same way: every refusal is the one refusal. */
+    @Test
+    void aRefusedLoginOfADeactivatedAccountEndsTheSessionTheBrowserHeldToo() {
+        users.given(ScimUser.created(UUID.randomUUID(), ScimIdentities.profile("gone", false),
+                new SecurityConfig().passwordEncoder().encode("correct-password"), ScimIdentities.NOW));
+        MockHttpSession previous = new MockHttpSession();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(previous);
+
+        assertThatThrownBy(() -> controller.login(
+                new AuthController.LoginRequest("gone", "correct-password"),
+                request,
+                new MockHttpServletResponse()))
+                .isInstanceOf(org.springframework.security.authentication.DisabledException.class);
+
+        assertThat(previous.isInvalid()).isTrue();
     }
 
     /**

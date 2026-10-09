@@ -1,20 +1,13 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditRefusalReason;
-import com.example.backend.auth.application.EpicLoginOutcome.Refused;
-import com.example.backend.auth.application.EpicLoginOutcome.SignedIn;
+import com.example.backend.auth.application.LoginOutcome.EpicRefused;
+import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
+import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.observability.LogContext;
-import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import java.util.Optional;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
@@ -37,29 +30,28 @@ import org.springframework.transaction.annotation.Transactional;
  * both or neither.
  *
  * <p>Enforcement is deliberately elsewhere: {@link LoginIdentityService} reports a
- * locked identity to Spring Security, which refuses it before any password is
- * compared. This module records what happened; the rule for what counts as
- * locked lives in {@link com.example.backend.scim.domain.ScimLoginState}.
+ * locked identity to Spring Security, which refuses it whatever the password, after
+ * comparing that password exactly as it would compare a wrong one. This module
+ * records what happened; the rule for what counts as locked lives in
+ * {@link com.example.backend.scim.domain.ScimLoginState}.
  */
 @Service
 public class LoginService {
 
-    private static final Logger log = LoggerFactory.getLogger(LoginService.class);
-
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
     private final LoginIdentityService identities;
-    private final EpicLoginOutcomeService epicOutcomes;
+    private final LoginOutcomeService outcomes;
 
     public LoginService(
             AuthenticationManager authenticationManager,
             LoginAttemptService attempts,
             LoginIdentityService identities,
-            EpicLoginOutcomeService epicOutcomes) {
+            LoginOutcomeService outcomes) {
         this.authenticationManager = authenticationManager;
         this.attempts = attempts;
         this.identities = identities;
-        this.epicOutcomes = epicOutcomes;
+        this.outcomes = outcomes;
     }
 
     /**
@@ -74,54 +66,53 @@ public class LoginService {
      * returns, so a caller holding an authentication is by definition one whose
      * account was not refused, whatever it does with the authentication next.
      *
-     * <p>Both outcomes are logged, and neither record carries the submitted
-     * {@code username}. It is the single most sensitive value passing through
-     * here — it is half a credential, and on a failed attempt it is very often a
-     * mistyped password — so it stays out of the log, in the message and in the
-     * context alike. The accepted attempt carries the identity's stable id as
-     * {@code user.id}; the refused one carries no user field at all, because the
-     * identity it named is unresolved. What the refusal carries instead is the
-     * type of refusal, which is what tells a run of wrong passwords from a run
-     * against names that do not exist.
+     * <p>Both outcomes are recorded through {@link LoginOutcomeService}, the one module that
+     * records how a Login ended by either method, so no caller can refuse a Login without the
+     * record — and neither record carries the submitted {@code username}. It is the single most
+     * sensitive value passing through here — it is half a credential, and on a failed attempt it
+     * is very often a mistyped password — so it stays out of the log, in the message and in the
+     * context alike. The accepted attempt carries the identity's stable id as {@code user.id};
+     * the refused one carries no user field at all, because the identity it named is unresolved,
+     * and no reason either: it says only that the Login was refused (Logging §2.2). Whether the
+     * password was wrong, the name unknown, or the account locked or deactivated tells whether
+     * an account exists, so that is the audit trail's {@code LOGIN_FAILURE} alone, read by an
+     * administrator, and the {@code login} counter's {@code reason} tag, which names no account.
+     * A run of wrong passwords is still told from a run against names that do not exist, there.
      *
      * @throws AuthenticationException when the credentials are refused
      */
-    public LoginOutcome logIn(String username, String password) {
+    public AcceptedLogin logIn(String username, String password) {
         return logIn(username, password, null);
     }
 
     /**
      * {@link #logIn(String, String)} from a caller that may already hold a session: an accepted
      * login ends every other session of the identity once the cleared failure run commits, and
-     * keeps this one, which the caller goes on to rotate and sign in.
+     * keeps this one, which the caller goes on to rotate and sign in. A refused one names this
+     * session by hash on its record, and leaves ending it to the caller, the web adapter.
      *
      * @param retainedSessionId the id the caller's session is stored under, or {@code null} when
      *     it holds none
      * @throws AuthenticationException when the credentials are refused
      */
-    public LoginOutcome logIn(String username, String password, String retainedSessionId) {
+    public AcceptedLogin logIn(String username, String password, String retainedSessionId) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
         } catch (AuthenticationException refused) {
-            attempts.recordFailure(username, refusalReason(refused));
-            // The exception's own type, not its message: a message can carry the
-            // submitted value, and a type name is this service's own vocabulary.
-            // No user field: the attempt's identity is unresolved, and a session the
-            // request happened to carry is not whom the attempt was for.
-            try (LogContext.Scope unresolved = LogContext.userId(null)) {
-                LogEvent.refused(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
-                        .addKeyValue(LogEvent.REASON, refused.getClass().getSimpleName())
-                        .log();
-            }
+            outcomes.record(new PasswordRefused(username, refusalReason(refused)),
+                    retainedSessionId);
             throw refused;
         }
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
         attempts.recordPasswordSuccess(authentication.getName(), retainedSessionId);
-        return succeeded(authentication, AuditLoginMethod.PASSWORD);
+        AcceptedLogin accepted = accepted(authentication);
+        // No session named: the one the caller goes on to sign in is not rotated yet.
+        outcomes.record(SignedIn.password(accepted.userId()), null);
+        return accepted;
     }
 
     /**
@@ -142,8 +133,8 @@ public class LoginService {
      * here: Epic's tokens are kept by the web adapter, on the session it signs in, only once this
      * has accepted the User (ADR 0013's 2026-10-09 addendum); the Practitioner ID is not logged.
      *
-     * <p>A refusal is recorded here, through {@link EpicLoginOutcomeService}, so no caller can
-     * refuse an Epic Login without the record: its {@code LOGIN_FAILURE} names its
+     * <p>A refusal is recorded here, through {@link LoginOutcomeService}, as a password Login's
+     * is, so no caller can refuse an Epic Login without the record: its {@code LOGIN_FAILURE} names its
      * {@link EpicLoginFailureReason} and the refused User's stable id — none for
      * {@code UNKNOWN_ACCOUNT}, whose ID is not recorded at all — and, unlike password Login's,
      * counts toward no failure run (D12). An acceptance is not: its {@code LOGIN_SUCCESS} is,
@@ -157,7 +148,7 @@ public class LoginService {
      * @param mfaFactor         the MFA factor the Login was made with (D17), recorded on its
      *                          {@code LOGIN_SUCCESS}
      * @return how the decision ended — a {@link SignedIn} with the accepted Login, or a
-     *     {@link Refused}, already recorded, when no acceptable User is linked to the Practitioner
+     *     {@link EpicRefused}, already recorded, when no acceptable User is linked to the Practitioner
      *     ID: none matches it exactly, or the one that does is the Bootstrap Admin, deactivated
      *     or locked
      */
@@ -167,12 +158,12 @@ public class LoginService {
         Optional<UserDetails> linked = identities.loadEpicLinkedUser(practitionerId);
         if (linked.isEmpty()) {
             // No subject: the ID named nobody acceptable, and is itself never recorded.
-            return refused(Refused.account(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT),
+            return refused(EpicRefused.account(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT),
                     retainedSessionId);
         }
         UserDetails user = linked.get();
         if (!user.isEnabled() || !user.isAccountNonLocked()) {
-            return refused(Refused.account(identities.resolveUserId(user.getUsername()),
+            return refused(EpicRefused.account(identities.resolveUserId(user.getUsername()),
                     user.isEnabled()
                             ? EpicLoginFailureReason.ACCOUNT_LOCKED
                             : EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
@@ -183,36 +174,19 @@ public class LoginService {
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
         attempts.recordEpicSuccess(authentication.getName(), retainedSessionId, mfaFactor);
-        LoginOutcome accepted = outcome(authentication);
+        AcceptedLogin accepted = accepted(authentication);
         return new EpicLoginDecision(
-                new SignedIn(accepted.userId(), mfaFactor), Optional.of(accepted));
+                SignedIn.epic(accepted.userId(), mfaFactor), Optional.of(accepted));
     }
 
-    private EpicLoginDecision refused(Refused refusal, String retainedSessionId) {
-        epicOutcomes.record(refusal, retainedSessionId);
+    private EpicLoginDecision refused(EpicRefused refusal, String retainedSessionId) {
+        outcomes.record(refusal, retainedSessionId);
         return new EpicLoginDecision(refusal, Optional.empty());
     }
 
-    /**
-     * The {@code LOGIN} record of an accepted password Login, naming the User and the login method
-     * (D15), and the outcome the caller establishes the session from. An Epic Login's is
-     * {@link EpicLoginOutcomeService}'s, with every other record it ends in.
-     */
-    private LoginOutcome succeeded(Authentication authentication, AuditLoginMethod method) {
-        LoginOutcome outcome = outcome(authentication);
-        // Set explicitly: the session's principal index that carries user.id for later
-        // requests is written only after this returns.
-        try (LogContext.Scope resolved = LogContext.userId(outcome.userId())) {
-            LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
-                    .addKeyValue(LogEvent.LOGIN_METHOD, method.value())
-                    .log();
-        }
-        return outcome;
-    }
-
     /** What the caller establishes the session from, once the success is recorded. */
-    private LoginOutcome outcome(Authentication authentication) {
-        return new LoginOutcome(authentication, identities.resolveUserId(authentication.getName()),
+    private AcceptedLogin accepted(Authentication authentication) {
+        return new AcceptedLogin(authentication, identities.resolveUserId(authentication.getName()),
                 identities.roleMappingHash());
     }
 
@@ -248,16 +222,16 @@ public class LoginService {
      * {@code authentication.getName()} — and the hash of the role mapping the
      * authentication's Permissions were resolved under, which the session records.
      */
-    public record LoginOutcome(
+    public record AcceptedLogin(
             Authentication authentication, UUID userId, String roleMappingHash) {
     }
 
     /**
-     * How the Epic login decision ended: its {@link EpicLoginOutcome}, and the accepted Login the
+     * How the Epic login decision ended: its {@link LoginOutcome}, and the accepted Login the
      * caller establishes the session from — present exactly when the outcome is
      * {@link SignedIn}.
      */
-    public record EpicLoginDecision(EpicLoginOutcome outcome, Optional<LoginOutcome> accepted) {
+    public record EpicLoginDecision(LoginOutcome outcome, Optional<AcceptedLogin> accepted) {
 
         public EpicLoginDecision {
             if (accepted.isPresent() != outcome instanceof SignedIn) {

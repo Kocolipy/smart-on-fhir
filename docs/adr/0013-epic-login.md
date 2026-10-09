@@ -12,7 +12,10 @@ position and the App-Standards deviations are recorded here. Its addendum on
 ADR-0012 updates the ac-2, ac-12 and as-8 entries there. Its own addendum of
 2026-10-09 (#24), at the end, supersedes D8 for Epic's access token, refresh
 token and `id_token`, which are now kept server-side for the life of the session
-an Epic Login signs in; the passages it changes say so where they stand.
+an Epic Login signs in; the passages it changes say so where they stand. A second
+addendum of 2026-10-09, after it, extends the outcome module to password Login and
+renames the `epic.login` counter to `login`, tagged by login method; the passages
+it changes say so too.
 
 The items under "Open items" below are confirmations from outside the code. Each
 is answered by recording it here, and none of them changes a decision.
@@ -142,20 +145,21 @@ Security's authorization-request filter build the request.
    Epic being unreachable at `/?signin=unavailable` (D23) — neither with any
    detail, and both with the browser's session ended first (D24).
 
-How a Login ended is recorded once, by one module, `EpicLoginOutcomeService`, which
-takes the ending — signed in, refused (reason, refused User, field and rule, failed
-call) or unavailable (failed call) — and writes its audit record, log line and
-counts; where the browser goes next is a function of the ending alone. An account
-refusal is handed to it by the login decision, as password Login's refusal is
-recorded there, so no caller can refuse without the record: a `LOGIN_FAILURE` under
-method `sso` with its reason and the refused User's stable id — none for
-`UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`, which counts
-toward no failure run (D12), a `WARN` saying only "Epic sign-in refused", and
-`epic.login` (`outcome=refused`, `reason`). The success handler then only
-redirects. A success is handed to it by the success handler, once the session is
-signed in: the fail-closed `LOGIN_SUCCESS` is written in the decision's
-transaction, and the `user-authentication` record and the `epic.login` success
-count only after it commits. The redirect is the one effect the module cannot
+How a Login ended is recorded once, by one module, `LoginOutcomeService` (named
+`EpicLoginOutcomeService` until the second 2026-10-09 addendum, which also has it
+record password Login's endings), which takes the ending — signed in, refused
+(reason, refused User, field and rule, failed call) or unavailable (failed call) —
+and writes its audit record, log line and counts; where the browser goes next is a
+function of the ending alone. An account refusal is handed to it by the login
+decision, as password Login's refusal is, so no caller can refuse without the
+record: a `LOGIN_FAILURE` under method `sso` with its reason and the refused User's
+stable id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`,
+which counts toward no failure run (D12), a `WARN` saying only "Epic sign-in
+refused", and `login` (`method=sso`, `outcome=refused`, `reason`). The success
+handler then only redirects. A success is handed to it by the success handler, once
+the session is signed in: the fail-closed `LOGIN_SUCCESS` is written in the
+decision's transaction, and the `user-authentication` record and the `login`
+success count only after it commits. The redirect is the one effect the module cannot
 have, the application layer knowing no servlet, so both handlers land the
 browser through one mapping of the outcome, `EpicLoginLanding`. Every other failure — of
 the launch, the authorize hop, the callback, the token exchange, the `id_token` or
@@ -163,14 +167,14 @@ its `fhirUser` — goes to `EpicLoginFailureHandler`, the one place it is told a
 (flow step 8, D23, D24), and the outcome it names is recorded by the same module. A
 refusal there is `/?signin=refused`, its session ended, a `LOGIN_FAILURE` under
 method `sso` with its exact refusal reason (the table under "Audit" below) and no
-subject (no User was looked up), counted toward no failure run (D12), `epic.login`
-(`outcome=refused`, `reason`), and one `WARN` saying only "Epic sign-in refused",
+subject (no User was looked up), counted toward no failure run (D12), `login`
+(`method=sso`, `outcome=refused`, `reason`), and one `WARN` saying only "Epic sign-in refused",
 with the field and rule of a refused input. The reason is
 read from what failed — a typed refusal of our own, the failed Epic call, the
 `id_token` decoder's exception — never from a message, which can quote what Epic
 sent. Epic being unavailable is the other outcome: `/?signin=unavailable`, its
 session ended, a `LOGIN_FAILURE` under method `sso` with `EPIC_UNAVAILABLE` and no
-subject, `epic.login` (`outcome=unavailable`), and one `ERROR` naming the call and
+subject, `login` (`method=sso`, `outcome=unavailable`), and one `ERROR` naming the call and
 its error category (the table under "Log" below) — the outbound interceptor's for a
 call that got no answer, the ending's for a `5xx`. An Epic call that answered with
 something unusable (`cert/auth`, `data`) is refused under the call's reason — the
@@ -474,21 +478,26 @@ records the operations, shapes and fields.
 
 Micrometer, on the existing Prometheus registry:
 
-- `epic.login` counter, tagged `outcome` (`success`, `refused` or `unavailable`)
-  and `reason` (the audit reason above; `none` for a success, so every series
-  has the same tag keys) — `EpicLoginMetrics`, behind the `EpicLoginCounts` port
-  `EpicLoginOutcomeService` records through;
+- `login` counter, tagged `method` (`password` or `sso`), `outcome` (`success`,
+  `refused` or, for `sso` only, `unavailable`) and `reason` (the audit reason
+  above; `none` for a success, so every series has the same tag keys) —
+  `LoginMetrics`, behind the `LoginCounts` port `LoginOutcomeService` records
+  through, registered whether or not Epic Login is on. Epic Login's series are
+  `method=sso`. It was `epic.login`, without the `method` tag, until the second
+  2026-10-09 addendum;
 - `epic.login.failed_calls` counter, tagged `call` and `error_category`: each Epic
   call whose failure ended a Login, so a refused credential (`cert/auth`), which no
-  outbound status tells apart, can be alerted on;
+  outbound status tells apart, can be alerted on — `EpicCallMetrics`, behind the
+  `EpicCallCounts` port;
 - `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
   (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
 - alert rules (`/infra/README.md`, "Alerts"): `EpicJwksFetchFailing` and
   `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
   for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
   on any `cert/auth` failure of the token call, the one that presents our
-  credential; and `EpicLoginRefusalsSurge` when refusals stay
-  above 3 a minute for 10 minutes (IM8 lm-16).
+  credential; and `EpicLoginRefusalsSurge` when refusals
+  (`login{method="sso",outcome="refused"}`) stay above 3 a minute for 10 minutes
+  (IM8 lm-16).
 
 ### Outbound calls and resilience
 
@@ -741,8 +750,9 @@ needs them, the SSO standard asks for specific failure types, and password Login
 records the same reasons. The browser sees one answer for all of them,
 `/?signin=refused`, and the operational log says only "Epic sign-in refused",
 with no reason and no user field. The audit trail, read by an administrator,
-holds the detail. The `epic.login` counter carries the reason as a tag; it counts
-events and names no account.
+holds the detail. The `login` counter carries the reason as a tag; it counts
+events and names no account. Password Login now keeps them the same way (the second
+2026-10-09 addendum).
 
 ### Open items
 
@@ -922,3 +932,69 @@ but does not revoke them at Epic: the access token stays valid until it expires,
 and a refresh token, once one is issued, for its own lifetime. The accepted risk
 and the SSO §5 deviation above are updated to say so, and Epic's revocation
 support is an open item.
+
+## Addendum (2026-10-09): one outcome module and one `login` counter for both login methods
+
+Architecture review 2026-10-08, "Password Login path". The password and Epic
+refusal pipelines had diverged: Epic Login's met Logging §2.2 (the account reasons
+audit-only) and had a meter, while password Login's refusal `WARN` carried the
+exception type (`LockedException`, `DisabledException`, …), which tells its reader
+the account exists and its state, left any session the browser held alive, and was
+counted nowhere. This addendum makes the compliant behaviour the only one. Epic
+Login's behaviour is unchanged apart from the meter's name.
+
+**One module.** `EpicLoginOutcomeService`, `EpicLoginOutcome` and `EpicLoginCounts`
+are now `LoginOutcomeService`, `LoginOutcome` and `LoginCounts`, and record a
+password Login's endings beside Epic Login's. `LoginOutcome` is signed in (`SignedIn`,
+with the login method, and an MFA factor for `sso` only), refused (`Refused`: a
+password Login's `PasswordRefused` or an Epic Login's `EpicRefused`, the former
+`Refused`), or unavailable (Epic only). The accepted password Login the web adapter
+establishes a session from, formerly `LoginService.LoginOutcome`, is
+`LoginService.AcceptedLogin`. `LoginService` records a password refusal through the
+module, as the login decision records an Epic account refusal, so no caller can
+refuse a Login without the record. Where the browser goes next stays each method's
+web adapter's: password Login's bare `401` (`AuthController`), Epic Login's
+redirect (`EpicLoginLanding`).
+
+**A refused password Login** is recorded as:
+
+- a `LOGIN_FAILURE` under method `password` with its reason — `BAD_CREDENTIALS`,
+  `UNKNOWN_ACCOUNT`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED` or `OTHER` — naming the
+  User when the name matched one, and counted toward its failure run, both as
+  before (it is a guess at our credential, unlike an Epic refusal, D12);
+- one `WARN`, "Login refused", with `app.login.method=password` and `session.hash`
+  for the session the Login ran in, and no reason, no user field and never the
+  submitted username — mirroring "Epic sign-in refused", without its field and
+  rule, which password Login has none of;
+- `login` (`method=password`, `outcome=refused`, `reason`).
+
+An accepted password Login's `user-authentication` record is unchanged and now also
+counts `login` (`method=password`, `outcome=success`, `reason=none`); it names no
+session, as before, because the session it signs in is not yet rotated when it is
+written.
+
+**A refused password Login ends the browser's session** — the password analogue of
+D24. `AuthController` invalidates whatever session the request carried, whoever it
+belonged to, and clears the security context before the bare `401`, so a shared
+browser is never left signed in as the previous User. A refused Login that arrived
+without a session creates none. The CSRF token was bound to the ended session
+(ADR 0009, which has an addendum of the same date), so the SPA discards it on the
+`401` and a retry fetches the next session's (`/frontend/AGENTS.md`, "Backend
+contract").
+
+**One `login` counter.** `epic.login` is replaced by `login`, tagged `method`,
+`outcome` and `reason`, every series of both methods registered at zero at
+startup with the same tag keys (the "Metrics" section above). Its adapter,
+`LoginMetrics`, is in `com.example.backend.auth.config` and registered by
+`LoginMetricsConfig` unconditionally: password Login exists whether or not Epic
+Login is on, and the onion layering lets a configuration adapter implement an
+application port. `epic.login.failed_calls` stays Epic's, behind its own port
+(`EpicCallCounts`, adapter `EpicCallMetrics` in the Epic configuration).
+`EpicLoginRefusalsSurge` now reads `login_total{method="sso",outcome="refused"}`.
+A dashboard or rule reading `epic_login_total` must move to
+`login_total{method="sso"}`.
+
+**Uniform refusal timing.** Separately from the module, a locked or deactivated
+User's password refusal now costs the same one Argon2id verification as a wrong
+password (ADR 0007's amendment of the same date). This addendum does not change
+"Deviation: refusal timing is not equalised", which is about Epic Login.

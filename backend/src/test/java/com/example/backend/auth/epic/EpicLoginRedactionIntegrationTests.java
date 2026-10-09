@@ -43,7 +43,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * material of both signing keys — in the whole log stream it produced, the whole audit trail after
  * it, and every answer our callback gave the browser. Epic's three tokens are kept server-side for
  * a signed-in session (ADR 0013, addendum 2026-10-09), and none of them leaves it this way. The
- * same paths hold the {@code epic.login} and {@code epic.outbound} meters to the tags each should
+ * same paths hold the {@code login} counter's Epic series and the {@code epic.outbound} meters to the tags each should
  * move.
  *
  * <p>The log is {@link EcsLogCapture} on the root logger, encoded by the production ECS encoder,
@@ -235,7 +235,7 @@ class EpicLoginRedactionIntegrationTests {
     }
 
     /**
-     * The series a path moves by itself: every {@code epic.login} and
+     * The series a path moves by itself: every Epic {@code login} series and
      * {@code epic.outbound.errors} series, and the token call's timer. Discovery and the JWKS are
      * read on a Login's first use and whenever Epic's key is new to the kept JWKS — each test's
      * fake signs with a key of its own — so how often their timers move depends on the tests

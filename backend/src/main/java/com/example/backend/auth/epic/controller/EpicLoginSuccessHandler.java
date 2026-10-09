@@ -3,10 +3,10 @@ package com.example.backend.auth.epic.controller;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.EpicSignInRefusedException;
-import com.example.backend.auth.application.EpicLoginOutcomeService;
+import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.EpicLoginDecision;
-import com.example.backend.auth.application.LoginService.LoginOutcome;
+import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.controller.SessionEstablishment;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
@@ -55,7 +55,7 @@ import org.springframework.stereotype.Component;
  * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
  * A {@code fhirUser} of another form is a protocol refusal, {@code INVALID_FHIR_USER}, handed to
  * the one Epic failure handler, which records it. A User the login decision refused is recorded
- * there; one it accepted is recorded here, through {@code EpicLoginOutcomeService}, once its
+ * there; one it accepted is recorded here, through {@code LoginOutcomeService}, once its
  * session is signed in. Either way the browser lands where {@link EpicLoginLanding} sends it.
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
@@ -76,7 +76,7 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
 
     private final EpicSignInFailure signInFailure;
 
-    private final EpicLoginOutcomeService outcomes;
+    private final LoginOutcomeService outcomes;
 
     private final AbsoluteSessionLifetimePolicy absoluteLifetime;
 
@@ -87,7 +87,7 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
             SessionEstablishment sessionEstablishment,
             ObjectProvider<EpicLoginSettings> settings,
             EpicSignInFailure signInFailure,
-            EpicLoginOutcomeService outcomes,
+            LoginOutcomeService outcomes,
             AbsoluteSessionLifetimePolicy absoluteLifetime,
             Clock clock) {
         this.login = login;
@@ -128,7 +128,7 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
         // or never got its session is not counted a success, and naming the session the User
         // goes on to use.
         if (decision.accepted().isPresent()) {
-            LoginOutcome accepted = decision.accepted().get();
+            AcceptedLogin accepted = decision.accepted().get();
             HttpSession signedIn = sessionEstablishment.establish(accepted.authentication(),
                     accepted.userId(), accepted.roleMappingHash(), AuditLoginMethod.SSO,
                     request, response);

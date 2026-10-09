@@ -52,7 +52,8 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
   names. On a `403` to an unsafe request it fetches a new token and retries
   once, keeping the single-retry contract #57 refined. `src/auth/` calls
   `discardCsrfToken()` whenever the session changes: after login, logout, a
-  password change, and an expiry.
+  password change, and an expiry — and, since the 2026-10-09 addendum, after a
+  refused login.
 - **Held by the build.** The `be-csrf-cookie-token` Semgrep rule forbids
   `CookieCsrfTokenRepository`, `SpaCsrfTokenRequestHandler` and `csrf.spa()`.
   `SecurityConfigTests` asserts that the chain's `CsrfFilter` holds the session
@@ -72,3 +73,15 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
 - An API client outside the SPA uses the same handshake: call `GET
   /api/auth/csrf` with the session cookie, then send the token in the named
   header. `backend/README.md` shows it with `curl`.
+
+## Addendum (2026-10-09): a refused login ends the session, and its token
+
+A refused password Login now invalidates whatever session the browser held
+before answering its bare `401` — the password analogue of ADR 0013's D24, so a
+shared browser is never left signed in as the previous User after a sign-in
+that signed nobody in. The token was bound to that session, so it ends with it:
+`src/auth/api.ts` calls `discardCsrfToken()` when `login()` is answered
+`unauthenticated`, and a retry after a wrong password fetches the next session's
+token from `GET /api/auth/csrf` instead of meeting a `403`. A refused Login that
+arrived with no session creates none. The token's design is otherwise unchanged:
+session-bound, in memory only, never a cookie.

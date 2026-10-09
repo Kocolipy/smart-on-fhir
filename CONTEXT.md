@@ -242,7 +242,8 @@ _Avoid_: forbidden (for a CSRF refusal, which is not an authorization decision)
 **Login**:
 The one operation that turns submitted credentials _or an EHR launch_ into a
 session or a refusal. Its login method, `password` or `sso`, is recorded on the
-audit trail's login events and on `session-start`.
+audit trail's login events and on `session-start`. A refusal, by either method,
+ends whatever session the browser held, and its reason is the audit trail's alone.
 _Avoid_: sign-on, authenticate (as a noun for the operation)
 
 **EHR launch**:

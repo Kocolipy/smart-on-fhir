@@ -210,11 +210,14 @@ paths:
         "401":
           description: |
             The login was refused. One response covers every reason — unknown
-            username, wrong password, and an account locked after too many
-            consecutive failures — and carries no body, so it cannot be used to
-            learn whether an account exists or whether it is locked. Consecutive
-            refusals lock the account for a configured window; while it holds, the
-            correct password is refused too.
+            username, wrong password, an account locked after too many
+            consecutive failures, and a deactivated account — and carries no body,
+            so it cannot be used to learn whether an account exists or whether it
+            is locked. Consecutive refusals lock the account until an Admin unlocks
+            it; while it holds, the correct password is refused too. Any session
+            the request arrived with is ended before this answer, whoever it
+            belonged to, and its CSRF token with it; a retry fetches a new token
+            from `GET /api/auth/csrf`.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/me:

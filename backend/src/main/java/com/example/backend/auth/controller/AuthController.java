@@ -5,7 +5,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
-import com.example.backend.auth.application.LoginService.LoginOutcome;
+import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.domain.RoleMappingSessions;
@@ -84,9 +84,17 @@ public class AuthController {
 
     /**
      * Turns submitted credentials into a session. What counts as a successful
-     * login — including the failure run a refusal lengthens — is
-     * {@link LoginService}'s; the session and CSRF work that only a web adapter can
-     * do is {@link SessionEstablishment}'s, the step every Login path ends in.
+     * login — including the failure run a refusal lengthens, and every record a
+     * refusal is — is {@link LoginService}'s; the session and CSRF work that only a
+     * web adapter can do is {@link SessionEstablishment}'s, the step every Login
+     * path ends in.
+     *
+     * <p>A refused Login ends whatever session the browser held, whoever it
+     * belonged to, before answering its bare {@code 401}: the password analogue of
+     * an Epic Login's refusal (ADR 0013, D24), so a shared browser is never left
+     * signed in as the previous User after a sign-in that signed nobody in. The CSRF
+     * token ends with that session, and the SPA fetches the next one's. A refused
+     * Login that arrived without a session creates none.
      */
     @PostMapping("/login")
     public UserResponse login(
@@ -96,8 +104,17 @@ public class AuthController {
         // The caller's session as it is stored now, before rotation renames it: it is the one the
         // login continues in, so it is the one session of the User's that the login keeps.
         HttpSession existing = request.getSession(false);
-        LoginOutcome outcome = login.logIn(
-                body.username(), body.password(), existing == null ? null : existing.getId());
+        AcceptedLogin outcome;
+        try {
+            outcome = login.logIn(
+                    body.username(), body.password(), existing == null ? null : existing.getId());
+        } catch (AuthenticationException refused) {
+            if (existing != null) {
+                existing.invalidate();
+            }
+            SecurityContextHolder.clearContext();
+            throw refused;
+        }
         Authentication authentication = outcome.authentication();
 
         HttpSession signedIn = sessionEstablishment.establish(authentication, outcome.userId(),
@@ -261,6 +278,7 @@ public class AuthController {
         return new PasswordRuleViolation(violation.ruleName(), violation.getMessage());
     }
 
+    /** A refused Login, its session already ended: the bare {@code 401}, the same for every one. */
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public void authenticationFailed() {

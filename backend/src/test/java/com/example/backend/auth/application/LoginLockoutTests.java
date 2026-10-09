@@ -12,7 +12,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.RecordingEpicLoginCounts;
+import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.controller.AuthController;
 import com.example.backend.observability.LogContext;
@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -113,7 +114,7 @@ class LoginLockoutTests {
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
-                new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts()));
+                RecordingLoginCounts.uncounted(attempts));
         administration = new IdentityAdministrationService(
                 users, groups, sessions, transaction, audit, clock);
     }
@@ -171,8 +172,10 @@ class LoginLockoutTests {
 
     /**
      * A refused attempt names nobody, even inside a request already carrying a User's
-     * id: the identity the attempt was for is unresolved. The outer id is back for the
-     * rest of the request once the record is written.
+     * id: the identity the attempt was for is unresolved. Nor does it say why it was
+     * refused (Logging §2.2): the reason tells whether the account exists, so it is the
+     * audit trail's alone. The outer id is back for the rest of the request once the
+     * record is written.
      */
     @Test
     void theRefusedLoginRecordCarriesNoUserIdEvenInsideAnAuthenticatedRequest() {
@@ -185,8 +188,8 @@ class LoginLockoutTests {
             assertThat(record.getMDCPropertyMap()).doesNotContainKey(LogContext.USER_ID);
             assertThat(CapturedLog.fields(record))
                     .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                    .containsEntry(LogEvent.REASON, "BadCredentialsException")
-                    .containsEntry(LogEvent.TYPE, List.of("user", "denied"));
+                    .containsEntry(LogEvent.TYPE, List.of("user", "denied"))
+                    .doesNotContainKey(LogEvent.REASON);
             assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(sessionUser.toString());
         } finally {
             MDC.clear();
@@ -237,6 +240,29 @@ class LoginLockoutTests {
                 .as("the refusal is audited as the lockout, not as a generic failure")
                 .containsExactly(com.example.backend.audit.domain.AuditRefusalReason
                         .ACCOUNT_LOCKED.name());
+    }
+
+    /**
+     * Logging §2.2: the operational record of a locked account's refusal is exactly a wrong
+     * password's — it would otherwise tell its reader that the account exists, and is locked.
+     * The lockout is the audit trail's to say, above.
+     */
+    @Test
+    void aLockedIdentitysRefusalIsLoggedExactlyAsAWrongPasswordIs() {
+        Map<String, Object> wrongPassword;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            submit("wrong");
+            wrongPassword = CapturedLog.fields(onlyLoginRecord(captured, Level.WARN));
+        }
+        lockTheIdentity();
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            submit(CORRECT_PASSWORD);
+
+            ILoggingEvent locked = onlyLoginRecord(captured, Level.WARN);
+            assertThat(locked.getFormattedMessage()).isEqualTo("Login refused");
+            assertThat(CapturedLog.fields(locked)).isEqualTo(wrongPassword);
+        }
     }
 
     @Test

@@ -1147,12 +1147,12 @@ class EpicLoginIntegrationTests {
     }
 
     private double successes() {
-        Counter counter = meters.find("epic.login").tag("outcome", "success").counter();
+        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "success").counter();
         return counter == null ? 0 : counter.count();
     }
 
     private double unavailables() {
-        Counter counter = meters.find("epic.login").tag("outcome", "unavailable")
+        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "unavailable")
                 .tag("reason", "EPIC_UNAVAILABLE").counter();
         return counter == null ? 0 : counter.count();
     }
@@ -1195,7 +1195,7 @@ class EpicLoginIntegrationTests {
     }
 
     private double refusals(String reason) {
-        Counter counter = meters.find("epic.login").tag("outcome", "refused")
+        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "refused")
                 .tag("reason", reason).counter();
         return counter == null ? 0 : counter.count();
     }

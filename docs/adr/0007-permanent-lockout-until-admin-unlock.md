@@ -41,7 +41,8 @@ Unlock does to the credential (#19).
 ## Consequences
 
 - A locked User learns nothing by waiting, by design: the refusal is the same
-  bare `401` as a wrong password, and the operational answer is an administrator.
+  bare `401` as a wrong password, in the same time (the 2026-10-09 amendment),
+  and the operational answer is an administrator.
 - A guessing campaign spread across many accounts locks each of them, and
   unlocking them is administrator work. `LoginAuthenticationFailuresSustained` exists to
   catch that early, and edge throttling on Login caps its rate (`infra/README.md`).
@@ -55,3 +56,14 @@ Unlock does to the credential (#19).
 - 2026-10-02 (#98): the threshold is now 3 consecutive failures, down from the
   original 5. Only the default changed; it stays configurable through
   `APP_LOCKOUT_MAX_ATTEMPTS`, and everything else above holds as written.
+- 2026-10-09 (architecture review 2026-10-08, T1): uniform refusal timing now
+  covers locked and deactivated Users too. They are refused by Spring Security's
+  account-status check, which runs before the password is compared, so before
+  this they could answer faster than a wrong password. `SecurityConfig` sets
+  `DaoAuthenticationProvider.alwaysPerformAdditionalChecksOnUser` explicitly: the
+  submitted password is compared first and the account's state still refuses
+  it, the right password included, with the same bare `401`. A wrong password,
+  an unknown name, a credentialless User, a locked User and a deactivated User
+  each cost exactly one Argon2id verification; `RefusalTimingEquivalenceTests`
+  counts them. The refusal's audit reason is unchanged: `ACCOUNT_LOCKED` or
+  `ACCOUNT_DISABLED`, whatever the password.

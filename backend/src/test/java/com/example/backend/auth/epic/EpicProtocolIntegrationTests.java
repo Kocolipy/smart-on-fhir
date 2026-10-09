@@ -709,7 +709,7 @@ class EpicProtocolIntegrationTests {
     /**
      * Holds {@code step} to a refusal for {@code reason}: the refused notice, exactly one
      * {@code LOGIN_FAILURE} with that reason under method {@code sso} and no subject, the browser's
-     * session ended, and the {@code epic.login} counter's reason.
+     * session ended, and the {@code login} counter's reason.
      */
     private void assertRefusedAs(String reason, LandingStep step) throws Exception {
         int audited = refusalsAudited(reason);
@@ -788,7 +788,7 @@ class EpicProtocolIntegrationTests {
     }
 
     private double refusalsCounted(String reason) {
-        Counter counter = meters.find("epic.login").tag("outcome", "refused")
+        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "refused")
                 .tag("reason", reason).counter();
         return counter == null ? 0 : counter.count();
     }

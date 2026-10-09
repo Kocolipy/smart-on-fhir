@@ -10,10 +10,11 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * Epic Login's meters as one reading: every series of the {@code epic.login} and
- * {@code epic.login.failed_calls} counters, the {@code epic.outbound} timer and the
- * {@code epic.outbound.errors} counter, each by its name and
- * every tag it carries — {@code epic.login{outcome=refused,reason=INVALID_STATE}} — to its count.
+ * Epic Login's meters as one reading: every Epic series of the {@code login} counter
+ * ({@code method=sso}), every series of the {@code epic.login.failed_calls} counter, the
+ * {@code epic.outbound} timer and the {@code epic.outbound.errors} counter, each by its name and
+ * every tag it carries — {@code login{method=sso,outcome=refused,reason=INVALID_STATE}} — to its
+ * count.
  *
  * <p>A test reads them before and after a Login and compares the {@link #change}, so a series
  * with an unexpected tag, or an expected one that did not move, fails the same comparison.
@@ -21,13 +22,13 @@ import java.util.stream.Collectors;
 final class EpicMeters {
 
     private static final String[] NAMES = {
-        "epic.login", "epic.login.failed_calls", "epic.outbound", "epic.outbound.errors"};
+        "epic.login.failed_calls", "epic.outbound", "epic.outbound.errors"};
 
     private EpicMeters() {
     }
 
     /**
-     * How an Epic Login ended, as the meters see it: its {@code epic.login} outcome and reason,
+     * How an Epic Login ended, as the meters see it: its {@code login} outcome and reason,
      * the calls to Epic it timed on {@code epic.outbound}, the call it counted on
      * {@code epic.outbound.errors}, if any, and the call whose failure ended it with that
      * failure's {@code error_category}, counted on {@code epic.login.failed_calls}, if any.
@@ -66,7 +67,8 @@ final class EpicMeters {
         /** The {@link #change} a Login ending this way makes, and nothing else. */
         Map<String, Double> expected() {
             Map<String, Double> expected = new TreeMap<>();
-            expected.put(series("epic.login", "outcome", outcome, "reason", reason), 1.0);
+            expected.put(
+                    series("login", "method", "sso", "outcome", outcome, "reason", reason), 1.0);
             for (String call : calls) {
                 expected.merge(series("epic.outbound", "call", call), 1.0, Double::sum);
             }
@@ -84,6 +86,10 @@ final class EpicMeters {
     /** Every Epic Login series in {@code meters} now, to its count. */
     static Map<String, Double> read(MeterRegistry meters) {
         Map<String, Double> counts = new TreeMap<>();
+        // The password Login's series of the same counter are no Epic Login's.
+        for (Meter meter : meters.find("login").tag("method", "sso").meters()) {
+            counts.put(key(meter), count(meter));
+        }
         for (String name : NAMES) {
             for (Meter meter : meters.find(name).meters()) {
                 counts.put(key(meter), count(meter));

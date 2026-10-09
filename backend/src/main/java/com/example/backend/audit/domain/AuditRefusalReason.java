@@ -30,7 +30,10 @@ public enum AuditRefusalReason {
     /** No account carries the submitted username. */
     UNKNOWN_ACCOUNT,
 
-    /** A lockout was in force, so the password was never compared. */
+    /**
+     * A lockout was in force, so the Login was refused whatever the password — which was still
+     * compared, so the refusal took as long as a wrong password's.
+     */
     ACCOUNT_LOCKED,
 
     /** An administrator had disabled the account. */

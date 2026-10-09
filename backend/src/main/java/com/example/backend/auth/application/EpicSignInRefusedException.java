@@ -9,8 +9,8 @@ import org.springframework.security.core.AuthenticationException;
 /**
  * An Epic Login refused by a protocol check — the launch, the callback, the {@code id_token} or
  * its {@code fhirUser} — before any User was looked up, and not yet recorded: the Epic failure
- * handler turns it into the {@link EpicLoginOutcome} it ends the Login in, which
- * {@link EpicLoginOutcomeService} records once (flow step 8).
+ * handler turns it into the {@link LoginOutcome} it ends the Login in, which
+ * {@link LoginOutcomeService} records once (flow step 8).
  *
  * <p>An input refused for D18 or D10 also names the {@link EpicInputField} and the
  * {@link EpicInputRule} it broke, for the log, which names them and never the value (D22).

@@ -238,7 +238,7 @@ class EpicDiscoveryIntegrationTests {
     }
 
     private double unavailables() {
-        Counter counter = meters.find("epic.login").tag("outcome", "unavailable")
+        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "unavailable")
                 .tag("reason", "EPIC_UNAVAILABLE").counter();
         return counter == null ? 0 : counter.count();
     }

@@ -262,12 +262,13 @@ class EcsLogFormatTests {
     }
 
     /**
-     * A refusal has to say what kind of refusal it was — a run of wrong passwords
-     * reads differently from a run against accounts that do not exist — without
-     * saying which account was named.
+     * A refusal says only that the Login was refused (Logging §2.2): what kind of refusal
+     * it was — a wrong password, a name that matches no account, a locked or deactivated
+     * one — tells whether the account exists, so it is the audit trail's alone. Nor does
+     * it say which account was named.
      */
     @Test
-    void aRefusedLoginIsOneEcsRecordNamingTheRefusalKindAndNoSubmittedValue()
+    void aRefusedLoginIsOneEcsRecordNamingNoReasonAndNoSubmittedValue()
             throws Exception {
         logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
 
@@ -276,7 +277,8 @@ class EcsLogFormatTests {
         assertThatIsValidEcs(record);
         assertThatClassifiedAs(record, "user-authentication", "process", "user", "denied");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
-        assertThat(record.at("/event/reason").asText()).isEqualTo("BadCredentialsException");
+        assertThat(record.at("/event/reason").isMissingNode()).as("no refusal reason").isTrue();
+        assertThat(record.toString()).doesNotContain("not-a-real-account");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
         assertThat(record.has("user")).as("an unresolved identity carries no user field").isFalse();
@@ -286,27 +288,28 @@ class EcsLogFormatTests {
      * A refused attempt made from a session that is already authenticated still names
      * nobody: the session's User is not whom the attempt was for, so the record must not
      * inherit the request's {@code user.id}. The session's id really is in the context —
-     * the later administrative record in the same session carries it — so the absence is
-     * the refusal's doing, not the context's.
+     * the earlier administrative record in the same session carries it — so the absence is
+     * the refusal's doing, not the context's. The refusal then ends that session.
      */
     @Test
     void aRefusedLoginFromAnAuthenticatedSessionStillCarriesNoUserField() throws Exception {
         MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
         logs.reset();
 
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+                        .session(admin))
+                .andExpect(status().isOk());
         mvc.perform(withCsrf(post("/api/auth/login"))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"not-a-real-account\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
-                        .session(admin))
-                .andExpect(status().isOk());
 
         assertThat(onlyRecordWithMessage("Login refused").has("user")).isFalse();
         assertThat(onlyRecordWithMessage("Administrative identity change applied")
                         .at("/user/id").asText())
                 .isEqualTo(userId("test-admin").toString());
+        assertThat(admin.isInvalid()).as("the refused Login ended the session").isTrue();
     }
 
     /**

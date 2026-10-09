@@ -371,7 +371,7 @@ own runbook text:
 | `EpicJwksFetchFailing`                        | `epic.outbound{call="jwks"}` errors persisting 5 min                             | Epic's `id_token` keys are unreachable (timeouts or Epic `5xx`): launches land at the unavailable notice; password Login is unaffected               |
 | `EpicEndpointUnavailable`                     | `epic.outbound{call="token"\|"discovery"}` errors persisting 5 min               | Epic's token or discovery endpoint is unreachable: launches land at the unavailable notice; password Login is unaffected                             |
 | `EpicClientCredentialRefused`                 | any `epic.login.failed_calls{call="token",error_category="cert/auth"}` in 15 min | Epic refused our client credential (`invalid_client`, assertion rejected): a signing key or the registration is wrong                                |
-| `EpicLoginRefusalsSurge`                      | refused Epic Logins above 3/min for 10 min                                       | a broken integration (`ISS_MISMATCH`), unprovisioned Practitioner IDs, or replayed launches; the `reason` label says which                           |
+| `EpicLoginRefusalsSurge`                      | `login{method="sso",outcome="refused"}` above 3/min for 10 min                   | a broken integration (`ISS_MISMATCH`), unprovisioned Practitioner IDs, or replayed launches; the `reason` label says which                           |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
 The dormancy job publishes its series under `job="dormancy"` from startup.
@@ -382,10 +382,12 @@ tagged `call` = `discovery`, `jwks` or `token`, exist at zero from startup, so
 held for 5 minutes — sees the first error. The JWKS is fetched only when an
 `id_token` names a key the kept JWKS lacks, so the alert fires on real launches
 failing, not on a background poll. `EpicEndpointUnavailable` reads the same series
-for the two calls every launch makes. The Login's own meters, `epic_login_total`
-(by `outcome` and `reason`) and `epic_login_failed_calls_total` (each failed call
+for the two calls every launch makes. The Login meters, `login_total` (every
+Login that ended, password and Epic alike, by `method` — `password` or `sso` —
+`outcome` and `reason`) and `epic_login_failed_calls_total` (each failed Epic call
 that ended a Login, by `call` and `error_category`), exist at zero from startup
-whether or not Epic Login is on. With Epic Login off the outbound series do not
+whether or not Epic Login is on; `EpicLoginRefusalsSurge` reads
+`login_total{method="sso",outcome="refused"}`. With Epic Login off the outbound series do not
 exist and the outbound rules match nothing.
 `DormancyJobNotRunning` measures from
 the last success **or the last restart**, so an instance that restarts more often
