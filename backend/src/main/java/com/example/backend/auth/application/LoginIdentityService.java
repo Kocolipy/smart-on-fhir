@@ -78,8 +78,9 @@ public class LoginIdentityService implements UserDetailsService {
             Set.copyOf(EnumSet.of(Permission.COUNTER_READ, Permission.COUNTER_WRITE));
 
     /**
-     * The only authority a User with a pending required password change receives: it may read its
-     * own requirement, submit the change and log out, and nothing else. Deliberately not a role and
+     * The only authority a password Login by a User with a pending required password change
+     * receives: it may read its own requirement, submit the change and log out, and nothing else.
+     * An Epic Login is not confined by the flag ({@link #loadEpicLinkedUser}). Deliberately not a role and
      * not combined with {@code ROLE_USER} or any Permission — a flagged Superuser holds no
      * administrative authority until the credential is replaced, and the filter chain, which grants
      * every other application endpoint to {@code ROLE_USER} or a Permission only, refuses it
@@ -145,13 +146,19 @@ public class LoginIdentityService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return userDetailsOf(user);
+        return userDetailsOf(user, Confinement.BY_CHANGE_REQUIRED_FLAG);
     }
 
     /**
-     * The User an Epic Login's Practitioner ID links to (D2), reported to the caller exactly as
-     * {@link #loadUserByUsername} reports it to Spring Security — the same authorities, and the
-     * same locked and disabled flags — or empty when it links to none.
+     * The User an Epic Login's Practitioner ID links to (D2), reported to the caller as
+     * {@link #loadUserByUsername} reports it to Spring Security — the same locked and disabled
+     * flags, and the authorities a password Login gives the same User with the change-required flag
+     * clear — or empty when it links to none.
+     *
+     * <p>The flag does not confine an Epic Login: an Epic Login presents no password of ours (D20),
+     * so the imposed credential the flag marks is not what it used, and confining the session would
+     * protect nothing. The flag itself is neither read into the session nor cleared, so a password
+     * Login by the same User is still confined until it replaces the password (ADR 0008 addendum).
      *
      * <p>Found through the normal {@link NormalizedUserName} lookup, and then accepted only when
      * the stored {@code userName} equals the Practitioner ID character for character (D3):
@@ -166,15 +173,15 @@ public class LoginIdentityService implements UserDetailsService {
         return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
                 .filter(user -> user.profile().userName().equals(practitionerId))
                 .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
-                .map(this::userDetailsOf);
+                .map(user -> userDetailsOf(user, Confinement.NONE));
     }
 
-    private UserDetails userDetailsOf(ScimUser user) {
+    private UserDetails userDetailsOf(ScimUser user, Confinement confinement) {
         User.UserBuilder builder = User.withUsername(user.profile().userName())
                 .password(user.login().hasPassword()
                         ? user.login().passwordHash()
                         : noPasswordSetMarker());
-        if (user.login().isPasswordChangeRequired()) {
+        if (confinement.confines(user.login().isPasswordChangeRequired())) {
             builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
         } else {
             builder.authorities(authoritiesOf(user));

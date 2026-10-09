@@ -317,6 +317,34 @@ class LoginAttemptServiceTests {
                 .containsExactly(bob.id());
     }
 
+    /**
+     * An Epic Login is never confined by the change-required flag, so it is real use of the
+     * account: it moves the dormancy basis even while the flag is set, where a confined password
+     * Login of the same User would not.
+     */
+    @Test
+    void anEpicLoginWithTheChangeRequiredFlagSetMovesTheDormancyBasis() {
+        Instant earlier = NOW.minus(Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 0, null, earlier, earlier)));
+
+        attempts.recordEpicSuccess("bob", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(NOW);
+    }
+
+    /** Moving the basis is all it does: the flag stays set, for a password Login to honour. */
+    @Test
+    void anEpicLoginLeavesTheChangeRequiredFlagSet() {
+        Instant earlier = NOW.minus(Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 2, null, earlier, earlier)));
+
+        attempts.recordEpicSuccess("bob", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(earlier);
+    }
+
     /** A refused attempt is not an authentication, so it leaves the dormancy basis alone. */
     @Test
     void aRefusedAttemptDoesNotRecordAnAuthentication() {

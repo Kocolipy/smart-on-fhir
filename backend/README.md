@@ -392,9 +392,11 @@ the SPA. Generate the key per machine and keep it out of the repository, e.g.
 `export APP_EPIC_CLIENT_KEY="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384)"`.
 
 To launch by hand, provision a User over SCIM whose `userName` is the
-Practitioner ID you will launch as, and let it set its own password once (a
-connector's write leaves a change pending, which confines every session of the
-User, an Epic one included, to `/change-password`). Then, in the launcher UI at
+Practitioner ID you will launch as. A connector's write leaves a password change
+pending, which confines the User's password Login to `/change-password` but not
+its Epic Login: an Epic Login presents no password of ours, so it lands on
+`/showcase` whether or not the change is pending (ADR 0008's 2026-10-09
+addendum). Then, in the launcher UI at
 `http://localhost:9009`:
 
 - **Launch type** `Provider EHR Launch`; pick a patient, and set the provider to
@@ -509,14 +511,18 @@ connector password write (SCIM create, PUT or PATCH carrying `password`), by a
 **Force password change** and by an **Unlock** of an account that has a password
 (each requiring `user:write`). Only a successful self-service change
 (`POST /api/auth/change-password`) clears it; a connector write never does. While
-flagged, a session may call `GET /api/auth/me`, the change and
-`DELETE /api/auth/logout`, and nothing else — `/api/admin/**` included, whatever
-Permissions the User's Groups confer. Any User may change its password at any time through the same
-endpoint.
+flagged, a session issued by a password Login may call `GET /api/auth/me`, the
+change and `DELETE /api/auth/logout`, and nothing else — `/api/admin/**`
+included, whatever Permissions the User's Groups confer. An Epic Login is not
+confined by the flag: it presents no password of ours, so it receives the
+authorities the User would hold unflagged, and leaves the flag set (ADR 0008's
+2026-10-09 addendum). Any User may change its password at any time through the
+same endpoint.
 
-There is no deadline for the change. Instead, a flagged User's logins do not move
-its dormancy basis, so a User that keeps logging in with an imposed credential
-and never replaces it is locked by the dormancy job once the lockout window has
+There is no deadline for the change. Instead, a flagged User's password logins do
+not move its dormancy basis (its Epic Logins, not being confined, do), so a User
+that keeps logging in with an imposed credential and never replaces it is
+locked by the dormancy job once the lockout window has
 passed since its creation, last real login, reactivation or Unlock. The completed
 change moves the basis.
 

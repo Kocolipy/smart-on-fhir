@@ -2953,7 +2953,9 @@ components:
             Whether this session is confined to the change flow. While true, the
             session may call `GET /api/auth/me`, `POST /api/auth/change-password`
             and `DELETE /api/auth/logout`; every other endpoint, `/api/admin/**`
-            included, answers 403.
+            included, answers 403. Only a password login's session is confined,
+            when the User's change-required flag is set; an Epic Login's session
+            never is, so this is false for it even while the flag is set.
         idleTimeoutSeconds:
           type: integer
           minimum: 1
@@ -3015,7 +3017,10 @@ components:
             $ref: "#/components/schemas/SelfGroup"
         passwordChangeRequired:
           type: boolean
-          description: Whether the caller's change-required flag is set.
+          description: |
+            Whether the caller's change-required flag is set. Reports the flag,
+            not the session: an Epic Login's session is never confined, and still
+            reads true here while the flag is set.
         lastAuthenticatedAt:
           type: [string, "null"]
           format: date-time
@@ -3168,7 +3173,8 @@ components:
           type: boolean
           description: |
             The change-required flag: whether the identity must replace its
-            password before it may do anything but submit that change or log out.
+            password before a password login may do anything but submit that
+            change or log out. An Epic Login is not confined by it.
             Set by every connector password write, by `force-password-change` and
             by `unlock` of an identity that has a password; cleared only by a
             successful `POST /api/auth/change-password`.
@@ -3176,7 +3182,8 @@ components:
           type: [string, "null"]
           format: date-time
           description: |
-            The last successful login made while no password change was required,
+            The last successful login whose session was not confined (a password
+            login made while no password change was required, or any Epic Login),
             completed self-service change, explicit reactivation or Unlock — the
             dormancy basis; null for an identity that has had none.
             Application-owned; not a SCIM attribute.

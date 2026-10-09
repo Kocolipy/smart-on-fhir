@@ -15,12 +15,14 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
 import com.example.backend.auth.epic.EpicBrowser.Launched;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUserRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -102,6 +104,15 @@ class EpicLoginIntegrationTests {
             "audit:read", "connector:read", "connector:token", "connector:write", "counter:read",
             "counter:write", "group:read", "group:write", "ops:read", "user:read", "user:write");
 
+    /** When the change-required flag of a User provisioned flagged was set. */
+    private static final Instant FLAGGED_SINCE = Instant.parse("2026-10-01T09:00:00Z");
+
+    /** The test profile's Bootstrap Admin, acting as the administrator of a forced change. */
+    private static final String BOOTSTRAP_ADMIN = "test-admin";
+
+    /** The test profile's {@code app.lockout.max-attempts}. */
+    private static final int LOCKOUT_THRESHOLD = 3;
+
     /** One for the class, so the issuer its context is configured with names each test's fake. */
     @RegisterExtension
     static final EpicTestEnvironment EPIC = EpicTestEnvironment.epicLoginOn();
@@ -113,6 +124,9 @@ class EpicLoginIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private IdentityAdministrationService administration;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -273,8 +287,7 @@ class EpicLoginIntegrationTests {
 
         EPIC.signInFromEpic(practitioner, null);
 
-        assertThat(users.findById(EPIC.practitioners().idOf(practitioner)).orElseThrow()
-                .login().lastAuthenticatedAt())
+        assertThat(loginStateOf(practitioner).lastAuthenticatedAt())
                 .isAfterOrEqualTo(before);
     }
 
@@ -306,6 +319,95 @@ class EpicLoginIntegrationTests {
         assertThat(sessionRepository.findByPrincipalName(
                 EPIC.practitioners().idOf(practitioner).toString()))
                 .containsOnlyKeys(sessionId(byEpic));
+    }
+
+    // ---- the change-required flag confines only a password Login ------------------------------
+
+    /**
+     * An Epic Login presents no password of ours (D20), so a flagged User signed in through Epic
+     * holds what an unflagged one does: {@code ROLE_USER}, the baseline and its Groups'
+     * Permissions.
+     */
+    @Test
+    void anEpicLoginOfAUserWithTheChangeRequiredFlagHoldsItsGroupsPermissions() throws Exception {
+        String practitioner = provisionFlaggedInAdminGroup();
+
+        Landing landing = EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(me(landing.signedIn()))
+                .isEqualTo(new Me(practitioner, SUPERUSER_PERMISSIONS));
+    }
+
+    /** {@code /me} reports the session's confinement, and an Epic session is not confined. */
+    @Test
+    void anEpicLoginOfAUserWithTheChangeRequiredFlagIsNotAConfinedSession() throws Exception {
+        String practitioner = EPIC.practitioners().provisionRequiredToChangePassword(FLAGGED_SINCE);
+
+        Landing landing = EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(meBody(landing.signedIn()).get("passwordChangeRequired").asBoolean()).isFalse();
+    }
+
+    /** The same flagged User's password Login is still confined to the change and logout. */
+    @Test
+    void aPasswordLoginOfAUserWithTheChangeRequiredFlagIsStillConfined() throws Exception {
+        String practitioner = provisionFlaggedInAdminGroup();
+        EPIC.signInFromEpic(practitioner, null);
+
+        Cookie byPassword = logIn(practitioner, null);
+
+        assertThat(status(get("/api/admin/roles"), byPassword)).isEqualTo(403);
+    }
+
+    /** An Epic Login neither reads the flag into the session nor clears it. */
+    @Test
+    void anEpicLoginLeavesTheChangeRequiredFlagSet() throws Exception {
+        String practitioner = EPIC.practitioners().provisionRequiredToChangePassword(FLAGGED_SINCE);
+
+        EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(loginStateOf(practitioner).passwordChangeRequiredSince())
+                .isEqualTo(FLAGGED_SINCE);
+    }
+
+    /** An unconfined Epic Login is real use of the account, so it moves the dormancy basis. */
+    @Test
+    void anEpicLoginOfAUserWithTheChangeRequiredFlagMovesTheDormancyBasis() throws Exception {
+        String practitioner = EPIC.practitioners().provisionRequiredToChangePassword(FLAGGED_SINCE);
+        Instant before = Instant.now();
+
+        EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(loginStateOf(practitioner).lastAuthenticatedAt())
+                .isAfterOrEqualTo(before);
+    }
+
+    /** A forced password change ends every session the User holds, an Epic one included. */
+    @Test
+    void aForcedPasswordChangeEndsTheUsersEpicSession() throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
+
+        administration.forcePasswordChange(
+                EPIC.practitioners().idOf(practitioner), BOOTSTRAP_ADMIN);
+
+        assertThat(status(get("/api/auth/me"), byEpic)).isEqualTo(401);
+    }
+
+    /**
+     * A lockout imposed by password failures ends a flagged User's Epic session, as it ends any
+     * session — the revocation an Unlock then relies on, since a locked User holds none.
+     */
+    @Test
+    void aLockoutEndsAFlaggedUsersEpicSession() throws Exception {
+        String practitioner = EPIC.practitioners().provisionRequiredToChangePassword(FLAGGED_SINCE);
+        Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
+
+        for (int attempt = 0; attempt < LOCKOUT_THRESHOLD; attempt++) {
+            assertThat(failedLogIn(practitioner)).isEqualTo(401);
+        }
+
+        assertThat(status(get("/api/auth/me"), byEpic)).isEqualTo(401);
     }
 
     /** D9: every launch is a fresh Login, whoever the browser was signed in as. */
@@ -952,11 +1054,7 @@ class EpicLoginIntegrationTests {
 
     /** A password Login, from {@code jar} when there is one; the signed-in session cookie. */
     private Cookie logIn(String userName, Cookie jar) throws Exception {
-        MockHttpServletRequestBuilder request =
-                SessionCsrf.withCsrf(EPIC.mvc(), post("/api/auth/login"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                                .formatted(userName, PASSWORD));
+        MockHttpServletRequestBuilder request = loginRequest(userName, PASSWORD);
         if (jar != null) {
             request.cookie(jar);
         }
@@ -971,14 +1069,50 @@ class EpicLoginIntegrationTests {
         return new Cookie(issued.getName(), issued.getValue());
     }
 
+    /**
+     * {@link #provisionInAdminGroup()}, with the change-required flag set since
+     * {@link #FLAGGED_SINCE}.
+     */
+    private String provisionFlaggedInAdminGroup() {
+        String practitioner = EPIC.practitioners().provisionRequiredToChangePassword(FLAGGED_SINCE);
+        jdbc.update("INSERT INTO scim_group_members (group_id, user_id) VALUES (?, ?)",
+                ADMIN_GROUP, EPIC.practitioners().idOf(practitioner));
+        return practitioner;
+    }
+
+    /** A password Login with a wrong password; its status. */
+    private int failedLogIn(String userName) throws Exception {
+        return EPIC.mvc().perform(loginRequest(userName, "not-" + PASSWORD))
+                .andReturn().getResponse().getStatus();
+    }
+
+    /** A CSRF-carrying {@code POST /api/auth/login} for {@code userName} and {@code password}. */
+    private MockHttpServletRequestBuilder loginRequest(String userName, String password)
+            throws Exception {
+        return SessionCsrf.withCsrf(EPIC.mvc(), post("/api/auth/login"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"%s\",\"password\":\"%s\"}"
+                        .formatted(userName, password));
+    }
+
+    /** The stored login state of the User {@code practitioner} links to. */
+    private ScimLoginState loginStateOf(String practitioner) {
+        return users.findById(EPIC.practitioners().idOf(practitioner)).orElseThrow().login();
+    }
+
     private Me me(Cookie session) throws Exception {
-        MvcResult me = EPIC.mvc().perform(get("/api/auth/me").cookie(session)).andReturn();
-        assertThat(me.getResponse().getStatus()).isEqualTo(200);
-        tools.jackson.databind.JsonNode body = tools.jackson.databind.json.JsonMapper.builder()
-                .build().readTree(me.getResponse().getContentAsString());
+        tools.jackson.databind.JsonNode body = meBody(session);
         List<String> permissions = new ArrayList<>();
         body.get("permissions").forEach(permission -> permissions.add(permission.asText()));
         return new Me(body.get("username").asText(), permissions);
+    }
+
+    /** {@code /api/auth/me}'s body, from a session it answers {@code 200} for. */
+    private tools.jackson.databind.JsonNode meBody(Cookie session) throws Exception {
+        MvcResult me = EPIC.mvc().perform(get("/api/auth/me").cookie(session)).andReturn();
+        assertThat(me.getResponse().getStatus()).isEqualTo(200);
+        return tools.jackson.databind.json.JsonMapper.builder()
+                .build().readTree(me.getResponse().getContentAsString());
     }
 
     private Map<String, String> csrfToken(Cookie session) throws Exception {

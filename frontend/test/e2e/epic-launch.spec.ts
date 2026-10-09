@@ -41,8 +41,9 @@ import {
  * does, with a token issued through the Admin session `setup` saved; it is
  * deleted again in a `finally`. Its password is settled first, as every spec
  * that signs a provisioned User in does: the connector's write leaves a
- * password change pending, which confines any session of the User — an Epic
- * one included — to `/change-password`.
+ * password change pending, which confines a password Login of the User to
+ * `/change-password`. An Epic Login is not confined by it (ADR 0008 addendum),
+ * which the flagged-User case pins by launching for a User left unsettled.
  */
 
 /** The launcher's FHIR base: the launch `iss`, which must equal `APP_EPIC_FHIR_BASE` (D10). */
@@ -131,6 +132,37 @@ test("a provider EHR launch from the SMART launcher lands on /showcase as the Pr
         permissions: [...DEV_ROLES.accountAdmin.permissions],
         username: PRACTITIONER,
       }),
+    );
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("a provider EHR launch for a User with the change-required flag lands on /showcase, not /change-password", async ({
+  browser,
+}) => {
+  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
+  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+
+  // Provisioned and never settled: the connector's password write leaves the
+  // change-required flag set. Only a password Login is confined by it; an Epic
+  // Login presents no password of ours (D20), so its session is not confined.
+  const flagged = `${E2E_PREFIX}epic-flagged-${runId()}`;
+  const id = await provisionUser(directory.scim, flagged);
+  const clinician = await freshBrowser(browser);
+  try {
+    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(flagged) });
+    const page = await clinician.newPage();
+    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+
+    await expect(page).toHaveURL(/\/showcase$/);
+    const me = (await (await page.request.get("/api/auth/me")).json()) as {
+      passwordChangeRequired: boolean;
+      username: string;
+    };
+    expect(me).toEqual(
+      expect.objectContaining({ passwordChangeRequired: false, username: flagged }),
     );
   } finally {
     await clinician.close();
