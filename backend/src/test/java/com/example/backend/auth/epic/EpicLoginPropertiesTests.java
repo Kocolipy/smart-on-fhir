@@ -112,4 +112,16 @@ class EpicLoginPropertiesTests {
 
         assertThat(properties.enabled()).isFalse();
     }
+
+    /**
+     * An MFA switch set to false is off, as {@code APP_EPIC_MFA_EVIDENCE_REQUIRED=false} sets
+     * it.
+     */
+    @Test
+    void anMfaEvidenceSwitchSetToFalseIsOff() {
+        EpicLoginProperties properties = new EpicLoginProperties(
+                null, null, null, null, null, null, null, null, null, null, null, false);
+
+        assertThat(properties.mfaEvidenceRequired()).isFalse();
+    }
 }
