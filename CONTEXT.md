@@ -1,4 +1,4 @@
-# monorepo-base
+# smart-on-fhir
 
 The language of a session-authenticated web application whose identities are
 provisioned by external directories over SCIM 2.0. This file says what each term
@@ -187,7 +187,6 @@ role mapping is ended at startup.
 The one mapped Group whose Role holds every Permission: the Admin group. It
 cannot be renamed or deleted and the Bootstrap Admin's membership of it is
 frozen; every other mapped Group is writable and deletable.
-_Avoid_: enabling
 
 **Superuser Role**:
 The Role the Superuser Group confers, required at startup to hold every

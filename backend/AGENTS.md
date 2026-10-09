@@ -41,7 +41,7 @@ gate's result"), substituting `./scripts/verify.sh` run from `backend/`.
 
 Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gate, and its **trigger** is writing a unit test or changing an existing one — scoped to the tests you touched, never the whole module. PIT is configured in `pom.xml` and bound to no lifecycle phase, so the baseline gate never runs it.
 
-Target the touched test class and the production class it covers. Always run the **expanded mutator set** — do not run the default set first. `-Dmutators` _replaces_ PIT's operator list rather than adding to it, so the set below is written as a proper superset of `DEFAULTS`: `STRONGER` is itself a superset of `DEFAULTS`, and the trailing operators add the ones `DEFAULTS` omits. Running this once therefore covers everything a bare `mutationCoverage` would, plus the lines `DEFAULTS` leaves unmutated — there is no reason for a separate default pass:
+Target the touched test class and the production class it covers, with the **expanded mutator set** below and nothing else. It is a superset of PIT's `DEFAULTS` (`-Dmutators` replaces the list, so `STRONGER` carries the defaults), and the extra operators mutate lines `DEFAULTS` leaves alone — a discarded return value such as `request.changeSessionId()` yields no default mutant, so session-fixation rotation could go untested under a 100% score. One run is therefore final; line coverage below 100% beside a 100% score points at a line no operator reached:
 
 ```bash
 ./mvnw org.pitest:pitest-maven:mutationCoverage \
@@ -61,8 +61,6 @@ Then hand the wait to a **monitor**: your runtime's scheduled wake that checks t
 `target/pit-reports/mutations.xml` carries the per-mutant status. `SURVIVED` means a test ran the line without asserting on the behavior, so strengthen the assertion; `NO_COVERAGE` means no test reached the line, so add the missing case. Narrowing `targetClasses`, dropping mutators, or asserting on a duplicated implementation constant moves the score without making the test load-bearing.
 
 The tests are done when every mutant is KILLED, or a survivor carries a justification that names the test asserting the mutated behavior and says why that test still passes with the mutant alive — the mutation is masked by something the code does anyway, as when a domain record coerces the caller's null back to List.of(). A justification with no such test to name has found an unasserted line, not an equivalent mutant: a removed call to a void audit or log method reads as equivalent because there is no return value to trace, while in fact no test may assert the record at all. The surviving mutant plus the test that pins it belong in the change summary.
-
-The expanded set exists because PIT's `DEFAULTS` leaves some lines unmutated, so a line can be both unmutated and untested while the score reads 100% — a call whose return value is discarded, such as `request.changeSessionId()`, yields no mutant under `DEFAULTS` while session-fixation rotation goes unexercised. The extra operators (`NON_VOID_METHOD_CALLS`, `EXPERIMENTAL_NAKED_RECEIVER`, and the rest) mutate exactly those lines. Because you run the superset from the start, a clean score under it is final rather than provisional; line coverage below 100% beside a 100% score points at any line no operator reached.
 
 ## Architecture constraints
 

@@ -7,8 +7,8 @@ This is a **baseline repo**. The application content is deliberately thin — a
 login page, a counter page for authenticated accounts, a self-service
 change-password page, and an administrator-only accounts page that shows the
 directory's Users and Groups read-only, unlocks a User or forces its password
-change, and manages SCIM connectors and their tokens, all talking to the Spring
-Boot backend over session cookies. What is actually built
+change, and manages SCIM connectors and their tokens, and a read-only audit
+page, all talking to the Spring Boot backend over session cookies. What is actually built
 out is the toolchain: type checking, linting, unit tests, architecture tests,
 E2E, static security analysis, dead-code/complexity analysis, and mutation
 testing.
@@ -29,7 +29,7 @@ npx playwright install chromium   # first time only, for npm run test:e2e
 npm run dev                       # http://localhost:5173
 ```
 
-Use `npm ci`, not `npm install` — the root `README.md` explains why, and
+Use `npm ci`, not `npm install` — the root `AGENTS.md` explains why, and
 `npm install` belongs only to a deliberate dependency change whose lockfile
 update you commit.
 

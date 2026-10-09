@@ -21,7 +21,7 @@ NPM ?= npm
 # run from backend/ here and exported to scripts/ that cd elsewhere.
 MVN ?= $(CURDIR)/backend/mvnw
 COMPOSE ?= docker compose -f backend/compose.yaml
-IMAGE ?= monorepo-base
+IMAGE ?= smart-on-fhir
 TAG ?= local
 
 export NPM

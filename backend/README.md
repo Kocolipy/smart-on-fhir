@@ -500,8 +500,7 @@ With the development fixtures on (`APP_DEV_FIXTURES_ENABLED=true`, as
 `.env.example` sets) the job also runs once at startup, after seeding has
 backdated the `dormant` fixture User past the lockout window, so a local run and
 the e2e suite see a dormancy lock without waiting for 04:00. That run applies to
-every User, as the nightly one would. The old `APP_DORMANCY_DEACTIVATION_WINDOW`
-and `APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW` settings are gone and ignored.
+every User, as the nightly one would.
 
 ### Required password change
 
@@ -552,6 +551,8 @@ migration that creates it has run, **Flyway connects separately**:
 that keeps its privileges. Override them if your deployment migrates as a different
 role than it serves as. A later migration that adds a table the application writes
 must grant `backend_app` on it.
+
+### Session storage
 
 Sessions are stored through Spring Session's **indexed** Redis repository, which
 keeps a per-principal index. That index is what lets the service end a User's
@@ -622,9 +623,8 @@ access. Mutation testing with PIT is a conditional gate on top of it.
 `AGENTS.md` is the authority on what each gate covers, when PIT runs and with
 which mutators, and when a surviving mutant may be accepted.
 
-Build the container after packaging the application:
+Build the deployable container, with the SPA in it, from the repository root:
 
 ```bash
-./mvnw clean package
-docker build -t backend:local .
+make container
 ```

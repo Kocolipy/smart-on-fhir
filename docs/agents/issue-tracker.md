@@ -10,8 +10,12 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
+- **Comment / label / close a PR**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+
+GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
 ## Labels
 
@@ -19,11 +23,6 @@ Beside GitHub's defaults (`bug`, `enhancement`, `documentation`, …) and
 `accessibility`, the one workflow label is **`ready-for-agent`**: a verified,
 dependency-ordered ticket an agent may pick up and implement without further
 triage. `gh label list` is the authority.
-
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
-
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
 ## When a skill says "publish to the issue tracker"
 

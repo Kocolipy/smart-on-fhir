@@ -1,4 +1,4 @@
-# monorepo-base
+# smart-on-fhir
 
 Monorepo holding the frontend SPA and the backend service.
 

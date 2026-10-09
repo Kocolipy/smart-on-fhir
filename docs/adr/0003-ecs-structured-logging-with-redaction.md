@@ -6,6 +6,14 @@ Date: 2026-09-25
 
 Accepted.
 
+The addenda below are dated records and later ones supersede parts of earlier
+ones, so read the current state from the code, not from the first table that
+matches. `LogEvent` (`Operation`, and the shapes that build every record) is the
+authority on each operation's `event.action`, `app.event.action`, category, type,
+level and message; "The full mapping" in the 2026-10-02 addendum is its latest
+written copy, and the job rows of the #67 and #70 tables were retired by the
+dormancy addendum.
+
 ## Context
 
 The service had no logging configuration and no application log statements at all:
@@ -766,30 +774,6 @@ refused credential or an unusable answer is an answer, so its outbound record is
 call that got no answer has its `ERROR` already — the outbound "failed", with the stack — so
 the Login ending for it writes no second one (2026-10-09, below).
 
-## Addendum (2026-10-09): one record per Epic Login ending
-
-Epic Login's endings are recorded by one module, `EpicLoginOutcomeService`, rather than by the
-login decision and the two Epic handlers in turn. Three things change in what they emit:
-
-- **No second `ERROR` for a timeout.** Logging §3.3 says one event is logged once. A call that
-  got no answer was logged at `ERROR` by the outbound interceptor that saw it fail, so "Epic
-  sign-in failed" is no longer written for it. A `5xx` still has its one "Epic sign-in failed",
-  because its outbound record is an `INFO`. The interceptor's record stays the one because it is
-  also the only record of a failure no Login ends in (discovery reread after the JWKS refetches).
-- **The MFA factor on the accepted record.** An accepted Epic Login's `user-authentication`
-  record carries `app.login.mfa_factor` (ADR 0013, D17), so the operational stream has the
-  factor that Logging §2.2 asks for, not just the audit row.
-- **`session.hash` on every ending's record.** The accepted, refused and failed-call records of
-  an Epic Login carry `session.hash`: the first 64 bits of the SHA-256 of a session id
-  (`SessionHash`), and never the id, which is the session's bearer credential. A refusal names
-  the session the Login ran in. A success names the session it signed in, the one the User goes
-  on to use, and is recorded once that session is established, so after the login decision's
-  commit. A refusal names no user, so before this it could be correlated by `trace.id` alone
-  (SSO §3.4). A session id is a random UUID, so its hash cannot be guessed back the way a
-  password's can. `be-log-sensitive-value` matches any value named `hash`, but not the call that
-  adds this field, so nothing is suppressed for it. `session-start` and the password Login
-  records do not carry it yet.
-
 ## Addendum (2026-10-08): D22's names (ADR 0013)
 
 Epic Login handles values that must never reach a log record or the audit trail (ADR 0013,
@@ -837,3 +821,27 @@ ADR 0013 with this change. That addendum's two references to it — the Epic rec
 under `user-authentication`, and the per-category follow-up table — were repointed in place to
 ADR 0013, which carries both unchanged. Nothing else in that addendum was edited, and what it
 decided stands as written.
+
+## Addendum (2026-10-09): one record per Epic Login ending
+
+Epic Login's endings are recorded by one module, `EpicLoginOutcomeService`, rather than by the
+login decision and the two Epic handlers in turn. Three things change in what they emit:
+
+- **No second `ERROR` for a timeout.** Logging §3.3 says one event is logged once. A call that
+  got no answer was logged at `ERROR` by the outbound interceptor that saw it fail, so "Epic
+  sign-in failed" is no longer written for it. A `5xx` still has its one "Epic sign-in failed",
+  because its outbound record is an `INFO`. The interceptor's record stays the one because it is
+  also the only record of a failure no Login ends in (discovery reread after the JWKS refetches).
+- **The MFA factor on the accepted record.** An accepted Epic Login's `user-authentication`
+  record carries `app.login.mfa_factor` (ADR 0013, D17), so the operational stream has the
+  factor that Logging §2.2 asks for, not just the audit row.
+- **`session.hash` on every ending's record.** The accepted, refused and failed-call records of
+  an Epic Login carry `session.hash`: the first 64 bits of the SHA-256 of a session id
+  (`SessionHash`), and never the id, which is the session's bearer credential. A refusal names
+  the session the Login ran in. A success names the session it signed in, the one the User goes
+  on to use, and is recorded once that session is established, so after the login decision's
+  commit. A refusal names no user, so before this it could be correlated by `trace.id` alone
+  (SSO §3.4). A session id is a random UUID, so its hash cannot be guessed back the way a
+  password's can. `be-log-sensitive-value` matches any value named `hash`, but not the call that
+  adds this field, so nothing is suppressed for it. `session-start` and the password Login
+  records do not carry it yet.

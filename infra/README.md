@@ -18,6 +18,13 @@ cd infra
 ```
 
 The script will prompt for VPC IDs, passwords, and deploy the entire stack.
+Then [retrieve the SSH key](#ssh-key-management),
+[deploy the application](#deploy-application) and
+[test it](#test-application).
+
+> **Before taking traffic:** attach an AWS WAF web ACL to the ALB. The stack
+> does not create one, and the application has no rate limiter of its own. See
+> [Edge throttling](#edge-throttling-required).
 
 ---
 
@@ -147,7 +154,7 @@ log destination.
 The script prompts for the database-backed `ADMIN` seed credentials, the only
 User a deployment is seeded with: `AppBootstrapUsername` /
 `AppBootstrapPassword`. Existing accounts are never overwritten
-on restart
+on restart.
 
 ### Option 2: Manual
 
@@ -354,17 +361,17 @@ The alert rules are code: `backend/ops/prometheus/alerts.yaml`. Load them with
 `rule_files:` in the Prometheus that scrapes the service. Each rule carries its
 own runbook text:
 
-| Alert                                         | Fires on                                               | Usually means                                                                                                                                        |
-| --------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ScimAuthenticationFailuresSustained`         | sustained SCIM `401`                                   | a connector's token expired or was revoked, or probing                                                                                               |
-| `LoginAuthenticationFailuresSustained`        | sustained Login `401`                                  | a guessing campaign spread across accounts                                                                                                           |
-| `ScimPreconditionFailuresSustained`           | sustained SCIM `412`                                   | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
-| `ScimUniquenessConflictsSustained`            | sustained SCIM `409`                                   | a connector re-creating identities it believes are missing                                                                                           |
-| `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h | dormant accounts are not being locked, nor their Roles revoked                                                                                       |
-| `EpicJwksFetchFailing`                        | `epic.outbound{call="jwks"}` errors persisting 5 min   | Epic's `id_token` keys are unreachable (timeouts or Epic `5xx`): launches land at the unavailable notice; password Login is unaffected               |
-| `EpicEndpointUnavailable`                     | `epic.outbound{call="token"\|"discovery"}` errors persisting 5 min | Epic's token or discovery endpoint is unreachable: launches land at the unavailable notice; password Login is unaffected               |
-| `EpicClientCredentialRefused`                 | any `epic.login.failed_calls{call="token",error_category="cert/auth"}` in 15 min | Epic refused our client credential (`invalid_client`, assertion rejected): a signing key or the registration is wrong                   |
-| `EpicLoginRefusalsSurge`                      | refused Epic Logins above 3/min for 10 min             | a broken integration (`ISS_MISMATCH`), unprovisioned Practitioner IDs, or replayed launches; the `reason` label says which                          |
+| Alert                                         | Fires on                                                                         | Usually means                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ScimAuthenticationFailuresSustained`         | sustained SCIM `401`                                                             | a connector's token expired or was revoked, or probing                                                                                               |
+| `LoginAuthenticationFailuresSustained`        | sustained Login `401`                                                            | a guessing campaign spread across accounts                                                                                                           |
+| `ScimPreconditionFailuresSustained`           | sustained SCIM `412`                                                             | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
+| `ScimUniquenessConflictsSustained`            | sustained SCIM `409`                                                             | a connector re-creating identities it believes are missing                                                                                           |
+| `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h                           | dormant accounts are not being locked, nor their Roles revoked                                                                                       |
+| `EpicJwksFetchFailing`                        | `epic.outbound{call="jwks"}` errors persisting 5 min                             | Epic's `id_token` keys are unreachable (timeouts or Epic `5xx`): launches land at the unavailable notice; password Login is unaffected               |
+| `EpicEndpointUnavailable`                     | `epic.outbound{call="token"\|"discovery"}` errors persisting 5 min               | Epic's token or discovery endpoint is unreachable: launches land at the unavailable notice; password Login is unaffected                             |
+| `EpicClientCredentialRefused`                 | any `epic.login.failed_calls{call="token",error_category="cert/auth"}` in 15 min | Epic refused our client credential (`invalid_client`, assertion rejected): a signing key or the registration is wrong                                |
+| `EpicLoginRefusalsSurge`                      | refused Epic Logins above 3/min for 10 min                                       | a broken integration (`ISS_MISMATCH`), unprovisioned Practitioner IDs, or replayed launches; the `reason` label says which                           |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
 The dormancy job publishes its series under `job="dormancy"` from startup.
@@ -646,10 +653,7 @@ psql -h RDS_ENDPOINT -U backend -d backend
 ### Can't Retrieve SSH Key
 
 - Verify `CreateKeyPair: true` in parameters
-- Key only retrievable once from SSM - store it safely
-- If lost, deploy new stack or use existing key
-
----
-
-`QUICKSTART.md` beside this file is the condensed, command-only walkthrough of
-the same deployment.
+- The private key stays readable in SSM (`/ec2/keypair/<KeyPairId>`) for as
+  long as the key pair exists, so re-run the retrieval above; deleting the stack
+  deletes both
+- If the key pair is gone, deploy a new stack or use an existing key

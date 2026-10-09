@@ -374,8 +374,13 @@ timing hacks:
 
 ## Semgrep
 
-`npm run test:security` scans with the local ruleset in `semgrep/rules/`. Adding
-a rule: give it an `fe-` prefixed id (registry ids can never collide with it),
+`npm run test:security` scans with the local ruleset in `semgrep/rules/`. It is
+local rather than a registry pack so the run stays offline and deterministic and
+each rule carries the reason this project cares about it; a wider sweep is still
+worth doing occasionally: `npx semgrep scan --config p/typescript --config
+p/react`.
+
+Adding a rule: give it an `fe-` prefixed id (registry ids can never collide with it),
 put the reason this project cares in the `message`, and **verify it fires**
 before committing — write the violating snippet in a scratch file outside the
 repo and scan it:

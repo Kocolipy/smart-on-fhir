@@ -60,7 +60,8 @@ each page's endpoints and Permissions; this list holds the rules.
   Permission; a gated write owns the pending flag, the page's single error line
   and the refusal copy.
 - **`src/pages/`** — one component per page, plus `accounts-api.ts` for the
-  wire types and paths the Accounts page and its connector panel share. A page
+  wire types and paths the Accounts page and its connector panel share, and
+  `audit-api.ts` for the Audit page's. A page
   requests through `useSessionRequest` — in practice through `useGatedRead` /
   `useGatedWrite` — never `apiFetch` directly; the
   `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
@@ -77,9 +78,9 @@ each page's endpoints and Permissions; this list holds the rules.
   wraps everything in `AuthProvider`, and states what each route requires with
   `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and a
   Permission-guarded `ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}`
-  (`/accounts`): it renders for a session holding any one of the listed
-  Permissions, and a deep link from any other session is redirected to
-  `/showcase`. A session with the
+  (`/accounts`) and `requiredPermissions={["audit:read"]}` (`/audit`): each
+  renders for a session holding any one of the listed Permissions, and a deep
+  link from any other session is redirected to `/showcase`. A session with the
   change-required flag is confined to `/change-password` by the guards' shared
   transition table, whatever path it asks for and whatever it holds. Every such
   decision is a rendering decision only: the backend enforces each operation's
@@ -264,29 +265,12 @@ the backend in the `dev` profile with a freshly generated key and the
 that also pulls that gate's trigger runs both.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
-an architecture rule, suppressing a fallow finding, adding a file nothing
-imports, or writing or debugging an E2E spec. It has the per-command run table,
-the vitest setup and colocation rules, the completion criterion a unit test has
-to meet, why the arch suite reads sources through `node:fs` rather than
+an architecture or Semgrep rule, suppressing a fallow finding, adding a file
+nothing imports, or writing or debugging an E2E spec. It has the per-command run
+table, the vitest setup and colocation rules, the completion criterion a unit
+test has to meet, why the arch suite reads sources through `node:fs` rather than
 `import.meta.glob`, the Stryker `--mutate` trap, how a new Playwright spec gets
-routed, and the flakiness rules.
-
-## Semgrep
-
-`npm run test:security` runs the local ruleset in `semgrep/rules/`, covering
-the DOM injection sinks (`dangerouslySetInnerHTML`, `innerHTML`,
-`document.write`), `eval` / `new Function`, `target="_blank"` without
-`noopener`, and credential-shaped names assigned string literals.
-
-Local rather than a registry pack so the run stays offline and deterministic and
-each rule carries the reason this project cares about it. A wider sweep is still
-worth doing occasionally: `npx semgrep scan --config p/typescript --config
-p/react`.
-
-A new rule goes in `semgrep/rules/` with its reason in a comment and an `fe-`
-prefixed id, so it can never collide with a registry id. Verify it fires: write
-the violating snippet in a scratch file, scan it, and confirm the finding
-before committing the rule.
+routed, the flakiness rules, and how to add a Semgrep rule and prove it fires.
 
 ## Fallow
 
@@ -297,13 +281,6 @@ a symbol reached through a config file or a dynamic `import()` also reads as
 unused. `npx fallow dead-code --trace <file>:<export>` (or
 `--trace-dependency <name>`) prints the real consumer list in under a second —
 delete on that evidence, never on a summary line.
-
-`npx fallow audit` is the conditional gate above because it fails only on findings
-**this changeset introduced**, where a bare `npx fallow` also reports the
-duplication and complexity the repo already carries. Dead code is the
-exception: it sits at zero, so an unused export, file, or dependency in an
-audit is one you just added. This is why `buttonVariants` in
-`src/components/ui/button.tsx` is not exported.
 
 ## TypeScript
 

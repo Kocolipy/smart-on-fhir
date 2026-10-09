@@ -261,6 +261,7 @@ directory that a test run writes into belongs on this list.
 | `/`                | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to `/showcase`                                                                                                            |
 | `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                                                  | every authenticated User; the counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
 | `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                            |
+| `/audit`           | `<ProtectedRoute requiredPermissions={["audit:read"]}><Audit /></ProtectedRoute>`                | `audit:read` alone                                                                                                                                            |
 | `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                   |
 | `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to login                                                                                                                              |
 
@@ -276,8 +277,7 @@ create and delete `connector:write`, token issue, rotate and revoke
 `connector:token`, the counter's buttons `counter:write`). A view the session
 cannot see is not requested either, so it never turns into a `403` on screen. A
 deep link to a page the session holds no Permission for is redirected to
-`/showcase`, exactly as any page it may not see. There is no audit page; the audit
-listing is API-only.
+`/showcase`, exactly as any page it may not see.
 
 **Change-password route.** The backend confines a session whose password must be
 replaced (the change-required flag, see `/CONTEXT.md`): `GET /api/auth/me` and
@@ -325,8 +325,10 @@ _rendered_ and never what is _permitted_.
 SPA contract, and a deep link like `/showcase` 404s without it.
 
 A new protected area is a new `<Route>` wrapped in the existing
-`ProtectedRoute`. Nested layouts and lazy route chunks are both unused; add them
-in `App.tsx` when there is a second protected area, not before.
+`ProtectedRoute`. Nested layouts and lazy route chunks are both unused; each page
+renders its own sign-out, so there is no app shell. Add a layout route in
+`App.tsx` when two pages need the same header or navigation, and a lazy chunk
+when one page's code is heavy enough to be worth loading on demand — not before.
 
 ## What is deliberately absent
 
@@ -339,7 +341,7 @@ to need it does not have to invent a convention.
 | Server-state caching            | a query library wrapping `apiFetch`, wired in `App.tsx` beside `AuthProvider`        |
 | Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
 | Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
-| Nested layouts, lazy routes     | `src/App.tsx`, when there is a second protected area                                 |
+| Nested layouts, lazy routes     | `src/App.tsx`, when pages share a header or nav, or a page is heavy                  |
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
 Already present, and where it lives: routing in `src/App.tsx`, authentication in
