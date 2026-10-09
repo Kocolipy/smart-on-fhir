@@ -9,7 +9,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 /**
  * The {@code id_token} checks Epic Login adds to the OpenID Connect ones (flow step 4), run by
  * the decoder once the signature has verified, each failure a claim failure
- * ({@code INVALID_CLAIMS}).
+ * ({@code INVALID_CLAIMS}). Each reports {@code invalid_id_token}, as the OpenID Connect claim
+ * checks do: the decoder's failure is what the Epic failure handler reads, never the code inside it.
  *
  * <ul>
  *   <li><b>The nonce</b> must be the one the pending authorization request sent, compared in
@@ -27,6 +28,9 @@ final class EpicIdTokenChecks implements OAuth2TokenValidator<Jwt> {
     /** The nonce the callback's pending request sent Epic, for that callback only. */
     static final ScopedValue<String> PENDING_NONCE = ScopedValue.newInstance();
 
+    /** The error code every failure here reports, as Spring Security's own claim checks do. */
+    private static final String INVALID_ID_TOKEN = "invalid_id_token";
+
     /** The OpenID Connect claim the nonce comes back in. */
     static final String NONCE = "nonce";
 
@@ -42,12 +46,12 @@ final class EpicIdTokenChecks implements OAuth2TokenValidator<Jwt> {
         String received = idToken.getClaimAsString(NONCE);
         if (expected.isEmpty() || !ConstantTime.equals(received, expected)) {
             return OAuth2TokenValidatorResult.failure(
-                    new OAuth2Error("invalid_nonce", "The nonce is not the one sent", null));
+                    new OAuth2Error(INVALID_ID_TOKEN, "The nonce is not the one sent", null));
         }
         if (EpicMfaEvidence.factorOf(mfaEvidenceRequired,
                 () -> idToken.getClaimAsStringList(EpicMfaEvidence.AMR)).isEmpty()) {
             return OAuth2TokenValidatorResult.failure(
-                    new OAuth2Error("invalid_id_token", "No MFA evidence in amr", null));
+                    new OAuth2Error(INVALID_ID_TOKEN, "No MFA evidence in amr", null));
         }
         return OAuth2TokenValidatorResult.success();
     }

@@ -28,10 +28,14 @@ class EpicIdTokenChecksTests {
         assertThat(checkedDuringCallback(false, token("another-nonce", null)).hasErrors()).isTrue();
     }
 
+    /**
+     * A claim failure like every other the decoder's validators report, and not Spring Security's
+     * own {@code invalid_nonce}, which its OIDC provider raises outside the decoder.
+     */
     @Test
-    void aNonceRefusalIsAnInvalidNonce() {
+    void aNonceRefusalIsAnInvalidIdToken() {
         assertThat(checkedDuringCallback(false, token("another-nonce", null)).getErrors())
-                .extracting(OAuth2Error::getErrorCode).containsExactly("invalid_nonce");
+                .extracting(OAuth2Error::getErrorCode).containsExactly("invalid_id_token");
     }
 
     @Test

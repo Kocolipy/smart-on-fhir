@@ -38,7 +38,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class EpicLoginFailureHandler implements EpicSignInFailure {
 
-    /** Spring Security's error code for an {@code id_token} nonce that is not the one sent. */
+    /**
+     * Spring Security's error code for an {@code id_token} nonce that is not the one sent, raised by
+     * its OIDC provider's own nonce check after decoding. Spring keeps it private, so it is spelled
+     * here. Epic Login's own nonce check fails in the decoder, as {@code INVALID_CLAIMS}, and
+     * reports no code of its own that this reads.
+     */
     private static final String INVALID_NONCE = "invalid_nonce";
 
     /** Spring Security's error code for a callback {@code state} that is not the pending one. */
@@ -93,7 +98,8 @@ public class EpicLoginFailureHandler implements EpicSignInFailure {
      *       and any other — a signature that does not verify, an algorithm other than RS256, a
      *       {@code kid} still unknown after D26's refetches, a token that does not parse — is
      *       {@code INVALID_SIGNATURE}.
-     *   <li>The nonce, checked after decoding, is a claim; the {@code state} and the pending
+     *   <li>Spring Security's own nonce check, run after decoding, is a claim too, though Epic
+     *       Login's in the decoder fails first; the {@code state} and the pending
      *       request, already checked ahead of the login filter, are {@code INVALID_STATE} if they
      *       ever reach here.
      *   <li>Anything else happened in the exchange: the token endpoint's OAuth error, or a token
