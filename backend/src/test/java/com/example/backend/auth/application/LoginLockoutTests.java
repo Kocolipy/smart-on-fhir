@@ -12,6 +12,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.auth.RecordingEpicLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.controller.AuthController;
 import com.example.backend.observability.LogContext;
@@ -101,16 +102,18 @@ class LoginLockoutTests {
 
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
-        login = new LoginService(
-                config.authenticationManager(identities, passwordEncoder),
-                new LoginAttemptService(
+        LoginAttemptService attempts = new LoginAttemptService(
                         users,
                         sessions,
                         transaction,
                         new LockoutPolicy(5),
                         audit,
-                        clock),
-                identities);
+                        clock);
+        login = new LoginService(
+                config.authenticationManager(identities, passwordEncoder),
+                attempts,
+                identities,
+                new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts()));
         administration = new IdentityAdministrationService(
                 users, groups, sessions, transaction, audit, clock);
     }

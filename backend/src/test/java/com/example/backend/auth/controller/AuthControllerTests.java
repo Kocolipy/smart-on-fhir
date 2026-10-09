@@ -14,7 +14,9 @@ import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.auth.RecordingEpicLoginCounts;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
+import com.example.backend.auth.application.EpicLoginOutcomeService;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
@@ -132,7 +134,8 @@ class AuthControllerTests {
         LoginAttemptService attempts = new LoginAttemptService(
                 users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
         controller = new AuthController(
-                new LoginService(manager, attempts, identities),
+                new LoginService(manager, attempts, identities,
+                        new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts())),
                 // The same flow against Postgres and Redis, the security filter chain included, is
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(

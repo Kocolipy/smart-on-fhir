@@ -12,8 +12,10 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -142,23 +144,29 @@ public class LoginAttemptService {
      *     continues in and so is the one session kept; {@code null} when the caller holds none
      */
     @Transactional
-    public void recordSuccess(String username, String retainedSessionId) {
-        recordSuccess(username, retainedSessionId, AuditLoginMethod.PASSWORD, null);
+    public void recordPasswordSuccess(String username, String retainedSessionId) {
+        recordSuccess(username, retainedSessionId,
+                user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.PASSWORD));
     }
 
     /**
-     * {@link #recordSuccess(String, String)} for a Login made by {@code method}: an Epic Login's
-     * success is recorded exactly as a password Login's — failure run cleared, dormancy basis
-     * moved, {@code LOGIN_SUCCESS} fail-closed, other sessions revoked after commit — and differs
-     * only in the method its {@code LOGIN_SUCCESS} names (D15) and the MFA factor it carries
-     * (D17).
+     * {@link #recordPasswordSuccess} for an Epic Login, recorded exactly as a password Login's —
+     * failure run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed, other
+     * sessions revoked after commit — and differing only in the method its {@code LOGIN_SUCCESS}
+     * names (D15) and the MFA factor it carries (D17).
      *
-     * @param mfaFactor the MFA factor an Epic Login was made with, or {@code null} for a password
-     *     Login, which carries none
+     * @param mfaFactor the MFA factor the Epic Login was made with
      */
     @Transactional
-    public void recordSuccess(String username, String retainedSessionId,
-            AuditLoginMethod method, AuditMfaFactor mfaFactor) {
+    public void recordEpicSuccess(
+            String username, String retainedSessionId, AuditMfaFactor mfaFactor) {
+        Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
+        recordSuccess(username, retainedSessionId,
+                user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.SSO, mfaFactor));
+    }
+
+    private void recordSuccess(
+            String username, String retainedSessionId, Consumer<ScimUser> recordLoginSuccess) {
         find(username).ifPresent(user -> {
             ScimLoginState cleared = user.login().withFailureRunCleared();
             if (cleared != user.login()) {
@@ -174,18 +182,9 @@ public class LoginAttemptService {
             if (!user.login().isPasswordChangeRequired()) {
                 users.recordAuthentication(user.id(), clock.instant());
             }
-            audit.recordLoginSuccess(user.id(), method, mfaFactor);
+            recordLoginSuccess.accept(user);
             afterCommit.run(() -> sessions.revokeAllExcept(user.id(), retainedSessionId));
         });
-    }
-
-    /**
-     * {@link #recordSuccess(String, String)} for a caller holding no session, every session of the
-     * identity ending.
-     */
-    @Transactional
-    public void recordSuccess(String username) {
-        recordSuccess(username, null);
     }
 
     /**

@@ -134,30 +134,43 @@ Security's authorization-request filter build the request.
    Epic being unreachable at `/?signin=unavailable` (D23) — neither with any
    detail, and both with the browser's session ended first (D24).
 
-An account refusal is recorded once, by the login decision,
-as password Login's refusal is, so no caller can refuse without the record: a
-`LOGIN_FAILURE` under method `sso` with its reason and the refused User's stable
-id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`,
-which counts toward no failure run (D12), and a `WARN` saying only "Epic sign-in
-refused". The success handler then counts it on `epic.login`
-(`outcome=refused`, `reason`) and redirects. Every other failure — of the launch,
-the authorize hop, the callback, the token exchange, the `id_token` or its
-`fhirUser` — goes to `EpicLoginFailureHandler`, the one place it is told apart
-and recorded, once (flow step 8, D23, D24). A refusal there is `/?signin=refused`,
-its session ended, a `LOGIN_FAILURE` under method `sso` with its exact refusal
-reason (the table under "Audit" below) and no subject (no User was looked up),
-counted toward no failure run (D12), `epic.login` (`outcome=refused`, `reason`),
-and one `WARN` saying only "Epic sign-in refused", with the field and rule of a
-refused input. The reason is
+How a Login ended is recorded once, by one module, `EpicLoginOutcomeService`, which
+takes the ending — signed in, refused (reason, refused User, field and rule, failed
+call) or unavailable (failed call) — and writes its audit record, log line and
+counts; where the browser goes next is a function of the ending alone. An account
+refusal is handed to it by the login decision, as password Login's refusal is
+recorded there, so no caller can refuse without the record: a `LOGIN_FAILURE` under
+method `sso` with its reason and the refused User's stable id — none for
+`UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`, which counts
+toward no failure run (D12), a `WARN` saying only "Epic sign-in refused", and
+`epic.login` (`outcome=refused`, `reason`). The success handler then only
+redirects. A success is handed to it by the success handler, once the session is
+signed in: the fail-closed `LOGIN_SUCCESS` is written in the decision's
+transaction, and the `user-authentication` record and the `epic.login` success
+count only after it commits. The redirect is the one effect the module cannot
+have, the application layer knowing no servlet, so both handlers land the
+browser through one mapping of the outcome, `EpicLoginLanding`. Every other failure — of
+the launch, the authorize hop, the callback, the token exchange, the `id_token` or
+its `fhirUser` — goes to `EpicLoginFailureHandler`, the one place it is told apart
+(flow step 8, D23, D24), and the outcome it names is recorded by the same module. A
+refusal there is `/?signin=refused`, its session ended, a `LOGIN_FAILURE` under
+method `sso` with its exact refusal reason (the table under "Audit" below) and no
+subject (no User was looked up), counted toward no failure run (D12), `epic.login`
+(`outcome=refused`, `reason`), and one `WARN` saying only "Epic sign-in refused",
+with the field and rule of a refused input. The reason is
 read from what failed — a typed refusal of our own, the failed Epic call, the
 `id_token` decoder's exception — never from a message, which can quote what Epic
 sent. Epic being unavailable is the other outcome: `/?signin=unavailable`, its
 session ended, a `LOGIN_FAILURE` under method `sso` with `EPIC_UNAVAILABLE` and no
 subject, `epic.login` (`outcome=unavailable`), and one `ERROR` naming the call and
-its error category (the table under "Log" below). An Epic call that answered with
+its error category (the table under "Log" below) — the outbound interceptor's for a
+call that got no answer, the ending's for a `5xx`. An Epic call that answered with
 something unusable (`cert/auth`, `data`) is refused under the call's reason — the
 token call's as `TOKEN_EXCHANGE_FAILED`, the JWKS's as `INVALID_SIGNATURE`,
-discovery's as `IDP_ERROR` — beside its `ERROR`.
+discovery's as `IDP_ERROR` — beside its `ERROR`. Every ending's records carry
+`session.hash` — for the session the Login ran in, or for a success the session
+it signed in — and the accepted one the MFA factor (ADR 0003, addendum
+2026-10-09).
 
 The login filter is configured to neither rotate the session nor save a security
 context of its own, and the authorized client is saved nowhere. The success
@@ -441,11 +454,19 @@ Micrometer, on the existing Prometheus registry:
 
 - `epic.login` counter, tagged `outcome` (`success`, `refused` or `unavailable`)
   and `reason` (the audit reason above; `none` for a success, so every series
-  has the same tag keys) — `EpicLoginMetrics`;
+  has the same tag keys) — `EpicLoginMetrics`, behind the `EpicLoginCounts` port
+  `EpicLoginOutcomeService` records through;
+- `epic.login.failed_calls` counter, tagged `call` and `error_category`: each Epic
+  call whose failure ended a Login, so a refused credential (`cert/auth`), which no
+  outbound status tells apart, can be alerted on;
 - `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
   (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
-- an alert rule, `EpicJwksFetchFailing` (`/infra/README.md`, "Alerts"), fires
-  when `epic.outbound.errors{call="jwks"}` persists for 5 minutes.
+- alert rules (`/infra/README.md`, "Alerts"): `EpicJwksFetchFailing` and
+  `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
+  for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
+  on any `cert/auth` failure of the token call, the one that presents our
+  credential; and `EpicLoginRefusalsSurge` when refusals stay
+  above 3 a minute for 10 minutes (IM8 lm-16).
 
 ### Outbound calls and resilience
 

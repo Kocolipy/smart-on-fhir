@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic.config;
 
+import com.example.backend.auth.epic.EpicDevAllowances;
 import com.example.backend.auth.epic.EpicLoginProperties;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicReleaseGate;
@@ -27,8 +28,8 @@ import org.springframework.core.env.Profiles;
 public class EpicLoginConfig {
 
     /**
-     * The one profile allowed {@code http} URLs (D21) and the relative {@code fhirUser}
-     * {@code Practitioner/{id}}, both for the local Docker launcher.
+     * The one profile granted the local Docker launcher's relaxations: {@code http} URLs (D21)
+     * and the relative {@code fhirUser} {@code Practitioner/{id}}.
      */
     static final String DEV_PROFILE = "dev";
 
@@ -36,7 +37,9 @@ public class EpicLoginConfig {
     @Conditional(EpicLoginEnabled.class)
     public EpicLoginSettings epicLoginSettings(
             EpicLoginProperties properties, Environment environment) {
-        return properties.validate(environment.acceptsProfiles(Profiles.of(DEV_PROFILE)));
+        return properties.validate(environment.acceptsProfiles(Profiles.of(DEV_PROFILE))
+                ? EpicDevAllowances.LOCAL_LAUNCHER
+                : EpicDevAllowances.NONE);
     }
 
     @Bean

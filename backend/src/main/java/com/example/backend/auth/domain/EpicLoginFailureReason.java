@@ -10,8 +10,9 @@ package com.example.backend.auth.domain;
  * reasons are audit-only"): the account reasons in particular tell whether an account exists,
  * which an investigation needs and an operational log reader does not.
  *
- * <p>The three account reasons are recorded by the login decision (flow step 6); every other
- * one by the Epic failure handler (flow step 8). Each is recorded once.
+ * <p>The three account reasons are decided by the login decision (flow step 6); every other one
+ * by the Epic failure handler (flow step 8). Each is recorded once, by the one module that records
+ * how an Epic Login ended.
  */
 public enum EpicLoginFailureReason {
 

@@ -122,7 +122,7 @@ public class PasswordChangeService {
                 .orElseThrow(CurrentPasswordRejectedException::new);
         // The current password verified, so this is use of the account, and for a User that
         // owed the change it is the first: its confined logins did not move the dormancy basis
-        // (LoginAttemptService#recordSuccess), so the change does.
+        // (LoginAttemptService#recordPasswordSuccess), so the change does.
         users.recordAuthentication(userId, now);
         passwordAcceptance.remember(userId, accepted, now);
         audit.recordPasswordChanged(userId);
