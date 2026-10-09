@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic.config;
 
 import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.web.ApiError;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -34,14 +35,12 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public class EpicReleaseGateFilter extends OncePerRequestFilter {
 
-    /** The namespace this gate owns: the exact path and everything beneath it. */
-    static final String EPIC_NAMESPACE = "/api/auth/epic/**";
-
     private static final String GATE_CLOSED_BODY =
             JsonMapper.builder().build().writeValueAsString(ApiError.of(HttpStatus.NOT_FOUND));
 
+    /** The namespace this gate owns: the exact path and everything beneath it. */
     private static final RequestMatcher NAMESPACE =
-            PathPatternRequestMatcher.withDefaults().matcher(EPIC_NAMESPACE);
+            PathPatternRequestMatcher.withDefaults().matcher(EpicRoutes.NAMESPACE + "/**");
 
     private final EpicReleaseGate gate;
 
