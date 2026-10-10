@@ -1914,9 +1914,9 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/api.ts": {
-    "mtime": 1791645195.0619776,
-    "seen": 1791645568.885837,
-    "ast_hash": "993b7bb3c7b479752b4c9c2b30cf8ec2",
+    "mtime": 1791675323.6450264,
+    "seen": 1791675423.3692153,
+    "ast_hash": "af50a89c5bacd3c0b3c534264a156424",
     "semantic_hash": ""
   },
   "frontend/src/auth/auth-context-value.ts": {
@@ -4710,9 +4710,9 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/session-transitions.ts": {
-    "mtime": 1791644890.0309637,
-    "seen": 1791645568.8858476,
-    "ast_hash": "86215997203e8748e20446ac27877ae5",
+    "mtime": 1791675325.4370468,
+    "seen": 1791675423.3695683,
+    "ast_hash": "546c7e497354d48232d3333b3a0e96ed",
     "semantic_hash": ""
   }
 }
