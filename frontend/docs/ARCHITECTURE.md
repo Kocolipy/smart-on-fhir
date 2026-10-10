@@ -132,6 +132,7 @@ single place that knows this: it holds the token **in memory only**, fetches it
 from that endpoint before the first unsafe request, adds the header on unsafe
 methods only, and on an unsafe request's `403` re-fetches the token and retries
 exactly once. A safe request's `403` cannot be CSRF, so it is not retried. Login,
+a refused login (the backend ends the session the browser held before its `401`),
 logout, a password change and an expired session all change the session, so
 each discards the held token (`discardCsrfToken()`), and the next unsafe request
 fetches the new session's before it is sent.

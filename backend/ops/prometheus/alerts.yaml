@@ -197,9 +197,10 @@ groups:
       # Refused Epic Logins well above a clinic's normal rate: a broken integration
       # (a wrong APP_EPIC_FHIR_BASE refuses every launch as ISS_MISMATCH), Practitioner
       # IDs not provisioned, or someone replaying launches. The reason label says which.
+      # login_total counts both login methods; method="sso" is Epic Login's share.
       - alert: EpicLoginRefusalsSurge
         expr: >
-          sum(rate(epic_login_total{outcome="refused"}[10m])) > 0.05
+          sum(rate(login_total{method="sso", outcome="refused"}[10m])) > 0.05
         for: 10m
         labels:
           severity: warning
@@ -210,7 +211,7 @@ groups:
             browser is told only /?signin=refused, so clinicians see a refusal without a
             reason.
           runbook: >
-            Break epic_login_total{outcome="refused"} down by reason. ISS_MISMATCH or
+            Break login_total{method="sso", outcome="refused"} down by reason. ISS_MISMATCH or
             INVALID_LAUNCH across the board points at configuration (APP_EPIC_FHIR_BASE,
             the launch URL Epic holds); UNKNOWN_ACCOUNT at Practitioner IDs the
             directory has not provisioned; INVALID_STATE or INVALID_CODE at replayed or

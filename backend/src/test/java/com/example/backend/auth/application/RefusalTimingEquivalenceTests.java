@@ -8,12 +8,13 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.RecordingEpicLoginCounts;
+import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.HashMap;
@@ -22,6 +23,10 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -66,6 +71,19 @@ class RefusalTimingEquivalenceTests {
                 passwordEncoder.encode("correct-password"),
                 ScimIdentities.NOW));
         users.given(ScimIdentities.credentiallessUser("nopass"));
+        users.given(new ScimUser(
+                UUID.randomUUID(),
+                ScimIdentities.profile("locked", true),
+                new ScimLoginState(passwordEncoder.encode("correct-password"), 5, NOW),
+                null,
+                ScimUser.INITIAL_VERSION,
+                ScimIdentities.NOW,
+                ScimIdentities.NOW));
+        users.given(ScimUser.created(
+                UUID.randomUUID(),
+                ScimIdentities.profile("deactivated", false),
+                passwordEncoder.encode("correct-password"),
+                ScimIdentities.NOW));
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         LoginAttemptService attempts = new LoginAttemptService(
@@ -79,7 +97,7 @@ class RefusalTimingEquivalenceTests {
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
-                new EpicLoginOutcomeService(attempts, new RecordingEpicLoginCounts()));
+                RecordingLoginCounts.uncounted(attempts));
     }
 
     @Test
@@ -107,6 +125,43 @@ class RefusalTimingEquivalenceTests {
         refuse("nobody", "anything");
 
         assertThat(passwordEncoder.matchCalls).hasValue(1);
+    }
+
+    /**
+     * A locked or deactivated User is refused for its state, not its password, yet pays the
+     * same one verification first: a refusal that skipped the comparison would answer faster,
+     * and so tell an attacker which accounts are locked or deactivated (ADR 0007).
+     */
+    @ParameterizedTest(name = "{0} with {1} runs exactly one verification")
+    @CsvSource({
+        "locked, wrong-password",
+        "locked, correct-password",
+        "deactivated, wrong-password",
+        "deactivated, correct-password"})
+    void aLockedOrDeactivatedIdentityRunsExactlyOneVerification(String username, String password) {
+        passwordEncoder.matchCalls.set(0);
+
+        refuse(username, password);
+
+        assertThat(passwordEncoder.matchCalls).hasValue(1);
+    }
+
+    /** The comparison runs first, but the account's state still refuses the right password. */
+    @Test
+    void aLockedIdentityIsRefusedAsLockedWhateverThePassword() {
+        assertThatThrownBy(() -> login.logIn("locked", "correct-password"))
+                .isInstanceOf(LockedException.class);
+        assertThatThrownBy(() -> login.logIn("locked", "wrong-password"))
+                .isInstanceOf(LockedException.class);
+    }
+
+    /** The comparison runs first, but deactivation still refuses the right password. */
+    @Test
+    void aDeactivatedIdentityIsRefusedAsDisabledWhateverThePassword() {
+        assertThatThrownBy(() -> login.logIn("deactivated", "correct-password"))
+                .isInstanceOf(DisabledException.class);
+        assertThatThrownBy(() -> login.logIn("deactivated", "wrong-password"))
+                .isInstanceOf(DisabledException.class);
     }
 
     /**

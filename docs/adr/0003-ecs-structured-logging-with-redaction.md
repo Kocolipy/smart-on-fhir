@@ -802,8 +802,9 @@ passed to a logging call. Its pattern gains a second family of names beside the 
 
 One existing call site matched and is suppressed with its reason: the failed-call `ERROR` passes
 `failed.code()`, the failure's `error.code` — the HTTP status it maps to, never anything Epic
-sent. It was `EpicLoginFailureHandler`'s, and is `EpicLoginOutcomeService`'s since the addendum
-of 2026-10-09.
+sent. It was `EpicLoginFailureHandler`'s, and is `LoginOutcomeService`'s since the addendum
+of 2026-10-09 (named `EpicLoginOutcomeService` until the addendum "a refused password Login says
+no more than an Epic one").
 
 **The test.** `EpicLoginRedactionIntegrationTests` extends the redaction tests above
 (`EcsLogFormatTests`, `JdbcErrorLogRedactionTests`) to Epic Login. It drives a successful Login,
@@ -844,7 +845,8 @@ login decision and the two Epic handlers in turn. Three things change in what th
   (SSO §3.4). A session id is a random UUID, so its hash cannot be guessed back the way a
   password's can. `be-log-sensitive-value` matches any value named `hash`, but not the call that
   adds this field, so nothing is suppressed for it. `session-start` and the password Login
-  records do not carry it yet.
+  records do not carry it yet (a refused password Login's does since the addendum "a refused
+  password Login says no more than an Epic one").
 
 ## Addendum (2026-10-09): the refresh token joins D22's names (ADR 0013, #24)
 
@@ -858,3 +860,23 @@ a record or a message that printed one would carry none of them.
 `EpicLoginRedactionIntegrationTests` has Epic issue a refresh token on every path it drives,
 searches for it beside the other D22 values, and also searches every answer the callback gave the
 browser.
+
+## Addendum (2026-10-09): a refused password Login says no more than an Epic one
+
+Architecture review 2026-10-08, "Password Login path" (Logging §2.2, L1). A refused password
+Login's `WARN` carried `event.reason` set to the refusal's exception type — `BadCredentialsException`,
+`LockedException`, `DisabledException` — so the operational log said whether the account
+existed, and whether it was locked or deactivated. Epic Login already kept those reasons in the
+audit trail only (ADR 0013, "the account reasons are audit-only"). Password Login now does too:
+
+- **The `WARN` says only "Login refused"**, with `app.login.method` `password`, `session.hash`
+  for the session the Login ran in (the session the browser held, which the refusal then ends),
+  no `event.reason`, and, as before, no user field and never the submitted username. A locked or
+  deactivated User's refusal is logged exactly as a wrong password's.
+- **The reason** goes to the audit trail's `LOGIN_FAILURE`, unchanged, and to the `login`
+  counter's `reason` tag, which counts events and names no account (ADR 0013, its second
+  addendum of this date).
+- **One module writes it.** Both login methods' endings are recorded by `LoginOutcomeService`
+  (formerly `EpicLoginOutcomeService`), so the two refusal records cannot drift apart again. The
+  accepted password Login's `user-authentication` record is unchanged and still carries no
+  `session.hash`.

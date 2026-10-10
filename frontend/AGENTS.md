@@ -129,9 +129,12 @@ backend side moves. What the SPA has to honour:
   only**, sends it in the header that response names (`X-CSRF-TOKEN`) on unsafe
   methods only, and always sends `credentials: "include"`. The token is worth
   exactly as long as its session, so `src/auth/` calls `discardCsrfToken()`
-  whenever the session changes — after login, logout, a password change, and an
-  expiry — and the next unsafe request fetches the new session's before it is
-  sent. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
+  whenever the session changes — after login, a refused login, logout, a
+  password change, and an expiry — and the next unsafe request fetches the new
+  session's before it is sent. A refused login is one of them because the
+  backend ends whatever session the browser held before answering its bare
+  `401`, so a retry after a wrong password needs the next session's token
+  rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
   design was retired.
 - **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
   stale CSRF token or an authorization refusal (a session lacking the

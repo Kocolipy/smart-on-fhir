@@ -76,6 +76,18 @@ glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
 holds, so signing in from a second browser signs the first out; the first sees an
 expired session. It is one of the **session revocation** triggers below.
 
+**A refused Login ends the browser's session** — a refused password Login ends
+whatever session the browser held, whoever it belonged to, before its bare `401`,
+as a refused EHR launch does (below): a shared browser is never left signed in as
+the previous User after a sign-in that signed nobody in. The CSRF token was bound
+to that session, so the SPA discards it, and a retry fetches the next session's.
+A refused Login that arrived without a session creates none. It is audited as a
+`LOGIN_FAILURE` with login method `password` and its reason, and lengthens the
+failure run; the operational log says only "Login refused", because the reason
+tells whether an account exists. A locked or deactivated User is refused only
+after its submitted password has been compared, exactly as a wrong password is,
+so its refusal takes no less work than any other.
+
 ## Epic Login
 
 A Login by **EHR launch**: Epic opens the application in the clinician's system

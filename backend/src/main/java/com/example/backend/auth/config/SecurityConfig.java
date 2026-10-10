@@ -129,12 +129,27 @@ public class SecurityConfig {
         };
     }
 
+    /**
+     * Password Login's authentication: one {@link DaoAuthenticationProvider} over the
+     * {@code UserDetailsService}, {@code LoginIdentityService}.
+     *
+     * <p>A locked or deactivated User is refused by the provider's pre-authentication checks,
+     * which run before the password is compared. With
+     * {@code alwaysPerformAdditionalChecksOnUser} on, the provider compares the submitted password
+     * anyway before rethrowing the check's refusal, so a locked or deactivated User costs the
+     * same one Argon2id verification as a wrong password, an unknown name and a credentialless
+     * User do (ADR 0007, uniform refusal timing), and is still refused with the right password.
+     * It is Spring Security's default since 7.0, and set here regardless: a default that changed
+     * back would otherwise make those refusals measurably faster with no line of ours changing.
+     * {@code RefusalTimingEquivalenceTests} counts the verifications.
+     */
     @Bean
     public AuthenticationManager authenticationManager(
             UserDetailsService userDetailsService,
             PasswordEncoder passwordEncoder) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
+        provider.setAlwaysPerformAdditionalChecksOnUser(true);
         return new ProviderManager(provider);
     }
 

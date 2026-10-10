@@ -128,6 +128,12 @@ describe("the CSRF token across session changes", () => {
     expect(discardMock).toHaveBeenCalledOnce();
   });
 
+  it("forgets the token once a refused login has ended the session", async () => {
+    resolveWith({ kind: "unauthenticated" });
+    await expect(login("ada", "wrong")).rejects.toThrow("The username or password is incorrect.");
+    expect(discardMock).toHaveBeenCalledOnce();
+  });
+
   it.each([{ kind: "ok", data: undefined }, { kind: "unauthenticated" }, { kind: "forbidden" }])(
     "forgets the token once a logout ends the session ($kind)",
     async (result) => {
@@ -159,9 +165,8 @@ describe("the CSRF token across session changes", () => {
       kind: "current-password-rejected",
     });
 
-    resolveWith({ kind: "unauthenticated" });
-    await expect(login("ada", "wrong")).rejects.toThrow();
     resolveWith({ kind: "failed", status: 500 });
+    await expect(login("ada", "secret")).rejects.toThrow();
     await expect(logout()).rejects.toThrow();
     resolveWith({ kind: "csrf-expired" });
     await expect(logout()).rejects.toThrow();

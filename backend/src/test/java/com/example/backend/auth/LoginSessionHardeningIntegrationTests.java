@@ -216,6 +216,9 @@ class LoginSessionHardeningIntegrationTests {
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
         Cookie issued = login.getResponse().getCookie(sessionCookieName);
         assertThat(issued).as("the login issued a session cookie").isNotNull();
+        // A MockMvc request cookie re-wrapping the issued one's name and value: it never reaches
+        // a browser or a response, so its Secure flag means nothing here.
+        // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false
         Cookie session = new Cookie(issued.getName(), issued.getValue());
 
         Session stored = sessionRepository.findById(sessionId(session));
@@ -304,6 +307,52 @@ class LoginSessionHardeningIntegrationTests {
         assertThat(status(get("/api/auth/me"), session))
                 .as("a refused body leaves the session standing")
                 .isEqualTo(200);
+    }
+
+    // ---- a refused Login ends the browser's session ----------------------------------------------
+
+    /**
+     * The password analogue of ADR 0013's D24: a refused Login ends whatever session the browser
+     * held — here another User's — before its bare {@code 401}, so a shared browser is never left
+     * signed in as the previous User. The session is gone from the store, not merely signed out,
+     * and the refusal mints no session in its place.
+     */
+    @Test
+    void aRefusedLoginEndsTheSessionTheBrowserHeldAndMintsNone() throws Exception {
+        create("refused-ends-ada");
+        create("refused-ends-bob");
+        Cookie bob = logIn("refused-ends-bob", PASSWORD);
+
+        MvcResult refused = mvc.perform(withCsrf(post("/api/auth/login")).cookie(bob)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("refused-ends-ada", "not-the-password")))
+                .andReturn();
+
+        assertThat(refused.getResponse().getStatus()).isEqualTo(401);
+        assertThat(refused.getResponse().getContentAsString()).isEmpty();
+        assertThat(status(get("/api/auth/me"), bob)).isEqualTo(401);
+        assertThat(sessionRepository.findById(sessionId(bob))).isNull();
+        Cookie minted = refused.getResponse().getCookie(sessionCookieName);
+        assertThat(minted == null || minted.getMaxAge() == 0)
+                .as("the refusal sets no live session cookie")
+                .isTrue();
+    }
+
+    /**
+     * The CSRF token ended with the session, so a retry fetches the next session's — as the SPA
+     * does, discarding its token on the {@code 401} — and signs in.
+     */
+    @Test
+    void aRetryAfterARefusedLoginSignsInWithTheNextSessionsToken() throws Exception {
+        create("refused-retry-ada");
+        Cookie signedInBefore = logIn("refused-retry-ada", PASSWORD);
+        mvc.perform(withCsrf(post("/api/auth/login")).cookie(signedInBefore)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody("refused-retry-ada", "not-the-password")));
+
+        Cookie signedIn = logIn("refused-retry-ada", PASSWORD, signedInBefore);
+
+        assertThat(status(get("/api/auth/me"), signedIn)).isEqualTo(200);
     }
 
     // ---- helpers -------------------------------------------------------------------------------

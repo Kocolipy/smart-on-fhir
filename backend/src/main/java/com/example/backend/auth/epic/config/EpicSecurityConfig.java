@@ -71,11 +71,13 @@ public class EpicSecurityConfig {
     }
 
     /**
-     * Always present, so the login decision and the failure handler can record an Epic Login's
-     * ending whether or not the flow is.
+     * Always present, so the failure handler can record an Epic Login's failed call whether or not
+     * the flow is. The Login's ending itself is counted by {@code login}, which is the password
+     * Login's too, and so is registered outside Epic's configuration
+     * ({@code com.example.backend.auth.config.LoginMetricsConfig}).
      */
     @Bean
-    public EpicLoginMetrics epicLoginMetrics(MeterRegistry registry) {
-        return new EpicLoginMetrics(registry);
+    public EpicCallMetrics epicCallMetrics(MeterRegistry registry) {
+        return new EpicCallMetrics(registry);
     }
 }

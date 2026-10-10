@@ -129,8 +129,9 @@ public class LoginIdentityService implements UserDetailsService {
     /**
      * Reports the User to Spring Security, including whether it is currently locked and whether
      * an administrator has deactivated it. Carrying both here is what rejects such a User with
-     * its correct password: {@code DaoAuthenticationProvider} checks account status before it
-     * checks the password, so the credentials are never even compared.
+     * its correct password: {@code DaoAuthenticationProvider} refuses on account status whatever
+     * the password, and compares the password first all the same, so the refusal costs what a
+     * wrong password's does ({@code SecurityConfig#authenticationManager}).
      *
      * <p>A credentialless User — one with no password hash set — reports
      * {@link #noPasswordSetMarker()} rather than {@code null}: the User exists and may be active

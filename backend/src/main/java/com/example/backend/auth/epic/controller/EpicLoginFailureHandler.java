@@ -1,10 +1,10 @@
 package com.example.backend.auth.epic.controller;
 
-import com.example.backend.auth.application.EpicLoginOutcome;
-import com.example.backend.auth.application.EpicLoginOutcome.FailedCall;
-import com.example.backend.auth.application.EpicLoginOutcome.Refused;
-import com.example.backend.auth.application.EpicLoginOutcome.Unavailable;
-import com.example.backend.auth.application.EpicLoginOutcomeService;
+import com.example.backend.auth.application.LoginOutcome;
+import com.example.backend.auth.application.LoginOutcome.FailedCall;
+import com.example.backend.auth.application.LoginOutcome.EpicRefused;
+import com.example.backend.auth.application.LoginOutcome.Unavailable;
+import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.EpicSignInRefusedException;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.epic.CauseChain;
@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
  * <p>What failed is told apart here, from what Spring Security raised, and nowhere else: Epic
  * being unavailable — no answer in time, or a {@code 5xx}, from discovery, the JWKS or the token
  * endpoint — or a refusal with its exact reason (ADR 0013, "Audit"), read from what failed and
- * never from a message, which can quote what Epic sent. {@link EpicLoginOutcomeService} records
+ * never from a message, which can quote what Epic sent. {@link LoginOutcomeService} records
  * the outcome — audit, log and counts — and the browser lands at {@code /?signin=unavailable} or
  * {@code /?signin=refused}, the session it held ended first, whoever it belonged to, and told
  * nothing more (D23, D24).
@@ -52,9 +52,9 @@ public class EpicLoginFailureHandler implements EpicSignInFailure {
     /** Spring Security's error code for a callback with no pending authorization request. */
     private static final String AUTHORIZATION_REQUEST_NOT_FOUND = "authorization_request_not_found";
 
-    private final EpicLoginOutcomeService outcomes;
+    private final LoginOutcomeService outcomes;
 
-    public EpicLoginFailureHandler(EpicLoginOutcomeService outcomes) {
+    public EpicLoginFailureHandler(LoginOutcomeService outcomes) {
         this.outcomes = outcomes;
     }
 
@@ -62,28 +62,28 @@ public class EpicLoginFailureHandler implements EpicSignInFailure {
     public void onAuthenticationFailure(
             HttpServletRequest request, HttpServletResponse response,
             AuthenticationException failure) throws IOException {
-        EpicLoginOutcome outcome = outcomeOf(failure);
+        LoginOutcome outcome = outcomeOf(failure);
         HttpSession session = request.getSession(false);
         outcomes.record(outcome, session == null ? null : session.getId());
         EpicLoginLanding.after(outcome, request, response);
     }
 
     /** The outcome {@code failure} ended the Login in. */
-    private static EpicLoginOutcome outcomeOf(AuthenticationException failure) {
+    private static LoginOutcome outcomeOf(AuthenticationException failure) {
         if (failure instanceof EpicSignInRefusedException ours) {
             return ours.field().isPresent() && ours.rule().isPresent()
-                    ? Refused.input(ours.reason(), ours.field().get(), ours.rule().get())
-                    : Refused.because(ours.reason());
+                    ? EpicRefused.input(ours.reason(), ours.field().get(), ours.rule().get())
+                    : EpicRefused.because(ours.reason());
         }
         Optional<EpicOutboundException> outbound = EpicOutboundException.in(failure);
         if (outbound.isEmpty()) {
-            return Refused.because(reasonFor(failure, outbound));
+            return EpicRefused.because(reasonFor(failure, outbound));
         }
         EpicOutboundException failed = outbound.get();
         FailedCall call = new FailedCall(failed.call().tag(), failed.category(), failed.code());
         return failed.unavailable()
                 ? new Unavailable(call)
-                : Refused.call(reasonFor(failure, outbound), call);
+                : EpicRefused.call(reasonFor(failure, outbound), call);
     }
 
     /**

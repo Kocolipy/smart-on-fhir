@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Why an Epic Login was refused (ADR 0013, "Audit"): the closed list an Epic
  * {@code LOGIN_FAILURE} carries exactly one of, and the {@code reason} tag of the
- * {@code epic.login} counter, both spelled as the constant's name.
+ * {@code login} counter's Epic series, both spelled as the constant's name.
  *
  * <p>The reasons are audit-only. The browser is told nothing but {@code /?signin=refused}
  * (D23), and the operational log says only "Epic sign-in refused" (ADR 0013, "the account

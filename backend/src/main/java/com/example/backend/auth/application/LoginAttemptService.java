@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
  * else counts attempts. The counting is explicit rather than driven by Spring Security's authentication
  * events — see {@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}. Enforcement is not
  * here: {@link LoginIdentityService} reports a locked identity to Spring Security, which rejects it
- * before any password is checked.
+ * whatever the password, once it has compared that password as it would a wrong one.
  *
  * <p>Each method is its own transaction, and both write through the SCIM User port's narrow
  * login-state operation. Narrow matters twice over. It cannot revert a profile attribute a connector
@@ -95,19 +95,23 @@ public class LoginAttemptService {
      *
      * <p>Every append on this path is fail-open: the caller is already receiving a bare {@code 401}
      * and a trail that cannot be written must not change that answer. See {@link AuditTrail}.
+     *
+     * @return the reason the {@code LOGIN_FAILURE} was recorded under: {@code reason}, or
+     *     {@code UNKNOWN_ACCOUNT} when the name matched no User
      */
     @Transactional
-    public void recordFailure(String username, AuditRefusalReason reason) {
+    public AuditRefusalReason recordFailure(String username, AuditRefusalReason reason) {
         Optional<ScimUser> found = find(username);
         if (found.isEmpty()) {
             audit.recordLoginFailure(
                     null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD);
-            return;
+            return AuditRefusalReason.UNKNOWN_ACCOUNT;
         }
 
         ScimUser user = found.get();
         failures.count(user);
         audit.recordLoginFailure(user.id(), reason, AuditLoginMethod.PASSWORD);
+        return reason;
     }
 
     /**

@@ -407,7 +407,7 @@ class OperationalTelemetryIntegrationTests {
         assertThat(rules.get("EpicClientCredentialRefused"))
                 .contains("epic_login_failed_calls_total{call=\"token\", error_category=\"cert/auth\"}");
         assertThat(rules.get("EpicLoginRefusalsSurge"))
-                .contains("epic_login_total{outcome=\"refused\"}");
+                .contains("login_total{method=\"sso\", outcome=\"refused\"}");
     }
 
     /**

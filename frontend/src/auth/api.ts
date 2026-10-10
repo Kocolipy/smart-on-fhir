@@ -105,6 +105,9 @@ export async function login(username: string, password: string): Promise<AuthUse
       discardCsrfToken();
       return result.data;
     case "unauthenticated":
+      // A refused login ends whatever session the browser held, and the token
+      // bound to it; a retry fetches a token for the session it gets next.
+      discardCsrfToken();
       throw new Error("The username or password is incorrect.");
     case "forbidden":
       throw new Error(FORBIDDEN_MESSAGE);
