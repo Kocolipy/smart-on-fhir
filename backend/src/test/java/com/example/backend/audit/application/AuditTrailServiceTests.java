@@ -10,6 +10,7 @@ import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
@@ -17,6 +18,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditScimRefusal;
+import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.OperationalAlerts;
@@ -752,8 +754,10 @@ class AuditTrailServiceTests {
     void aSessionRevocationNamesItsCausesInOrderAndClassifiesItsOutcome() {
         Set<AuditUserAttribute> causes = new LinkedHashSet<>(List.of(
                 AuditUserAttribute.PASSWORD, AuditUserAttribute.ACTIVE, AuditUserAttribute.USER_NAME));
-        trail.recordUserSessionsRevoked(ACTOR, SUBJECT, causes, true);
-        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(AuditUserAttribute.GROUPS), false);
+        trail.recordUserSessionsRevoked(ACTOR, SUBJECT, causes,
+                Set.of(AuditSessionRevocationCause.PASSWORD_CHANGED), true);
+        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(AuditUserAttribute.GROUPS),
+                Set.of(AuditSessionRevocationCause.ROLE_REVOKED), false);
 
         AuditEvent revoked = events.appended.get(0);
         assertThat(revoked.operation()).isEqualTo(AuditOperation.USER_SESSIONS_REVOKE);
@@ -767,6 +771,32 @@ class AuditTrailServiceTests {
         assertThat(failed.statusClass()).isEqualTo(AuditEvent.STATUS_SERVER_ERROR);
         assertThat(failed.actorId()).isNull();
         assertThat(failed.changedPaths()).containsExactly("groups");
+    }
+
+    /**
+     * A revocation's reason is its causes, by their names and in a stable order whatever order
+     * the set iterates in — whether it changed an attribute or not.
+     */
+    @Test
+    void aSessionRevocationRecordsItsCausesAsItsReason() {
+        trail.recordUserSessionsRevoked(ACTOR, SUBJECT,
+                Set.of(AuditUserAttribute.USER_NAME, AuditUserAttribute.ACTIVE),
+                new LinkedHashSet<>(List.of(AuditSessionRevocationCause.USER_NAME_CHANGED,
+                        AuditSessionRevocationCause.DEACTIVATED)),
+                true);
+        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(),
+                Set.of(AuditSessionRevocationCause.FAILURE_RUN_LOCKOUT), false);
+
+        assertThat(events.appended).extracting(AuditEvent::errorCode)
+                .containsExactly("DEACTIVATED,USER_NAME_CHANGED", "FAILURE_RUN_LOCKOUT");
+    }
+
+    /** D17: an Epic success records its MFA factor by its own spelling. */
+    @Test
+    void anEpicLoginSuccessRecordsItsMfaFactor() {
+        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.SSO, AuditMfaFactor.OTP);
+
+        assertThat(events.only().mfaFactor()).isEqualTo("otp");
     }
 
     /** A Group replacement names its moved attributes in a stable order, too. */
@@ -986,6 +1016,11 @@ class AuditTrailServiceTests {
                 AuditOperation operation, Class<? extends Throwable> failure) {
             raised.add(operation);
             failures.add(failure);
+        }
+
+        @Override
+        public void sessionRevocationFailed(Class<? extends Throwable> failure) {
+            throw new UnsupportedOperationException("the audit trail revokes no session");
         }
     }
 

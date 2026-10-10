@@ -3,7 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -47,9 +47,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>Why this is here and not in the scim slice</h2>
  *
- * <p>The forced change has to reach the sessions the identity is already holding, and the port that
- * ends them ({@link AccountSessions}) is this slice's: a session is a fact about the login
- * surface, not about the directory. So the use case that needs both the directory and the
+ * <p>The forced change has to reach the sessions the identity is already holding, and the module
+ * that ends them ({@link SessionRevocationService}) is this slice's: a session is a fact about the
+ * login surface, not about the directory. The revocation is audited under
+ * {@code FORCED_PASSWORD_CHANGE}, naming the administrator as its actor. So the use case that
+ * needs both the directory and the
  * sessions lives on the side that owns the sessions and reaches the directory through its ports,
  * which is also the direction that keeps the two slices acyclic.
  */
@@ -60,22 +62,19 @@ public class IdentityAdministrationService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
-    private final AccountSessions sessions;
-    private final AfterCommit afterCommit;
+    private final SessionRevocationService sessions;
     private final AuditTrail audit;
     private final Clock clock;
 
     public IdentityAdministrationService(
             ScimUserRepository users,
             ScimGroupRepository groups,
-            AccountSessions sessions,
-            AfterCommit afterCommit,
+            SessionRevocationService sessions,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
         this.groups = groups;
         this.sessions = sessions;
-        this.afterCommit = afterCommit;
         this.audit = audit;
         this.clock = clock;
     }
@@ -243,7 +242,8 @@ public class IdentityAdministrationService {
         ScimLoginState flagged = user.login().withPasswordChangeRequired(clock.instant());
         users.requirePasswordChange(user.id(), flagged.passwordChangeRequiredSince());
         audit.recordPasswordChangeRequired(actorId, user.id());
-        afterCommit.run(() -> sessions.revokeAll(user.id()));
+        sessions.revokeAllAfterCommit(
+                user.id(), SessionRevocationCause.FORCED_PASSWORD_CHANGE, actorId);
         succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
         return summarize(user, flagged);
     }

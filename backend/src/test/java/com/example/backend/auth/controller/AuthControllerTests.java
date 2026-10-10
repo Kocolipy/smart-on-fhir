@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.ScimGroup;
@@ -22,7 +23,7 @@ import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
-import com.example.backend.auth.application.ScimUserSessionRevocationService;
+import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -131,7 +132,15 @@ class AuthControllerTests {
         transaction =
                 new com.example.backend.auth.PendingCommit();
         LoginAttemptService attempts = new LoginAttemptService(
-                users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
+                users,
+                new SessionRevocationService(
+                        accountSessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(3),
+                audit,
+                clock);
         LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
         controller = new AuthController(
                 new LoginService(manager, attempts, identities, outcomes),
@@ -143,7 +152,11 @@ class AuthControllerTests {
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
                         attempts,
-                        new ScimUserSessionRevocationService(accountSessions, transaction, audit),
+                        new SessionRevocationService(
+                                accountSessions,
+                                transaction,
+                                audit,
+                                new RecordingOperationalAlerts()),
                         audit,
                         clock),
                 audit,

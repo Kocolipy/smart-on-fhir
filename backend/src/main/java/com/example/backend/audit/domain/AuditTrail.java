@@ -311,16 +311,24 @@ public interface AuditTrail {
     void recordScimUserDeleteRejected(UUID connectorId, UUID userId, AuditScimRefusal reason);
 
     /**
-     * Records the outcome of ending a User's sessions after a committed write. Fail-open with an
-     * alert: it runs after the commit, so there is no write left for a failed append to undo.
+     * Records the outcome of a Session revocation — ending a User's sessions after a committed
+     * change, whatever triggered it. Fail-open with an alert: it runs after the commit, so there is
+     * no write left for a failed append to undo.
      *
-     * @param connectorId the connector whose write ended them, or {@code null} when a scheduled
-     *                    job did — the job is not a principal, and the event it follows names it
-     * @param causes      the attributes whose change ended the sessions
-     * @param succeeded   whether the session store ended them
+     * @param actorId   who caused it: the connector whose write it followed, the administrator who
+     *                  forced a password change — or {@code null} when the dormancy job, a Login
+     *                  or the User's own self-service change did, none recorded as an actor
+     * @param paths     the attributes whose change ended the sessions, as the changed paths; empty
+     *                  when no attribute changed (a deletion, a lockout, a Login)
+     * @param causes    why the sessions ended, recorded as the event's reason; never empty
+     * @param succeeded whether the session store ended them
      */
     void recordUserSessionsRevoked(
-            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded);
+            UUID actorId,
+            UUID userId,
+            Set<AuditUserAttribute> paths,
+            Set<AuditSessionRevocationCause> causes,
+            boolean succeeded);
 
     /**
      * Records the dormancy job locking a dormant User. Fail-closed: the append joins the job's

@@ -45,4 +45,35 @@ class LoggingOperationalAlertsAdapterTests {
                     .contains("type", "never the exception");
         }
     }
+
+    /**
+     * A session store that could not end a User's sessions is one high-severity {@code ERROR}
+     * about the session end, naming the failure's type — the sessions it was meant to end may
+     * still be live, whatever the request it followed answered.
+     */
+    @Test
+    void aSessionRevocationFailureIsOneClassifiedErrorAboutTheSessionEnd() {
+        try (CapturedLog logs = CapturedLog.attach()) {
+            new LoggingOperationalAlertsAdapter().sessionRevocationFailed(
+                    DataAccessResourceFailureException.class);
+
+            List<ILoggingEvent> records =
+                    logs.withAction(Level.TRACE, LogEvent.ACTION, "session-end");
+            assertThat(records).hasSize(1);
+            ILoggingEvent record = records.getFirst();
+            assertThat(record.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(record.getFormattedMessage())
+                    .isEqualTo("Sessions could not be ended; they may still be live");
+            assertThat(record.getThrowableProxy()).isNull();
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.ERROR_CODE, 500)
+                    .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+                    .containsEntry(LogEvent.SEVERITY, "high")
+                    .containsEntry(LogEvent.OUTCOME, "failure")
+                    .containsEntry(LogEvent.REASON, "DataAccessResourceFailureException")
+                    .containsEntry(LogEvent.ERROR_CAUSE_OMITTED,
+                            LoggingOperationalAlertsAdapter.CAUSE_OMITTED)
+                    .containsEntry(LogEvent.TYPE, List.of("error"));
+        }
+    }
 }

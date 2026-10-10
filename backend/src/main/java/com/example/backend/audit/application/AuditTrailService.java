@@ -15,6 +15,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditScimRefusal;
+import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.OperationalAlerts;
@@ -656,24 +657,39 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records a post-commit session revocation and whether it worked. Fail-open with an alert:
-     * the write it follows is already durable, so failing here could undo nothing and would only
-     * turn a committed write into an error.
+     * Records a post-commit Session revocation, whatever triggered it, and whether it worked.
+     * Fail-open with an alert: the change it follows is already durable, so failing here could
+     * undo nothing and would only turn a committed change into an error.
      *
-     * <p>A failed revocation is recorded with a server-error status class, because the write
-     * succeeded and it was this service, not the caller, that could not finish the job.
+     * <p>The causes are the event's reason ({@code errorCode}, the column every event's
+     * closed-set reason lives in), so a lockout's revocation is told apart from a Login's
+     * without reading the event before it. A failed revocation is recorded with a server-error
+     * status class, because the change succeeded and it was this service, not the caller, that
+     * could not finish the job.
      */
     @Override
     public void recordUserSessionsRevoked(
-            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded) {
+            UUID actorId,
+            UUID userId,
+            Set<AuditUserAttribute> paths,
+            Set<AuditSessionRevocationCause> causes,
+            boolean succeeded) {
         appendRaisingAlertOnFailure(event(
                 AuditOperation.USER_SESSIONS_REVOKE,
                 succeeded ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
-                connectorId,
+                actorId,
                 userId,
-                userPaths(causes),
+                userPaths(paths),
                 succeeded ? AuditEvent.STATUS_OK : AuditEvent.STATUS_SERVER_ERROR,
-                null));
+                causeNames(causes)));
+    }
+
+    /** A revocation's causes as its reason: their names, in declaration order, comma-joined. */
+    private static String causeNames(Set<AuditSessionRevocationCause> causes) {
+        return causes.stream()
+                .sorted()
+                .map(AuditSessionRevocationCause::name)
+                .collect(Collectors.joining(","));
     }
 
     /** The recorded path names for a set of changed User attributes, in a stable order. */

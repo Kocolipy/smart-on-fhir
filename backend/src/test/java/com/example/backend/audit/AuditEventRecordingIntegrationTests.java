@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import ch.qos.logback.classic.Level;
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestRoleMappings;
@@ -13,6 +16,7 @@ import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -84,6 +88,9 @@ class AuditEventRecordingIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private InMemoryAccountSessions accountSessions;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -215,6 +222,51 @@ class AuditEventRecordingIntegrationTests {
         assertThat(rows(AuditOperation.LOGIN_FAILURE))
                 .extracting(row -> row.get("error_code"))
                 .contains(AuditRefusalReason.ACCOUNT_LOCKED.name());
+    }
+
+    /**
+     * The lockout's Session revocation is audited under its cause, after the commit — and,
+     * the account holding no other session, only because it ended one.
+     */
+    @Test
+    void reachingTheFailureLimitAuditsTheRevocationUnderTheFailureRunLockout() throws Exception {
+        accountSessions.open(idOf(USER), "held-elsewhere");
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+        }
+
+        Map<String, Object> event = only(AuditOperation.USER_SESSIONS_REVOKE);
+        assertThat(List.of(event.get("outcome"), event.get("error_code"), event.get("subject_id")))
+                .isEqualTo(List.of("SUCCESS", "FAILURE_RUN_LOCKOUT", idOf(USER)));
+    }
+
+    /**
+     * A rejected Login is a refusal (ADR 0004): when the lockout it imposes cannot end the
+     * account's sessions because the store is down, the answer is still the bare {@code 401},
+     * and the failure is on record and alerted rather than silently lost.
+     */
+    @Test
+    void aLockoutWhoseRevocationFailsStillAnswersTheBareRefusalWithTheFailureAuditedAndAlerted()
+            throws Exception {
+        accountSessions.failWith(new IllegalStateException("session store unavailable"));
+        try (CapturedLog logs = CapturedLog.attach()) {
+            for (int attempt = 0; attempt < 4; attempt++) {
+                logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+            }
+
+            logIn(USER, "not-the-password")
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(content().string(""));
+
+            Map<String, Object> event = only(AuditOperation.USER_SESSIONS_REVOKE);
+            assertThat(List.of(event.get("outcome"), event.get("error_code")))
+                    .isEqualTo(List.of("FAILURE", "FAILURE_RUN_LOCKOUT"));
+            assertThat(logs.withAction(Level.ERROR, LogEvent.ACTION, "session-end"))
+                    .as("the revocation failure is alerted").hasSize(1);
+        } finally {
+            accountSessions.failWith(null);
+        }
     }
 
     /**

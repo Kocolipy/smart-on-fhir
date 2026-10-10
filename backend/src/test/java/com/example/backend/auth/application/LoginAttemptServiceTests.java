@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
@@ -22,6 +23,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +54,15 @@ class LoginAttemptServiceTests {
     @BeforeEach
     void setUp() {
         attempts = new LoginAttemptService(
-                users, sessions, transaction, new LockoutPolicy(3), audit, clock);
+                users,
+                new SessionRevocationService(
+                        sessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(3),
+                audit,
+                clock);
         users.given(ScimIdentities.user("ada"));
     }
 
@@ -134,6 +144,16 @@ class LoginAttemptServiceTests {
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
+    /** The reason a refusal was recorded under: the caller's, or unknown when nobody matched. */
+    @Test
+    void aRefusalReportsTheReasonItWasRecordedUnder() {
+        assertThat(List.of(
+                        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS),
+                        attempts.recordFailure("nobody", AuditRefusalReason.BAD_CREDENTIALS)))
+                .containsExactly(
+                        AuditRefusalReason.BAD_CREDENTIALS, AuditRefusalReason.UNKNOWN_ACCOUNT);
+    }
+
     @Test
     void anAcceptedLoginForAnUnknownUsernameIsANoOp() {
         attempts.recordPasswordSuccess("nobody", null);
@@ -181,6 +201,32 @@ class LoginAttemptServiceTests {
         assertThat(sessions.sessionsOf(ada)).containsExactly("ada-current");
         assertThat(sessions.sessionsOf(bob)).containsExactly("bob-only");
         assertThat(sessions.loginRevocations()).containsExactly(ada);
+    }
+
+    /** A Login that ended another session is audited under one session per User's cause. */
+    @Test
+    void anAcceptedLoginThatEndedAnotherSessionAuditsItAsReplacedByLogin() {
+        java.util.UUID ada = users.require("ada").id();
+        sessions.open(ada, "ada-earlier");
+        sessions.open(ada, "ada-current");
+
+        attempts.recordPasswordSuccess("ada", "ada-current");
+        transaction.commit();
+
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE, null, ada, "SUCCESS::REPLACED_BY_LOGIN"));
+    }
+
+    /** A Login that kept the User's only session ended nothing, so nothing is revoked on record. */
+    @Test
+    void anAcceptedLoginThatEndedNoOtherSessionAuditsNoRevocation() {
+        java.util.UUID ada = users.require("ada").id();
+        sessions.open(ada, "ada-current");
+
+        attempts.recordPasswordSuccess("ada", "ada-current");
+        transaction.commit();
+
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).isEmpty();
     }
 
     /** A caller holding no session keeps none, so every earlier session of the User ends. */

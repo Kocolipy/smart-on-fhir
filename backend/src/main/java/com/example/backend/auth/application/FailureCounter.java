@@ -1,7 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -26,10 +26,14 @@ import java.time.Clock;
  * {@code LOCKOUT_SET} and revokes nothing further. The Lockout is permanent until an administrator
  * unlocks it ({@code /docs/adr/0007-permanent-lockout-until-admin-unlock.md}).
  *
- * <p>The revocation runs after the transaction commits, because Redis is not in the transaction and
- * a revocation already performed cannot be undone by a rollback — see
- * {@code /docs/adr/0002-revoke-sessions-after-commit.md}. The {@code LOCKOUT_SET} append is
- * fail-open, as everything on the failure path is ({@link AuditTrail}).
+ * <p>The revocation is the Session revocation module's ({@link SessionRevocationService}), under
+ * {@link SessionRevocationCause#FAILURE_RUN_LOCKOUT}: it runs after the transaction commits,
+ * because Redis is not in the transaction and a revocation already performed cannot be undone by a
+ * rollback ({@code /docs/adr/0002-revoke-sessions-after-commit.md}), and it is audited under that
+ * cause. It is the one revocation a refusal imposes, so a session store that fails is recorded and
+ * alerted without changing the path's bare refusal (ADR 0004's 2026-10-10 addendum). The
+ * {@code LOCKOUT_SET} append is fail-open, as everything on the failure path is
+ * ({@link AuditTrail}).
  *
  * <p>Plain Java and package-private: {@link LoginAttemptService} builds it from the collaborators
  * it already holds, so counting stays where ADR 0001 puts it rather than becoming a bean any module
@@ -38,22 +42,19 @@ import java.time.Clock;
 final class FailureCounter {
 
     private final ScimUserRepository users;
-    private final AccountSessions sessions;
-    private final AfterCommit afterCommit;
+    private final SessionRevocationService sessions;
     private final LockoutPolicy policy;
     private final AuditTrail audit;
     private final Clock clock;
 
     FailureCounter(
             ScimUserRepository users,
-            AccountSessions sessions,
-            AfterCommit afterCommit,
+            SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
         this.sessions = sessions;
-        this.afterCommit = afterCommit;
         this.policy = policy;
         this.audit = audit;
         this.clock = clock;
@@ -72,7 +73,8 @@ final class FailureCounter {
         users.updateLoginState(user.id(), after);
         if (after.isLocked() && !before.isLocked()) {
             audit.recordLockoutSet(user.id());
-            afterCommit.run(() -> sessions.revokeAll(user.id()));
+            sessions.revokeAllAfterCommit(
+                    user.id(), SessionRevocationCause.FAILURE_RUN_LOCKOUT, null);
         }
     }
 }

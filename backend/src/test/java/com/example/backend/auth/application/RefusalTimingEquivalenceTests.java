@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -88,12 +89,15 @@ class RefusalTimingEquivalenceTests {
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         RecordingAuditTrail audit = new RecordingAuditTrail();
         LoginAttemptService attempts = new LoginAttemptService(
-                        users,
+                users,
+                new SessionRevocationService(
                         new InMemoryAccountSessions(),
                         new PendingCommit(),
-                        new LockoutPolicy(5),
                         audit,
-                        clock);
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(5),
+                audit,
+                clock);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,

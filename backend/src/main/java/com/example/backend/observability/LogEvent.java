@@ -600,6 +600,7 @@ public final class LogEvent {
             case SCIM_WRITE -> "SCIM write refused by an unmapped integrity violation";
             case SCIM_REFUSAL -> "SCIM request refused";
             case AUDIT_APPEND -> "Audit event could not be appended; the request was not altered";
+            case SESSION_END -> "Sessions could not be ended; they may still be live";
             case HTTP_REQUEST_FAULT -> "Request failed with an unexpected exception";
             case EPIC_LOGIN -> "Epic sign-in failed";
             case EPIC_JWKS_REFETCH -> "Epic JWKS still lacks the id_token's key after its refetches";

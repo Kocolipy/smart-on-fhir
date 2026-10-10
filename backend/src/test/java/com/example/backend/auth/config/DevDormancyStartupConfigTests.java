@@ -4,12 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
-import com.example.backend.auth.application.ScimUserSessionRevocationService;
+import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
@@ -42,8 +43,11 @@ class DevDormancyStartupConfigTests {
     private final DormancyService dormancy = new DormancyService(
             users,
             groups,
-            new ScimUserSessionRevocationService(
-                    new InMemoryAccountSessions(), new PendingCommit(), audit),
+            new SessionRevocationService(
+                    new InMemoryAccountSessions(),
+                    new PendingCommit(),
+                    audit,
+                    new RecordingOperationalAlerts()),
             lock,
             DormancyPolicy.defaults(),
             TestRoleMappings.superuserOnly(),

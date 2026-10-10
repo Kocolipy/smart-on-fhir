@@ -377,9 +377,14 @@ Base64-encoded) is the session's bearer credential, and no record carries either
 - `user-logout` (`INFO`) is written with `user.id`, after its audit append.
 - `session-end` is written when a session ends by its absolute lifetime
   (`event.reason` `absolute-lifetime`, the session's own `user.id`). It is also
-  written for a revocation through `AccountSessions` that ended at least one
-  session: `revoked` (`revokeAll`) or `replaced-by-login` (`revokeAllExcept`), with
-  the account as `user.target.id` and `session.ended_count`.
+  written for a Session revocation (`SessionRevocationService`) that ended at least
+  one session. Its `event.reason` is the revocation's causes: the
+  `SessionRevocationCause` names, comma-joined in declaration order
+  (`FAILURE_RUN_LOCKOUT`, `REPLACED_BY_LOGIN`, `DEACTIVATED,USER_NAME_CHANGED`).
+  These are the same names its `USER_SESSIONS_REVOKE` audit event records. The
+  record also carries the account as `user.target.id` and `session.ended_count`.
+- A revocation the session store fails is an `ERROR` `session-end` alert
+  (`OperationalAlerts.sessionRevocationFailed`) naming the failure's type.
 - A session that idles out in Redis is not observed. Observing it needs Redis
   keyspace notifications, which `session.yaml` leaves off (`configure-action:
 none`) because ElastiCache disables `CONFIG`.

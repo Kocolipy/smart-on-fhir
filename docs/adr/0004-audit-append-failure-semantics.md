@@ -10,7 +10,8 @@ The administrator's disable and enable named below were removed when `active`
 became the directory's. The rule is unchanged and is the decision, not the list:
 an event an otherwise-successful request records joins its transaction; refusal
 events run fail-open, and so does the record of a post-commit session revocation,
-whose transaction has already committed (`AuditTrailService`).
+whose transaction has already committed (`AuditTrailService`). How a failing
+session store answers, on every revocation trigger, is the 2026-10-10 addendum below.
 
 ## Context
 
@@ -88,3 +89,45 @@ with no record of who did it, which is the single event the trail exists for.
 
 **Append after commit, everywhere.** Rejected: it makes every append fail-open by
 construction, and the transactional guarantee in (1) becomes unexpressible.
+
+## Addendum (2026-10-10): Session revocation, on every trigger
+
+Session revocation became one module (`SessionRevocationService`) that every
+per-User trigger goes through: a SCIM write, the dormancy job, a failure-run
+lockout, a forced or self-service password change, and an accepted Login's
+one-session-per-User sweep. Before, only the revocations requested through the
+directory's port were audited; a failure-run lockout, a forced change and a Login's
+sweep ended sessions unrecorded, and a session store that failed under a rejected
+Login turned its `401` into a `500`. The module applies this ADR's axis to the two
+failures a revocation can meet.
+
+**The audit append is fail-open with an alert**, on every trigger. The
+`USER_SESSIONS_REVOKE` event is appended after the commit, so there is no change
+left for a failed append to undo; failing the request over it would only report an
+error for a change that happened. That was already the rule for the SCIM
+revocation, and it now covers the auth-path ones too.
+
+**A session store that fails is always recorded and always alerted** — a
+`USER_SESSIONS_REVOKE` event with outcome `FAILURE`, and
+`OperationalAlerts.sessionRevocationFailed` — and then follows what the triggering
+request was going to return:
+
+- where the request would otherwise **succeed** — a forced password change, an
+  accepted Login's sweep, a SCIM write, the dormancy job's lockout or role
+  revocation, a self-service password change — the failure **propagates**. The
+  change stays durable (ADR 0002), and the caller is told the request failed
+  rather than that it succeeded while the sessions it should have ended survive;
+- where the request is **already refused** — a failure-run lockout, imposed by a
+  rejected Login or a rejected self-service password change — the failure is
+  **swallowed**, so the answer stays the same bare `401` whatever the state of the
+  session store, for the reason the rejected Login's own appends are fail-open.
+
+The refusal case is the expensive one, and worth stating plainly: a locked User's
+sessions may outlive the lock while the store is down, and only the `FAILURE`
+event and the `ERROR` alert say so. The lock itself is committed, so no new Login
+succeeds; the live sessions are what an operator acting on the alert must end.
+
+A revocation that ended no session and did not fail records nothing — there is
+nothing to account for — which matches the `session-end` log record, already
+skipped at zero. This deliberately changes the SCIM revocation's earlier
+always-audit behaviour.
