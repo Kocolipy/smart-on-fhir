@@ -47,6 +47,15 @@ module.exports = {
     },
 
     {
+      name: "lb-transport-has-no-react",
+      comment:
+        "src/lib/http.ts and decode.ts stay dependency-free — no auth types, no React (docs/ARCHITECTURE.md). mb-lib-is-a-leaf holds the first half; this holds the second, so the transport stays callable outside a component tree.",
+      severity: "error",
+      from: { path: "^src/lib/(http|decode)\\.ts$" },
+      to: { path: "^node_modules/(react|react-dom|react-router|react-router-dom)/" },
+    },
+
+    {
       name: "styles-not-in-logic-files",
       comment:
         "The session layer and the *-api.ts request modules hold no markup, so they have no reason to import a stylesheet; style imports belong in component files and the composition root.",
