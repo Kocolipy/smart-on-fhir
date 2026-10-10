@@ -55,4 +55,19 @@ class LoggingOperationalAlertsAdapter implements OperationalAlerts {
                 .addKeyValue(LogEvent.ERROR_CAUSE_OMITTED, CAUSE_OMITTED)
                 .log();
     }
+
+    /**
+     * High severity for the reason an append failure is: sessions that should have ended may
+     * still be acting, and on a refusal nothing but this record says so. The session store is
+     * the datastore that failed, so it is classified as one.
+     */
+    @Override
+    public void sessionRevocationFailed(Class<? extends Throwable> failure) {
+        LogEvent.error(log, Operation.SESSION_END, ERROR_CODE, ErrorCategory.DATABASE,
+                        Category.DATABASE, Type.ERROR)
+                .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
+                .addKeyValue(LogEvent.REASON, failure.getSimpleName())
+                .addKeyValue(LogEvent.ERROR_CAUSE_OMITTED, CAUSE_OMITTED)
+                .log();
+    }
 }

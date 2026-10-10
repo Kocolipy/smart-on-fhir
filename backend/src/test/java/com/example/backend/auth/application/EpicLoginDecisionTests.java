@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
@@ -66,8 +67,11 @@ class EpicLoginDecisionTests {
                 users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new InMemoryAccountSessions(),
-                new PendingCommit(),
+                new SessionRevocationService(
+                        new InMemoryAccountSessions(),
+                        new PendingCommit(),
+                        audit,
+                        new RecordingOperationalAlerts()),
                 new LockoutPolicy(5),
                 audit,
                 new MutableClock(NOW));

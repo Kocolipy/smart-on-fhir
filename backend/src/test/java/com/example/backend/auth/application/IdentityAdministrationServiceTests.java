@@ -8,6 +8,7 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -69,7 +70,15 @@ class IdentityAdministrationServiceTests {
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private final IdentityAdministrationService service = new IdentityAdministrationService(
-            users, groups, sessions, transaction, audit, clock);
+            users,
+            groups,
+            new SessionRevocationService(
+                    sessions,
+                    transaction,
+                    audit,
+                    new RecordingOperationalAlerts()),
+            audit,
+            clock);
 
     // Reviewing who has access
 
@@ -674,8 +683,23 @@ class IdentityAdministrationServiceTests {
         assertThat(sessions.sessionsOf(bob.id())).as("revocation waits for the commit").hasSize(1);
         transaction.commit();
         assertThat(sessions.sessionsOf(bob.id())).isEmpty();
-        assertThat(audit.recorded()).containsExactly(new Recorded(
+        assertThat(audit.recorded()).first().isEqualTo(new Recorded(
                 AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
+    }
+
+    /** The revocation is audited under its cause, naming the administrator who forced it. */
+    @Test
+    void forcingAChangeAuditsTheRevocationUnderItsCauseWithTheAdministratorAsActor() {
+        ScimUser recovery = givenBootstrapAdmin();
+        ScimUser bob = given("bob");
+        sessions.open(bob.id(), "bob-session");
+
+        service.forcePasswordChange(id("bob"), BOOTSTRAP);
+        transaction.commit();
+
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE, recovery.id(), bob.id(),
+                "SUCCESS::FORCED_PASSWORD_CHANGE"));
     }
 
     /** A User already flagged keeps when its change was first required; nothing is re-imposed. */

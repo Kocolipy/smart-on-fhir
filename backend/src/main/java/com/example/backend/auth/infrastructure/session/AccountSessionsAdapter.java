@@ -1,15 +1,9 @@
 package com.example.backend.auth.infrastructure.session;
 
 import com.example.backend.auth.domain.AccountSessions;
-import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Component;
@@ -35,17 +29,14 @@ import org.springframework.stereotype.Component;
  * id and survives a later username change, while {@code Authentication.getName()}
  * — and everything that reads it, including the login/{@code /me} response — is
  * untouched and keeps naming the username.
+ *
+ * <p>It ends sessions and reports how many, and nothing more. The {@code session-end}
+ * record and the audit event are the Session revocation module's
+ * ({@code SessionRevocationService}), which knows the revocation's cause; this adapter is
+ * not told it.
  */
 @Component
 public class AccountSessionsAdapter implements AccountSessions {
-
-    /** The cause a session-end record names for {@link #revokeAll}: the account was taken away. */
-    static final String REVOKED = "revoked";
-
-    /** The cause for {@link #revokeAllExcept}: a login keeping one session ended the rest. */
-    static final String REPLACED_BY_LOGIN = "replaced-by-login";
-
-    private static final Logger log = LoggerFactory.getLogger(AccountSessionsAdapter.class);
 
     private final FindByIndexNameSessionRepository<? extends Session> sessions;
 
@@ -55,15 +46,15 @@ public class AccountSessionsAdapter implements AccountSessions {
 
     @Override
     public int revokeAll(UUID accountId) {
-        return revoke(accountId, null, REVOKED);
+        return revoke(accountId, null);
     }
 
     @Override
     public int revokeAllExcept(UUID accountId, String retainedSessionId) {
-        return revoke(accountId, retainedSessionId, REPLACED_BY_LOGIN);
+        return revoke(accountId, retainedSessionId);
     }
 
-    private int revoke(UUID accountId, String retainedSessionId, String cause) {
+    private int revoke(UUID accountId, String retainedSessionId) {
         // Copied out of the returned map before deleting: the lookup's result is
         // the repository's own view, and deleting through it while iterating is
         // not something the interface promises to tolerate.
@@ -71,23 +62,6 @@ public class AccountSessionsAdapter implements AccountSessions {
                 .filter(id -> !id.equals(retainedSessionId))
                 .collect(Collectors.toUnmodifiableSet());
         ids.forEach(sessions::deleteById);
-        if (!ids.isEmpty()) {
-            recordEnded(accountId, cause, ids.size());
-        }
         return ids.size();
-    }
-
-    /**
-     * One {@code session-end} record per revocation that ended anything. The account whose
-     * sessions ended is {@code user.target.id}: {@code user.id} stays the actor the request
-     * already carries — the administrator, or nobody for a connector or a scheduled job.
-     * No session id is named; an id is the session's bearer credential.
-     */
-    private static void recordEnded(UUID accountId, String cause, int ended) {
-        LogEvent.success(log, Operation.SESSION_END, Category.PROCESS, Type.END)
-                .addKeyValue(LogEvent.REASON, cause)
-                .addKeyValue(LogEvent.USER_TARGET_ID, accountId.toString())
-                .addKeyValue(LogEvent.SESSIONS_ENDED, ended)
-                .log();
     }
 }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -128,8 +129,8 @@ class DormancyServiceTests {
         transaction.commit();
 
         assertThat(accountSessions.sessionsOf(ada.id())).isEmpty();
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(
-                new Recorded(AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:"));
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS::DORMANCY_LOCKOUT"));
     }
 
     /**
@@ -256,9 +257,10 @@ class DormancyServiceTests {
         transaction.commit();
 
         assertThat(accountSessions.sessionsOf(ada.id())).isEmpty();
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(
-                new Recorded(AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS"),
-                new Recorded(AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:"));
+        // The role revocation ended the session, so the lockout's revocation that follows it
+        // ended none and is not on record.
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS:ROLE_REVOKED"));
     }
 
     /** A boundary case, so the clock moves, as for the lockout window. */
@@ -591,7 +593,11 @@ class DormancyServiceTests {
         return new DormancyService(
                 users,
                 groups,
-                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
+                new SessionRevocationService(
+                        accountSessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
                 lock,
                 policy,
                 MAPPING,

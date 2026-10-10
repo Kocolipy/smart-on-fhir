@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -131,6 +132,16 @@ class FailureCounterTests {
         assertThat(sessions.sessionsOf(ada)).isEmpty();
     }
 
+    /** The Lockout's revocation is audited like every other, under its own cause. */
+    @Test
+    void imposingTheLockoutAuditsTheRevocationUnderTheFailureRunLockout() {
+        countTimes("ada", LIMIT);
+        transaction.commit();
+
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE, null, ada, "SUCCESS::FAILURE_RUN_LOCKOUT"));
+    }
+
     /** A rolled-back transaction wrote no lock, so it revokes nothing. */
     @Test
     void aRolledBackLockoutRevokesNothing() {
@@ -235,7 +246,15 @@ class FailureCounterTests {
 
     private FailureCounter counterDeferringTo(AfterCommit afterCommit) {
         return new FailureCounter(
-                users, sessions, afterCommit, new LockoutPolicy(LIMIT), audit, clock);
+                users,
+                new SessionRevocationService(
+                        sessions,
+                        afterCommit,
+                        audit,
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(LIMIT),
+                audit,
+                clock);
     }
 
     /** Counts {@code times} failures, re-reading the User each time as a path does. */

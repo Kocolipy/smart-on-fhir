@@ -5,7 +5,6 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.auth.domain.AccountSessions;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -43,7 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
  * revocation already performed cannot be undone by a rollback — see
  * {@code /docs/adr/0002-revoke-sessions-after-commit.md}. Both failure paths carry that out through
  * one {@link FailureCounter}, which persists the counted failure and, on a newly imposed lock,
- * audits it and schedules the revocation; each path then records only its own refusal.
+ * audits it and schedules the revocation; each path then records only its own refusal. Every
+ * revocation here — the lockout's, and an accepted login's one-session-per-User sweep — goes
+ * through {@link SessionRevocationService}, which audits and logs it under its cause.
  *
  * <p>This is also where the login path's audit events are recorded, for the same reason the counting
  * is here: this class already holds the identity the attempt was made against, so each path names
@@ -54,25 +55,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoginAttemptService {
 
     private final ScimUserRepository users;
-    private final AccountSessions sessions;
-    private final AfterCommit afterCommit;
+    private final SessionRevocationService sessions;
     private final AuditTrail audit;
     private final Clock clock;
     private final FailureCounter failures;
 
     public LoginAttemptService(
             ScimUserRepository users,
-            AccountSessions sessions,
-            AfterCommit afterCommit,
+            SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
         this.sessions = sessions;
-        this.afterCommit = afterCommit;
         this.audit = audit;
         this.clock = clock;
-        this.failures = new FailureCounter(users, sessions, afterCommit, policy, audit, clock);
+        this.failures = new FailureCounter(users, sessions, policy, audit, clock);
     }
 
     /**
@@ -180,7 +178,7 @@ public class LoginAttemptService {
                 users.recordAuthentication(user.id(), clock.instant());
             }
             recordLoginSuccess.accept(user);
-            afterCommit.run(() -> sessions.revokeAllExcept(user.id(), retainedSessionId));
+            sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
         });
     }
 

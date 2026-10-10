@@ -8,6 +8,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -56,13 +57,25 @@ class PasswordChangeServiceTests {
     @BeforeEach
     void setUp() {
         LoginAttemptService attempts = new LoginAttemptService(
-                users, accountSessions, transaction, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
+                users,
+                new SessionRevocationService(
+                        accountSessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(MAX_ATTEMPTS),
+                audit,
+                clock);
         service = new PasswordChangeService(
                 users,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 encoder,
                 attempts,
-                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
+                new SessionRevocationService(
+                        accountSessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
                 audit,
                 clock);
         ada = users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
@@ -103,7 +116,7 @@ class PasswordChangeServiceTests {
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE))
                 .singleElement()
                 .extracting(RecordingAuditTrail.Recorded::detail)
-                .isEqualTo("SUCCESS:PASSWORD");
+                .isEqualTo("SUCCESS:PASSWORD:PASSWORD_CHANGED");
     }
 
     /**
@@ -247,9 +260,21 @@ class PasswordChangeServiceTests {
                 users,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 verifiesAnything,
-                new LoginAttemptService(users, accountSessions, transaction,
-                        new LockoutPolicy(MAX_ATTEMPTS), audit, clock),
-                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
+                new LoginAttemptService(
+                        users,
+                        new SessionRevocationService(
+                                accountSessions,
+                                transaction,
+                                audit,
+                                new RecordingOperationalAlerts()),
+                        new LockoutPolicy(MAX_ATTEMPTS),
+                        audit,
+                        clock),
+                new SessionRevocationService(
+                        accountSessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
                 audit,
                 clock);
         ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));

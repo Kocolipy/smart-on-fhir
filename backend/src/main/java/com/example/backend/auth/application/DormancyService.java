@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.authorization.domain.Role;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
@@ -14,11 +15,9 @@ import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import com.example.backend.scim.domain.ScimUserSessions;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,7 +93,7 @@ public class DormancyService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
-    private final ScimUserSessions sessions;
+    private final SessionRevocationService sessions;
     private final ScheduledJobLock lock;
     private final DormancyPolicy policy;
     private final RoleMapping roleMapping;
@@ -104,7 +103,7 @@ public class DormancyService {
     public DormancyService(
             ScimUserRepository users,
             ScimGroupRepository groups,
-            ScimUserSessions sessions,
+            SessionRevocationService sessions,
             ScheduledJobLock lock,
             DormancyPolicy policy,
             RoleMapping roleMapping,
@@ -164,8 +163,7 @@ public class DormancyService {
             }
             audit.recordDormancyRoleRevocation(userId, lost);
             logRoleRevocation(userId, lost);
-            sessions.revokeAfterCommit(
-                    null, userId, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED));
+            sessions.revokeAllAfterCommit(userId, SessionRevocationCause.ROLE_REVOKED, null);
             revoked.add(userId);
         });
         return revoked;
@@ -196,7 +194,7 @@ public class DormancyService {
             }
             audit.recordDormancyLockout(candidate);
             logLockout(candidate);
-            sessions.revokeAfterCommit(null, candidate, EnumSet.of(ScimUserSessions.Cause.LOCKED));
+            sessions.revokeAllAfterCommit(candidate, SessionRevocationCause.DORMANCY_LOCKOUT, null);
             locked.add(candidate);
         }
         return locked;

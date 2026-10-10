@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
@@ -64,8 +65,15 @@ class LoginOutcomeServiceTests {
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
     private final LoginOutcomeService outcomes = new LoginOutcomeService(
-            new LoginAttemptService(users, new InMemoryAccountSessions(),
-                    new PendingCommit(), new LockoutPolicy(5), audit,
+            new LoginAttemptService(
+                    users,
+                    new SessionRevocationService(
+                            new InMemoryAccountSessions(),
+                            new PendingCommit(),
+                            audit,
+                            new RecordingOperationalAlerts()),
+                    new LockoutPolicy(5),
+                    audit,
                     new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
             audit, counts, counts);
 

@@ -3,11 +3,11 @@ package com.example.backend.auth.infrastructure.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.auth.AccountSessionsContract;
+import com.example.backend.auth.domain.AccountSessions;
 import com.example.backend.observability.LogEvent;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -16,154 +16,55 @@ import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.MapSession;
 
 /**
- * The adapter over a session repository that indexes by principal, which is the
- * only contract it depends on — the real one is Redis-backed, and none of what
- * this class does is Redis-specific.
+ * The adapter over a session repository that indexes by principal, which is the only contract it
+ * depends on — the real one is Redis-backed ({@link RedisAccountSessionsContractTests}), and none
+ * of what this class does is Redis-specific.
  *
- * <p>What is worth pinning here is narrow and easy to get wrong: that it deletes
- * every session it found rather than the first, that it deletes nobody else's,
- * and that an account signed in nowhere is a no-op rather than an error.
+ * <p>The seam itself is {@link AccountSessionsContract}'s: that the adapter deletes every session
+ * it found rather than the first, deletes nobody else's, and treats an account signed in nowhere
+ * as a no-op rather than an error.
  *
- * <p>The fake indexes sessions by the same value {@link AccountSessionsAdapter}
- * writes and searches: the account's stable id, stringified. A session
- * belonging to one account is opened under that account's id rather than under
- * a username, since the adapter never sees or compares usernames.
+ * <p>The fake indexes sessions by the same value {@link AccountSessionsAdapter} writes and
+ * searches: the account's stable id, stringified.
  */
-class AccountSessionsAdapterTests {
-
-    private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
-    private static final UUID ZOE = UUID.fromString("00000000-0000-0000-0000-0000000000e0");
+class AccountSessionsAdapterTests extends AccountSessionsContract {
 
     private final IndexedSessions sessions = new IndexedSessions();
 
     private final AccountSessionsAdapter adapter = new AccountSessionsAdapter(sessions);
 
-    @Test
-    void endsEverySessionTheAccountHolds() {
-        sessions.open(BOB);
-        sessions.open(BOB);
-
-        assertThat(adapter.revokeAll(BOB)).isEqualTo(2);
-        assertThat(sessions.principals()).isEmpty();
+    @Override
+    protected AccountSessions sessions() {
+        return adapter;
     }
 
-    @Test
-    void endsNoSessionBelongingToAnotherAccount() {
-        String survivor = sessions.open(ZOE);
-        sessions.open(BOB);
-
-        adapter.revokeAll(BOB);
-
-        assertThat(sessions.findById(survivor)).isNotNull();
-        assertThat(sessions.principals()).containsExactly(ZOE.toString());
+    @Override
+    protected String open(UUID accountId) {
+        return sessions.open(accountId);
     }
 
-    @Test
-    void reportsNoSessionsForAnAccountSignedInNowhere() {
-        sessions.open(ZOE);
-
-        assertThat(adapter.revokeAll(BOB)).isZero();
-        assertThat(sessions.principals()).containsExactly(ZOE.toString());
+    @Override
+    protected boolean isLive(String sessionId) {
+        return sessions.findById(sessionId) != null;
     }
-
-    /** A login keeps the session it is completed in and ends every other one of the account's. */
-    @Test
-    void endsEveryOtherSessionTheAccountHoldsButKeepsTheRetainedOne() {
-        String earlier = sessions.open(BOB);
-        String another = sessions.open(BOB);
-        String retained = sessions.open(BOB);
-        String zoes = sessions.open(ZOE);
-
-        assertThat(adapter.revokeAllExcept(BOB, retained)).isEqualTo(2);
-
-        assertThat(sessions.findById(retained)).isNotNull();
-        assertThat(sessions.findById(earlier)).isNull();
-        assertThat(sessions.findById(another)).isNull();
-        assertThat(sessions.findById(zoes)).as("nobody else's session ends").isNotNull();
-    }
-
-    /** A caller that held no session yet retains nothing, so every session of the account ends. */
-    @Test
-    void endsEverySessionWhenNoneIsRetained() {
-        sessions.open(BOB);
-        sessions.open(BOB);
-        String zoes = sessions.open(ZOE);
-
-        assertThat(adapter.revokeAllExcept(BOB, null)).isEqualTo(2);
-
-        assertThat(sessions.principals()).containsExactly(ZOE.toString());
-        assertThat(sessions.findById(zoes)).isNotNull();
-    }
-
-    /** Retaining a session the account does not hold neither fails nor spares one it does. */
-    @Test
-    void retainingASessionOfAnotherAccountSparesNoneOfThisOnes() {
-        sessions.open(BOB);
-        String zoes = sessions.open(ZOE);
-
-        assertThat(adapter.revokeAllExcept(BOB, zoes)).isEqualTo(1);
-
-        assertThat(sessions.principals()).containsExactly(ZOE.toString());
-    }
-
-    // ---- session-end records (#69) -----------------------------------------------------------
 
     /**
-     * A revocation that ended sessions is one INFO {@code session-end} record: the cause, the
-     * account by stable id as the target, and how many ended — never a session id, which is
-     * the session's bearer credential.
+     * The {@code session-end} record is the Session revocation module's, written under the
+     * revocation's cause — which this adapter is not told. A record here would be a second one,
+     * naming no cause.
      */
     @Test
-    void aRevocationIsOneSessionEndRecordNamingTheCauseAndTheAccount() {
-        String first = sessions.open(BOB);
-        String second = sessions.open(BOB);
-
-        ILoggingEvent record = onlyRecord(() -> adapter.revokeAll(BOB));
-
-        assertThat(record.getLevel()).isEqualTo(Level.INFO);
-        assertThat(record.getFormattedMessage()).isEqualTo("Session ended");
-        assertThat(CapturedLog.fields(record))
-                .containsEntry(LogEvent.ACTION, "session-end")
-                .containsEntry(LogEvent.TYPE, List.of("end"))
-                .containsEntry(LogEvent.OUTCOME, "success")
-                .containsEntry(LogEvent.REASON, "revoked")
-                .containsEntry(LogEvent.USER_TARGET_ID, BOB.toString())
-                .containsEntry(LogEvent.SESSIONS_ENDED, 2);
-        assertThat(CapturedLog.fields(record).toString() + record.getMDCPropertyMap())
-                .doesNotContain(first).doesNotContain(second);
-    }
-
-    @Test
-    void aLoginEndingTheOtherSessionsSaysSo() {
-        sessions.open(BOB);
-        String retained = sessions.open(BOB);
-
-        ILoggingEvent record = onlyRecord(() -> adapter.revokeAllExcept(BOB, retained));
-
-        assertThat(CapturedLog.fields(record))
-                .containsEntry(LogEvent.REASON, "replaced-by-login")
-                .containsEntry(LogEvent.SESSIONS_ENDED, 1);
-    }
-
-    /** Nothing ended, nothing to record — for either operation. */
-    @Test
-    void aRevocationThatEndedNothingWritesNoRecord() {
-        String retained = sessions.open(BOB);
+    void endingSessionsWritesNoRecordOfItsOwn() {
+        UUID bob = UUID.randomUUID();
+        sessions.open(bob);
+        String retained = sessions.open(bob);
+        sessions.open(bob);
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            adapter.revokeAll(ZOE);
-            adapter.revokeAllExcept(BOB, retained);
+            adapter.revokeAllExcept(bob, retained);
+            adapter.revokeAll(bob);
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.KIND, "event")).isEmpty();
-        }
-    }
-
-    private static ILoggingEvent onlyRecord(Runnable action) {
-        try (CapturedLog captured = CapturedLog.attach()) {
-            action.run();
-            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
-            assertThat(records).hasSize(1);
-            return records.getFirst();
         }
     }
 
@@ -179,14 +80,6 @@ class AccountSessionsAdapterTests {
             session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, accountId.toString());
             save(session);
             return session.getId();
-        }
-
-        /** Who is still signed in, so a test can assert on the blast radius. */
-        java.util.List<String> principals() {
-            return stored.values().stream()
-                    .map(session -> (String) session.getAttribute(PRINCIPAL_NAME_INDEX_NAME))
-                    .distinct()
-                    .toList();
         }
 
         @Override

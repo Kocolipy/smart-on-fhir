@@ -25,6 +25,8 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     private final List<UUID> loginRevocations = new ArrayList<>();
 
+    private RuntimeException failure;
+
     /** Record a session this account holds, as a successful login would. */
     public void open(UUID accountId, String sessionId) {
         live.computeIfAbsent(accountId, key -> new ArrayList<>()).add(sessionId);
@@ -35,6 +37,26 @@ public final class InMemoryAccountSessions implements AccountSessions {
         return List.copyOf(live.getOrDefault(accountId, List.of()));
     }
 
+    /**
+     * Makes every revocation from now on fail with {@code failure}, as a session store that is
+     * down would — or, given {@code null}, work again. A full-context test sharing this bean
+     * must restore it.
+     */
+    public void failWith(RuntimeException failure) {
+        this.failure = failure;
+    }
+
+    private void failIfDown() {
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    /** Whether any account still holds this session. */
+    public boolean isLive(String sessionId) {
+        return live.values().stream().anyMatch(held -> held.contains(sessionId));
+    }
+
     /** Every account id revoked, in order, including ones holding no session. */
     public List<UUID> revocations() {
         return List.copyOf(revocations);
@@ -42,6 +64,7 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     @Override
     public int revokeAll(UUID accountId) {
+        failIfDown();
         revocations.add(accountId);
         List<String> ended = live.remove(accountId);
         return ended == null ? 0 : ended.size();
@@ -58,6 +81,7 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     @Override
     public int revokeAllExcept(UUID accountId, String retainedSessionId) {
+        failIfDown();
         loginRevocations.add(accountId);
         List<String> held = live.getOrDefault(accountId, List.of());
         List<String> kept = held.stream().filter(id -> id.equals(retainedSessionId)).toList();

@@ -535,7 +535,7 @@ class ScimWriteEffectsTests {
 
             Set<Cause> causes = EnumSet.of(Cause.DELETED);
             SessionRevocation revocation = new SessionRevocation(USER_ID, causes);
-            causes.add(Cause.LOCKED);
+            causes.add(Cause.ROLE_REVOKED);
             assertThat(revocation.userId()).isEqualTo(USER_ID);
             assertThat(revocation.causes()).containsExactly(Cause.DELETED);
 
@@ -555,7 +555,7 @@ class ScimWriteEffectsTests {
                     .isInstanceOf(UnsupportedOperationException.class);
             assertThatThrownBy(() -> before.memberIds().add(BOB))
                     .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> revocation.causes().add(Cause.LOCKED))
+            assertThatThrownBy(() -> revocation.causes().add(Cause.ROLE_REVOKED))
                     .isInstanceOf(UnsupportedOperationException.class);
         }
     }

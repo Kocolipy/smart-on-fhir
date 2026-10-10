@@ -10,6 +10,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
+import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.authorization.domain.Permission;
@@ -292,13 +293,18 @@ public final class RecordingAuditTrail implements AuditTrail {
 
     /** The detail is the outcome, then the causes: {@code "SUCCESS:ACTIVE,PASSWORD"}. */
     @Override
+    /** The detail is {@code OUTCOME:PATHS:CAUSES}, each list sorted by name and comma-joined. */
     public void recordUserSessionsRevoked(
-            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded) {
+            UUID actorId,
+            UUID userId,
+            Set<AuditUserAttribute> paths,
+            Set<AuditSessionRevocationCause> causes,
+            boolean succeeded) {
         recorded.add(new Recorded(
                 AuditOperation.USER_SESSIONS_REVOKE,
-                connectorId,
+                actorId,
                 userId,
-                (succeeded ? "SUCCESS:" : "FAILURE:") + joined(causes)));
+                (succeeded ? "SUCCESS:" : "FAILURE:") + joined(paths) + ":" + joined(causes)));
     }
 
     @Override

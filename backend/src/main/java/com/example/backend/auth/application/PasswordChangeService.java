@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -11,10 +12,8 @@ import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import com.example.backend.scim.domain.ScimUserSessions;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,7 +59,7 @@ public class PasswordChangeService {
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
-    private final ScimUserSessions sessions;
+    private final SessionRevocationService sessions;
     private final AuditTrail audit;
     private final Clock clock;
 
@@ -73,7 +72,7 @@ public class PasswordChangeService {
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginAttemptService attempts,
-            ScimUserSessions sessions,
+            SessionRevocationService sessions,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
@@ -126,8 +125,7 @@ public class PasswordChangeService {
         users.recordAuthentication(userId, now);
         passwordAcceptance.remember(userId, accepted, now);
         audit.recordPasswordChanged(userId);
-        sessions.revokeAfterCommit(
-                null, userId, EnumSet.of(ScimUserSessions.Cause.PASSWORD_CHANGED));
+        sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
         LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
                 .log();
     }

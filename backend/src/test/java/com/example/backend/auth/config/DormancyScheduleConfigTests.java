@@ -4,11 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
-import com.example.backend.auth.application.ScimUserSessionRevocationService;
+import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.ScheduledJobMetrics;
@@ -22,7 +23,6 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserSessions;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
@@ -52,11 +52,14 @@ class DormancyScheduleConfigTests {
 
     @BeforeEach
     void schedule() {
-        scheduled = scheduled(new ScimUserSessionRevocationService(
-                new InMemoryAccountSessions(), new PendingCommit(), audit));
+        scheduled = scheduled(new SessionRevocationService(
+                new InMemoryAccountSessions(),
+                new PendingCommit(),
+                audit,
+                new RecordingOperationalAlerts()));
     }
 
-    private Runnable scheduled(ScimUserSessions sessions) {
+    private Runnable scheduled(SessionRevocationService sessions) {
         DormancyService dormancy = new DormancyService(
                 users,
                 groups,
@@ -134,9 +137,13 @@ class DormancyScheduleConfigTests {
     void aFailedRunCountsNothing() {
         users.given(ScimIdentities.user("ada"));
         clock.advanceBy(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
-        Runnable failing = scheduled((connector, user, causes) -> {
-            throw new IllegalStateException("revocation could not be scheduled");
-        });
+        Runnable failing = scheduled(new SessionRevocationService(
+                new InMemoryAccountSessions(),
+                work -> {
+                    throw new IllegalStateException("revocation could not be scheduled");
+                },
+                audit,
+                new RecordingOperationalAlerts()));
 
         assertThatThrownBy(failing::run).isInstanceOf(IllegalStateException.class);
 

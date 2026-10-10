@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.authorization.TestRoleMappings;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -101,19 +102,30 @@ class LoginLockoutTests {
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         LoginAttemptService attempts = new LoginAttemptService(
-                        users,
+                users,
+                new SessionRevocationService(
                         sessions,
                         transaction,
-                        new LockoutPolicy(5),
                         audit,
-                        clock);
+                        new RecordingOperationalAlerts()),
+                new LockoutPolicy(5),
+                audit,
+                clock);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
                 RecordingLoginCounts.uncounted(attempts, audit));
         administration = new IdentityAdministrationService(
-                users, groups, sessions, transaction, audit, clock);
+                users,
+                groups,
+                new SessionRevocationService(
+                        sessions,
+                        transaction,
+                        audit,
+                        new RecordingOperationalAlerts()),
+                audit,
+                clock);
     }
 
     @Test
