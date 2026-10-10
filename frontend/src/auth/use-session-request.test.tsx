@@ -19,10 +19,8 @@ const state: AuthContextState = {
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
-  passwordChanged: false,
-  sessionExpired: false,
+  signInReason: null,
   signOutForInactivity: vi.fn(),
-  signedOutForInactivity: false,
   status: "authenticated",
   user: {
     idleTimeoutSeconds: 900,

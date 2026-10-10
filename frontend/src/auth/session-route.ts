@@ -9,6 +9,7 @@
 import type { Permission } from "./api";
 import type { AuthStatus } from "./auth-context-value";
 import { holdsAny } from "./permissions";
+import type { SessionEndReason, SignInReasonState } from "./sign-in-reason";
 
 /** The login route, which is also where an unauthenticated visitor is sent. */
 export const LOGIN_PATH = "/";
@@ -32,17 +33,12 @@ export type SessionRequirement = "authenticated" | "guest" | { anyOf: readonly P
 /**
  * State a redirect carries forward.
  *
- * `from` is the **return destination**: the protected path the visitor asked
- * for, replayed once they sign in. `expired` distinguishes an expired session
- * from a cold visit, `passwordChanged` a session ended by the User's own
- * successful password change, and `inactive` one the SPA signed out because it
- * was left idle, so the login route can say which happened.
+ * `from` is the **return destination**: the protected path the Guest asked
+ * for, replayed once they sign in. `reason` is the sign-in reason the session
+ * ended with, absent on a cold visit; `sign-in-reason.ts` owns what it says.
  */
-export interface SessionRouteState {
+export interface SessionRouteState extends SignInReasonState {
   from?: string;
-  expired?: boolean;
-  inactive?: boolean;
-  passwordChanged?: boolean;
 }
 
 export type SessionRoute =
@@ -53,8 +49,6 @@ export type SessionRoute =
 export interface SessionRouteInput {
   /** The session carries the change-required flag and is confined to the change. */
   passwordChangeRequired: boolean;
-  /** The current `guest` status came from a successful password change. */
-  passwordChanged: boolean;
   /** The path being visited, recorded as the return destination on a redirect. */
   pathname: string;
   requires: SessionRequirement;
@@ -62,21 +56,18 @@ export interface SessionRouteInput {
   returnTo?: string;
   /** The authenticated session's Permissions, when they are known. */
   permissions?: readonly Permission[];
-  sessionExpired: boolean;
-  /** The current `guest` status came from the SPA's sign-out for inactivity. */
-  signedOutForInactivity: boolean;
+  /** Why the current `guest` status began, or `null` for a cold visit. */
+  signInReason: SessionEndReason | null;
   status: AuthStatus;
 }
 
 export function resolveSessionRoute({
   passwordChangeRequired,
-  passwordChanged,
   pathname,
   permissions,
   requires,
   returnTo,
-  sessionExpired,
-  signedOutForInactivity,
+  signInReason,
   status,
 }: SessionRouteInput): SessionRoute {
   if (status === "checking") return { kind: "pending" };
@@ -85,16 +76,14 @@ export function resolveSessionRoute({
     if (requires === "guest") return { kind: "render" };
     // A change ends the session on purpose, so the page it was made from is no
     // destination to replay: the next sign-in lands on the default instead.
-    if (passwordChanged) {
-      return { kind: "redirect", state: { passwordChanged: true }, to: LOGIN_PATH };
+    if (signInReason === "password-changed") {
+      return { kind: "redirect", state: { reason: signInReason }, to: LOGIN_PATH };
     }
-    // An idle sign-out replays the page it left, as an expiry does: the user
-    // did not choose to leave it.
+    // An Idle sign-out replays the page it left, as an expiry does: the User
+    // did not choose to leave it. A cold visit records the destination alone.
     return {
       kind: "redirect",
-      state: signedOutForInactivity
-        ? { from: pathname, inactive: true }
-        : { expired: sessionExpired, from: pathname },
+      state: signInReason ? { from: pathname, reason: signInReason } : { from: pathname },
       to: LOGIN_PATH,
     };
   }

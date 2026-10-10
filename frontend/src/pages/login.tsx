@@ -2,43 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
-import type { SessionRouteState } from "@/auth/session-route";
+import { signInNoticeFor } from "@/auth/sign-in-reason";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
-/** Shown when the visitor arrives here because their session expired. */
-const EXPIRED_MESSAGE = "Your session ended. Please sign in again.";
-
-/** Shown when the visitor arrives here because the SPA signed them out for inactivity. */
-const INACTIVE_MESSAGE = "You were signed out because you were inactive. Please sign in again.";
-
-/** Shown when the visitor arrives here because their own password change ended the session. */
-const CHANGED_CREDENTIAL_MESSAGE = "Your password was changed. Sign in with your new password.";
-
-/**
- * Shown when an Epic launch landed here refused (`/?signin=refused`). Neutral on
- * purpose: the backend gives the browser no reason, and this page invents none.
- */
-const EPIC_REFUSED_MESSAGE = "Sign-in from Epic was refused";
-
-/**
- * Shown when an Epic launch landed here because Epic could not be reached
- * (`/?signin=unavailable`): a timeout or an Epic server error. Distinct from a
- * refusal, because relaunching shortly may well succeed.
- */
-const EPIC_UNAVAILABLE_MESSAGE = "Sign-in from Epic is temporarily unavailable. Try again shortly.";
-
-/** The notice for the `?signin=` marker an Epic launch landed with; any other says nothing. */
-function epicNoticeFor(signin: string | null): string | null {
-  switch (signin) {
-    case "refused":
-      return EPIC_REFUSED_MESSAGE;
-    case "unavailable":
-      return EPIC_UNAVAILABLE_MESSAGE;
-    default:
-      return null;
-  }
-}
 
 /** Always shown: a clinician signs in by opening the application from Epic, not here. */
 const CLINICIANS_LINE = "Clinicians: open this application from Epic.";
@@ -49,20 +15,10 @@ export function Login() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Where to go afterwards is the guest route's decision, not this page's: it
-  // reads the same return destination and redirects once the status changes.
-  const carried = location.state as SessionRouteState | null;
-  // An Epic launch arrives by full-page navigation, so it carries a query
-  // marker rather than router state; the two never coincide.
-  const notice =
-    epicNoticeFor(new URLSearchParams(location.search).get("signin")) ??
-    (carried?.passwordChanged === true
-      ? CHANGED_CREDENTIAL_MESSAGE
-      : carried?.inactive === true
-        ? INACTIVE_MESSAGE
-        : carried?.expired === true
-          ? EXPIRED_MESSAGE
-          : null);
+  // Why the Guest is here is the sign-in reason's to say, and where to go
+  // afterwards is the guest route's: it reads the return destination and
+  // redirects once the status changes.
+  const notice = signInNoticeFor(location);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

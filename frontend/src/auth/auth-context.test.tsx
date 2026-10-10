@@ -36,10 +36,9 @@ async function mounted() {
   return hook;
 }
 
-/** The provenance the route guards read, plus the status. */
-const provenance = (state: ReturnType<typeof useAuthState>) => ({
-  passwordChanged: state.passwordChanged,
-  sessionExpired: state.sessionExpired,
+/** The sign-in reason the route guards read, plus the status. */
+const signInReasonAndStatus = (state: ReturnType<typeof useAuthState>) => ({
+  signInReason: state.signInReason,
   status: state.status,
 });
 
@@ -48,15 +47,20 @@ describe("AuthProvider", () => {
     vi.resetAllMocks();
   });
 
+  it("refuses to read the session outside the provider", () => {
+    // React reports the render error on the console as well as throwing it.
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(() => renderHook(() => useAuthState())).toThrow(
+      /^useAuth must be used inside AuthProvider\.$/,
+    );
+  });
+
   it("starts as a cold guest when there is no session", async () => {
     api.getCurrentUser.mockResolvedValue(null);
     const { result } = await mounted();
 
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: false,
-      status: "guest",
-    });
+    expect(signInReasonAndStatus(result.current)).toEqual({ signInReason: null, status: "guest" });
     expect(result.current.user).toBeNull();
   });
 
@@ -64,11 +68,7 @@ describe("AuthProvider", () => {
     api.getCurrentUser.mockRejectedValue(new Error("offline"));
     const { result } = await mounted();
 
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: false,
-      status: "guest",
-    });
+    expect(signInReasonAndStatus(result.current)).toEqual({ signInReason: null, status: "guest" });
   });
 
   it("holds a flagged session's user as reported", async () => {
@@ -91,9 +91,8 @@ describe("AuthProvider", () => {
 
     expect(outcome).toEqual({ kind: "changed" });
     expect(api.changePassword).toHaveBeenCalledWith("old-value", "new-value");
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: true,
-      sessionExpired: false,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "password-changed",
       status: "guest",
     });
     expect(result.current.user).toBeNull();
@@ -119,10 +118,10 @@ describe("AuthProvider", () => {
     expect(outcome).toEqual(refusal);
     expect(result.current.status).toBe("authenticated");
     expect(result.current.user).toEqual(CONFINED);
-    expect(result.current.passwordChanged).toBe(false);
+    expect(result.current.signInReason).toBeNull();
   });
 
-  it("clears the change provenance on the next login", async () => {
+  it("clears the password-change reason on the next login", async () => {
     api.getCurrentUser.mockResolvedValue(CONFINED);
     api.changePassword.mockResolvedValue({ kind: "changed" });
     api.login.mockResolvedValue(USER);
@@ -136,9 +135,8 @@ describe("AuthProvider", () => {
     });
 
     expect(api.login).toHaveBeenCalledWith(...CREDENTIALS);
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: false,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: null,
       status: "authenticated",
     });
     expect(result.current.user).toEqual(USER);
@@ -154,22 +152,21 @@ describe("AuthProvider", () => {
     expect(http.discardCsrfToken).toHaveBeenCalledOnce();
   });
 
-  it("clears the expiry provenance on the next login", async () => {
+  it("clears the expiry reason on the next login", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
     api.login.mockResolvedValue(USER);
     const { result } = await mounted();
 
     act(() => result.current.expireSession());
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: true,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "expired",
       status: "guest",
     });
 
     await act(async () => {
       await result.current.login(...CREDENTIALS);
     });
-    expect(result.current.sessionExpired).toBe(false);
+    expect(result.current.signInReason).toBeNull();
   });
 
   it("an expiry after a change says the session expired, not that it changed", async () => {
@@ -182,14 +179,13 @@ describe("AuthProvider", () => {
     });
     act(() => result.current.expireSession());
 
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: true,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "expired",
       status: "guest",
     });
   });
 
-  it("logs out to a cold guest, clearing both provenances", async () => {
+  it("logs out to a cold guest, clearing the sign-in reason", async () => {
     api.getCurrentUser.mockResolvedValue(CONFINED);
     api.changePassword.mockResolvedValue({ kind: "changed" });
     api.login.mockResolvedValue(USER);
@@ -211,11 +207,7 @@ describe("AuthProvider", () => {
     });
 
     expect(api.logout).toHaveBeenCalledTimes(1);
-    expect(provenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: false,
-      status: "guest",
-    });
+    expect(signInReasonAndStatus(result.current)).toEqual({ signInReason: null, status: "guest" });
     expect(result.current.user).toBeNull();
   });
 
@@ -230,10 +222,8 @@ describe("AuthProvider", () => {
 
     expect(api.logout).toHaveBeenCalledOnce();
     expect(http.discardCsrfToken).toHaveBeenCalledOnce();
-    expect(idleProvenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: false,
-      signedOutForInactivity: true,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "inactive",
       status: "guest",
     });
     expect(result.current.user).toBeNull();
@@ -249,14 +239,14 @@ describe("AuthProvider", () => {
     });
 
     expect(http.discardCsrfToken).toHaveBeenCalledOnce();
-    expect(idleProvenance(result.current)).toMatchObject({
-      signedOutForInactivity: true,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "inactive",
       status: "guest",
     });
     expect(result.current.user).toBeNull();
   });
 
-  it("clears the inactivity provenance on the next login, and on a later expiry", async () => {
+  it("clears the Idle sign-out reason on the next login, and replaces it on a later expiry", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
     api.logout.mockResolvedValue(undefined);
     api.login.mockResolvedValue(USER);
@@ -268,22 +258,15 @@ describe("AuthProvider", () => {
     await act(async () => {
       await result.current.login(...CREDENTIALS);
     });
-    expect(result.current.signedOutForInactivity).toBe(false);
+    expect(result.current.signInReason).toBeNull();
 
     await act(async () => {
       await result.current.signOutForInactivity();
     });
     act(() => result.current.expireSession());
-    expect(idleProvenance(result.current)).toEqual({
-      passwordChanged: false,
-      sessionExpired: true,
-      signedOutForInactivity: false,
+    expect(signInReasonAndStatus(result.current)).toEqual({
+      signInReason: "expired",
       status: "guest",
     });
   });
-});
-
-const idleProvenance = (state: ReturnType<typeof useAuthState>) => ({
-  ...provenance(state),
-  signedOutForInactivity: state.signedOutForInactivity,
 });

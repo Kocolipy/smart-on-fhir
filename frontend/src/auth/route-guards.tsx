@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import type { Permission } from "./api";
-import { useAuth } from "./auth-context-value";
+import { useAuthState } from "./auth-context-value";
 import {
   resolveSessionRoute,
   type SessionRequirement,
@@ -25,19 +25,17 @@ function SessionRoute({
   children: ReactNode;
   requires: SessionRequirement;
 }) {
-  const { passwordChanged, sessionExpired, signedOutForInactivity, status, user } = useAuth();
+  const { signInReason, status, user } = useAuthState();
   const location = useLocation();
   const carried = location.state as SessionRouteState | null;
 
   const route = resolveSessionRoute({
     passwordChangeRequired: user?.passwordChangeRequired === true,
-    passwordChanged,
     pathname: location.pathname,
     permissions: user?.permissions,
     requires,
     returnTo: carried?.from,
-    sessionExpired,
-    signedOutForInactivity,
+    signInReason,
     status,
   });
 

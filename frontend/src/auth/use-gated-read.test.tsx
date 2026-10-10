@@ -26,10 +26,8 @@ function authState(permissions: Permission[]): AuthContextState {
     expireSession,
     login: vi.fn(),
     logout: vi.fn(),
-    passwordChanged: false,
-    sessionExpired: false,
+    signInReason: null,
     signOutForInactivity: vi.fn(),
-    signedOutForInactivity: false,
     status: "authenticated",
     user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
   };
