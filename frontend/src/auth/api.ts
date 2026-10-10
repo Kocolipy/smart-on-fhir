@@ -132,14 +132,10 @@ export async function login(username: string, password: string): Promise<AuthUse
 export async function logout(): Promise<void> {
   const result: ApiResult<void> = await apiFetch("/api/auth/logout", { method: "DELETE" });
   switch (result.kind) {
-    // Stryker disable StringLiteral: equivalent mutants. Blanking any of these
-    // three labels sends that kind past the switch, which returns just as the
-    // `return` below does; they are spelled out to name what resolves.
     case "ok":
     case "unauthenticated":
     case "forbidden":
       return;
-    // Stryker restore StringLiteral
     case "csrf-expired":
       throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":

@@ -46,10 +46,6 @@ export interface SessionTransitions {
 export function useSessionTransitions(): SessionTransitions {
   const [session, setSession] = useState<Session>(CHECKING);
 
-  // Stryker disable ArrayDeclaration: equivalent mutants. The only mutation of
-  // these empty dependency lists is a one-element constant list, which never
-  // changes between renders either, so each transition keeps its identity just
-  // as it does now and no observable behavior can tell the two apart.
   const signIn = useCallback((user: AuthUser) => {
     discardCsrfToken();
     setSession({ signInReason: null, status: "authenticated", user });
@@ -59,7 +55,6 @@ export function useSessionTransitions(): SessionTransitions {
     discardCsrfToken();
     setSession({ signInReason: reason, status: "guest", user: null });
   }, []);
-  // Stryker restore ArrayDeclaration
 
   return { end, session, signIn };
 }
