@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Primary;
  * {@code TIMESTAMPTZ} stores, so a timestamp read back compares equal to the instant written.
  *
  * <p>A top-level class, imported, for the reason {@code InMemorySessionRegistryConfiguration} is:
- * a nested configuration would give its test class a context and a Postgres container of its own
+ * a nested configuration would give its test class a context and a Postgres database of its own
  * even when another class imported an identical one.
  */
 @TestConfiguration

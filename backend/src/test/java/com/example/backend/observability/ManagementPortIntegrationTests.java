@@ -3,6 +3,7 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DevFixtures;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
@@ -53,7 +54,7 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMetrics
 class ManagementPortIntegrationTests {
 
-    static final String FIXTURE_PASSWORD = "management-port-fixture-password";
+    static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
     /** The Monitoring Role's fixture User: {@code ops:read} alone. */
     private static final String MONITORING = "monitoring";
