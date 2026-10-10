@@ -42,7 +42,7 @@ window between the candidate query and the write.
 ## Amendment (2026-10-02): the audit retention job
 
 The audit retention job takes the same lock, on its own `audit-retention` row, so
-two instances on the same cron no longer both run the delete (issue #97). It takes the
+two instances on the same cron no longer both run the delete. It takes the
 lock before assuming the retention role, as the application role, which holds the grant.
 
 The port and adapter moved from `auth` to a shared `scheduling` module for it: `audit`
@@ -52,7 +52,7 @@ so it could not reach a port in `auth.domain`. The mechanism is unchanged.
 ## Amendment (2026-10-04): the scheduled-job module registers every job
 
 Registration moved into the scheduled-job module, `ScheduledJobMetrics` (`observability`), so
-that it is in one place (issue #129). A schedule config now only names its job in a
+that it is in one place. A schedule config now only names its job in a
 `ScheduledJobSpec`: its name, `Operation`, cron, description, task, the fields particular to
 its startup record, and which of its run counts are also counters. `ScheduledJobMetrics.schedule`
 builds the cron task and its trigger in `ServiceTimeZone.ZONE`, registers the run metrics and

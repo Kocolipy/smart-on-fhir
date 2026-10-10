@@ -72,8 +72,8 @@ public class LoginService {
      * records how a Login ended by either method, so no caller can refuse a Login without the
      * record or skip the failure run. An acceptance is not: the Login has not ended until the
      * caller has signed the session in, so the caller records the {@link SignedIn} it is handed
-     * once it has, naming the session the User goes on to use ({@code LoginCompletion}; ADR
-     * 0013, addendum 2026-10-10). Neither record carries the submitted {@code username}. It is
+     * once it has, naming the session the User goes on to use ({@code LoginCompletion}; ADR 0014).
+     * Neither record carries the submitted {@code username}. It is
      * the single most sensitive value passing through here — it is half a credential, and on a
      * failed attempt it is very often a mistyped password — so it stays out of the log, in the
      * message and in the context alike. The accepted Login's record carries the identity's stable
@@ -134,7 +134,7 @@ public class LoginService {
      *
      * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
      * here: Epic's tokens are kept by the web adapter, on the session it signs in, only once this
-     * has accepted the User (ADR 0013's 2026-10-09 addendum); the Practitioner ID is not logged.
+     * has accepted the User (ADR 0013, D29); the Practitioner ID is not logged.
      *
      * <p>A refusal is recorded here, through {@link LoginOutcomeService}, as a password Login's
      * is, so no caller can refuse an Epic Login without the record: its {@code LOGIN_FAILURE} names its

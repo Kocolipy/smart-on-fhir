@@ -47,7 +47,7 @@ the failure run with it, or it does not authenticate submitted credentials at al
 `AuthController` is one such caller and owns only the session and CSRF work,
 which it delegates to `SessionEstablishment`. (Since 2026-10-10 both login methods'
 caller is `LoginCompletion`, which runs `SessionEstablishment` after the decision;
-see ADR 0013, addendum 2026-10-10.)
+see ADR 0014.)
 
 ## Consequences
 

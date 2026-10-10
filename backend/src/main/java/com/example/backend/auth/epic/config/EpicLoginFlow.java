@@ -74,8 +74,8 @@ import org.springframework.web.client.RestClientException;
  *       request alone ({@link EpicTokenHandOff}), and the login filter neither rotates the session
  *       nor saves a security context, so nothing from Epic reaches the pre-login session. The
  *       success handler establishes the session from our own Login instead, and only then keeps
- *       the access token, refresh token and {@code id_token} on it (ADR 0013, addendum
- *       2026-10-09, superseding D8 for those three); the launch context is still dropped.
+ *       the access token, refresh token and {@code id_token} on it (ADR 0013, D29, superseding D8
+ *       for those three); the launch context is still dropped.
  * </ul>
  *
  * <p>Any OAuth error or failed check, and any Epic call that failed — discovery at the authorize

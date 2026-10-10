@@ -4,10 +4,9 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the original design that spans #19
-(password-change lifecycle, which shipped the grace period), #18 (inactivity
-governance) and the confinement work in #46 and #47. Implemented in #48, for which
-no issue was filed. ADR 0011 has since replaced the inactivity job with the
+Accepted. Records a departure from the original design that spans the
+password-change lifecycle, which shipped the grace period, inactivity governance,
+and the change-required confinement. ADR 0011 has since replaced the inactivity job with the
 dormancy lockout; the consequences below are stated against it. Refined by the
 2026-10-09 addendum below (#23): only a password Login is confined by the
 change-required flag, so an Epic Login neither is confined nor keeps the
@@ -15,10 +14,10 @@ dormancy clock still.
 
 ## Context
 
-#19 shipped a grace period. A User whose change-required flag stayed set past a
+The password-change lifecycle shipped a grace period. A User whose change-required flag stayed set past a
 configured window was deactivated by a scheduled job,
 `PASSWORD_CHANGE_GRACE_DEACTIVATION`. Separately, every accepted Login set
-`lastAuthenticatedAt`, the dormancy basis that #18's inactivity job measures from.
+`lastAuthenticatedAt`, the dormancy basis that the inactivity job measured from.
 
 The two rules together had a gap and an overlap. The gap: a flagged User who
 kept logging in without changing the password never went dormant, because those
@@ -27,7 +26,8 @@ change the password or log out. The overlap: the grace job deactivated Users the
 inactivity job would also reach. A review against IM8 found no control that asks
 for a grace deadline. ac-6 and as-15 ask for the flag on every path that imposes
 a credential, a session confined to change-password and logout, and clearing
-only on a successful change. #46 and #47 had already delivered all of that.
+only on a successful change. The confinement work had already delivered all of
+that.
 
 ## Decision
 

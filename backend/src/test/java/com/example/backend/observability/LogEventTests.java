@@ -61,8 +61,7 @@ class LogEventTests {
      * {@code event.action}, with the reason no allowed value fits.
      */
     private static final String NO_ACTION_SECTION =
-            "docs/adr/0003 § Addendum (2026-10-02): user.id on the request record, and every"
-                    + " record's event.action — Operations with no event.action";
+            "docs/adr/0003 § Operations with no event.action";
 
     /**
      * The operations that carry no {@code event.action}, each naming the ADR section that

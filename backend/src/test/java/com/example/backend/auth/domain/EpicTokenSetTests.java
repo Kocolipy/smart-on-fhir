@@ -16,8 +16,7 @@ import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer
 
 /**
  * The Epic tokens one Epic Login kept: the access token and its expiry, the scope it was granted,
- * the refresh token when Epic issued one, and the {@code id_token} (ADR 0013, addendum
- * 2026-10-09).
+ * the refresh token when Epic issued one, and the {@code id_token} (ADR 0013, D29).
  */
 class EpicTokenSetTests {
 

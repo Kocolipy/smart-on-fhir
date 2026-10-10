@@ -22,12 +22,12 @@ import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.stereotype.Service;
 
 /**
- * Records how a Login ended, by either login method (ADR 0013, flow steps 6–8, and its addendum
- * of 2026-10-09 for password Login): the one place each ending's audit record, log line and
+ * Records how a Login ended, by either login method (ADR 0013, flow steps 6–8, and ADR 0014 for
+ * password Login): the one place each ending's audit record, log line and
  * counts are written, so no two endings — and no two login methods — can disagree about what an
  * ending emits. When each ending is recorded is the web adapter's Login completion's
  * ({@code LoginCompletion}), which runs one order for both methods: a success only once its
- * session is signed in (ADR 0013, addendum 2026-10-10). Where the browser goes next is each
+ * session is signed in (ADR 0014). Where the browser goes next is each
  * method's web adapter's, and a function of the outcome alone: a password Login's bare
  * {@code 401}, an Epic Login's redirect.
  *

@@ -194,7 +194,7 @@ session: no response carries them, `/api/auth/me` included, and the SPA holds no
 Epic credential. The patient and encounter context and the rest of the token
 response are discarded, and no FHIR API is called yet. Today Epic issues no
 refresh token, because the Login asks only for `launch openid fhirUser`
-(ADR 0013's 2026-10-09 addendum).
+(ADR 0013, D29).
 
 **Input bounds** — what the browser hands a Login is checked before it is held,
 sent to Epic or redeemed:

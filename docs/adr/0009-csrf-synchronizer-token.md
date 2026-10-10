@@ -5,7 +5,6 @@ Date: 2026-10-01
 ## Status
 
 Accepted. Reverses the original design's double-submit cookie choice for CSRF.
-Implemented in #65.
 
 ## Context
 
@@ -50,7 +49,7 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
 - **Frontend.** `src/lib/http.ts` keeps the token in memory only. It fetches the
   token before the first unsafe request and sends it in the header the endpoint
   names. On a `403` to an unsafe request it fetches a new token and retries
-  once, keeping the single-retry contract #57 refined. `src/auth/` calls
+  once, keeping the existing single-retry contract. `src/auth/` calls
   `discardCsrfToken()` whenever the session changes: after login, logout, a
   password change, and an expiry — and, since the 2026-10-09 addendum, after a
   refused login.

@@ -42,7 +42,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * assertion, the {@code id_token}, the access token, the refresh token, and the private key
  * material of both signing keys — in the whole log stream it produced, the whole audit trail after
  * it, and every answer our callback gave the browser. Epic's three tokens are kept server-side for
- * a signed-in session (ADR 0013, addendum 2026-10-09), and none of them leaves it this way. The
+ * a signed-in session (ADR 0013, D29), and none of them leaves it this way. The
  * same paths hold the {@code login} counter's Epic series and the {@code epic.outbound} meters to the tags each should
  * move.
  *
@@ -90,7 +90,7 @@ class EpicLoginRedactionIntegrationTests {
     @BeforeEach
     void setUp() {
         // Epic issues a refresh token on every path here, so it is searched for as a D22 value
-        // beside the access token and the id_token (ADR 0013, addendum 2026-10-09).
+        // beside the access token and the id_token (ADR 0013, D29).
         EPIC.fake().issuingRefreshTokens();
         logs = EcsLogCapture.attach(environment);
     }

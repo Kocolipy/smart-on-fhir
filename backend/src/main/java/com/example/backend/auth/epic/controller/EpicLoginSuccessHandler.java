@@ -45,7 +45,7 @@ import org.springframework.stereotype.Component;
  * {@link EpicTokens#SESSION_ATTRIBUTE}, taken from the token response the filter handed over
  * ({@link EpicTokenHandOff}): so they live under the rotated id alone, for exactly as long as the
  * session does, and the session is stored no longer than its remaining absolute lifetime (ADR
- * 0013, addendum 2026-10-09). The browser lands at {@code /}.
+ * 0013, D29). The browser lands at {@code /}.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
  * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
