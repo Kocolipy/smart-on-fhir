@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import type { Permission } from "@/auth/api";
-import { apiFetch } from "@/lib/http";
+import { apiFetch, type ApiDecoder } from "@/lib/http";
 
 import { Accounts } from "./accounts";
 import type { GroupRow, UserRow } from "./accounts-api";
@@ -110,14 +110,42 @@ function routeApi({
   users: Result;
 }) {
   const queue = [...actions];
-  apiFetchMock.mockImplementation(((path: string) => {
-    if (path === "/api/admin/accounts") return Promise.resolve(users);
-    if (path === "/api/admin/groups") return Promise.resolve(groups);
+  apiFetchMock.mockImplementation(((
+    path: string,
+    _init: RequestInit,
+    decode?: ApiDecoder<unknown>,
+  ) => {
+    if (path === "/api/admin/accounts") return answer(users, decode);
+    if (path === "/api/admin/groups") return answer(groups, decode);
     const next = queue.shift();
     if (next === undefined) throw new Error(`unexpected request to ${path}`);
-    return Promise.resolve(next);
+    return answer(next, decode);
   }) as never);
 }
+
+/**
+ * What `apiFetch` hands the page for a canned result: an `ok` result's `data`
+ * is the backend's JSON body, read through the decoder the page passed, and a
+ * body that decoder refuses is a plain `failed`, as `apiFetch` makes it — so a
+ * request naming the wrong decoder, or none where its answer has a body, fails
+ * the test rather than slipping the fixture through undecoded.
+ */
+async function answer(pending: Result, decode?: ApiDecoder<unknown>) {
+  const result = await pending;
+  if (!("kind" in result) || result.kind !== "ok") return result;
+  if (decode === undefined) return { kind: "ok", data: undefined };
+  try {
+    return {
+      kind: "ok",
+      data: await decode(Response.json("data" in result ? result.data : undefined)),
+    };
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
+/** Every request the page sent, as path and init — the operation it named. */
+const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
 
 function renderAccounts(value: AuthContextState = auth) {
   return render(
@@ -199,7 +227,7 @@ describe("Accounts", () => {
     expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
 
     expect(row("ada").getByText("Admin")).toBeInTheDocument();
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/accounts", {}, expect.any(Function));
+    expect(sent()).toContainEqual(["/api/admin/accounts", {}]);
   });
 
   it("reports the states a directory and the login path can leave a User in", async () => {
@@ -265,7 +293,7 @@ describe("Accounts", () => {
     expect(
       row("Engineering", groupsTable()).queryByText("Protected Admin group"),
     ).not.toBeInTheDocument();
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/groups", {}, expect.any(Function));
+    expect(sent()).toContainEqual(["/api/admin/groups", {}]);
   });
 
   /**
@@ -325,11 +353,7 @@ describe("Accounts", () => {
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      `/api/admin/accounts/${GRACE_ID}/unlock`,
-      { method: "POST" },
-      expect.any(Function),
-    );
+    expect(sent()).toContainEqual([`/api/admin/accounts/${GRACE_ID}/unlock`, { method: "POST" }]);
     expect(row("grace").getByText("Not locked")).toBeInTheDocument();
     expect(row("grace").getByText("Required")).toBeInTheDocument();
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
@@ -347,11 +371,10 @@ describe("Accounts", () => {
       await screen.findByRole("button", { name: "Force password change for grace" }),
     );
 
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
+    expect(sent()).toContainEqual([
       `/api/admin/accounts/${GRACE_ID}/force-password-change`,
       { method: "POST" },
-      expect.any(Function),
-    );
+    ]);
     expect(row("grace").getByText("Required")).toBeInTheDocument();
     expect(
       row("grace").queryByRole("button", { name: "Force password change for grace" }),

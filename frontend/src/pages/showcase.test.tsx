@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import type { Permission } from "@/auth/api";
-import { apiFetch } from "@/lib/http";
+import { apiFetch, type ApiDecoder } from "@/lib/http";
 
 import { Showcase } from "./showcase";
 
@@ -35,8 +35,33 @@ const auth: AuthContextState = {
   },
 };
 
+/**
+ * What `apiFetch` hands the page for a canned result. An `ok` result's `data`
+ * is the count the backend's body carries: it is sent through the decoder the
+ * page passed as `{ count }`, and a body that decoder refuses is a plain
+ * `failed`, as `apiFetch` makes it — so a request naming the wrong decoder, or
+ * none, never shows the count.
+ */
+async function answer(result: object, decode?: ApiDecoder<unknown>) {
+  if (!("kind" in result) || result.kind !== "ok") return result;
+  if (decode === undefined) return { kind: "ok", data: undefined };
+  try {
+    const body = { count: "data" in result ? result.data : undefined };
+    return { kind: "ok", data: await decode(Response.json(body)) };
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
+const answering =
+  (result: object) => (_path: string, _init?: RequestInit, decode?: ApiDecoder<unknown>) =>
+    answer(result, decode);
+
+/** Every request the page sent, as path and init — the operation it named. */
+const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
+
 function resolveWith(result: object) {
-  apiFetchMock.mockResolvedValue(result as never);
+  apiFetchMock.mockImplementation(answering(result) as never);
 }
 
 /** The page as a session holding exactly these Permissions sees it. */
@@ -46,7 +71,7 @@ const holding = (permissions: Permission[]): AuthContextState => ({
 });
 
 function resolveOnceWith(result: object) {
-  apiFetchMock.mockResolvedValueOnce(result as never);
+  apiFetchMock.mockImplementationOnce(answering(result) as never);
 }
 
 function renderShowcase(value: AuthContextState = auth) {
@@ -155,7 +180,7 @@ describe("Showcase", () => {
     renderShowcase();
 
     expect(await screen.findByText("Clicked 3 times")).toBeInTheDocument();
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/count", {}, expect.any(Function));
+    expect(sent()).toEqual([["/api/count", {}]]);
   });
 
   it("decodes the count from the backend's response body", async () => {
@@ -267,11 +292,7 @@ describe("Showcase", () => {
     await user.click(increment());
 
     expect(count()).toHaveTextContent(/^Clicked 2 times$/);
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/count/increment",
-      { method: "POST" },
-      expect.any(Function),
-    );
+    expect(sent().slice(-1)).toEqual([["/api/count/increment", { method: "POST" }]]);
   });
 
   it("uses the singular label at exactly one", async () => {
@@ -328,11 +349,7 @@ describe("Showcase", () => {
 
     expect(count()).toHaveTextContent(/^Clicked 0 times$/);
     expect(reset()).toBeDisabled();
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/count/reset",
-      { method: "POST" },
-      expect.any(Function),
-    );
+    expect(sent().slice(-1)).toEqual([["/api/count/reset", { method: "POST" }]]);
   });
 
   it("keeps the count and reports backend failures", async () => {

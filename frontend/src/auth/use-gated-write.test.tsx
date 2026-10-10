@@ -1,11 +1,56 @@
 import { act, renderHook } from "@testing-library/react";
-import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { useState, type ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
+import { jsonDecoder, readObject } from "@/lib/decode";
+import { apiFetch, CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
 
-import type { SessionResult } from "./use-session-request";
+import type { Permission } from "./api";
+import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { useGatedWrite, type SupersededRead } from "./use-gated-write";
+
+vi.mock("@/lib/http", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/http")>()),
+  apiFetch: vi.fn(),
+}));
+
+const apiFetchMock = vi.mocked(apiFetch);
+
+const decodeCount = jsonDecoder((body: unknown) =>
+  readObject(body, "CountResponse").integer("count"),
+);
+
+/** The operation most tests send: a counter increment answering the new count. */
+const INCREMENT = {
+  decode: decodeCount,
+  method: "POST",
+  path: "/api/count/increment",
+} as const;
+
+const expireSession = vi.fn();
+
+function authState(permissions: Permission[]): AuthContextState {
+  return {
+    changePassword: vi.fn(),
+    expireSession,
+    login: vi.fn(),
+    logout: vi.fn(),
+    signInReason: null,
+    signOutForInactivity: vi.fn(),
+    status: "authenticated",
+    user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
+  };
+}
+
+/** A wrapper rendering the hook under a session holding exactly `permissions`. */
+const holding =
+  (permissions: Permission[] = []) =>
+  ({ children }: { children: ReactNode }) => (
+    <AuthContext.Provider value={authState(permissions)}>{children}</AuthContext.Provider>
+  );
+
+const renderWrite = (permissions?: Permission[]) =>
+  renderHook(() => useGatedWrite(), { wrapper: holding(permissions) });
 
 /**
  * A write plus the one read it supersedes, as a session's own `useState`
@@ -21,13 +66,22 @@ function useHarness() {
   return { clearError, setReadError, write };
 }
 
-/** A request held open until the test answers it. */
-function deferredRequest<T>() {
-  let settle!: (result: SessionResult<T>) => void;
-  const promise = new Promise<SessionResult<T>>((resolve) => {
-    settle = resolve;
-  });
-  return { request: () => promise, settle };
+const renderHarness = () => renderHook(() => useHarness(), { wrapper: holding() });
+
+/** Answers the next request with `result`, as `apiFetch` would classify it. */
+function answerWith(result: object) {
+  apiFetchMock.mockResolvedValueOnce(result as never);
+}
+
+/** Holds the next request open until the test answers it. */
+function deferredAnswer() {
+  let settle!: (result: object) => void;
+  apiFetchMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      settle = resolve;
+    }) as never,
+  );
+  return (result: object) => settle(result);
 }
 
 /** An `after` step held open until the test lets it resolve. */
@@ -40,19 +94,72 @@ function deferredAfter() {
 }
 
 describe("useGatedWrite", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+    expireSession.mockReset();
+  });
+
   it("is not pending, with no error, before any write runs", () => {
-    const { result } = renderHook(() => useGatedWrite());
+    const { result } = renderWrite();
 
     expect(result.current).toMatchObject({ error: null, pending: false });
   });
 
+  it("sends an operation without a body as just its method, with no decoder", async () => {
+    answerWith({ data: undefined, kind: "ok" });
+    const { result } = renderWrite();
+
+    await act(() => result.current.run({ method: "DELETE", path: "/api/admin/connectors/c-1" }));
+
+    expect(apiFetchMock.mock.calls).toEqual([["/api/admin/connectors/c-1", { method: "DELETE" }]]);
+  });
+
+  it("sends an operation's body as JSON, with its decoder", async () => {
+    answerWith({ data: 1, kind: "ok" });
+    const { result } = renderWrite();
+
+    await act(() =>
+      result.current.run({
+        body: { displayName: "Okta" },
+        decode: decodeCount,
+        method: "POST",
+        path: "/api/admin/connectors",
+      }),
+    );
+
+    expect(apiFetchMock.mock.calls).toEqual([
+      [
+        "/api/admin/connectors",
+        {
+          body: '{"displayName":"Okta"}',
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+        decodeCount,
+      ],
+    ]);
+  });
+
+  it("sends an empty JSON object as a body, not as no body", async () => {
+    answerWith({ data: undefined, kind: "ok" });
+    const { result } = renderWrite();
+
+    await act(() => result.current.run({ body: {}, method: "POST", path: "/api/x" }));
+
+    expect(apiFetchMock.mock.calls[0]?.[1]).toEqual({
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+  });
+
   it("is pending while the request is in flight, and not once it settles", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-    const { request, settle } = deferredRequest<number>();
+    const { result } = renderWrite();
+    const settle = deferredAnswer();
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.run(request);
+      ran = result.current.run(INCREMENT);
     });
     expect(result.current.pending).toBe(true);
 
@@ -64,14 +171,59 @@ describe("useGatedWrite", () => {
   });
 
   it("calls the success handler exactly once, with the decoded data", async () => {
-    const { result } = renderHook(() => useGatedWrite());
+    answerWith({ data: 42, kind: "ok" });
+    const { result } = renderWrite();
     const onOk = vi.fn();
 
-    await act(() => result.current.run(() => Promise.resolve({ data: 42, kind: "ok" }), { onOk }));
+    await act(() => result.current.run(INCREMENT, { onOk }));
 
     expect(onOk).toHaveBeenCalledTimes(1);
     expect(onOk).toHaveBeenCalledWith(42);
     expect(result.current.error).toBeNull();
+  });
+
+  it("ends the session once on a 401, and shows the page's failure copy meanwhile", async () => {
+    answerWith({ kind: "unauthenticated" });
+    const { result } = renderWrite();
+    const onOk = vi.fn();
+
+    await act(() =>
+      result.current.run(INCREMENT, { messages: { default: "Unable to update." }, onOk }),
+    );
+
+    expect(expireSession).toHaveBeenCalledOnce();
+    expect(onOk).not.toHaveBeenCalled();
+    expect(result.current.error).toBe("Unable to update.");
+  });
+
+  it("sends nothing for a session lacking the operation's Permission, and says so", async () => {
+    const { result } = renderWrite(["counter:read"]);
+    const onOk = vi.fn();
+
+    await act(() => result.current.run({ ...INCREMENT, permission: "counter:write" }, { onOk }));
+
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(onOk).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(FORBIDDEN_MESSAGE);
+  });
+
+  it("still runs the `after` step for a write refused for want of its Permission", async () => {
+    const { result } = renderWrite([]);
+    const after = vi.fn(() => Promise.resolve());
+
+    await act(() => result.current.run({ ...INCREMENT, permission: "counter:write" }, { after }));
+
+    expect(after).toHaveBeenCalledOnce();
+  });
+
+  it("sends the operation for a session holding its Permission", async () => {
+    answerWith({ data: 5, kind: "ok" });
+    const { result } = renderWrite(["counter:write"]);
+    const onOk = vi.fn();
+
+    await act(() => result.current.run({ ...INCREMENT, permission: "counter:write" }, { onOk }));
+
+    expect(onOk).toHaveBeenCalledWith(5);
   });
 
   it.each([
@@ -80,32 +232,34 @@ describe("useGatedWrite", () => {
     [409, "Refused: the request conflicts with the resource's current state."],
     [503, "Unable to complete the action. Please try again."],
   ])("maps a %i refusal to the hook's own default copy", async (status, message) => {
-    const { result } = renderHook(() => useGatedWrite());
+    answerWith({ kind: "failed", status });
+    const { result } = renderWrite();
 
-    await act(() => result.current.run(() => Promise.resolve({ kind: "failed", status })));
+    await act(() => result.current.run(INCREMENT));
 
     expect(result.current.error).toBe(message);
   });
 
   it("maps forbidden and csrf-expired through the shared seam copy, not a page's own", async () => {
-    const { result } = renderHook(() => useGatedWrite());
+    const { result } = renderWrite();
 
     const messages = { 403: "a page's 403 sentence", default: "a page's default sentence" };
 
-    await act(() => result.current.run(() => Promise.resolve({ kind: "forbidden" }), { messages }));
+    answerWith({ kind: "forbidden" });
+    await act(() => result.current.run(INCREMENT, { messages }));
     expect(result.current.error).toBe(FORBIDDEN_MESSAGE);
 
-    await act(() =>
-      result.current.run(() => Promise.resolve({ kind: "csrf-expired" }), { messages }),
-    );
+    answerWith({ kind: "csrf-expired" });
+    await act(() => result.current.run(INCREMENT, { messages }));
     expect(result.current.error).toBe(CSRF_EXPIRED_MESSAGE);
   });
 
   it("lets a page's own copy for a status win over the hook's default", async () => {
-    const { result } = renderHook(() => useGatedWrite());
+    answerWith({ kind: "failed", status: 404 });
+    const { result } = renderWrite();
 
     await act(() =>
-      result.current.run(() => Promise.resolve({ kind: "failed", status: 404 }), {
+      result.current.run(INCREMENT, {
         messages: { 404: "grace no longer exists. Reload the page for the current list." },
       }),
     );
@@ -116,10 +270,11 @@ describe("useGatedWrite", () => {
   });
 
   it("lets a page's own default win over the hook's, for a status neither names", async () => {
-    const { result } = renderHook(() => useGatedWrite());
+    answerWith({ kind: "failed", status: 503 });
+    const { result } = renderWrite();
 
     await act(() =>
-      result.current.run(() => Promise.resolve({ kind: "failed", status: 503 }), {
+      result.current.run(INCREMENT, {
         messages: { default: "Unable to update the counter. Please try again." },
       }),
     );
@@ -130,10 +285,11 @@ describe("useGatedWrite", () => {
   it.each([400, 404, 409])(
     "lets a page's own default win over the hook's own default for a %i refusal",
     async (status) => {
-      const { result } = renderHook(() => useGatedWrite());
+      answerWith({ kind: "failed", status });
+      const { result } = renderWrite();
 
       await act(() =>
-        result.current.run(() => Promise.resolve({ kind: "failed", status }), {
+        result.current.run(INCREMENT, {
           messages: { default: "Unable to update the counter. Please try again." },
         }),
       );
@@ -143,10 +299,11 @@ describe("useGatedWrite", () => {
   );
 
   it("maps an undefined status to the hook's own last resort, not a page's per-status copy", async () => {
-    const { result } = renderHook(() => useGatedWrite());
+    answerWith({ kind: "failed" });
+    const { result } = renderWrite();
 
     await act(() =>
-      result.current.run(() => Promise.resolve({ kind: "failed" }), {
+      result.current.run(INCREMENT, {
         messages: { 400: "a 400-specific sentence that must not show here" },
       }),
     );
@@ -154,110 +311,16 @@ describe("useGatedWrite", () => {
     expect(result.current.error).toBe("Unable to complete the action. Please try again.");
   });
 
-  it("maps a protected-resource (`scimType: mutability`) refusal to its own default, distinct from a generic 400", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(() =>
-        Promise.resolve({
-          detail: { scimType: "mutability" },
-          kind: "failed",
-          status: 400,
-        }),
-      ),
-    );
-
-    expect(result.current.error).toBe(
-      "This can't be changed. Reload the page for its current state.",
-    );
-  });
-
-  it("maps a 400 with a decoded detail that is not `scimType: mutability` to the generic 400 copy", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(() =>
-        Promise.resolve({
-          detail: { scimType: "uniqueness" },
-          kind: "failed",
-          status: 400,
-        }),
-      ),
-    );
-
-    expect(result.current.error).toBe("Refused: check the values and try again.");
-  });
-
-  it("maps a 400 whose decoded `scimType` is not a string to the generic 400 copy", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(() =>
-        Promise.resolve({ detail: { scimType: 42 }, kind: "failed", status: 400 }),
-      ),
-    );
-
-    expect(result.current.error).toBe("Refused: check the values and try again.");
-  });
-
-  it("maps a 400 with a `null` decoded detail to the generic 400 copy, not a crash", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(() => Promise.resolve({ detail: null, kind: "failed", status: 400 })),
-    );
-
-    expect(result.current.error).toBe("Refused: check the values and try again.");
-  });
-
-  it("lets a page's own mutability copy win over the hook's default", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(
-        () =>
-          Promise.resolve({
-            detail: { scimType: "mutability" },
-            kind: "failed",
-            status: 400,
-          }),
-        { messages: { mutability: "The Bootstrap Admin cannot be changed this way." } },
-      ),
-    );
-
-    expect(result.current.error).toBe("The Bootstrap Admin cannot be changed this way.");
-  });
-
-  it("prefers the mutability mapping over a page's own generic default for the same refusal", async () => {
-    const { result } = renderHook(() => useGatedWrite());
-
-    await act(() =>
-      result.current.run(
-        () =>
-          Promise.resolve({
-            detail: { scimType: "mutability" },
-            kind: "failed",
-            status: 400,
-          }),
-        { messages: { default: "Refused: check the values and try again." } },
-      ),
-    );
-
-    expect(result.current.error).toBe(
-      "This can't be changed. Reload the page for its current state.",
-    );
-  });
-
   it("withdraws the superseded read's error the moment a write starts", async () => {
-    const { result } = renderHook(() => useHarness());
+    const { result } = renderHarness();
     act(() => result.current.setReadError("stale failure"));
     expect(result.current.write.error).toBe("stale failure");
     const clearErrorSpy = result.current.clearError;
-    const { request, settle } = deferredRequest<number>();
+    const settle = deferredAnswer();
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.write.run(request);
+      ran = result.current.write.run(INCREMENT);
     });
 
     expect(clearErrorSpy).toHaveBeenCalledTimes(1);
@@ -270,7 +333,7 @@ describe("useGatedWrite", () => {
   });
 
   it("falls back to a superseded read's current error before any write has run", () => {
-    const { result } = renderHook(() => useHarness());
+    const { result } = renderHarness();
 
     act(() => result.current.setReadError("the mount read failed"));
 
@@ -278,11 +341,10 @@ describe("useGatedWrite", () => {
   });
 
   it("shows its own refusal over a superseded read's stale one, with no `after` step", async () => {
-    const { result } = renderHook(() => useHarness());
+    answerWith({ kind: "failed", status: 409 });
+    const { result } = renderHarness();
 
-    await act(() =>
-      result.current.write.run(() => Promise.resolve({ kind: "failed", status: 409 })),
-    );
+    await act(() => result.current.write.run(INCREMENT));
     // The read was cleared on start and never touched again by this write, so
     // a later, unrelated change to it does not displace the write's own.
     act(() => result.current.setReadError("a read error unrelated to this write"));
@@ -293,14 +355,13 @@ describe("useGatedWrite", () => {
   });
 
   it("lets a later `after` step's failure replace an earlier successful write's outcome", async () => {
-    const { result } = renderHook(() => useHarness());
+    answerWith({ data: 1, kind: "ok" });
+    const { result } = renderHarness();
     const { after, settle: settleAfter } = deferredAfter();
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.write.run(() => Promise.resolve({ data: undefined, kind: "ok" }), {
-        after,
-      });
+      ran = result.current.write.run(INCREMENT, { after });
     });
 
     await act(async () => {
@@ -313,10 +374,11 @@ describe("useGatedWrite", () => {
   });
 
   it("lets an earlier refusal stand when the later `after` step reports nothing new", async () => {
-    const { result } = renderHook(() => useHarness());
+    answerWith({ kind: "failed", status: 400 });
+    const { result } = renderHarness();
 
     await act(() =>
-      result.current.write.run(() => Promise.resolve({ kind: "failed", status: 400 }), {
+      result.current.write.run(INCREMENT, {
         after: () => Promise.resolve(),
         messages: { 400: "Refused: check the values and try again." },
       }),
@@ -326,14 +388,13 @@ describe("useGatedWrite", () => {
   });
 
   it("prefers the latest of two failures: the `after` step's over the write's own", async () => {
-    const { result } = renderHook(() => useHarness());
+    answerWith({ kind: "failed", status: 500 });
+    const { result } = renderHarness();
     const { after, settle: settleAfter } = deferredAfter();
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.write.run(() => Promise.resolve({ kind: "failed", status: 500 }), {
-        after,
-      });
+      ran = result.current.write.run(INCREMENT, { after });
     });
 
     await act(async () => {
@@ -346,20 +407,16 @@ describe("useGatedWrite", () => {
   });
 
   it("returns to its own precedence on a later write that supplies no `after`", async () => {
-    const { result } = renderHook(() => useHarness());
+    answerWith({ data: 1, kind: "ok" });
+    answerWith({ kind: "failed", status: 409 });
+    const { result } = renderHarness();
 
     // First write passes `after`: the superseded read's error would lead.
-    await act(() =>
-      result.current.write.run(() => Promise.resolve({ data: undefined, kind: "ok" }), {
-        after: () => Promise.resolve(),
-      }),
-    );
+    await act(() => result.current.write.run(INCREMENT, { after: () => Promise.resolve() }));
     // Second write passes none: its own refusal must lead again, even though
     // the read still carries an unrelated error from a moment ago.
     act(() => result.current.setReadError("a read error unrelated to this write"));
-    await act(() =>
-      result.current.write.run(() => Promise.resolve({ kind: "failed", status: 409 })),
-    );
+    await act(() => result.current.write.run(INCREMENT));
 
     expect(result.current.write.error).toBe(
       "Refused: the request conflicts with the resource's current state.",

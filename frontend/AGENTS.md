@@ -58,13 +58,17 @@ each page's endpoints and Permissions; this list holds the rules.
   (`use-gated-read.ts`, `use-gated-write.ts`), the idle sign-out (see
   "Backend contract"), and the sign-in reason (`sign-in-reason.ts`): why a
   Guest is at the login page, how that reaches it, and what the page says. A gated read sends nothing for a session lacking its
-  Permission; a gated write owns the pending flag, the page's single error line
-  and the refusal copy.
+  Permission; a gated write takes the operation as data (path, method,
+  optional JSON body, optional decoder, optional Permission), sends it
+  through the request seam itself — nothing for a session lacking the
+  operation's Permission — and owns the pending flag, the page's single error
+  line and the refusal copy.
 - **`src/pages/`** — one component per page, plus `accounts-api.ts` for the
   wire types and paths the Accounts page and its connector panel share, and
   `audit-api.ts` for the Audit page's. A page
-  requests through `useSessionRequest` — in practice through `useGatedRead` /
-  `useGatedWrite` — never `apiFetch` directly; the
+  requests through `useGatedRead` / `useGatedWrite`, both behind
+  `useSessionRequest`, naming a read or an operation rather than building a
+  request — never `apiFetch` directly; the
   `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
   in kind is `change-password.tsx`, which submits through the auth context's
   `changePassword`, because its `401` is about the current password and must

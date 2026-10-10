@@ -1,12 +1,10 @@
-import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
-import { ADMINISTRATION_PERMISSIONS, holds, holdsAny } from "@/auth/permissions";
+import { ADMINISTRATION_PERMISSIONS, holds, holdsAny, WRITE_PERMISSIONS } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { useGatedWrite } from "@/auth/use-gated-write";
-import { useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,7 +30,6 @@ const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
  * the read's on the error line.
  */
 function useCounter() {
-  const request = useSessionRequest();
   const reading = useGatedRead({
     decode: decodeCount,
     failureMessage: "Unable to load the counter. Please try again.",
@@ -41,27 +38,21 @@ function useCounter() {
   });
   const write = useGatedWrite({ supersedes: [reading] });
 
-  const incrementCount = useCallback(
-    () => request("/api/count/increment", { method: "POST" }, decodeCount),
-    [request],
-  );
-  const resetCount = useCallback(
-    () => request("/api/count/reset", { method: "POST" }, decodeCount),
-    [request],
-  );
-
-  const updateCount = (change: () => Promise<SessionResult<number>>) =>
-    write.run(change, {
-      messages: { default: "Unable to update the counter. Please try again." },
-      onOk: (data) => reading.update(() => data),
-    });
+  const updateCount = (path: string) =>
+    write.run(
+      { decode: decodeCount, method: "POST", path, permission: WRITE_PERMISSIONS.counter },
+      {
+        messages: { default: "Unable to update the counter. Please try again." },
+        onOk: (data) => reading.update(() => data),
+      },
+    );
 
   return {
     count: reading.data ?? 0,
     error: write.error,
-    increment: () => void updateCount(incrementCount),
+    increment: () => void updateCount("/api/count/increment"),
     isUpdating: reading.loading || write.pending,
-    reset: () => void updateCount(resetCount),
+    reset: () => void updateCount("/api/count/reset"),
   };
 }
 
@@ -151,7 +142,7 @@ export function Showcase() {
         </CardContent>
         <CardFooter className="gap-2">
           <CounterControls
-            canWrite={holds(user, "counter:write")}
+            canWrite={holds(user, WRITE_PERMISSIONS.counter)}
             count={count}
             increment={increment}
             isUpdating={isUpdating}

@@ -53,6 +53,15 @@ export function refusalMessage(
 export interface SessionRequest {
   (path: string, init?: ApiRequestInit): Promise<SessionResult<void>>;
   <T>(path: string, init: ApiRequestInit, decode: ApiDecoder<T>): Promise<SessionResult<T>>;
+  /**
+   * For a caller forwarding a decoder it may not have — the gated write's
+   * operation, say — so the no-content choice is made here once, not twice.
+   */
+  <T>(
+    path: string,
+    init: ApiRequestInit,
+    decode: ApiDecoder<T> | undefined,
+  ): Promise<SessionResult<T | void>>;
 }
 
 export function useSessionRequest(): SessionRequest {
