@@ -23,6 +23,8 @@
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
         <enforcer.version>3.5.0</enforcer.version>
         <resources-plugin.version>3.3.1</resources-plugin.version>
+        <!-- Test JVMs; see maven-surefire-plugin below. -->
+        <forkCount>2</forkCount>
         <!--
           Where the built SPA is read from by the `with-frontend` profile. No
           generated output is committed anywhere in the tree, and nothing is
@@ -250,6 +252,23 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!--
+              Two test JVMs, each running its share of the test classes. Measured on a
+              20-core machine with a 5.9 GB WSL VM: 217s with one JVM, ~143s with two,
+              124s with three. Two, not more: the third JVM saves ~20s but peaks within
+              ~0.8 GB of the VM's memory, and "1C" would start a JVM per core. A fork
+              starts its own Postgres and Redis (ContainerTestConfiguration), so contexts
+              split across forks cost a migrated database each, not a container start.
+              Override with -DforkCount=1 to debug a test in one JVM.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>${forkCount}</forkCount>
+                    <reuseForks>true</reuseForks>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.pitest</groupId>

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
 import com.example.backend.auth.controller.AuthController;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -62,7 +63,7 @@ import tools.jackson.databind.json.JsonMapper;
     "app.dev-fixtures.password=" + DevelopmentRoleMappingIntegrationTests.FIXTURE_PASSWORD})
 class DevelopmentRoleMappingIntegrationTests {
 
-    static final String FIXTURE_PASSWORD = "dev-fixture-test-password";
+    static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
     private static final UUID ACCOUNT_ADMINS =
             UUID.fromString("00000000-0000-4000-8000-00000000a002");

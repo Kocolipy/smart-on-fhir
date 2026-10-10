@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.domain.RoleMappingSessions;
@@ -36,6 +37,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -51,21 +54,23 @@ import tools.jackson.databind.json.JsonMapper;
  * sessions it was issued to — over HTTP, against the shipped development role mapping, real
  * Postgres and the indexed Redis session store.
  *
- * <p>Its own Spring context (the SCIM interface on, beside the development fixtures), because
- * these tests change who belongs to the fixture Groups and delete one of them, which no other
- * class sharing the development mapping's context could survive. Each test that moves a fixture
- * membership puts it back; the Monitoring Group is deleted by one test only, and no other test
- * here depends on it.
+ * <p>Its context is dirtied after the class, because these tests change who belongs to the
+ * fixture Groups and delete one of them, which no other class sharing the development mapping's
+ * context — and so its database — could survive. Its configuration is the same as
+ * {@code DevelopmentRoleMappingIntegrationTests}', so without the eviction whichever runs second
+ * would reuse it. Each test that moves a fixture membership puts it back; the Monitoring Group is
+ * deleted by one test only, and no other test here depends on it.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
 @ActiveProfiles("dev-mapping")
+@DirtiesContext(classMode = ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "app.dev-fixtures.enabled=true",
     "app.dev-fixtures.password=" + RolePropagationIntegrationTests.FIXTURE_PASSWORD})
 class RolePropagationIntegrationTests {
 
-    static final String FIXTURE_PASSWORD = "role-propagation-fixture-password";
+    static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
     private static final UUID SUPERUSERS = TestRoleMappings.SUPERUSER_GROUP_ID;
 
