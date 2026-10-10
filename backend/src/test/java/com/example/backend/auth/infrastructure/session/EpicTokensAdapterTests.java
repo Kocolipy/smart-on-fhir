@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.SignedInSession;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -90,7 +91,7 @@ class EpicTokensAdapterTests {
         session.setCreationTime(NOW);
         session.setLastAccessedTime(NOW);
         session.setMaxInactiveInterval(Duration.ofDays(365_000));
-        session.setAttribute(EpicTokens.SESSION_ATTRIBUTE, "not a token set");
+        session.setAttribute(SignedInSession.EPIC_TOKENS_ATTRIBUTE, "not a token set");
         sessions.save(session);
 
         assertThat(adapter.forSession(session.getId())).isEmpty();
@@ -107,7 +108,7 @@ class EpicTokensAdapterTests {
         session.setLastAccessedTime(Instant.now());
         session.setMaxInactiveInterval(Duration.ofDays(365_000));
         if (tokens != null) {
-            session.setAttribute(EpicTokens.SESSION_ATTRIBUTE, tokens);
+            session.setAttribute(SignedInSession.EPIC_TOKENS_ATTRIBUTE, tokens);
         }
         sessions.save(session);
         return session.getId();

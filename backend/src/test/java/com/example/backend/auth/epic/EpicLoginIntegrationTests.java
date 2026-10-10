@@ -16,7 +16,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.auth.domain.RoleMappingSessions;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
 import com.example.backend.auth.epic.EpicBrowser.Launched;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -259,7 +259,8 @@ class EpicLoginIntegrationTests {
 
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
-        Object recorded = stored(landing.signedIn()).getAttribute(RoleMappingSessions.HASH_ATTRIBUTE);
+        Object recorded = stored(landing.signedIn())
+                .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE);
         assertThat(recorded).isEqualTo(roleMapping.hash());
     }
 

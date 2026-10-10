@@ -8,7 +8,7 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.domain.RoleMappingSessions;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import jakarta.servlet.http.HttpSession;
@@ -113,7 +113,7 @@ class SessionEstablishmentTests {
     void theSessionRecordsTheRoleMappingHash() {
         HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
-        assertThat(signedIn.getAttribute(RoleMappingSessions.HASH_ATTRIBUTE))
+        assertThat(signedIn.getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
                 .isEqualTo("role-mapping-hash-under-test");
     }
 

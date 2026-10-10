@@ -3,12 +3,12 @@ package com.example.backend.auth.epic.controller;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.EpicSignInRefusedException;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.controller.HttpSessionAttributes;
 import com.example.backend.auth.controller.LoginCompletion;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.auth.domain.EpicTokenSet;
-import com.example.backend.auth.domain.EpicTokens;
 import com.example.backend.auth.domain.EpicMfaEvidence;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicTokenHandOff;
@@ -16,11 +16,8 @@ import com.example.backend.auth.epic.FhirUserReference;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.security.core.Authentication;
@@ -41,11 +38,12 @@ import org.springframework.stereotype.Component;
  * one is — rotated id, saved context, principal index, role mapping hash, pre-login CSRF token
  * dropped, and a {@code session-start} naming method {@code sso} — then the ending recorded,
  * naming that session. Between the last two, on the signed-in session alone, Epic's tokens — the
- * access token, any refresh token and the {@code id_token} — are kept under
- * {@link EpicTokens#SESSION_ATTRIBUTE}, taken from the token response the filter handed over
+ * access token, any refresh token and the {@code id_token} — are kept there
+ * ({@link SignedInSession#keepEpicTokens}), taken from the token response the filter handed over
  * ({@link EpicTokenHandOff}): so they live under the rotated id alone, for exactly as long as the
  * session does, and the session is stored no longer than its remaining absolute lifetime (ADR
- * 0013, D29). The browser lands at {@code /}.
+ * 0013, D29). The browser lands at {@code /}. Each later request is bounded the same way by
+ * {@code AbsoluteSessionLifetimeFilter}, so its renewal cannot undo this.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
  * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
@@ -115,22 +113,10 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
                 retained -> login.logInFromEpic(practitionerId.get(), retained, factor.get()),
                 // On the signed-in (rotated) session, before the ending is recorded.
                 session -> EpicTokenCapture.take(request, epic, clock.instant())
-                        .ifPresent(tokens -> keep(session, tokens)),
+                        .ifPresent(tokens -> HttpSessionAttributes.signedIn(session)
+                                .keepEpicTokens(tokens, absoluteLifetime, clock.instant())),
                 request, response).isPresent();
         (signedIn ? EpicLanding.SIGNED_IN : EpicLanding.REFUSED).sendTo(request, response);
-    }
-
-    /**
-     * Keeps Epic's tokens on the signed-in session, and bounds how long the store keeps the
-     * session by what remains of its absolute lifetime, once that is shorter than its idle bound:
-     * so the tokens are never stored past the lifetime's end. Each later request is bounded the
-     * same way by {@code AbsoluteSessionLifetimeFilter}, so its renewal cannot undo this.
-     */
-    private void keep(HttpSession signedIn, EpicTokenSet tokens) {
-        signedIn.setAttribute(EpicTokens.SESSION_ATTRIBUTE, tokens);
-        signedIn.setMaxInactiveInterval((int) absoluteLifetime.idleBoundAt(
-                Duration.ofSeconds(signedIn.getMaxInactiveInterval()),
-                Instant.ofEpochMilli(signedIn.getCreationTime()), clock.instant()).toSeconds());
     }
 
     /** The MFA factor the Login was made with, as {@link EpicMfaEvidence#factorOf} decides it. */

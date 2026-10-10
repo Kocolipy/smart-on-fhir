@@ -1,5 +1,6 @@
 package com.example.backend.auth.config;
 
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.RequestActor;
 import jakarta.servlet.FilterChain;
@@ -11,7 +12,6 @@ import java.io.IOException;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -26,9 +26,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>Placed after the security context is loaded from the session (see
  * {@link SecurityConfig#securityFilterChain}), and it requires both halves: an
- * authenticated context AND an index holding a well-formed id. A session that
- * carries only one of them — or an index value that is not a UUID — puts nothing
- * in the context, which is the same answer an anonymous request gets.
+ * authenticated context AND a session that identifies its owner
+ * ({@link SignedInSession#owner}). A session that carries only one of them — or an
+ * index value that is not a UUID — puts nothing in the context, which is the same
+ * answer an anonymous request gets.
  *
  * <p>The id is also marked on the request ({@link RequestActor}), so the request record
  * {@code RequestIdFilter} writes outside the security chain names the same caller.
@@ -55,15 +56,8 @@ public class SessionUserLogContextFilter extends OncePerRequestFilter {
             return null;
         }
         HttpSession session = request.getSession(false);
-        if (session == null
-                || !(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                        instanceof String indexed)) {
-            return null;
-        }
-        try {
-            return UUID.fromString(indexed);
-        } catch (IllegalArgumentException notAnId) {
-            return null;
-        }
+        return session == null
+                ? null
+                : HttpSessionAttributes.signedIn(session).owner().orElse(null);
     }
 }

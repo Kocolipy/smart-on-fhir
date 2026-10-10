@@ -167,6 +167,19 @@ class SelfControllerTests {
         assertThat(perform(get("/api/self"), odd).getStatus()).isEqualTo(401);
     }
 
+    /** A principal index that is not a stable id names nobody: a bare 401, never a 500. */
+    @Test
+    void aMalformedPrincipalIndexIsUnauthorized() throws Exception {
+        MockHttpSession malformed = new MockHttpSession();
+        malformed.setAttribute(
+                FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "not-an-id");
+
+        MockHttpServletResponse response = perform(get("/api/self"), malformed);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getContentAsString()).isEmpty();
+    }
+
     /** A session that outlived its User names nobody. */
     @Test
     void aSessionNamingNoLiveUserIsUnauthorized() throws Exception {

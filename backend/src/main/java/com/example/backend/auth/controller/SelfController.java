@@ -5,9 +5,7 @@ import com.example.backend.auth.application.SelfRecord;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,8 +18,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>The handler declares no parameter — no path variable, no query parameter, no body — so there
  * is nothing a request could carry that would name another User. The User is the one the SESSION
  * belongs to, read from the stable id its principal index holds, which the login wrote and the
- * client cannot. A query string or header carrying somebody else's id is therefore not refused but
- * simply never read.
+ * client cannot; a session whose index is missing or is no stable id identifies nobody, and is
+ * answered as an anonymous request is. A query string or header carrying somebody else's id is
+ * therefore not refused but simply never read.
  *
  * <p>Authorization is the filter chain's: the path falls under the {@code ROLE_USER} rule, so a
  * session confined by a required password change is refused with {@code 403} before this runs, as
@@ -40,12 +39,11 @@ public class SelfController {
     @GetMapping
     public SelfRecord read(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
-        if (session == null
-                || !(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                        instanceof String userId)) {
+        if (session == null) {
             throw new UnknownSessionIdentityException();
         }
-        return selfReads.read(UUID.fromString(userId));
+        return selfReads.read(HttpSessionAttributes.signedIn(session).owner()
+                .orElseThrow(UnknownSessionIdentityException::new));
     }
 
     /** A session that identifies nobody: the bare {@code 401} an anonymous request gets. */

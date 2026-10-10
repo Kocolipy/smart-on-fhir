@@ -2,7 +2,6 @@ package com.example.backend.auth.controller;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
-import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -21,7 +20,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.stereotype.Component;
 
 /**
@@ -78,13 +76,14 @@ class SessionEstablishment {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
 
-        // Overrides Spring Session's default principal-index population (which
-        // reads Authentication.getName(), i.e. the userName) with the SCIM
-        // stable id, so AccountSessionsAdapter — and any future stable-id-keyed
-        // session lookup — finds this session by an id that survives a later
-        // username change. Authentication.getName() itself is untouched: the
-        // security context still names the account by username, which is what
-        // the Login's response reports.
+        // Signs the session in to the User's SCIM stable id and the role mapping the
+        // Permissions in the security context were resolved under (SignedInSession owns
+        // both attributes). The index overrides Spring Session's default principal-index
+        // population (which reads Authentication.getName(), i.e. the userName), so
+        // AccountSessionsAdapter — and any future stable-id-keyed session lookup — finds
+        // this session by an id that survives a later username change.
+        // Authentication.getName() itself is untouched: the security context still names
+        // the account by username, which is what the Login's response reports.
         //
         // The null guard never fails as wired: SecurityConfig's
         // HttpSessionSecurityContextRepository creates the session when it saves an
@@ -93,13 +92,8 @@ class SessionEstablishment {
         // SessionEstablishmentTests.theSessionIsIndexedByTheUsersStableId asserts the index.
         HttpSession session = request.getSession(false);
         if (session != null) {
-            session.setAttribute(
-                    FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
-                    accepted.userId().toString());
-            // The mapping the Permissions in the security context were resolved under, so a
-            // session minted under a different mapping can be told apart from one minted under
-            // the running one.
-            session.setAttribute(RoleMappingSessions.HASH_ATTRIBUTE, accepted.roleMappingHash());
+            HttpSessionAttributes.signedIn(session)
+                    .signIn(accepted.userId(), accepted.roleMappingHash());
         }
 
         // The session id has just rotated, but its attributes moved with it — the
