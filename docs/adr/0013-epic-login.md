@@ -567,7 +567,8 @@ FHIR API is called yet.
   holds the authorized client on the callback request alone. Once
   `LoginCompletion` has signed the session in, `EpicLoginSuccessHandler` takes the
   client back (`EpicTokenCapture`). It writes the tokens to the signed-in session
-  as the attribute `app.epic.tokens` (`EpicTokens.SESSION_ATTRIBUTE`). A refused or
+  as the attribute `app.epic.tokens` (`SignedInSession.EPIC_TOKENS_ATTRIBUTE`,
+  through `SignedInSession.keepEpicTokens`). A refused or
   unavailable launch never takes them, and they end with its request. The
   pre-login session id holds nothing.
 - **A session attribute, not a key of its own.** A Spring Session attribute ends
@@ -586,22 +587,24 @@ FHIR API is called yet.
   Java-serialized like every other session attribute. The type holds only
   strings, an instant and a sorted set of strings.
 - **Retrieval** is the `EpicTokens` port, `forSession(sessionId)` →
-  `Optional<EpicTokenSet>`. Its adapter (`EpicTokensAdapter`) reads the session
-  through Spring Session's repository without touching its last-access time. It
-  answers empty for a password Login's session, an unknown or ended session, and
-  no id. The repository does not know the absolute session lifetime, which is
-  enforced on a session's next request. So the adapter applies the same policy on
-  the same clock, and hands nothing out once the lifetime is over, even if no
-  request has ended the session yet.
+  `Optional<EpicTokenSet>`. Its adapter (`EpicTokensAdapter`) finds the session
+  through Spring Session's repository without touching its last-access time, and
+  asks it for its tokens (`SignedInSession.epicTokens`). It answers empty for a
+  password Login's session, an unknown or ended session, and no id. The
+  repository does not know the absolute session lifetime, which is enforced on a
+  session's next request. So the same policy is applied on the same clock, and
+  nothing is handed out once the lifetime is over, even if no request has ended
+  the session yet.
 - **Storage is bounded by the remaining absolute lifetime.** The store expires a
   session its idle bound after its last request, and every request renews that.
   Near the lifetime's end, the idle bound alone would keep a session stored past
   it. For a session holding the tokens, the idle bound is cut to what remains of
   the lifetime whenever that is shorter (`AbsoluteSessionLifetimePolicy.idleBoundAt`:
-  whole seconds rounded down, never under one). The cut is applied when the success
-  handler writes the tokens, and again on every later request in
-  `AbsoluteSessionLifetimeFilter`, before the request's renewal is saved. A session
-  without Epic tokens is never touched. One residue is Spring Session's: the
+  whole seconds rounded down, never under one). The cut is written once, in
+  `SignedInSession.boundByLifetime`, and applied when the success handler writes
+  the tokens, and again on every later request in `AbsoluteSessionLifetimeFilter`,
+  before the request's renewal is saved. A session without Epic tokens is never
+  touched. One residue is Spring Session's: the
   indexed repository keeps an expired session's Redis key five minutes past its
   expiry, during which the adapter answers nothing. That grace is the same for a
   session that idles out, and it was left as it is.

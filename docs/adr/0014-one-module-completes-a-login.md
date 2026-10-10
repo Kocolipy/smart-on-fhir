@@ -89,7 +89,8 @@ every Login's ending, for both methods, in this order:
    - the cleared failure run;
    - the after-commit revocation of the User's other sessions (ADR 0002).
 2. **Establish.** `SessionEstablishment` rotates the session id, saves the security
-   context, sets the principal index and the role-mapping hash, drops the pre-login
+   context, sets the principal index and the role-mapping hash (through
+   `SignedInSession.signIn`, which owns the session's attributes), drops the pre-login
    CSRF token, and logs `session-start`. It is package-private and called only by
    `LoginCompletion`, so no adapter can sign a session in without the rest of the
    Login around it.

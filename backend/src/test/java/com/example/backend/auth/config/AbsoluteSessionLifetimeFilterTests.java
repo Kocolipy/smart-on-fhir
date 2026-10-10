@@ -8,7 +8,7 @@ import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokenSet;
-import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import java.time.Duration;
@@ -201,7 +201,7 @@ class AbsoluteSessionLifetimeFilterTests {
         MockHttpSession session = (MockHttpSession) request.getSession();
         session.setMaxInactiveInterval(IDLE_SECONDS);
         if (holdingEpicTokens) {
-            session.setAttribute(EpicTokens.SESSION_ATTRIBUTE, TOKENS);
+            session.setAttribute(SignedInSession.EPIC_TOKENS_ATTRIBUTE, TOKENS);
         }
         AbsoluteSessionLifetimeFilter filter = new AbsoluteSessionLifetimeFilter(POLICY,
                 new MutableClock(Instant.ofEpochMilli(session.getCreationTime()).plus(age)));

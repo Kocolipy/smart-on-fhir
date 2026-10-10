@@ -2,6 +2,7 @@ package com.example.backend.auth.config;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -14,13 +15,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -40,10 +39,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * an unexpired one is left alone, idle-timeout renewal included — with one
  * exception. A session holding Epic tokens ({@link EpicTokens}) has its idle
  * bound cut to what remains of its lifetime once that is the shorter
- * ({@link AbsoluteSessionLifetimePolicy#idleBoundAt}), so the renewal this
- * request makes cannot keep the session, and the tokens on it, in the store past
- * the lifetime's end (ADR 0013, D29). Far from the end the idle
- * bound is untouched, and a session without Epic tokens is never touched.
+ * ({@link SignedInSession#boundByLifetime}, the same cut the Epic sign-in made),
+ * so the renewal this request makes cannot keep the session, and the tokens on
+ * it, in the store past the lifetime's end (ADR 0013, D29). Far from the end the
+ * idle bound is untouched, and a session without Epic tokens is never touched.
+ *
+ * <p>Both questions — has the session outlived the policy, and whose was it — are
+ * asked of {@link SignedInSession}, so the age and the owner are read here exactly
+ * as everywhere else.
  */
 public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
 
@@ -72,23 +75,22 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         HttpSession session = request.getSession(false);
         if (session != null) {
-            Instant createdAt = Instant.ofEpochMilli(session.getCreationTime());
-            if (policy.isExpired(createdAt, clock.instant())) {
+            SignedInSession signedIn = HttpSessionAttributes.signedIn(session);
+            Instant now = clock.instant();
+            if (signedIn.hasOutlived(policy, now)) {
                 // Read before the session is gone: the principal index is the only place the
                 // account's stable id is, and the logging context does not have it yet — this
                 // filter runs ahead of the one that puts it there.
-                UUID owner = owner(session);
+                UUID owner = signedIn.owner().orElse(null);
                 session.invalidate();
                 SecurityContextHolder.clearContext();
                 request.setAttribute(ENDED_ATTRIBUTE, Boolean.TRUE);
                 recordEnded(owner);
-            } else if (session.getAttribute(EpicTokens.SESSION_ATTRIBUTE) != null) {
+            } else {
                 // This request renews the session for its idle bound again, so near the
-                // lifetime's end that bound would keep it, and Epic's tokens with it, stored past
-                // the end. Cut it back to what remains (ADR 0013, D29).
-                session.setMaxInactiveInterval((int) policy.idleBoundAt(
-                        Duration.ofSeconds(session.getMaxInactiveInterval()), createdAt,
-                        clock.instant()).toSeconds());
+                // lifetime's end that bound would keep a session holding Epic's tokens, and the
+                // tokens with it, stored past the end. Cut it back to what remains (ADR 0013, D29).
+                signedIn.boundByLifetime(policy, now);
             }
         }
         chain.doFilter(request, response);
@@ -103,18 +105,6 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
             LogEvent.success(log, Operation.SESSION_END, Category.PROCESS, Type.END)
                     .addKeyValue(LogEvent.REASON, CAUSE)
                     .log();
-        }
-    }
-
-    private static UUID owner(HttpSession session) {
-        if (!(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                instanceof String indexed)) {
-            return null;
-        }
-        try {
-            return UUID.fromString(indexed);
-        } catch (IllegalArgumentException notAnId) {
-            return null;
         }
     }
 }

@@ -6,7 +6,6 @@ import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
-import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -29,7 +28,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.CookieSerializer.CookieValue;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,13 +42,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
-
-    /**
-     * The session attribute a login records the role mapping's hash under: the mapping the
-     * session's Permissions were resolved under. Defined by the port that revokes on it, so the
-     * writer and the reader cannot disagree about the name.
-     */
-    public static final String ROLE_MAPPING_HASH_ATTRIBUTE = RoleMappingSessions.HASH_ATTRIBUTE;
 
     /** The response header a logout asks the browser to clear the origin's data with. */
     static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
@@ -163,14 +154,13 @@ public class AuthController {
     /**
      * Records the logout against the account the session belongs to.
      *
-     * <p>A session carrying no principal index is one minted before it was signed
-     * in to — there is no account to name, and nothing was logged out — so nothing
-     * is recorded rather than an event with an invented subject.
+     * <p>A session that identifies nobody — minted before it was signed in to, or
+     * carrying an index that is no stable id — has no account to name, and nothing
+     * was logged out, so nothing is recorded rather than an event with an invented
+     * subject.
      */
     private void recordLogout(HttpSession session) {
-        if (session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                instanceof String indexed) {
-            UUID userId = UUID.fromString(indexed);
+        HttpSessionAttributes.signedIn(session).owner().ifPresent(userId -> {
             audit.recordLogout(userId);
             // Beside the audit append, after it succeeded: the trail is the record of who
             // logged out, and this is the operational stream's line for the same moment.
@@ -178,7 +168,7 @@ public class AuthController {
                 LogEvent.success(log, Operation.LOGOUT, Category.PROCESS, Type.USER, Type.END)
                         .log();
             }
-        }
+        });
     }
 
     /**
@@ -222,7 +212,9 @@ public class AuthController {
      * confined by a required change holds, and open to every authenticated session.
      *
      * <p>The User is the one the SESSION belongs to, read from the stable id its principal index
-     * holds — never from the request — so there is no identifier to tamper with. On success every
+     * holds — never from the request — so there is no identifier to tamper with; a session that
+     * identifies nobody, with no index or one that is no stable id, is refused with the same bare
+     * {@code 401} as a wrong current password. On success every
      * session of that User has been revoked after the commit, this one included; it is also
      * invalidated here, directly, so the servlet container's copy cannot be written back when the
      * request completes, and the cookie is expired so the next request arrives as a stranger.
@@ -234,13 +226,12 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response) {
         HttpSession session = request.getSession(false);
-        if (session == null
-                || !(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                        instanceof String userId)) {
+        if (session == null) {
             throw new CurrentPasswordRejectedException();
         }
-        passwordChanges.changePassword(
-                UUID.fromString(userId), body.currentPassword(), body.newPassword());
+        UUID userId = HttpSessionAttributes.signedIn(session).owner()
+                .orElseThrow(CurrentPasswordRejectedException::new);
+        passwordChanges.changePassword(userId, body.currentPassword(), body.newPassword());
 
         session.invalidate();
         SecurityContextHolder.clearContext();

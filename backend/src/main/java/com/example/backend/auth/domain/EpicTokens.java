@@ -11,15 +11,14 @@ import java.util.Optional;
  * tokens, and the adapter owns what a session is and where it lives. They are held as an
  * attribute of the session itself, so they go wherever the session goes — rotated with its id at
  * sign-in, and gone with it on logout, the idle timeout, the absolute session lifetime, every
- * session revocation and the next launch in that browser — with no cleanup of their own.
+ * session revocation and the next launch in that browser — with no cleanup of their own. Which
+ * attribute that is, how long a session holding them is stored, and when they stop being handed
+ * out are {@link SignedInSession}'s, which the adapter asks.
  *
  * <p>Nothing here hands a token to the browser. No web adapter's response is built from an
  * {@link EpicTokenSet}, and {@code ArchitectureTest} holds that no REST controller depends on one.
  */
 public interface EpicTokens {
-
-    /** The session attribute an Epic Login keeps its tokens under, once the session is signed in. */
-    String SESSION_ATTRIBUTE = "app.epic.tokens";
 
     /**
      * The Epic tokens the live session {@code sessionId} holds.

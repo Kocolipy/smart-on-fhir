@@ -25,7 +25,7 @@ import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.auth.domain.RoleMappingSessions;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.ErrorCategory;
@@ -223,7 +223,7 @@ class LoginCompletionTests {
                 password(PASSWORD), new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.orElseThrow().session()
-                .getAttribute(RoleMappingSessions.HASH_ATTRIBUTE))
+                .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
                 .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 

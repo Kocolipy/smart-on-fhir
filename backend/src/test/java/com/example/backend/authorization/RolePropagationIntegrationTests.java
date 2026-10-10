@@ -11,7 +11,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
-import com.example.backend.auth.domain.RoleMappingSessions;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -358,9 +358,9 @@ class RolePropagationIntegrationTests {
         assertThat(held).isNotEmpty();
         for (Session session : held.values()) {
             if (hash == null) {
-                session.removeAttribute(RoleMappingSessions.HASH_ATTRIBUTE);
+                session.removeAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE);
             } else {
-                session.setAttribute(RoleMappingSessions.HASH_ATTRIBUTE, hash);
+                session.setAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE, hash);
             }
             store.save(session);
         }

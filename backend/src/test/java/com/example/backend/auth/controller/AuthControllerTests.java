@@ -25,6 +25,7 @@ import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -206,7 +207,7 @@ class AuthControllerTests {
                 new MockHttpServletResponse());
 
         assertThat(request.getSession(false)
-                        .getAttribute(AuthController.ROLE_MAPPING_HASH_ATTRIBUTE))
+                        .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
                 .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 
@@ -612,6 +613,24 @@ class AuthControllerTests {
     }
 
     /**
+     * A principal index that is not a stable id names no account: nothing is recorded against an
+     * id nobody holds, and the session still ends.
+     */
+    @Test
+    void logoutOfASessionWithAMalformedPrincipalIndexRecordsNothingAndStillEndsIt() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = (MockHttpSession) request.getSession(true);
+        session.setAttribute(
+                FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "not-an-id");
+
+        assertThatNoException()
+                .isThrownBy(() -> controller.logout(request, new MockHttpServletResponse()));
+
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    /**
      * Logging out without a session is a no-op rather than a failure, so a caller
      * whose session already expired still gets a clean logout.
      */
@@ -719,6 +738,28 @@ class AuthControllerTests {
                 .andExpect(jsonPath("$.message").value(PasswordPolicy.Rule.TOO_SHORT.message()))
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("short-pass1"))));
+    }
+
+    /**
+     * A principal index that is not a stable id identifies nobody: the same bare {@code 401} a
+     * session with no index gets, never a {@code 500}, and no credential moves.
+     */
+    @Test
+    void aChangeFromASessionWithAMalformedPrincipalIndexAnswers401Bare() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(
+                FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "not-an-id");
+        String hashBefore = users.require("ada").login().passwordHash();
+
+        mvc.perform(post("/api/auth/change-password")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"correct-password\","
+                                + "\"newPassword\":\"" + NEW_PASSWORD + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(""));
+        assertThat(users.require("ada").login().passwordHash()).isEqualTo(hashBefore);
     }
 
     @Test

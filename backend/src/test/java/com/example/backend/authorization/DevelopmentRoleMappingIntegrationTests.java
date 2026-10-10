@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
-import com.example.backend.auth.controller.AuthController;
+import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -183,7 +183,7 @@ class DevelopmentRoleMappingIntegrationTests {
         assertThat(stored).hasSize(1);
         Session session = stored.values().iterator().next();
 
-        assertThat((String) session.getAttribute(AuthController.ROLE_MAPPING_HASH_ATTRIBUTE))
+        assertThat((String) session.getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
                 .isEqualTo(roleMapping.hash())
                 .matches("[0-9a-f]{64}");
         SecurityContext security = session.getAttribute("SPRING_SECURITY_CONTEXT");
