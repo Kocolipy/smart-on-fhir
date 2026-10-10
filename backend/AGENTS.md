@@ -31,6 +31,17 @@ Run the gate as part of finishing the work, not as a separate pre-commit step. A
 
 Changes to Redis-backed session persistence require an integration-level check against Redis; the controller tests use servlet mocks and do not exercise Redis.
 
+### Full-context tests
+
+A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration; each context boots once and gets its own migrated Postgres database and Redis database on containers the JVM shares (`ContainerTestConfiguration` holds the mechanism). Joining an existing configuration costs a new class nothing; differing from all of them costs a boot. Write a new class to join:
+
+- Start from `@SpringBootTest` + `@Import(ContainerTestConfiguration.class)`, the configuration most classes share, and add only what the behaviour under test needs. Each extra profile, property, imported configuration, `@MockitoBean` or `@DynamicPropertySource` makes a context of its own; a property set to its default value is the usual needless one.
+- Declare a test configuration as a top-level class and import it, as `InMemorySessionRegistryConfiguration` and `DormancyTestClockConfiguration` are: the cache keys on the class, so a nested copy shares with nobody. Import `InMemorySessionRegistryConfiguration` only when the test reads `InMemoryAccountSessions`.
+- Write for a database other classes in the context have already used: mint unique names (a SCIM `userName` or Group `displayName` collides across classes), read back only the rows the test made, remove them afterwards, and assert on those rows or on deltas rather than whole-table counts.
+- A class that destroys shared state — deletes or reshapes a seeded fixture, the Admin group or the Bootstrap Admin — declares `@DirtiesContext(classMode = AFTER_CLASS)`, as `RolePropagationIntegrationTests` does, so the eviction states the reason. Isolation that rests on a coincidentally different property disappears when a cleanup removes it.
+
+Done when the gate log's context count (`grep -c 'Started .* in .* seconds'`) rises only for a configuration the behaviour genuinely needs. The suite runs in two JVMs (`forkCount` in `pom.xml`); pass `-DforkCount=1` to debug in one.
+
 ### Reading a gate's result
 
 The baseline gate can outlast a shell's foreground window; read its result
