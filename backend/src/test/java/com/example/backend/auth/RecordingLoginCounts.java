@@ -2,6 +2,7 @@ package com.example.backend.auth;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.EpicCallCounts;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginCounts;
@@ -20,10 +21,13 @@ public final class RecordingLoginCounts implements LoginCounts, EpicCallCounts {
 
     private final List<String> moved = new ArrayList<>();
 
-    /** A {@link LoginOutcomeService} over {@code attempts} whose counts nobody reads. */
-    public static LoginOutcomeService uncounted(LoginAttemptService attempts) {
+    /**
+     * A {@link LoginOutcomeService} over {@code attempts} and the trail {@code audit} whose counts
+     * nobody reads.
+     */
+    public static LoginOutcomeService uncounted(LoginAttemptService attempts, AuditTrail audit) {
         RecordingLoginCounts counts = new RecordingLoginCounts();
-        return new LoginOutcomeService(attempts, counts, counts);
+        return new LoginOutcomeService(attempts, audit, counts, counts);
     }
 
     @Override

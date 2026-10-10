@@ -15,7 +15,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.application.LoginService.EpicLoginDecision;
+import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.LogContext;
@@ -75,7 +75,7 @@ class EpicLoginDecisionTests {
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
-                new LoginOutcomeService(attempts, counts, counts));
+                new LoginOutcomeService(attempts, audit, counts, counts));
     }
 
     @Test
@@ -303,7 +303,7 @@ class EpicLoginDecisionTests {
     void anAcceptedEpicLoginEndsSignedInAsItsUserWithItsMfaFactor() {
         ScimUser active = users.given(ScimIdentities.user("eACTIVE"));
 
-        EpicLoginDecision decision = login.logInFromEpic("eACTIVE", null, AuditMfaFactor.OTP);
+        LoginDecision decision = login.logInFromEpic("eACTIVE", null, AuditMfaFactor.OTP);
 
         assertThat(decision.outcome())
                 .isEqualTo(new LoginOutcome.SignedIn(active.id(), AuditLoginMethod.SSO, AuditMfaFactor.OTP));
@@ -362,10 +362,30 @@ class EpicLoginDecisionTests {
         LoginOutcome refused =
                 LoginOutcome.EpicRefused.because(EpicLoginFailureReason.UNKNOWN_ACCOUNT);
 
-        assertThatThrownBy(() -> new EpicLoginDecision(signedIn, Optional.empty()))
+        assertThatThrownBy(() -> new LoginDecision(signedIn, Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new EpicLoginDecision(refused, Optional.of(accepted)))
+        assertThatThrownBy(() -> new LoginDecision(refused, Optional.of(accepted)))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** A decision ends in its accepted Login's own outcome, never another User's or method's. */
+    @Test
+    void aSignedInDecisionCannotEndInAnotherAcceptedLoginsOutcome() {
+        users.given(ScimIdentities.user("eACTIVE"));
+        LoginService.AcceptedLogin accepted = attested("eACTIVE");
+        LoginOutcome.SignedIn otherMethod = LoginOutcome.SignedIn.password(accepted.userId());
+
+        assertThatThrownBy(() -> new LoginDecision(otherMethod, Optional.of(accepted)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** The accepted Login carries the outcome the decision ended in, for its caller to record. */
+    @Test
+    void anAcceptedEpicLoginCarriesTheOutcomeItsDecisionEndedIn() {
+        ScimUser active = users.given(ScimIdentities.user("eACTIVE"));
+
+        assertThat(attested("eACTIVE").signedIn()).isEqualTo(
+                new LoginOutcome.SignedIn(active.id(), AuditLoginMethod.SSO, AuditMfaFactor.IDP_ATTESTED));
     }
 
     /** The one {@code WARN} authentication record {@code practitionerId}'s refusal wrote. */
@@ -386,7 +406,7 @@ class EpicLoginDecisionTests {
 
     /** The reason {@code practitionerId}'s Epic Login was refused for. */
     private EpicLoginFailureReason refusalOf(String practitionerId) {
-        EpicLoginDecision decision =
+        LoginDecision decision =
                 login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);
         assertThat(decision.accepted()).as("the Epic Login was refused").isEmpty();
         assertThat(decision.outcome()).isInstanceOf(LoginOutcome.EpicRefused.class);

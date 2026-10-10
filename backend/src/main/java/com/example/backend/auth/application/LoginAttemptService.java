@@ -115,22 +115,6 @@ public class LoginAttemptService {
     }
 
     /**
-     * Records a refused Login that counts toward no failure run: an Epic Login the login decision
-     * refused (D12). Epic checked the credential, not this service, so a refusal here is no
-     * evidence of guessing — and counting it would let anyone holding an Epic session that names
-     * a case variant of a User's {@code userName} lock that User out. The User's login state is
-     * neither read nor written; only the {@code LOGIN_FAILURE} is recorded, fail-open like every
-     * refusal on this path.
-     *
-     * @param subjectId stable id of the refused User, or {@code null} when the attempt named no
-     *     acceptable User — which is then not recorded at all
-     */
-    @Transactional
-    public void recordRefusal(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method) {
-        audit.recordLoginRefusal(subjectId, reason, method);
-    }
-
-    /**
      * Clears the failure run of an identity that has just logged in, and records when it did.
      *
      * <p>The success event is fail-closed, unlike everything on the failure path: a session this

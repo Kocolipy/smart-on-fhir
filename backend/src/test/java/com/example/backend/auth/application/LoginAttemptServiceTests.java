@@ -110,25 +110,6 @@ class LoginAttemptServiceTests {
         assertThat(audit.mfaFactors()).containsExactly(AuditMfaFactor.OTP);
     }
 
-    /**
-     * A refused Epic Login is recorded against the User it named and counts toward no failure run
-     * (D12).
-     */
-    @Test
-    void aRefusalIsRecordedWithoutCountingTowardTheFailureRun() {
-        failTimes(2);
-        audit.reset();
-        UUID ada = users.require("ada").id();
-
-        attempts.recordRefusal(ada, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO);
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
-        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
-                .extracting(Recorded::subjectId, Recorded::detail)
-                .containsExactly(tuple(ada, AuditRefusalReason.ACCOUNT_LOCKED.name()));
-        assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
-    }
-
     /** An Epic success without a factor is a caller's bug, refused before anything is written. */
     @Test
     void anEpicSuccessWithoutAFactorIsRefused() {

@@ -30,6 +30,8 @@ import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -65,7 +67,7 @@ class LoginOutcomeServiceTests {
             new LoginAttemptService(users, new InMemoryAccountSessions(),
                     new PendingCommit(), new LockoutPolicy(5), audit,
                     new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
-            counts, counts);
+            audit, counts, counts);
 
     // ---- signed in ----------------------------------------------------------------------------
 
@@ -228,6 +230,21 @@ class LoginOutcomeServiceTests {
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, refused, "ACCOUNT_LOCKED"));
         assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
+    }
+
+    /**
+     * D12: Epic checked the credential, not us, so an Epic refusal of a User who has a failure
+     * run under way neither lengthens it nor records a change to the account.
+     */
+    @Test
+    void anEpicRefusalOfAUserCountsTowardNoFailureRun() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada",
+                new ScimLoginState("hash", 2, null)));
+
+        outcomes.record(EpicRefused.account(ada.id(), EpicLoginFailureReason.ACCOUNT_LOCKED),
+                SESSION);
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
     }
 
     /**

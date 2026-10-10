@@ -9,6 +9,8 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scheduling.domain.ScheduledJobLock;
@@ -51,7 +53,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.authentication.LockedException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -196,8 +197,8 @@ class DormancyIntegrationTests {
                 .satisfies(row -> assertThat(row)
                         .containsEntry("outcome", "SUCCESS")
                         .containsEntry("actor_id", null));
-        assertThatThrownBy(() -> logins.logIn("dormancy-lockout", PASSWORD))
-                .isInstanceOf(LockedException.class);
+        assertThat(logins.logIn("dormancy-lockout", PASSWORD).outcome())
+                .isEqualTo(new PasswordRefused("dormancy-lockout", AuditRefusalReason.ACCOUNT_LOCKED));
     }
 
     @Test
@@ -286,8 +287,7 @@ class DormancyIntegrationTests {
     void anExistingFailuresCauseSurvivesTheJob() {
         UUID ada = createSettledUser("dormancy-failures");
         for (int attempt = 0; attempt < 3; attempt++) {
-            assertThatThrownBy(() -> logins.logIn("dormancy-failures", "wrong-password"))
-                    .isNotNull();
+            assertThat(logins.logIn("dormancy-failures", "wrong-password").accepted()).isEmpty();
         }
         Instant failureLock = lockedAt(ada);
         assertThat(failureLock).isNotNull();
@@ -443,7 +443,7 @@ class DormancyIntegrationTests {
         assertThat(dormancy.run().locked()).as("the next run does not lock again")
                 .doesNotContain(ada);
         assertThat(lockedAt(ada)).isNull();
-        assertThat(logins.logIn("dormancy-unlock", PASSWORD).userId()).isEqualTo(ada);
+        assertThat(logins.logIn("dormancy-unlock", PASSWORD).accepted().orElseThrow().userId()).isEqualTo(ada);
     }
 
     // ---- the Bootstrap Admin --------------------------------------------------------------

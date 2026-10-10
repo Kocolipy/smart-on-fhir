@@ -879,4 +879,14 @@ audit trail only (ADR 0013, "the account reasons are audit-only"). Password Logi
 - **One module writes it.** Both login methods' endings are recorded by `LoginOutcomeService`
   (formerly `EpicLoginOutcomeService`), so the two refusal records cannot drift apart again. The
   accepted password Login's `user-authentication` record is unchanged and still carries no
-  `session.hash`.
+  `session.hash` (until the addendum of 2026-10-10, below).
+
+## Addendum (2026-10-10): an accepted password Login names the session it signed in
+
+Architecture review 2026-10-10, B1 (ADR 0013, its addendum of this date). An accepted password
+Login's `user-authentication` `INFO` ("Login accepted") is now written after its session is
+signed in, as an Epic Login's always was, and so carries `session.hash` of the signed-in
+(rotated) session — never the pre-login one — beside `user.id` and `app.login.method`
+`password`. It is no longer written at all for a Login whose session could not be established.
+Its message, level, classification and every other field are unchanged, and so are the refusal
+records and `session-start`.

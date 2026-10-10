@@ -45,7 +45,9 @@ Because that recording is inside the module that authenticates, it cannot be
 skipped by a caller: an entry point either goes through `LoginService` and gets
 the failure run with it, or it does not authenticate submitted credentials at all.
 `AuthController` is one such caller and owns only the session and CSRF work,
-which it delegates to `SessionEstablishment`.
+which it delegates to `SessionEstablishment`. (Since 2026-10-10 both login methods'
+caller is `LoginCompletion`, which runs `SessionEstablishment` after the decision;
+see ADR 0013, addendum 2026-10-10.)
 
 ## Consequences
 

@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
@@ -24,8 +25,11 @@ import org.springframework.stereotype.Service;
  * Records how a Login ended, by either login method (ADR 0013, flow steps 6–8, and its addendum
  * of 2026-10-09 for password Login): the one place each ending's audit record, log line and
  * counts are written, so no two endings — and no two login methods — can disagree about what an
- * ending emits. Where the browser goes next is the web adapter's, and a function of the outcome
- * alone: a password Login's bare {@code 401}, an Epic Login's redirect.
+ * ending emits. When each ending is recorded is the web adapter's Login completion's
+ * ({@code LoginCompletion}), which runs one order for both methods: a success only once its
+ * session is signed in (ADR 0013, addendum 2026-10-10). Where the browser goes next is each
+ * method's web adapter's, and a function of the outcome alone: a password Login's bare
+ * {@code 401}, an Epic Login's redirect.
  *
  * <ul>
  *   <li><b>Signed in.</b> The {@code user-authentication} record at {@code INFO}, naming the
@@ -51,7 +55,7 @@ import org.springframework.stereotype.Service;
  * </ul>
  *
  * <p>Every ending's records carry {@code session.hash} when a session is named — for a refusal the
- * session the Login ran in, for an Epic success the session it signed in — and no user field but
+ * session the Login ran in, for a success the session it signed in — and no user field but
  * a success's: the session the browser held is not whom the attempt was for. No record carries a
  * password Login's submitted username, nor anything Epic sent, nor the Practitioner ID. Every
  * failed Epic call is also counted by its call and category, so a refused credential
@@ -64,13 +68,16 @@ public class LoginOutcomeService {
 
     private final LoginAttemptService attempts;
 
+    private final AuditTrail audit;
+
     private final LoginCounts counts;
 
     private final EpicCallCounts epicCalls;
 
-    public LoginOutcomeService(
-            LoginAttemptService attempts, LoginCounts counts, EpicCallCounts epicCalls) {
+    public LoginOutcomeService(LoginAttemptService attempts, AuditTrail audit,
+            LoginCounts counts, EpicCallCounts epicCalls) {
         this.attempts = attempts;
+        this.audit = audit;
         this.counts = counts;
         this.epicCalls = epicCalls;
     }
@@ -78,9 +85,9 @@ public class LoginOutcomeService {
     /**
      * Records {@code outcome}.
      *
-     * @param sessionId the id of the session the Login ran in — for an Epic success, the one it
-     *                  signed in — which its records name by hash only; {@code null} when the
-     *                  browser held none, or for a password success, whose records name none
+     * @param sessionId the id of the session the Login ran in — for a success, the one it signed
+     *                  in — which its records name by hash only; {@code null} when the browser
+     *                  held none
      */
     public void record(LoginOutcome outcome, String sessionId) {
         String sessionHash = SessionHash.of(sessionId);
@@ -118,7 +125,9 @@ public class LoginOutcomeService {
             logFailedCall(refused.failedCall(), sessionHash);
             epicCalls.failedCall(refused.failedCall().call(), refused.failedCall().category());
         }
-        attempts.recordRefusal(
+        // Counted toward no failure run (D12): Epic checked the credential, not us, so the User's
+        // login state is neither read nor written. Fail-open, as every refusal's append is.
+        audit.recordLoginRefusal(
                 refused.subjectId(), refused.reason().audited(), refused.method());
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             LoggingEventBuilder warning =
@@ -140,7 +149,7 @@ public class LoginOutcomeService {
             logFailedCall(call, sessionHash);
         }
         epicCalls.failedCall(call.call(), call.category());
-        attempts.recordRefusal(
+        audit.recordLoginRefusal(
                 null, EpicLoginFailureReason.EPIC_UNAVAILABLE.audited(), AuditLoginMethod.SSO);
         counts.unavailable();
     }

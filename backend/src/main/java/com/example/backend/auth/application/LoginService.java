@@ -8,6 +8,7 @@ import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
@@ -55,33 +56,39 @@ public class LoginService {
     }
 
     /**
-     * Authenticates the submitted credentials, counting the attempt against the
-     * account.
+     * The login decision for a password Login: the submitted credentials become an accepted
+     * Login or a refusal, and the attempt is counted against the account either way.
      *
-     * <p>A refusal is rethrown unchanged — wrong password, unknown username,
-     * locked account, disabled account — so every one of them leaves through the
-     * caller's single handler and answers with the same bare {@code 401}.
+     * <p>Every refusal — wrong password, unknown username, locked account, disabled account —
+     * ends in the same kind of decision, a {@link PasswordRefused}, told apart only by the reason
+     * the audit trail records, so the web adapter answers each with the same bare {@code 401}.
      *
-     * <p>The run of failures an accepted login ends is cleared before this
-     * returns, so a caller holding an authentication is by definition one whose
-     * account was not refused, whatever it does with the authentication next.
+     * <p>The run of failures an accepted login ends is cleared, and its fail-closed
+     * {@code LOGIN_SUCCESS} written, before this returns, so a caller holding an authentication
+     * is by definition one whose account was not refused, whatever it does with the
+     * authentication next.
      *
-     * <p>Both outcomes are recorded through {@link LoginOutcomeService}, the one module that
+     * <p>A refusal is recorded here, through {@link LoginOutcomeService}, the one module that
      * records how a Login ended by either method, so no caller can refuse a Login without the
-     * record — and neither record carries the submitted {@code username}. It is the single most
-     * sensitive value passing through here — it is half a credential, and on a failed attempt it
-     * is very often a mistyped password — so it stays out of the log, in the message and in the
-     * context alike. The accepted attempt carries the identity's stable id as {@code user.id};
-     * the refused one carries no user field at all, because the identity it named is unresolved,
-     * and no reason either: it says only that the Login was refused (Logging §2.2). Whether the
-     * password was wrong, the name unknown, or the account locked or deactivated tells whether
-     * an account exists, so that is the audit trail's {@code LOGIN_FAILURE} alone, read by an
-     * administrator, and the {@code login} counter's {@code reason} tag, which names no account.
-     * A run of wrong passwords is still told from a run against names that do not exist, there.
+     * record or skip the failure run. An acceptance is not: the Login has not ended until the
+     * caller has signed the session in, so the caller records the {@link SignedIn} it is handed
+     * once it has, naming the session the User goes on to use ({@code LoginCompletion}; ADR
+     * 0013, addendum 2026-10-10). Neither record carries the submitted {@code username}. It is
+     * the single most sensitive value passing through here — it is half a credential, and on a
+     * failed attempt it is very often a mistyped password — so it stays out of the log, in the
+     * message and in the context alike. The accepted Login's record carries the identity's stable
+     * id as {@code user.id}; the refused one carries no user field at all, because the identity it
+     * named is unresolved, and no reason either: it says only that the Login was refused (Logging
+     * §2.2). Whether the password was wrong, the name unknown, or the account locked or
+     * deactivated tells whether an account exists, so that is the audit trail's
+     * {@code LOGIN_FAILURE} alone, read by an administrator, and the {@code login} counter's
+     * {@code reason} tag, which names no account. A run of wrong passwords is still told from a
+     * run against names that do not exist, there.
      *
-     * @throws AuthenticationException when the credentials are refused
+     * @return how the decision ended — a {@link SignedIn} with the accepted Login, or a
+     *     {@link PasswordRefused}, already recorded
      */
-    public AcceptedLogin logIn(String username, String password) {
+    public LoginDecision logIn(String username, String password) {
         return logIn(username, password, null);
     }
 
@@ -93,26 +100,22 @@ public class LoginService {
      *
      * @param retainedSessionId the id the caller's session is stored under, or {@code null} when
      *     it holds none
-     * @throws AuthenticationException when the credentials are refused
      */
-    public AcceptedLogin logIn(String username, String password, String retainedSessionId) {
+    public LoginDecision logIn(String username, String password, String retainedSessionId) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
         } catch (AuthenticationException refused) {
-            outcomes.record(new PasswordRefused(username, refusalReason(refused)),
-                    retainedSessionId);
-            throw refused;
+            PasswordRefused refusal = new PasswordRefused(username, refusalReason(refused));
+            outcomes.record(refusal, retainedSessionId);
+            return new LoginDecision(refusal, Optional.empty());
         }
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
         attempts.recordPasswordSuccess(authentication.getName(), retainedSessionId);
-        AcceptedLogin accepted = accepted(authentication);
-        // No session named: the one the caller goes on to sign in is not rotated yet.
-        outcomes.record(SignedIn.password(accepted.userId()), null);
-        return accepted;
+        return LoginDecision.signedIn(accepted(authentication, SignedIn::password));
     }
 
     /**
@@ -153,7 +156,7 @@ public class LoginService {
      *     or locked
      */
     @Transactional
-    public EpicLoginDecision logInFromEpic(
+    public LoginDecision logInFromEpic(
             String practitionerId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Optional<UserDetails> linked = identities.loadEpicLinkedUser(practitionerId);
         if (linked.isEmpty()) {
@@ -174,19 +177,23 @@ public class LoginService {
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
         attempts.recordEpicSuccess(authentication.getName(), retainedSessionId, mfaFactor);
-        AcceptedLogin accepted = accepted(authentication);
-        return new EpicLoginDecision(
-                SignedIn.epic(accepted.userId(), mfaFactor), Optional.of(accepted));
+        return LoginDecision.signedIn(
+                accepted(authentication, userId -> SignedIn.epic(userId, mfaFactor)));
     }
 
-    private EpicLoginDecision refused(EpicRefused refusal, String retainedSessionId) {
+    private LoginDecision refused(EpicRefused refusal, String retainedSessionId) {
         outcomes.record(refusal, retainedSessionId);
-        return new EpicLoginDecision(refusal, Optional.empty());
+        return new LoginDecision(refusal, Optional.empty());
     }
 
-    /** What the caller establishes the session from, once the success is recorded. */
-    private AcceptedLogin accepted(Authentication authentication) {
-        return new AcceptedLogin(authentication, identities.resolveUserId(authentication.getName()),
+    /**
+     * What the caller establishes the session from, once the success is recorded: signed in as
+     * {@code signedIn} makes the outcome of the User {@code authentication} names.
+     */
+    private AcceptedLogin accepted(
+            Authentication authentication, Function<UUID, SignedIn> signedIn) {
+        return new AcceptedLogin(authentication,
+                signedIn.apply(identities.resolveUserId(authentication.getName())),
                 identities.roleMappingHash());
     }
 
@@ -220,23 +227,38 @@ public class LoginService {
      * web adapter writes into the session index, so application-owned session
      * lookups survive a later {@code userName} change instead of following
      * {@code authentication.getName()} — and the hash of the role mapping the
-     * authentication's Permissions were resolved under, which the session records.
+     * authentication's Permissions were resolved under, which the session records. Its
+     * {@link SignedIn} is the outcome the caller records once the session is signed in, and names
+     * the login method the session is signed in by.
      */
     public record AcceptedLogin(
-            Authentication authentication, UUID userId, String roleMappingHash) {
+            Authentication authentication, SignedIn signedIn, String roleMappingHash) {
+
+        /** The identity's stable id, which the session is indexed and logged by. */
+        public UUID userId() {
+            return signedIn.userId();
+        }
     }
 
     /**
-     * How the Epic login decision ended: its {@link LoginOutcome}, and the accepted Login the
-     * caller establishes the session from — present exactly when the outcome is
-     * {@link SignedIn}.
+     * How a login decision ended, by either login method: its {@link LoginOutcome}, and the
+     * accepted Login the caller establishes the session from — present exactly when the outcome
+     * is {@link SignedIn}, and then that accepted Login's own. A refusal it carries is already
+     * recorded; a {@link SignedIn} is the caller's to record, once the session is signed in.
      */
-    public record EpicLoginDecision(LoginOutcome outcome, Optional<AcceptedLogin> accepted) {
+    public record LoginDecision(LoginOutcome outcome, Optional<AcceptedLogin> accepted) {
 
-        public EpicLoginDecision {
-            if (accepted.isPresent() != outcome instanceof SignedIn) {
-                throw new IllegalArgumentException("only a signed-in Login carries a session");
+        public LoginDecision {
+            if (accepted.map(login -> !login.signedIn().equals(outcome))
+                    .orElse(outcome instanceof SignedIn)) {
+                throw new IllegalArgumentException(
+                        "exactly a signed-in Login carries the accepted Login it signed in");
             }
+        }
+
+        /** The decision that accepted {@code accepted}, ending in its {@link SignedIn}. */
+        public static LoginDecision signedIn(AcceptedLogin accepted) {
+            return new LoginDecision(accepted.signedIn(), Optional.of(accepted));
         }
     }
 }

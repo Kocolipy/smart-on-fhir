@@ -1,7 +1,6 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.authorization.TestRoleMappings;
 import ch.qos.logback.classic.Level;
@@ -9,12 +8,15 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
+import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
+import com.example.backend.auth.application.LoginService.AcceptedLogin;
+import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.controller.AuthController;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -26,19 +28,14 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 
 /**
  * The lockout story over the real authentication chain: the login module, the attempt
@@ -114,14 +111,14 @@ class LoginLockoutTests {
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
-                RecordingLoginCounts.uncounted(attempts));
+                RecordingLoginCounts.uncounted(attempts, audit));
         administration = new IdentityAdministrationService(
                 users, groups, sessions, transaction, audit, clock);
     }
 
     @Test
     void anAcceptedLoginReportsTheIdentityAndItsDerivedAuthority() {
-        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).authentication();
+        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).accepted().orElseThrow().authentication();
 
         assertThat(authentication.isAuthenticated()).isTrue();
         assertThat(authentication.getName()).isEqualTo("ada");
@@ -133,41 +130,30 @@ class LoginLockoutTests {
     /** And the stable id it reports is the SCIM resource's, not the submitted name. */
     @Test
     void anAcceptedLoginReportsTheScimResourceId() {
-        assertThat(login.logIn("ada", CORRECT_PASSWORD).userId())
+        assertThat(login.logIn("ada", CORRECT_PASSWORD).accepted().orElseThrow().userId())
                 .isEqualTo(users.require("ada").id());
     }
 
     /**
-     * The accepted record names the identity by its stable id, as {@code user.id} in the
-     * record's context — set on the record itself and gone once it is written, since the
-     * session that carries it on later requests does not exist yet.
+     * An acceptance is recorded once the session is signed in, by the web adapter's Login
+     * completion ({@code LoginCompletionTests}): the decision writes no {@code user-authentication}
+     * record of it, so a Login that never gets its session is not logged a success.
      */
     @Test
-    void theAcceptedLoginRecordCarriesTheStableIdAndClassification() {
+    void anAcceptedLoginIsNotRecordedByTheDecision() {
         try (CapturedLog captured = CapturedLog.attach()) {
-            login.logIn("ada", CORRECT_PASSWORD);
+            accepted("ada");
 
-            ILoggingEvent record = onlyLoginRecord(captured, Level.INFO);
-            assertThat(record.getMDCPropertyMap())
-                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
-            assertThat(CapturedLog.fields(record))
-                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                    .containsEntry(LogEvent.KIND, "event")
-                    .containsEntry(LogEvent.CATEGORY, List.of("process"))
-                    .containsEntry(LogEvent.TYPE, List.of("user", "allowed"));
+            assertThat(captured.withAction(Level.INFO, LogEvent.ACTION, "user-authentication"))
+                    .isEmpty();
         }
-        assertThat(MDC.get(LogContext.USER_ID)).isNull();
     }
 
-    /** The accepted record says how the Login was made (D15), as the Epic one does. */
+    /** The decision hands back what the accepted Login is recorded as once it is signed in. */
     @Test
-    void theAcceptedLoginRecordNamesThePasswordMethod() {
-        try (CapturedLog captured = CapturedLog.attach()) {
-            login.logIn("ada", CORRECT_PASSWORD);
-
-            assertThat(CapturedLog.fields(onlyLoginRecord(captured, Level.INFO)))
-                    .containsEntry(LogEvent.LOGIN_METHOD, "password");
-        }
+    void anAcceptedLoginEndsSignedInAsItsUserByPassword() {
+        assertThat(login.logIn("ada", CORRECT_PASSWORD).outcome())
+                .isEqualTo(LoginOutcome.SignedIn.password(users.require("ada").id()));
     }
 
     /**
@@ -233,8 +219,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         audit.reset();
 
-        assertThatThrownBy(() -> login.logIn("ada", CORRECT_PASSWORD))
-                .isInstanceOf(LockedException.class);
+        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(AuditRefusalReason.ACCOUNT_LOCKED);
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .as("the refusal is audited as the lockout, not as a generic failure")
@@ -288,8 +273,7 @@ class LoginLockoutTests {
 
         clock.advanceBy(A_LONG_TIME);
 
-        assertThatThrownBy(() -> login.logIn("ada", CORRECT_PASSWORD))
-                .isInstanceOf(LockedException.class);
+        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(AuditRefusalReason.ACCOUNT_LOCKED);
         assertThat(users.require("ada").login().isLocked()).isTrue();
     }
 
@@ -304,7 +288,7 @@ class LoginLockoutTests {
 
         administration.unlock(users.require("ada").id(), BOOTSTRAP_ADMIN);
 
-        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).authentication();
+        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).accepted().orElseThrow().authentication();
         assertThat(authentication.getName()).isEqualTo("ada");
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
         assertThat(users.require("ada").login().lockedAt()).isNull();
@@ -328,48 +312,26 @@ class LoginLockoutTests {
     }
 
     /**
-     * A locked identity and a wrong password leave as <em>different</em> exception types,
-     * so the uniform refusal cannot come from the domain throwing one thing: it comes from
-     * {@link AuthController} declaring a single handler for their common supertype. Both
-     * halves are asserted — the types genuinely differ, and the one handler the controller
-     * declares covers both — so a narrower handler added for either type fails here rather
-     * than silently making a locked identity distinguishable from an unknown one.
-     *
-     * <p>The response bytes that uniformity produces are asserted in
-     * {@code AuthControllerTests.aRefusedLoginAnswersWithAnEmptyUnauthorizedResponse}; this
-     * test pins the precondition that makes one handler sufficient.
+     * A locked identity and a wrong password end in the same kind of decision, a password
+     * refusal, told apart only by the reason the audit trail records. The web adapter answers
+     * every refusal with one bare {@code 401}, so it cannot make a locked identity
+     * distinguishable from a wrong password; the bytes of that answer are asserted in
+     * {@code AuthControllerTests.aLockedAccountsRefusalAnswersExactlyAsAWrongPasswordsDoes}.
      */
     @Test
-    void aLockedIdentityAndAWrongPasswordAreRefusedThroughTheSameHandler() {
-        AuthenticationException wrongPassword = submit("wrong");
-        assertThat(wrongPassword).isInstanceOf(BadCredentialsException.class);
-
+    void aLockedIdentityAndAWrongPasswordEndInTheSameRefusalWithDifferentReasons() {
+        PasswordRefused wrongPassword = submit("wrong");
         submit("wrong");
         submit("wrong");
         submit("wrong");
         submit("wrong");
-        AuthenticationException locked = submit(CORRECT_PASSWORD);
-        assertThat(locked).isInstanceOf(LockedException.class);
 
-        assertThat(locked.getClass()).isNotEqualTo(wrongPassword.getClass());
+        PasswordRefused locked = submit(CORRECT_PASSWORD);
 
-        assertThat(refusalHandlerTypes())
-                .as("the exception types AuthController answers with a bare 401")
-                .anySatisfy(handled -> assertThat(handled).isAssignableFrom(wrongPassword.getClass()))
-                .anySatisfy(handled -> assertThat(handled).isAssignableFrom(locked.getClass()));
-    }
-
-    /**
-     * The exception types {@link AuthController}'s refusal handler is declared for, read
-     * from the annotation rather than restated here so the assertion tracks the controller
-     * instead of a copy of it.
-     */
-    private static List<Class<? extends Throwable>> refusalHandlerTypes() {
-        return Arrays.stream(AuthController.class.getDeclaredMethods())
-                .map(method -> method.getAnnotation(ExceptionHandler.class))
-                .filter(annotation -> annotation != null)
-                .flatMap(annotation -> Arrays.stream(annotation.value()))
-                .toList();
+        assertThat(List.of(wrongPassword, locked))
+                .extracting(PasswordRefused::reason)
+                .containsExactly(
+                        AuditRefusalReason.BAD_CREDENTIALS, AuditRefusalReason.ACCOUNT_LOCKED);
     }
 
     @Test
@@ -397,7 +359,7 @@ class LoginLockoutTests {
         assertThat(users.require(BOOTSTRAP_ADMIN).login().failedLoginAttempts()).isEqualTo(10);
 
         Authentication authentication =
-                login.logIn(BOOTSTRAP_ADMIN, CORRECT_PASSWORD).authentication();
+                login.logIn(BOOTSTRAP_ADMIN, CORRECT_PASSWORD).accepted().orElseThrow().authentication();
 
         assertThat(authentication.getName()).isEqualTo(BOOTSTRAP_ADMIN);
         assertThat(users.require(BOOTSTRAP_ADMIN).login().failedLoginAttempts()).isZero();
@@ -411,7 +373,7 @@ class LoginLockoutTests {
     @Test
     void theBootstrapAdminLogsInAsAnAdministratorThroughItsGroupMembership() {
         Authentication authentication =
-                login.logIn(BOOTSTRAP_ADMIN, CORRECT_PASSWORD).authentication();
+                login.logIn(BOOTSTRAP_ADMIN, CORRECT_PASSWORD).accepted().orElseThrow().authentication();
 
         assertThat(authentication.getAuthorities())
                 .extracting(Object::toString)
@@ -453,16 +415,18 @@ class LoginLockoutTests {
     }
 
     /** Submits a login expected to be refused, returning the refusal. */
-    private AuthenticationException submit(String password) {
+    private PasswordRefused submit(String password) {
         return submitAs("ada", password);
     }
 
-    private AuthenticationException submitAs(String username, String password) {
-        try {
-            login.logIn(username, password);
-            throw new AssertionError("Expected the login to be refused");
-        } catch (AuthenticationException refused) {
-            return refused;
-        }
+    private PasswordRefused submitAs(String username, String password) {
+        LoginDecision decision = login.logIn(username, password);
+        assertThat(decision.accepted()).as("the login was refused").isEmpty();
+        return (PasswordRefused) decision.outcome();
+    }
+
+    /** Submits {@code username}'s correct password, expecting the Login to be accepted. */
+    private AcceptedLogin accepted(String username) {
+        return login.logIn(username, CORRECT_PASSWORD).accepted().orElseThrow();
     }
 }

@@ -1,14 +1,16 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
+import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
+import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -18,6 +20,7 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,9 +28,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.springframework.security.authentication.DisabledException;
-import org.springframework.security.authentication.LockedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -86,18 +86,19 @@ class RefusalTimingEquivalenceTests {
                 ScimIdentities.NOW));
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+        RecordingAuditTrail audit = new RecordingAuditTrail();
         LoginAttemptService attempts = new LoginAttemptService(
                         users,
                         new InMemoryAccountSessions(),
                         new PendingCommit(),
                         new LockoutPolicy(5),
-                        new RecordingAuditTrail(),
+                        audit,
                         clock);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
                 identities,
-                RecordingLoginCounts.uncounted(attempts));
+                RecordingLoginCounts.uncounted(attempts, audit));
     }
 
     @Test
@@ -149,19 +150,16 @@ class RefusalTimingEquivalenceTests {
     /** The comparison runs first, but the account's state still refuses the right password. */
     @Test
     void aLockedIdentityIsRefusedAsLockedWhateverThePassword() {
-        assertThatThrownBy(() -> login.logIn("locked", "correct-password"))
-                .isInstanceOf(LockedException.class);
-        assertThatThrownBy(() -> login.logIn("locked", "wrong-password"))
-                .isInstanceOf(LockedException.class);
+        assertThat(List.of(refuse("locked", "correct-password"), refuse("locked", "wrong-password")))
+                .containsOnly(AuditRefusalReason.ACCOUNT_LOCKED);
     }
 
     /** The comparison runs first, but deactivation still refuses the right password. */
     @Test
     void aDeactivatedIdentityIsRefusedAsDisabledWhateverThePassword() {
-        assertThatThrownBy(() -> login.logIn("deactivated", "correct-password"))
-                .isInstanceOf(DisabledException.class);
-        assertThatThrownBy(() -> login.logIn("deactivated", "wrong-password"))
-                .isInstanceOf(DisabledException.class);
+        assertThat(List.of(refuse("deactivated", "correct-password"),
+                        refuse("deactivated", "wrong-password")))
+                .containsOnly(AuditRefusalReason.ACCOUNT_DISABLED);
     }
 
     /**
@@ -214,9 +212,11 @@ class RefusalTimingEquivalenceTests {
         assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
     }
 
-    private void refuse(String username, String password) {
-        assertThatThrownBy(() -> login.logIn(username, password))
-                .isInstanceOf(AuthenticationException.class);
+    /** Submits a Login expected to be refused, returning the reason Spring Security refused it for. */
+    private AuditRefusalReason refuse(String username, String password) {
+        LoginDecision decision = login.logIn(username, password);
+        assertThat(decision.accepted()).as("the Login was refused").isEmpty();
+        return ((PasswordRefused) decision.outcome()).reason();
     }
 
     /**

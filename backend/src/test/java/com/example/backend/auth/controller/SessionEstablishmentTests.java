@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
-import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditMfaFactor;
+import com.example.backend.auth.application.LoginOutcome.SignedIn;
+import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.observability.LogContext;
@@ -37,6 +39,9 @@ class SessionEstablishmentTests {
     private final Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
             "ada", null, AuthorityUtils.createAuthorityList("ROLE_USER"));
 
+    private final AcceptedLogin passwordLogin =
+            new AcceptedLogin(authentication, SignedIn.password(USER_ID), ROLE_MAPPING_HASH);
+
     private SessionEstablishment establishment;
 
     private SecurityContextRepository securityContextRepository;
@@ -65,9 +70,7 @@ class SessionEstablishmentTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
         String preLoginId = request.getSession().getId();
 
-        establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
-                request, new MockHttpServletResponse());
+        establishment.establish(passwordLogin, request, new MockHttpServletResponse());
 
         assertThat(request.getSession(false).getId()).isNotEqualTo(preLoginId);
     }
@@ -77,9 +80,7 @@ class SessionEstablishmentTests {
     void aLaterRequestOnTheSessionCarriesTheAuthentication() {
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
-                request, new MockHttpServletResponse());
+        HttpSession signedIn = establishment.establish(passwordLogin, request, new MockHttpServletResponse());
 
         MockHttpServletRequest later = new MockHttpServletRequest();
         later.setSession(signedIn);
@@ -90,9 +91,7 @@ class SessionEstablishmentTests {
     /** The rest of the request that signed in runs as the signed-in caller. */
     @Test
     void theCurrentThreadCarriesTheAuthentication() {
-        establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
-                new MockHttpServletRequest(), new MockHttpServletResponse());
+        establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(authentication);
     }
@@ -103,9 +102,7 @@ class SessionEstablishmentTests {
      */
     @Test
     void theSessionIsIndexedByTheUsersStableId() {
-        HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
-                new MockHttpServletRequest(), new MockHttpServletResponse());
+        HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME))
                 .isEqualTo("5b0d6a8e-3c1f-4e7a-9d2b-1f0e8c7a6b54");
@@ -114,9 +111,7 @@ class SessionEstablishmentTests {
     /** The session records the role mapping its Permissions were resolved under. */
     @Test
     void theSessionRecordsTheRoleMappingHash() {
-        HttpSession signedIn = establishment.establish(
-                authentication, USER_ID, ROLE_MAPPING_HASH, AuditLoginMethod.PASSWORD,
-                new MockHttpServletRequest(), new MockHttpServletResponse());
+        HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.getAttribute(RoleMappingSessions.HASH_ATTRIBUTE))
                 .isEqualTo("role-mapping-hash-under-test");
@@ -129,8 +124,7 @@ class SessionEstablishmentTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
         csrfTokenRepository.saveToken(csrfTokenRepository.generateToken(request), request, response);
 
-        establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
-                AuditLoginMethod.PASSWORD, request, response);
+        establishment.establish(passwordLogin, request, response);
 
         assertThat(csrfTokenRepository.loadToken(request)).isNull();
     }
@@ -146,8 +140,7 @@ class SessionEstablishmentTests {
         request.getSession().setMaxInactiveInterval(523);
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
-                    AuditLoginMethod.PASSWORD, request, new MockHttpServletResponse());
+            establishment.establish(passwordLogin, request, new MockHttpServletResponse());
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.ACTION, "session-start"))
                     .singleElement()
@@ -167,8 +160,10 @@ class SessionEstablishmentTests {
     @Test
     void theSessionStartRecordCarriesTheLoginMethod() {
         try (CapturedLog captured = CapturedLog.attach()) {
-            establishment.establish(authentication, USER_ID, ROLE_MAPPING_HASH,
-                    AuditLoginMethod.SSO, new MockHttpServletRequest(),
+            establishment.establish(
+                    new AcceptedLogin(authentication, SignedIn.epic(USER_ID, AuditMfaFactor.OTP),
+                            ROLE_MAPPING_HASH),
+                    new MockHttpServletRequest(),
                     new MockHttpServletResponse());
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.ACTION, "session-start"))

@@ -1,8 +1,6 @@
 package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -43,7 +41,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.web.servlet.MockMvc;
@@ -508,9 +505,9 @@ class ScimConditionalWriteIntegrationTests {
                 "SELECT count(*) FROM scim_group_members WHERE group_id = ? AND user_id = ?",
                 Integer.class, group, user))
                 .as("a submitted groups attribute is ignored: the membership survives").isEqualTo(1);
-        assertThatCode(() -> login.logIn("put-replace", FIRST_PASSWORD))
+        assertThat(login.logIn("put-replace", FIRST_PASSWORD).accepted())
                 .as("an omitted password leaves the credential usable")
-                .doesNotThrowAnyException();
+                .isPresent();
     }
 
     /**
@@ -543,8 +540,7 @@ class ScimConditionalWriteIntegrationTests {
     @Test
     void a_replacement_leaves_the_failure_run_to_the_login_path() throws Exception {
         UUID user = createUser("put-failure-run");
-        assertThatThrownBy(() -> login.logIn("put-failure-run", "not-the-password"))
-                .isInstanceOf(AuthenticationException.class);
+        assertThat(login.logIn("put-failure-run", "not-the-password").accepted()).isEmpty();
 
         mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
                 minimalUser("put-failure-run")), user)).andReturn();
@@ -639,7 +635,7 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(historyRows(user)).as("trimmed to three").isEqualTo(3);
         assertThat(setPassword(user, FIRST_PASSWORD, true))
                 .as("the fourth most recent has aged out").isEqualTo(200);
-        assertThatCode(() -> login.logIn("history", FIRST_PASSWORD)).doesNotThrowAnyException();
+        assertThat(login.logIn("history", FIRST_PASSWORD).accepted()).isPresent();
 
         jdbc.update("DELETE FROM scim_resources WHERE id = ?", user);
         assertThat(historyRows(user)).as("deleted with the User").isZero();
@@ -652,8 +648,8 @@ class ScimConditionalWriteIntegrationTests {
 
         assertThat(setPassword(user, "cafe\u0301-and-a-horse", true)).isEqualTo(200);
 
-        assertThatCode(() -> login.logIn("normalized-login", "caf\u00e9-and-a-horse"))
-                .doesNotThrowAnyException();
+        assertThat(login.logIn("normalized-login", "caf\u00e9-and-a-horse").accepted())
+                .isPresent();
     }
 
     // ---- session revocation against the real store ----------------------------------------
