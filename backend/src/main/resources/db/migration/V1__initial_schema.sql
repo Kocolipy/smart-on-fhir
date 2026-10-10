@@ -558,10 +558,32 @@ CREATE TABLE audit_events (
     -- anything is recorded. NULL for every other event.
     permissions   TEXT,
 
+    -- How a Login was attempted (Epic Login, D15): `password` for password
+    -- Login, `sso` for an EHR launch from Epic. Carried by LOGIN_SUCCESS and
+    -- LOGIN_FAILURE only, and NULL for every other event. A value from the
+    -- closed vocabulary in code (AuditLoginMethod), never one a caller submitted.
+    login_method  VARCHAR(16),
+
+    -- The MFA factor an Epic Login was made with (Epic Login, D17):
+    -- `idp-attested` while the Epic organisation's MFA is an attestation, or the
+    -- RFC 8176 factor the id_token's `amr` named once the evidence is required.
+    -- Carried by an Epic LOGIN_SUCCESS only, and NULL for every other event — a
+    -- password Login's included. A value from the closed vocabulary in code
+    -- (AuditMfaFactor), never one Epic sent.
+    mfa_factor    VARCHAR(16),
+
     CONSTRAINT pk_audit_events PRIMARY KEY (id),
 
     CONSTRAINT ck_audit_events_result_count_non_negative
-        CHECK (result_count IS NULL OR result_count >= 0)
+        CHECK (result_count IS NULL OR result_count >= 0),
+
+    CONSTRAINT ck_audit_events_login_method
+        CHECK (login_method IS NULL OR login_method IN ('password', 'sso')),
+
+    CONSTRAINT ck_audit_events_mfa_factor
+        CHECK (mfa_factor IS NULL OR mfa_factor IN (
+            'idp-attested', 'mfa', 'otp', 'hwk', 'swk', 'sms', 'tel', 'sc', 'fpt',
+            'face', 'iris', 'retina', 'vbm'))
 );
 
 -- Retention deletes by age, and the history of one subject is read by age too.
