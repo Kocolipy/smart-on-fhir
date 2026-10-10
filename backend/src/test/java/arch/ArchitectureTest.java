@@ -2,8 +2,11 @@ package arch;
 
 import com.example.backend.web.ApiExceptionHandler;
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
@@ -13,7 +16,6 @@ import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Controller;
@@ -21,6 +23,10 @@ import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
@@ -278,6 +284,47 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Transaction management belongs at the use-case/service boundary");
 
+    // The rule above reads class-level annotations only, and this codebase declares
+    // @Transactional on methods, so a transactional handler would pass it unseen.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_transactional_handler_methods =
+        noMethods()
+            .that().areDeclaredInClassesThat().resideInAnyPackage("..controller..", "..domain..")
+            .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
+            .orShould().beAnnotatedWith("jakarta.transaction.Transactional")
+            .allowEmptyShould(true)
+            .because("Transaction management belongs at the use-case/service boundary, method by"
+                    + " method as much as class by class");
+
+    /**
+     * Time is read through the injected {@code Clock} bean.
+     *
+     * <p>Lockout, dormancy, audit retention and the session lifetime are all decided against the
+     * clock, and their tests pin it. A use case that read the system clock itself would decide
+     * against a time no test controls. Configuration is exempt: it is where the {@code Clock} bean
+     * is built and where startup timing is logged.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule time_is_read_through_the_clock_bean =
+        noClasses()
+            .that().resideOutsideOfPackage("..config..")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "a no-argument now() on a java.time type, a system Clock, or"
+                            + " System.currentTimeMillis",
+                    (JavaMethodCall call) -> {
+                        JavaClass owner = call.getTargetOwner();
+                        String name = call.getName();
+                        return (owner.getPackageName().equals("java.time")
+                                        && name.equals("now")
+                                        && call.getTarget().getRawParameterTypes().isEmpty())
+                                || (owner.isEquivalentTo(java.time.Clock.class)
+                                        && name.startsWith("system"))
+                                || (owner.isEquivalentTo(System.class)
+                                        && name.equals("currentTimeMillis"));
+                    }))
+            .allowEmptyShould(true)
+            .because("Time-driven rules are decided against the injected Clock, which tests pin");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_jpa_outside_persistence_adapters =
         noClasses()
@@ -324,7 +371,7 @@ public class ArchitectureTest {
      * The session-chain adapters whose handlers need NO Permission: self-service (authenticated
      * only) and the public login surface. Every other application-chain handler is protected.
      */
-    private static final java.util.Set<String> SELF_SERVICE_OR_PUBLIC_CONTROLLERS = java.util.Set.of(
+    private static final Set<String> SELF_SERVICE_OR_PUBLIC_CONTROLLERS = Set.of(
             "com.example.backend.auth.controller.AuthController",
             "com.example.backend.auth.controller.SelfController",
             // Our public JWKS, which Epic fetches with no session (D14).
@@ -332,6 +379,19 @@ public class ArchitectureTest {
             // The EHR launch, which the browser opens from Epic with no session of ours (D1).
             "com.example.backend.auth.epic.controller.EpicLaunchController",
             "com.example.backend.session.controller.SessionController");
+
+    /**
+     * The SCIM protocol's handlers, which sit on the bearer chain: it authorizes connector tokens
+     * itself, so they declare no Permission. Named one by one rather than by a {@code Scim} prefix,
+     * so that a new controller in the SCIM namespace is held to a Permission until someone lists
+     * it here; {@code AdminConnectorController} is the application chain's and is not listed.
+     */
+    private static final Set<String> BEARER_CHAIN_CONTROLLERS = Set.of(
+            "com.example.backend.scim.controller.ScimDiscoveryController",
+            "com.example.backend.scim.controller.ScimGroupController",
+            "com.example.backend.scim.controller.ScimMeController",
+            "com.example.backend.scim.controller.ScimSearchController",
+            "com.example.backend.scim.controller.ScimUserController");
 
     // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain
     @com.tngtech.archunit.junit.ArchTest
@@ -349,10 +409,7 @@ public class ArchitectureTest {
                 public boolean test(com.tngtech.archunit.core.domain.JavaClass owner) {
                     return owner.isAnnotatedWith(RestController.class)
                             && !SELF_SERVICE_OR_PUBLIC_CONTROLLERS.contains(owner.getName())
-                            // The SCIM protocol's own handlers are the bearer chain's, which
-                            // authorizes connector tokens itself; only its admin adapter is ours.
-                            && !(owner.getPackageName().equals("com.example.backend.scim.controller")
-                                    && owner.getSimpleName().startsWith("Scim"));
+                            && !BEARER_CHAIN_CONTROLLERS.contains(owner.getName());
                 }
             })
             .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
@@ -362,65 +419,109 @@ public class ArchitectureTest {
 
     // Module Boundaries
 
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule authorization_depends_on_no_module =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.authorization..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.audit..", "com.example.backend.auth..",
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.observability..", "com.example.backend.scheduling..",
-                    "com.example.backend.scim..", "com.example.backend.session..",
-                    "com.example.backend.web..")
-            .because("the Permission vocabulary and the role mapping are read by both the session"
-                    + " and the SCIM side, so they know neither; a Group id is checked against the"
-                    + " directory by scim, not here");
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule observability_depends_on_no_module =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.observability..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.audit..", "com.example.backend.auth..",
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.scim..", "com.example.backend.session..",
-                    "com.example.backend.web..")
-            .allowEmptyShould(true)
-            .because("observability is the shared base every module logs through, so it knows none of them");
+    /**
+     * Which modules each module may depend on: the whole inter-module graph, in one place.
+     *
+     * <p>An allowlist rather than a rule per module saying what it may not reach, because a
+     * deny-list fails open: a module added later is in nobody's list, so it could depend on, and be
+     * depended on by, anything. Here a new top-level package fails
+     * {@link #every_top_level_package_is_a_declared_module} until it is given an entry, and a new
+     * edge fails {@link #module_dependencies_follow_the_declared_graph} until it is added.
+     */
+    private static final Map<String, Set<String>> MODULE_DEPENDENCIES = Map.ofEntries(
+            // The Permission vocabulary and role mapping are read by both the session and the SCIM
+            // side, so they know neither; a Group id is checked against the directory by scim.
+            Map.entry("authorization", Set.of()),
+            // The shared base every module logs through, so it knows none of them.
+            Map.entry("observability", Set.of()),
+            // The scheduled-job lock is shared by the auth and audit jobs (ADR 0005), so it knows
+            // neither of them.
+            Map.entry("scheduling", Set.of()),
+            // SPA routing and the API error shape are shared plumbing and know no business module.
+            Map.entry("web", Set.of("observability")),
+            // Shared by every business module, so it depends on none of them.
+            Map.entry("audit", Set.of("authorization", "observability", "scheduling")),
+            // auth reaches the directory through scim.domain ports; nothing in scim mentions auth
+            // (backend/AGENTS.md).
+            Map.entry("scim", Set.of("audit", "authorization", "observability")),
+            Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
+            // counter, lifecycle and session are leaves, which no entry names: removing one must
+            // not break another module.
+            Map.entry("counter", Set.of("auth")),
+            Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")),
+            Map.entry("session", Set.of()));
+
+    private static final String ROOT_PACKAGE = "com.example.backend";
+
+    /** The module a class belongs to: the first package segment under the root, if any. */
+    private static Optional<String> moduleOf(JavaClass type) {
+        String packageName = type.getPackageName();
+        if (!packageName.startsWith(ROOT_PACKAGE + ".")) {
+            return Optional.empty();
+        }
+        String rest = packageName.substring(ROOT_PACKAGE.length() + 1);
+        int dot = rest.indexOf('.');
+        return Optional.of(dot < 0 ? rest : rest.substring(0, dot));
+    }
 
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule audit_depends_only_on_observability =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.audit..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.auth..", "com.example.backend.counter..",
-                    "com.example.backend.lifecycle..", "com.example.backend.scim..",
-                    "com.example.backend.session..", "com.example.backend.web..")
-            .allowEmptyShould(true)
-            .because("audit is shared by every business module, so it depends on none of them");
+    static final ArchRule every_top_level_package_is_a_declared_module =
+        classes()
+            .that().resideInAPackage(ROOT_PACKAGE + ".*..")
+            .should(new ArchCondition<JavaClass>("belong to a module declared in MODULE_DEPENDENCIES") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    moduleOf(type)
+                            .filter(module -> !MODULE_DEPENDENCIES.containsKey(module))
+                            .ifPresent(module -> events.add(SimpleConditionEvent.violated(type,
+                                    type.getName() + " is in module '" + module + "', which"
+                                            + " MODULE_DEPENDENCIES does not declare")));
+                }
+            })
+            .because("a module states what it may depend on before it exists, so the module graph"
+                    + " fails closed");
 
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule scheduling_depends_on_no_business_module =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.scheduling..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.audit..", "com.example.backend.auth..",
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.scim..", "com.example.backend.session..",
-                    "com.example.backend.web..")
-            .allowEmptyShould(true)
-            .because("the scheduled-job lock is shared by the auth and audit jobs (ADR 0005), so it"
-                    + " knows neither of them nor any other business module");
+    static final ArchRule module_dependencies_follow_the_declared_graph =
+        classes()
+            .that().resideInAPackage(ROOT_PACKAGE + ".*..")
+            .should(new ArchCondition<JavaClass>("depend only on modules declared for their own") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    String own = moduleOf(type).orElseThrow();
+                    Set<String> allowed = MODULE_DEPENDENCIES.getOrDefault(own, Set.of());
+                    for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
+                        moduleOf(dependency.getTargetClass())
+                                .filter(target -> !target.equals(own) && !allowed.contains(target))
+                                .ifPresent(target -> events.add(SimpleConditionEvent.violated(
+                                        dependency,
+                                        dependency.getDescription() + " (" + own + " -> " + target
+                                                + " is not in MODULE_DEPENDENCIES)")));
+                    }
+                }
+            })
+            .because("the inter-module graph is declared in one place, and an edge nobody declared"
+                    + " is a design change to make on purpose");
 
+    /**
+     * Outbound HTTP lives in the Epic adapter.
+     *
+     * <p>ADR 0013: Epic is reached through the one outbound client, {@code epicRestClient}, which
+     * carries the timeouts (D25), the outbound log line and the call metrics. A second client
+     * elsewhere would make calls with none of the three.
+     */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule web_depends_on_no_feature =
+    static final ArchRule one_outbound_http_client =
         noClasses()
-            .that().resideInAPackage("com.example.backend.web..")
+            .that().resideOutsideOfPackage("com.example.backend.auth.epic..")
             .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.audit..", "com.example.backend.auth..",
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.scim..", "com.example.backend.session..")
+                    "org.springframework.web.client..",
+                    "org.springframework.web.reactive.function.client..",
+                    "java.net.http..")
+            .orShould().dependOnClassesThat().haveFullyQualifiedName("java.net.HttpURLConnection")
             .allowEmptyShould(true)
-            .because("SPA routing is shared plumbing and knows no business module");
+            .because("ADR 0013: every outbound call goes through epicRestClient, which carries the"
+                    + " timeouts, logging and metrics");
 
     /**
      * The app-wide error handler names the controller packages it answers for, rather than
@@ -450,39 +551,14 @@ public class ArchitectureTest {
         return ApiExceptionHandler.class.getAnnotation(RestControllerAdvice.class).basePackages();
     }
 
-    // backend/AGENTS.md: nothing in scim mentions auth
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule scim_never_depends_on_auth =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.scim..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.auth..", "com.example.backend.counter..",
-                    "com.example.backend.lifecycle..", "com.example.backend.session..")
-            .allowEmptyShould(true)
-            .because("backend/AGENTS.md: auth reaches SCIM through scim.domain ports, and nothing in"
-                    + " scim mentions auth");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule leaf_modules_have_no_dependents =
-        noClasses()
-            .that().resideOutsideOfPackages(
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.session..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
-                    "com.example.backend.session..")
-            .allowEmptyShould(true)
-            .because("counter, lifecycle and session are leaves: removing one must not break another module");
-
     // Dependency Injection
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_field_injection =
-        noFields()
-            .that().areDeclaredInClassesThat().areTopLevelClasses()
-            .should().beAnnotatedWith(Autowired.class)
+        GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION
             .allowEmptyShould(true)
-            .because("Constructor injection is required for testability and immutability");
+            .because("Constructor injection is required for testability and immutability; this"
+                    + " covers @Value, @Inject and @Resource fields as well as @Autowired");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_new_inside_service =
@@ -523,6 +599,20 @@ public class ArchitectureTest {
     static final ArchRule no_system_out =
         GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS
             .allowEmptyShould(true);
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_generic_exceptions_thrown =
+        GeneralCodingRules.NO_CLASSES_SHOULD_THROW_GENERIC_EXCEPTIONS
+            .allowEmptyShould(true)
+            .because("A named exception says what went wrong; a bare RuntimeException says nothing"
+                    + " a handler or a reader can act on");
+
+    // ADR 0003: every log line goes through SLF4J, which is where ECS formatting and redaction apply
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_java_util_logging =
+        GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING
+            .allowEmptyShould(true)
+            .because("ADR 0003: a java.util.logging record bypasses the ECS layout and its redaction");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_dependency_on_deprecated =
@@ -912,7 +1002,9 @@ public class ArchitectureTest {
     static final ArchRule the_self_read_takes_no_identifier_from_the_request =
         methods()
             .that().areDeclaredIn(com.example.backend.auth.controller.SelfController.class)
-            .and().areAnnotatedWith(org.springframework.web.bind.annotation.GetMapping.class)
+            .and(DescribedPredicate.describe("are request handlers",
+                    (JavaMethod method) -> method.isMetaAnnotatedWith(
+                            org.springframework.web.bind.annotation.RequestMapping.class)))
             .should(new ArchCondition<JavaMethod>("declare no request-bound parameter") {
                 @Override
                 public void check(JavaMethod method, ConditionEvents events) {
@@ -938,6 +1030,24 @@ public class ArchitectureTest {
             })
             .because("The self-read resolves the User from the session alone, so no request value"
                     + " can name somebody else");
+
+    /**
+     * A session is signed in only as part of a whole Login.
+     *
+     * <p>ADR 0014: {@code SessionEstablishment} rotates the session id, saves the security context
+     * and sets the principal index, and {@code LoginCompletion} is its one caller, so the decision,
+     * the audit record and the refusal handling always surround it. Package-private keeps it out of
+     * other packages; this keeps it from the controllers beside it in {@code auth.controller}.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_login_completion_establishes_a_session =
+        noClasses()
+            .that().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.LoginCompletion(\\$.*)?")
+            .and().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.SessionEstablishment(\\$.*)?")
+            .should().dependOnClassesThat()
+                .haveFullyQualifiedName("com.example.backend.auth.controller.SessionEstablishment")
+            .because("ADR 0014: no adapter can sign a session in without the rest of the Login"
+                    + " around it");
 
     // ADR 0001: count login attempts on the login path
     @com.tngtech.archunit.junit.ArchTest

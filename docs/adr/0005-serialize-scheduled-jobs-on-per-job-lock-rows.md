@@ -46,7 +46,7 @@ two instances on the same cron no longer both run the delete. It takes the
 lock before assuming the retention role, as the application role, which holds the grant.
 
 The port and adapter moved from `auth` to a shared `scheduling` module for it: `audit`
-may depend on no business module (`ArchitectureTest.audit_depends_only_on_observability`),
+may depend on no business module (`ArchitectureTest.MODULE_DEPENDENCIES`),
 so it could not reach a port in `auth.domain`. The mechanism is unchanged.
 
 ## Amendment (2026-10-04): the scheduled-job module registers every job

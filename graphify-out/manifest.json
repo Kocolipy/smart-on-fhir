@@ -1212,9 +1212,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/arch/ArchitectureTest.java": {
-    "mtime": 1791616410.0194447,
-    "seen": 1791616532.3049912,
-    "ast_hash": "753ec7fa2aec56c3ff88a6cc205bdd07",
+    "mtime": 1791618054.5963237,
+    "seen": 1791618311.6586342,
+    "ast_hash": "bb03b8fc8088050fad10675cf0b8fb44",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
@@ -2016,8 +2016,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/login.tsx": {
-    "mtime": 1791523063.7401078,
-    "seen": 1791612604.648252,
+    "mtime": 1791618090.2070866,
+    "seen": 1791618311.6687086,
     "ast_hash": "d18273315c15581196d747899ecd9b8f",
     "semantic_hash": ""
   },
@@ -2046,9 +2046,9 @@
     "semantic_hash": ""
   },
   "frontend/test/.dependency-cruiser.cjs": {
-    "mtime": 1791523063.7401078,
-    "seen": 1791612604.6482558,
-    "ast_hash": "adff72af0fac45872f3838913b4398e1",
+    "mtime": 1791618079.5658686,
+    "seen": 1791618311.6687908,
+    "ast_hash": "81d50c5a523380718ac90fd164f5631c",
     "semantic_hash": ""
   },
   "frontend/test/arch/designTokens.test.ts": {
@@ -2262,9 +2262,9 @@
     "semantic_hash": ""
   },
   "backend/AGENTS.md": {
-    "mtime": 1791530710.5675776,
-    "seen": 1791612604.648298,
-    "ast_hash": "6c56a9c5463b2bc95b4f765b44b9bdff",
+    "mtime": 1791619072.914795,
+    "seen": 1791619093.6414804,
+    "ast_hash": "be1217db2616b826f6430d7ad60bf667",
     "semantic_hash": ""
   },
   "backend/README.md": {
@@ -2358,9 +2358,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0005-serialize-scheduled-jobs-on-per-job-lock-rows.md": {
-    "mtime": 1791616794.1123762,
-    "seen": 1791616824.221994,
-    "ast_hash": "55edad448198dbf05b0120c135f4c56c",
+    "mtime": 1791618066.2042136,
+    "seen": 1791618311.6703718,
+    "ast_hash": "a63beb62206c878c2c6384cd9257084a",
     "semantic_hash": ""
   },
   "docs/agents/domain.md": {
@@ -2952,8 +2952,8 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/decode.ts": {
-    "mtime": 1791523063.7398155,
-    "seen": 1791612604.6482356,
+    "mtime": 1791618085.8250222,
+    "seen": 1791618311.6682959,
     "ast_hash": "8b88c394846aa5ee8a9e6547957957ba",
     "semantic_hash": ""
   },
@@ -4599,6 +4599,12 @@
     "mtime": 1791616276.5796742,
     "seen": 1791616532.3237221,
     "ast_hash": "06b4e1ef56c68ea5a8ce18ca715a9cb1",
+    "semantic_hash": ""
+  },
+  "frontend/test/arch/rawNetwork.test.ts": {
+    "mtime": 1791618080.324389,
+    "seen": 1791618311.6688359,
+    "ast_hash": "f2f26473345b0433da33ebea1ae7d2eb",
     "semantic_hash": ""
   }
 }
