@@ -25,7 +25,7 @@ import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
  *       signer a private key (ADR 0013);
  *   <li>{@code redirect_uri} exactly {@code APP_EPIC_REDIRECT_URI}, with no template to expand;
  *   <li>{@code scope=launch openid fhirUser}, in that order: identity only (D8), so the access
- *       token kept for the session (ADR 0013's 2026-10-09 addendum) reads no FHIR resource and
+ *       token kept for the session (ADR 0013, D29) reads no FHIR resource and
  *       Epic issues no refresh token;
  *   <li>the issuer, so the {@code id_token}'s {@code iss} must equal it.
  * </ul>

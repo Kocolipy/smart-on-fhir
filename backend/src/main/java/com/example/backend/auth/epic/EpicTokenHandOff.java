@@ -9,7 +9,7 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepo
 
 /**
  * How Epic's token response gets from Spring Security's login filter to the success handler, and
- * no further, within the one callback request (ADR 0013, addendum 2026-10-09).
+ * no further, within the one callback request (ADR 0013, D29).
  *
  * <p>The login filter redeems the code and then saves the authorized client — the access token and
  * any refresh token — through its {@link OAuth2AuthorizedClientRepository}, before the success

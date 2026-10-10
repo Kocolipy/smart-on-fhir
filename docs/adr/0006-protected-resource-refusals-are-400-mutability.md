@@ -4,8 +4,8 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the original SCIM design that spans #14 (Group
-CRUD and protected recovery resources), #16 (DELETE) and #24 (conformance fixtures).
+Accepted. Records a departure from the original SCIM design that spans Group CRUD
+and the protected recovery resources, `DELETE`, and the conformance fixtures.
 
 ## Context
 
@@ -13,9 +13,9 @@ Two resources exist to keep a deployment recoverable: the Bootstrap Admin, and
 the Admin group's Bootstrap membership. The original design said SCIM writes
 against them return `403` with no `scimType`.
 
-#14 implemented the refusal as `400` with `scimType: mutability`, and #16 extended
-it to `DELETE`. `ScimGroupProvisioningIntegrationTests` and
-`backend/docs/openapi.yaml` pin that response, and #24's OpenAPI contract check
+Group CRUD implemented the refusal as `400` with `scimType: mutability`, and
+`DELETE` extended it. `ScimGroupProvisioningIntegrationTests` and
+`backend/docs/openapi.yaml` pin that response, and the OpenAPI contract check
 holds the document to the implementation.
 
 ## Decision

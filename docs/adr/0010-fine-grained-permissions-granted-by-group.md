@@ -4,10 +4,10 @@ Date: 2026-10-03
 
 ## Status
 
-Accepted. Implemented in #115–#117. It supersedes the original design's
+Accepted. It supersedes the original design's
 authorization matrix — reachability per authority (`ROLE_USER`, `ROLE_ADMIN`)
-declared as path and method rules in deployment configuration — replaces #99
-(method security), and closes App-Standards finding USR-2.
+declared as path and method rules in deployment configuration — replaces the earlier
+method-security plan, and closes App-Standards finding USR-2.
 
 ## Context
 
@@ -76,7 +76,7 @@ for access.
 - `ROLE_ADMIN` is removed. `ROLE_USER` stays as the baseline authority meaning
   "active and no password change required".
 - **`counter:read` and `counter:write` are baseline Permissions** (amended while
-  implementing #115): every active User holds them at sign-in beside
+  implementing this ADR): every active User holds them at sign-in beside
   `ROLE_USER`, whatever its Groups, because the counter is a basic capability
   rather than an administrative one. A confined session holds neither. They stay
   Permissions, and each counter operation still declares its own, so making the
@@ -93,8 +93,6 @@ for access.
 - The API document becomes the authorization contract: every operation declares
   its Permission, and a contract test proves each declaration against the
   running application.
-- Connector tokens and the connector admin API change shape. There is no
-  production data, so no conversion is needed.
 - IM8 ac-2 (MFA for privileged actions) and ac-4 (access review) are still not
   met, and this decision does not address them (ADR 0012).
 - Out of scope, deliberately: per-resource authorization (for example "may unlock

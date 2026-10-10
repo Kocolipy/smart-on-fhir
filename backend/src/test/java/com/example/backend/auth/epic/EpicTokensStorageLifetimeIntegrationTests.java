@@ -31,7 +31,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 
 /**
  * How long the session store keeps Epic's tokens: no longer than the session's remaining absolute
- * lifetime (ADR 0013, addendum 2026-10-09), against the real, indexed Redis session store.
+ * lifetime (ADR 0013, D29), against the real, indexed Redis session store.
  *
  * <p>The store expires a session its idle bound after its last request, and every request renews
  * that, so near the lifetime's end the idle bound alone would keep the session — and the tokens

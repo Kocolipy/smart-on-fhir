@@ -817,8 +817,8 @@ public class ArchitectureTest {
      * Epic's tokens never reach a response.
      *
      * <p>{@link com.example.backend.auth.domain.EpicTokenSet} holds the access token, refresh
-     * token and {@code id_token} an Epic Login kept for its session (ADR 0013, addendum
-     * 2026-10-09), and {@link com.example.backend.auth.domain.EpicTokens} hands them out. They are
+     * token and {@code id_token} an Epic Login kept for its session (ADR 0013, D29), and
+     * {@link com.example.backend.auth.domain.EpicTokens} hands them out. They are
      * for the backend to act at Epic on the clinician's behalf, never for the browser, so no REST
      * controller may depend on either: a handler that could take them could render them. The one
      * web adapter that writes them, Epic Login's success handler, is a filter-chain handler and
@@ -832,7 +832,7 @@ public class ArchitectureTest {
                 .haveNameMatching("com\\.example\\.backend\\.auth\\.domain\\."
                         + "(EpicTokenSet|EpicTokens)(\\$.*)?")
             .allowEmptyShould(true)
-            .because("ADR 0013 (addendum 2026-10-09): Epic's tokens are held server-side and"
+            .because("ADR 0013, D29: Epic's tokens are held server-side and"
                     + " never returned to the browser, so no handler can be handed them");
 
     /**

@@ -45,7 +45,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * The Epic tokens a successful Epic Login keeps (ADR 0013, addendum 2026-10-09), end to end: the
+ * The Epic tokens a successful Epic Login keeps (ADR 0013, D29), end to end: the
  * access token, its expiry, its scope, the refresh token when Epic issues one and the
  * {@code id_token}, kept server-side for the signed-in session alone and retrieved through the
  * {@link EpicTokens} port — and gone with the session however it ends.

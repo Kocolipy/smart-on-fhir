@@ -42,7 +42,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * bound cut to what remains of its lifetime once that is the shorter
  * ({@link AbsoluteSessionLifetimePolicy#idleBoundAt}), so the renewal this
  * request makes cannot keep the session, and the tokens on it, in the store past
- * the lifetime's end (ADR 0013, addendum 2026-10-09). Far from the end the idle
+ * the lifetime's end (ADR 0013, D29). Far from the end the idle
  * bound is untouched, and a session without Epic tokens is never touched.
  */
 public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
@@ -85,7 +85,7 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
             } else if (session.getAttribute(EpicTokens.SESSION_ATTRIBUTE) != null) {
                 // This request renews the session for its idle bound again, so near the
                 // lifetime's end that bound would keep it, and Epic's tokens with it, stored past
-                // the end. Cut it back to what remains (ADR 0013, addendum 2026-10-09).
+                // the end. Cut it back to what remains (ADR 0013, D29).
                 session.setMaxInactiveInterval((int) policy.idleBoundAt(
                         Duration.ofSeconds(session.getMaxInactiveInterval()), createdAt,
                         clock.instant()).toSeconds());

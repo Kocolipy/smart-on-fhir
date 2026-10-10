@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * How every Login ends, by either login method: the one place the steps that end a Login run, in
- * one order (ADR 0013, its addendum of 2026-10-10).
+ * one order (ADR 0014).
  *
  * <ol>
  *   <li><b>Decide.</b> The login decision is {@link LoginService}'s, handed the id of the session

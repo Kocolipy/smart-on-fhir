@@ -4,7 +4,7 @@ Date: 2026-10-03
 
 ## Status
 
-Accepted. Implemented in #118. It supersedes the dormancy jobs that ADR 0008 relies on
+Accepted. It supersedes the dormancy jobs that ADR 0008 relies on
 (inactivity deactivation and dormant-authority revocation), and it extends ADR
 0007's Lockout with a second cause.
 

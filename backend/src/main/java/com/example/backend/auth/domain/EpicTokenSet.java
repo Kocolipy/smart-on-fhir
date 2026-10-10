@@ -14,7 +14,7 @@ import java.util.TreeSet;
 /**
  * The Epic tokens one successful Epic Login kept for the life of its session: the access token,
  * the instant it expires, the scope Epic granted it, the refresh token when Epic issued one, and
- * the raw {@code id_token} (ADR 0013, addendum 2026-10-09, superseding D8 for these three).
+ * the raw {@code id_token} (ADR 0013, D29, superseding D8 for those three).
  *
  * <p>Nothing else from the token response is here: the patient and encounter launch context are
  * still dropped.

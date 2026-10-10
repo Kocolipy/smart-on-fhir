@@ -16,7 +16,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
  * The Epic tokens an accepted Epic Login keeps, read from what Spring Security's login filter
  * handed over ({@link EpicTokenHandOff}) and from the validated OpenID Connect identity: the
  * access token, its expiry made absolute on the application's clock, its scope, the refresh token
- * when Epic issued one, and the raw {@code id_token} (ADR 0013, addendum 2026-10-09).
+ * when Epic issued one, and the raw {@code id_token} (ADR 0013, D29).
  *
  * <p>Part of the web adapter that writes them, {@link EpicLoginSuccessHandler}, because building
  * the domain value is an adapter's work: the handed-over client is Spring Security's, and the

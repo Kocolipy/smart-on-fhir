@@ -44,7 +44,7 @@ import org.slf4j.spi.LoggingEventBuilder;
  * fixed message for that shape. A caller names the operation, adds only the ids and counts it
  * alone can supply, and calls {@code log()}. {@code be-log-record-outside-log-event} holds
  * production code to that: no other class opens a record, writes the outcome or the duration,
- * or chooses a message. See ADR 0003's #128 addendum.
+ * or chooses a message. See ADR 0003, "Records are built in shapes".
  */
 public final class LogEvent {
 
@@ -538,7 +538,8 @@ public final class LogEvent {
      * The success message for a record of these types. One operation writes two success records
      * an operator must not confuse: the role-mapping startup pass reports the validated hash
      * ({@code info}) and, when the hash changed, the sessions it ended ({@code change}). Both
-     * share the operation's fields, as ADR 0003's role-mapping addendum records, so the
+     * share the operation's fields, as ADR 0003's "Role changes and the role mapping" records, so
+     * the
      * {@code change} record is told apart by its message as well as its type.
      */
     static String successMessage(Operation operation, Type... types) {
@@ -677,8 +678,8 @@ public final class LogEvent {
      *
      * <p>An operation with no action is an exception to the schema's required
      * {@code event.action}, and every one is recorded, with the reason no allowed value
-     * fits, in ADR 0003's "every record's {@code event.action}" addendum, which also
-     * carries this whole table. {@code LogEventTests} holds the two together: an operation
+     * fits, in ADR 0003's "Operations with no event.action", beside "The full mapping",
+     * which carries this whole table. {@code LogEventTests} holds the two together: an operation
      * added with no action and no ADR entry fails it.
      */
     public enum Operation {

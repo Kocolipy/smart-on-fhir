@@ -51,8 +51,8 @@ public class RoleMappingSessionService {
         // be-log-sensitive-value matches any value named "hash", for the password and
         // bearer hashes it exists to keep out of logs. This one is the SHA-256 of the
         // role mapping -- deployment configuration, not a secret and not derived from
-        // one -- and ADR 0003's role-mapping addendum puts it on both startup records,
-        // so an operator can tell which mapping a deploy validated. Suppressed on exactly these two records and nowhere else.
+        // one -- and ADR 0003 ("Role changes and the role mapping") puts it on both startup
+        // records, so an operator can tell which mapping a deploy validated. Suppressed on exactly these two records and nowhere else.
         LogEvent.success(log, OPERATION, Category.CONFIGURATION, Type.INFO) // nosemgrep: be-log-sensitive-value
                 .addKeyValue(LogEvent.ROLE_MAPPING_HASH, mapping.hash())
                 .log();

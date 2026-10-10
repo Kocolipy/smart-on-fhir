@@ -469,7 +469,7 @@ class EpicLoginIntegrationTests {
 
     /**
      * What D8 still drops: the token response's patient and encounter launch context. Epic's
-     * three tokens are kept for the signed-in session (ADR 0013, addendum 2026-10-09), which
+     * three tokens are kept for the signed-in session (ADR 0013, D29), which
      * {@link EpicTokensIntegrationTests} holds.
      */
     @Test

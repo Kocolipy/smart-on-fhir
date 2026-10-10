@@ -5,7 +5,7 @@ import java.util.Optional;
 /**
  * The Epic tokens a session holds: the access token, refresh token and {@code id_token} a
  * successful Epic Login kept, server-side, for the life of the session it signed in (ADR 0013,
- * addendum 2026-10-09).
+ * D29).
  *
  * <p>A port for the reason {@link AccountSessions} is one: the application asks for a session's
  * tokens, and the adapter owns what a session is and where it lives. They are held as an
