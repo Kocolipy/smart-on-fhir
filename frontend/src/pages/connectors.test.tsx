@@ -26,10 +26,8 @@ const auth: AuthContextState = {
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
-  passwordChanged: false,
-  sessionExpired: false,
+  signInReason: null,
   signOutForInactivity: vi.fn(),
-  signedOutForInactivity: false,
   status: "authenticated",
   // connector:read is the precondition: the Accounts page renders this panel only with it.
   user: {

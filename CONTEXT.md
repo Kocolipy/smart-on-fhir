@@ -39,6 +39,12 @@ whatever reason; the SPA returns its holder to login saying so.
 The protected path a Guest asked for before being sent to sign in, replayed once
 they have.
 
+**Sign-in reason**:
+Why a Guest is at the login page — an Expired session, an Idle sign-out, a
+password change, or an Epic Login that was refused or found Epic unavailable —
+and so what the page says. A cold arrival has none.
+_Avoid_: provenance, login notice flag
+
 **Idle timeout**:
 The length of time without a request after which the backend ends a session.
 _Avoid_: inactivity (that is the dormancy job's word)

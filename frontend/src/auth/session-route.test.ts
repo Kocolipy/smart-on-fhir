@@ -13,11 +13,9 @@ import type { Permission } from "./api";
 
 const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput => ({
   passwordChangeRequired: false,
-  passwordChanged: false,
   pathname: "/showcase",
   requires: "authenticated",
-  sessionExpired: false,
-  signedOutForInactivity: false,
+  signInReason: null,
   status: "authenticated",
   ...overrides,
 });
@@ -103,18 +101,27 @@ describe("resolveSessionRoute for the change-required flag", () => {
       { kind: "render" },
     ],
     [
-      "sends a Visitor on the change-password route to login",
+      "sends a Guest on the change-password route to login",
       input({ pathname: CREDENTIAL_CHANGE_PATH, status: "guest" }),
-      { kind: "redirect", state: { expired: false, from: CREDENTIAL_CHANGE_PATH }, to: LOGIN_PATH },
+      { kind: "redirect", state: { from: CREDENTIAL_CHANGE_PATH }, to: LOGIN_PATH },
     ],
     [
       "returns a User whose change succeeded to login, recording no return destination",
-      input({ passwordChanged: true, pathname: CREDENTIAL_CHANGE_PATH, status: "guest" }),
-      { kind: "redirect", state: { passwordChanged: true }, to: LOGIN_PATH },
+      input({
+        pathname: CREDENTIAL_CHANGE_PATH,
+        signInReason: "password-changed",
+        status: "guest",
+      }),
+      { kind: "redirect", state: { reason: "password-changed" }, to: LOGIN_PATH },
     ],
     [
       "renders login after a successful change",
-      input({ passwordChanged: true, pathname: LOGIN_PATH, requires: "guest", status: "guest" }),
+      input({
+        pathname: LOGIN_PATH,
+        requires: "guest",
+        signInReason: "password-changed",
+        status: "guest",
+      }),
       { kind: "render" },
     ],
   ];
@@ -144,17 +151,17 @@ describe("resolveSessionRoute", () => {
     [
       "sends a guest to login, recording the return destination",
       input({ pathname: "/showcase", status: "guest" }),
-      { kind: "redirect", state: { expired: false, from: "/showcase" }, to: LOGIN_PATH },
+      { kind: "redirect", state: { from: "/showcase" }, to: LOGIN_PATH },
     ],
     [
-      "marks the redirect as an expiry when the session ended",
-      input({ pathname: "/showcase", sessionExpired: true, status: "guest" }),
-      { kind: "redirect", state: { expired: true, from: "/showcase" }, to: LOGIN_PATH },
+      "marks the redirect as an Expired session, replaying the page it left",
+      input({ pathname: "/showcase", signInReason: "expired", status: "guest" }),
+      { kind: "redirect", state: { from: "/showcase", reason: "expired" }, to: LOGIN_PATH },
     ],
     [
-      "marks the redirect as an inactivity sign-out, replaying the page it left",
-      input({ pathname: "/accounts", signedOutForInactivity: true, status: "guest" }),
-      { kind: "redirect", state: { from: "/accounts", inactive: true }, to: LOGIN_PATH },
+      "marks the redirect as an Idle sign-out, replaying the page it left",
+      input({ pathname: "/accounts", signInReason: "inactive", status: "guest" }),
+      { kind: "redirect", state: { from: "/accounts", reason: "inactive" }, to: LOGIN_PATH },
     ],
     [
       "renders a guest route for a guest",
@@ -177,8 +184,8 @@ describe("resolveSessionRoute", () => {
       { kind: "redirect", to: "/showcase/settings" },
     ],
     [
-      "ignores an expiry flag once the visitor is authenticated again",
-      input({ pathname: LOGIN_PATH, requires: "guest", sessionExpired: true, status: "guest" }),
+      "renders login for a Guest whose session expired",
+      input({ pathname: LOGIN_PATH, requires: "guest", signInReason: "expired", status: "guest" }),
       { kind: "render" },
     ],
   ];
@@ -191,7 +198,7 @@ describe("resolveSessionRoute", () => {
     const route = resolveSessionRoute(input({ pathname: "/reports/42", status: "guest" }));
     expect(route).toEqual({
       kind: "redirect",
-      state: { expired: false, from: "/reports/42" },
+      state: { from: "/reports/42" },
       to: LOGIN_PATH,
     });
   });
@@ -243,7 +250,7 @@ describe("resolveSessionRoute", () => {
       resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS, status: "guest" })),
     ).toEqual({
       kind: "redirect",
-      state: { expired: false, from: "/accounts" },
+      state: { from: "/accounts" },
       to: LOGIN_PATH,
     });
   });

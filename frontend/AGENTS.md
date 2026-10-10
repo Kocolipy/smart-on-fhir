@@ -55,8 +55,9 @@ each page's endpoints and Permissions; this list holds the rules.
   state, the pure routing contract and its guards, the Permission checks
   (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
   read and gated write every page listing and action goes through
-  (`use-gated-read.ts`, `use-gated-write.ts`), and the idle sign-out (see
-  "Backend contract"). A gated read sends nothing for a session lacking its
+  (`use-gated-read.ts`, `use-gated-write.ts`), the idle sign-out (see
+  "Backend contract"), and the sign-in reason (`sign-in-reason.ts`): why a
+  Guest is at the login page, how that reaches it, and what the page says. A gated read sends nothing for a session lacking its
   Permission; a gated write owns the pending flag, the page's single error line
   and the refusal copy.
 - **`src/pages/`** — one component per page, plus `accounts-api.ts` for the
@@ -149,8 +150,8 @@ backend side moves. What the SPA has to honour:
   `CSRF_EXPIRED_MESSAGE`, read from `useSessionRequest`, and neither ever ends
   the session. A `401` returns
   `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
-  session and `ProtectedRoute` sends the user to login, marking the redirect as
-  an expiry so the login page says the session ended. Treating `403` as `401`
+  session and `ProtectedRoute` sends the user to login, the redirect carrying
+  the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
   looks like a random sign-out to the user.
 - **Features reach the backend through `useSessionRequest`; only `src/auth/`
   reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
@@ -167,7 +168,7 @@ backend side moves. What the SPA has to honour:
   `BroadcastChannel`. A minute before the limit an `alertdialog` offers to stay
   signed in, which is a `GET /api/auth/me` and so renews the backend's idle
   clock too; at the limit the SPA calls logout, discards the CSRF token and
-  sends the user to login marked `inactive`. A session the backend ended first
+  sends the user to login with the sign-in reason `inactive`. A session the backend ended first
   still takes the ordinary `401` path below.
 - **Sessions are also capped at 8 hours from creation**, independent of the
   15-minute idle bound above: a session kept continuously active is still
@@ -197,7 +198,9 @@ backend side moves. What the SPA has to honour:
   shows "Sign-in from Epic is temporarily unavailable. Try again shortly."
   instead. The two are distinct on purpose (D23): a refused clinician should not
   retry, an unavailable one should. Neither marker carries any detail, and
-  either notice wins over router state. All four Epic routes (the three
+  either notice wins over router state. `src/auth/sign-in-reason.ts` is the
+  only place that reads the markers, decides that precedence, or holds the
+  copy; the login page renders what its `signInNoticeFor` returns. All four Epic routes (the three
   above and the public `jwks.json`) are `404` while `APP_EPIC_ENABLED` is off.
   The SPA never calls them, and they need no CSRF token: each is a `GET`.
 - **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a

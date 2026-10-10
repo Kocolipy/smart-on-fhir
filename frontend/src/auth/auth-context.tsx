@@ -6,24 +6,14 @@ import * as authApi from "./api";
 import type { AuthUser } from "./api";
 import { AuthContext, type AuthContextState, type AuthStatus } from "./auth-context-value";
 import { IdleSignOut } from "./idle-sign-out";
-
-/** Why the visitor is a guest now, for the login page to say. Cleared by every transition. */
-interface Provenance {
-  passwordChanged: boolean;
-  sessionExpired: boolean;
-  signedOutForInactivity: boolean;
-}
-
-const NO_PROVENANCE: Provenance = {
-  passwordChanged: false,
-  sessionExpired: false,
-  signedOutForInactivity: false,
-};
+import type { SessionEndReason } from "./sign-in-reason";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [provenance, setProvenance] = useState<Provenance>(NO_PROVENANCE);
+  // Why the Guest is one now, for the login page to say. Every transition
+  // replaces it, so exactly one reason or none is ever recorded.
+  const [signInReason, setSignInReason] = useState<SessionEndReason | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -42,10 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  /** Moves to `guest`, recording why. */
-  const endSession = useCallback((why: Partial<Provenance>) => {
+  /** Moves to `guest`, recording why, or `null` for a session the User ended. */
+  const endSession = useCallback((why: SessionEndReason | null) => {
     setUser(null);
-    setProvenance({ ...NO_PROVENANCE, ...why });
+    setSignInReason(why);
     setStatus("guest");
   }, []);
 
@@ -58,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const expireSession = useCallback(() => {
     // The session's CSRF token ended with it; the next login fetches its own.
     discardCsrfToken();
-    endSession({ sessionExpired: true });
+    endSession("expired");
   }, [endSession]);
 
   /**
@@ -75,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Signed out locally regardless; the backend's own idle bound ends the session.
     }
     discardCsrfToken();
-    endSession({ signedOutForInactivity: true });
+    endSession("inactive");
   }, [endSession]);
 
   const value = useMemo<AuthContextState>(
@@ -85,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (outcome.kind === "changed") {
           // The backend has already ended this session along with every other
           // one the User held; mirror that, recording why for the login page.
-          endSession({ passwordChanged: true });
+          endSession("password-changed");
         }
         return outcome;
       },
@@ -93,21 +83,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login: async (username, password) => {
         const currentUser = await authApi.login(username, password);
         setUser(currentUser);
-        setProvenance(NO_PROVENANCE);
+        setSignInReason(null);
         setStatus("authenticated");
       },
       logout: async () => {
         await authApi.logout();
-        endSession({});
+        endSession(null);
       },
-      passwordChanged: provenance.passwordChanged,
-      sessionExpired: provenance.sessionExpired,
+      signInReason,
       signOutForInactivity,
-      signedOutForInactivity: provenance.signedOutForInactivity,
       status,
       user,
     }),
-    [endSession, expireSession, provenance, signOutForInactivity, status, user],
+    [endSession, expireSession, signInReason, signOutForInactivity, status, user],
   );
 
   return (

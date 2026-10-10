@@ -36,10 +36,20 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   (`VIEW_PERMISSIONS`), `ADMINISTRATION_PERMISSIONS`, and the `holds` /
   `holdsAny` checks every guard and page reads.
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
-  mount and owns the session status plus the expiry provenance.
+  mount and owns the session status plus the one sign-in reason it recorded
+  when it last ended a session (an Expired session, an Idle sign-out, a password
+  change, or none).
 - `auth-context-value.ts` — the context object and the `useAuth` hook, split out
   so a consumer importing the hook does not pull in the provider component.
-  `useAuth` deliberately exposes no way to _end_ a session.
+  `useAuth` deliberately exposes no way to _end_ a session, and no sign-in
+  reason: that is `useAuthState`'s, internal to `src/auth`, for the guards.
+- `sign-in-reason.ts` — the **sign-in reason**: the closed set of five (Expired
+  session, Idle sign-out, password changed, Epic refused, Epic unavailable), how
+  each reaches the login page (the first three as `reason` in router state, the
+  Epic two as the backend's `?signin=refused|unavailable` marker), which wins
+  (an Epic marker over any router state), and the copy for each. Router state
+  is decoded against the set, not cast, so a stale or foreign `reason` in the
+  history entry says nothing. `signInNoticeFor` is all the login page calls.
 - `session-route.ts` — `resolveSessionRoute`, the whole routing contract as one
   pure transition table: who waits, who renders, who is redirected where, and
   what the redirect carries.
@@ -317,8 +327,9 @@ uncontrolled, because React mirrors a controlled input's value into the DOM
 It sends a Guest to login with a return destination, confines a flagged
 session to `/change-password`, renders an authenticated route for any session,
 renders a Permission-guarded one for a session holding any of its Permissions,
-and redirects every other session to `/showcase`. After a successful change it sends the
-visitor to login carrying `passwordChanged` instead of a return destination.
+and redirects every other session to `/showcase`. A Guest's redirect carries the
+provider's sign-in reason as `reason` beside the return destination; after a
+successful change it carries `reason: "password-changed"` instead of one.
 Spring Security remains authoritative for server operations: every operation
 requires its own declared Permission, and a flagged session is refused everything but the change and
 logout, even if client-side routing is bypassed, so the guard decides what is

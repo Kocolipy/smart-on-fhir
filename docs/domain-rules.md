@@ -47,9 +47,9 @@ the one a sign-out returns to.
 
 **Expired session** — a session that _was_ authenticated and which the backend
 has since refused with a `401`. The status becomes `guest` either way; what
-distinguishes an expired session is its provenance, carried as `sessionExpired`
-and passed into the redirect so the login route can say the session ended rather
-than greeting a stranger. A `403` is **not** an expired session: a stale CSRF
+distinguishes an expired session is its **sign-in reason**, `expired`, passed
+into the redirect so the login route can say the session ended rather than
+greeting a stranger. A `403` is **not** an expired session: a stale CSRF
 token is re-fetched and the request retried once, and a `403` that survives that
 is an authorization refusal. The session survives both.
 
@@ -69,8 +69,20 @@ present as an expired session.
 Only user input counts as activity, never a request, and it is shared across tabs;
 a warning a minute before the limit offers to stay signed in, and staying is a real
 request that renews the backend's clock too. At the limit the SPA logs out and
-returns to login marked `inactive` — the code's name for this provenance, not the
-glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
+returns to login with the sign-in reason `inactive` — the code's name for it, not
+the glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
+
+**Sign-in reason** — why a Guest is at the login page, from a closed set of
+five: an expired session, an idle sign-out, the User's own successful password
+change, an Epic refusal and Epic being unavailable. The first three the SPA
+records itself when it ends the session, one at a time, and carries in router
+state; the Epic two arrive as the backend's `?signin=refused` or
+`?signin=unavailable` landing marker. An Epic marker wins over any router state,
+since the landing is a fresh navigation. A password change carries no return
+destination, so the next sign-in lands on the default; the other two do. A cold
+arrival and a logout carry none and the login page says nothing.
+`frontend/src/auth/sign-in-reason.ts` is the one owner of the set, the
+carriage, the precedence and the copy.
 
 **One session per User** — an accepted Login ends every other session the User
 holds, so signing in from a second browser signs the first out; the first sees an
