@@ -1,11 +1,9 @@
 package com.example.backend.auth.controller;
 
-import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
-import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.domain.RoleMappingSessions;
@@ -28,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.csrf.CsrfToken;
@@ -66,60 +63,45 @@ public class AuthController {
     private final LoginService login;
     private final PasswordChangeService passwordChanges;
     private final AuditTrail audit;
-    private final SessionEstablishment sessionEstablishment;
+    private final LoginCompletion loginCompletion;
     private final CookieSerializer cookieSerializer;
 
     public AuthController(
             LoginService login,
             PasswordChangeService passwordChanges,
             AuditTrail audit,
-            SessionEstablishment sessionEstablishment,
+            LoginCompletion loginCompletion,
             CookieSerializer cookieSerializer) {
         this.login = login;
         this.passwordChanges = passwordChanges;
         this.audit = audit;
-        this.sessionEstablishment = sessionEstablishment;
+        this.loginCompletion = loginCompletion;
         this.cookieSerializer = cookieSerializer;
     }
 
     /**
      * Turns submitted credentials into a session. What counts as a successful
      * login — including the failure run a refusal lengthens, and every record a
-     * refusal is — is {@link LoginService}'s; the session and CSRF work that only a
-     * web adapter can do is {@link SessionEstablishment}'s, the step every Login
-     * path ends in.
+     * refusal is — is {@link LoginService}'s; signing the session in, recording the
+     * ending, and ending the browser's session on a refusal are
+     * {@link LoginCompletion}'s, the steps every Login ends in. This adapter only
+     * shapes the answer: the signed-in account, or the bare {@code 401}.
      *
-     * <p>A refused Login ends whatever session the browser held, whoever it
-     * belonged to, before answering its bare {@code 401}: the password analogue of
-     * an Epic Login's refusal (ADR 0013, D24), so a shared browser is never left
-     * signed in as the previous User after a sign-in that signed nobody in. The CSRF
-     * token ends with that session, and the SPA fetches the next one's. A refused
-     * Login that arrived without a session creates none.
+     * <p>A refused Login has ended whatever session the browser held, whoever it
+     * belonged to, before its {@code 401}: the password analogue of an Epic Login's
+     * refusal (ADR 0013, D24). The CSRF token ends with that session, and the SPA
+     * fetches the next one's.
      */
     @PostMapping("/login")
     public UserResponse login(
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        // The caller's session as it is stored now, before rotation renames it: it is the one the
-        // login continues in, so it is the one session of the User's that the login keeps.
-        HttpSession existing = request.getSession(false);
-        AcceptedLogin outcome;
-        try {
-            outcome = login.logIn(
-                    body.username(), body.password(), existing == null ? null : existing.getId());
-        } catch (AuthenticationException refused) {
-            if (existing != null) {
-                existing.invalidate();
-            }
-            SecurityContextHolder.clearContext();
-            throw refused;
-        }
-        Authentication authentication = outcome.authentication();
-
-        HttpSession signedIn = sessionEstablishment.establish(authentication, outcome.userId(),
-                outcome.roleMappingHash(), AuditLoginMethod.PASSWORD, request, response);
-        return userResponse(authentication, signedIn);
+        LoginCompletion.SignedInSession signedIn = loginCompletion.complete(
+                        retained -> login.logIn(body.username(), body.password(), retained),
+                        request, response)
+                .orElseThrow(LoginRefusedException::new);
+        return userResponse(signedIn.authentication(), signedIn.session());
     }
 
     /**
@@ -279,10 +261,25 @@ public class AuthController {
     }
 
     /** A refused Login, its session already ended: the bare {@code 401}, the same for every one. */
-    @ExceptionHandler(AuthenticationException.class)
+    @ExceptionHandler(LoginRefusedException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public void authenticationFailed() {
+    public void loginRefused() {
         // Deliberately omit details so callers cannot distinguish unknown users.
+    }
+
+    /**
+     * A refused Login, whatever refused it: one type for every refusal — wrong password, unknown
+     * name, locked or deactivated account — so the one handler above answers each with the same
+     * bare {@code 401}, and nothing about the refusal reaches the answer. It carries no message
+     * and no stack trace: it is how a decided refusal leaves the handler, not a fault.
+     */
+    static final class LoginRefusedException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        LoginRefusedException() {
+            super(null, null, false, false);
+        }
     }
 
     /**

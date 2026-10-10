@@ -1,13 +1,9 @@
 package com.example.backend.auth.epic.controller;
 
-import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.EpicSignInRefusedException;
-import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
-import com.example.backend.auth.application.LoginService.EpicLoginDecision;
-import com.example.backend.auth.application.LoginService.AcceptedLogin;
-import com.example.backend.auth.controller.SessionEstablishment;
+import com.example.backend.auth.controller.LoginCompletion;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.EpicTokenSet;
@@ -39,24 +35,23 @@ import org.springframework.stereotype.Component;
  * <p>What it is handed is Epic's verified identity, not a session: the filter is configured to
  * neither rotate the session nor save a security context of its own, so nothing Epic sent is
  * written to the pre-login session. Here the
- * {@code fhirUser} claim is read as a Practitioner ID ({@link FhirUserReference}), the login
- * decision is {@link LoginService#logInFromEpic}'s, and the session is established by
- * {@link SessionEstablishment}, the step password Login ends in too, so an Epic session is
- * signed in exactly as a password one is: rotated id, saved context, principal index, role
- * mapping hash, pre-login CSRF token dropped, and a {@code session-start} naming method
- * {@code sso}. Only once the session is signed in are Epic's tokens — the access token, any
- * refresh token and the {@code id_token} — kept on it, under {@link EpicTokens#SESSION_ATTRIBUTE},
- * taken from the token response the filter handed over ({@link EpicTokenHandOff}): so they live
- * under the rotated id alone, for exactly as long as the session does, and the session is stored
- * no longer than its remaining absolute lifetime (ADR 0013, addendum 2026-10-09). The browser
- * lands at {@code /}.
+ * {@code fhirUser} claim is read as a Practitioner ID ({@link FhirUserReference}), and the Login
+ * is completed by {@link LoginCompletion}, the steps password Login ends in too: the login
+ * decision ({@link LoginService#logInFromEpic}), then the session signed in exactly as a password
+ * one is — rotated id, saved context, principal index, role mapping hash, pre-login CSRF token
+ * dropped, and a {@code session-start} naming method {@code sso} — then the ending recorded,
+ * naming that session. Between the last two, on the signed-in session alone, Epic's tokens — the
+ * access token, any refresh token and the {@code id_token} — are kept under
+ * {@link EpicTokens#SESSION_ATTRIBUTE}, taken from the token response the filter handed over
+ * ({@link EpicTokenHandOff}): so they live under the rotated id alone, for exactly as long as the
+ * session does, and the session is stored no longer than its remaining absolute lifetime (ADR
+ * 0013, addendum 2026-10-09). The browser lands at {@code /}.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
  * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
  * A {@code fhirUser} of another form is a protocol refusal, {@code INVALID_FHIR_USER}, handed to
- * the one Epic failure handler, which records it. A User the login decision refused is recorded
- * there; one it accepted is recorded here, through {@code LoginOutcomeService}, once its
- * session is signed in. Either way the browser lands where {@link EpicLoginLanding} sends it.
+ * the one Epic failure handler, which ends it. A User the login decision refused is recorded by
+ * the decision and its session ended by {@link LoginCompletion}; this handler only redirects.
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
  * Epic security configuration so that the configuration need not depend on a web adapter: it is
@@ -72,13 +67,11 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     private final LoginService login;
 
-    private final SessionEstablishment sessionEstablishment;
+    private final LoginCompletion loginCompletion;
 
     private final EpicLoginSettings settings;
 
     private final EpicLoginFailureHandler signInFailure;
-
-    private final LoginOutcomeService outcomes;
 
     private final AbsoluteSessionLifetimePolicy absoluteLifetime;
 
@@ -86,17 +79,15 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     public EpicLoginSuccessHandler(
             LoginService login,
-            SessionEstablishment sessionEstablishment,
+            LoginCompletion loginCompletion,
             EpicLoginSettings settings,
             EpicLoginFailureHandler signInFailure,
-            LoginOutcomeService outcomes,
             AbsoluteSessionLifetimePolicy absoluteLifetime,
             Clock clock) {
         this.login = login;
-        this.sessionEstablishment = sessionEstablishment;
+        this.loginCompletion = loginCompletion;
         this.settings = settings;
         this.signInFailure = signInFailure;
-        this.outcomes = outcomes;
         this.absoluteLifetime = absoluteLifetime;
         this.clock = clock;
     }
@@ -120,26 +111,13 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
                     new EpicSignInRefusedException(EpicLoginFailureReason.INVALID_CLAIMS));
             return;
         }
-        // The session the launch began, which the Login continues in and so is the one session
-        // of the User's that it keeps.
-        HttpSession existing = request.getSession(false);
-        EpicLoginDecision decision = login.logInFromEpic(practitionerId.get(),
-                existing == null ? null : existing.getId(), factor.get());
-        // A refusal is recorded by the login decision already. An acceptance is recorded here,
-        // once the session is signed in: after the decision's commit, so a Login that rolled back
-        // or never got its session is not counted a success, and naming the session the User
-        // goes on to use.
-        if (decision.accepted().isPresent()) {
-            AcceptedLogin accepted = decision.accepted().get();
-            HttpSession signedIn = sessionEstablishment.establish(accepted.authentication(),
-                    accepted.userId(), accepted.roleMappingHash(), AuditLoginMethod.SSO,
-                    request, response);
-            // After establish: kept under the signed-in (rotated) id, never the pre-login one.
-            EpicTokenCapture.take(request, epic, clock.instant())
-                    .ifPresent(tokens -> keep(signedIn, tokens));
-            outcomes.record(decision.outcome(), signedIn.getId());
-        }
-        EpicLoginLanding.after(decision.outcome(), request, response);
+        boolean signedIn = loginCompletion.complete(
+                retained -> login.logInFromEpic(practitionerId.get(), retained, factor.get()),
+                // On the signed-in (rotated) session, before the ending is recorded.
+                session -> EpicTokenCapture.take(request, epic, clock.instant())
+                        .ifPresent(tokens -> keep(session, tokens)),
+                request, response).isPresent();
+        (signedIn ? EpicLanding.SIGNED_IN : EpicLanding.REFUSED).sendTo(request, response);
     }
 
     /**

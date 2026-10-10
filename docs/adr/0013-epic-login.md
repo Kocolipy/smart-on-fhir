@@ -15,7 +15,9 @@ token and `id_token`, which are now kept server-side for the life of the session
 an Epic Login signs in; the passages it changes say so where they stand. A second
 addendum of 2026-10-09, after it, extends the outcome module to password Login and
 renames the `epic.login` counter to `login`, tagged by login method; the passages
-it changes say so too.
+it changes say so too. An addendum of 2026-10-10, last, has one module complete a
+Login for both login methods, in one order, so password Login too is recorded a
+success only once its session is signed in.
 
 The items under "Open items" below are confirmations from outside the code. Each
 is answered by recording it here, and none of them changes a decision.
@@ -153,7 +155,8 @@ and writes its audit record, log line and counts; where the browser goes next is
 function of the ending alone. An account refusal is handed to it by the login
 decision, as password Login's refusal is, so no caller can refuse without the
 record: a `LOGIN_FAILURE` under method `sso` with its reason and the refused User's
-stable id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`,
+stable id — none for `UNKNOWN_ACCOUNT` — through `LoginAttemptService.recordRefusal`
+(the audit port itself since the 2026-10-10 addendum),
 which counts toward no failure run (D12), a `WARN` saying only "Epic sign-in
 refused", and `login` (`method=sso`, `outcome=refused`, `reason`). The success
 handler then only redirects. A success is handed to it by the success handler, once
@@ -161,7 +164,9 @@ the session is signed in: the fail-closed `LOGIN_SUCCESS` is written in the
 decision's transaction, and the `user-authentication` record and the `login`
 success count only after it commits. The redirect is the one effect the module cannot
 have, the application layer knowing no servlet, so both handlers land the
-browser through one mapping of the outcome, `EpicLoginLanding`. Every other failure — of
+browser through one mapping of the outcome, `EpicLoginLanding` (since the
+2026-10-10 addendum, the one `EpicLanding` both handlers redirect through, after
+`LoginCompletion` has recorded the ending and ended the session). Every other failure — of
 the launch, the authorize hop, the callback, the token exchange, the `id_token` or
 its `fhirUser` — goes to `EpicLoginFailureHandler`, the one place it is told apart
 (flow step 8, D23, D24), and the outcome it names is recorded by the same module. A
@@ -291,7 +296,8 @@ resilience", and D13 under "Accepted risk"; the rest follow here.
   does **not** lengthen a failure run: Epic checked the credential, not us, so a
   refusal is no evidence of guessing. Counting it would also let anyone whose
   Epic ID is a case variant of a User's `userName` lock that User out by
-  launching. `LoginAttemptService.recordRefusal` therefore records the
+  launching. `LoginAttemptService.recordRefusal` (the audit port itself, called by
+  `LoginOutcomeService`, since the 2026-10-10 addendum) therefore records the
   `LOGIN_FAILURE` and neither reads nor writes the User's login state, and the
   record names no changed path.
 - **D15: a login method on every Login record.** `LOGIN_SUCCESS`,
@@ -971,7 +977,8 @@ redirect (`EpicLoginLanding`).
 An accepted password Login's `user-authentication` record is unchanged and now also
 counts `login` (`method=password`, `outcome=success`, `reason=none`); it names no
 session, as before, because the session it signs in is not yet rotated when it is
-written.
+written. (Superseded by the 2026-10-10 addendum: both are now written after the
+session is signed in, and the record names it.)
 
 **A refused password Login ends the browser's session** — the password analogue of
 D24. `AuthController` invalidates whatever session the request carried, whoever it
@@ -998,3 +1005,72 @@ A dashboard or rule reading `epic_login_total` must move to
 User's password refusal now costs the same one Argon2id verification as a wrong
 password (ADR 0007's amendment of the same date). This addendum does not change
 "Deviation: refusal timing is not equalised", which is about Epic Login.
+
+## Addendum (2026-10-10): one module completes a Login, for both login methods
+
+Architecture review 2026-10-10, B1. The second 2026-10-09 addendum put each Login
+ending's records in one place, but the steps that end a Login were still split
+across five modules, and the two login methods ran them in a different order:
+
+- **Password Login** recorded its success inside the login decision
+  (`LoginService.logIn`), and `AuthController` established the session afterwards.
+  A Login whose session step then failed was still logged "Login accepted" and
+  counted `login` `outcome=success`, and that record could name no session.
+- **Epic Login** decided, established, and only then recorded the success,
+  naming the signed-in session — the order the first 2026-10-09 addendum chose.
+
+**One module, one order.** `LoginCompletion`, a web adapter in
+`com.example.backend.auth.controller`, now runs every Login's ending, for both
+methods:
+
+1. **Decide** — `LoginService.logIn` or `logInFromEpic`, handed the id of the
+   session the browser holds. Both now return a `LoginService.LoginDecision`
+   (formerly `EpicLoginDecision`): an accepted Login carrying its `SignedIn`, or a
+   refusal. A password refusal is no longer thrown; it is a `PasswordRefused`
+   decision, still recorded by the decision and still counted toward the failure
+   run there (ADR 0001), so no caller can refuse a Login without the record or
+   skip the count. An accepted Login's fail-closed `LOGIN_SUCCESS`, the cleared
+   failure run and the after-commit revocation of the User's other sessions stay
+   in the decision's transaction (ADR 0004, ADR 0002).
+2. **Establish** — `SessionEstablishment`, from the accepted Login as a whole, now
+   package-private and called only by `LoginCompletion`, so no adapter can sign a session in without the rest of the
+   Login around it.
+3. The login method's own work on the signed-in session: Epic Login keeps Epic's
+   tokens there (the first 2026-10-09 addendum), under the rotated id alone.
+4. **Record** the ending once, through `LoginOutcomeService`: the
+   `user-authentication` record and the `login` success count, naming the
+   signed-in session by `session.hash`. A Login whose session step or method work
+   fails records no success ending.
+5. **On a refusal, end the browser's session** and clear the security context
+   (D24, and its password analogue from the second 2026-10-09 addendum).
+
+An Epic Login that fails before any decision is ended by the same module
+(`LoginCompletion.endUndecided`): its outcome recorded once, naming the session it
+ran in, then that session ended.
+
+**What changes on the wire and in the records.** Only the accepted password
+Login's ending: its `user-authentication` record and `login` success count are
+written after the session is signed in, and the record now carries `session.hash`
+of the signed-in session, as Epic Login's always has (ADR 0003, addendum of this
+date). Every refusal record, `WARN` text, counter and tag, the `401`, the
+redirects, `session-start`, the CSRF token drop and Epic's token keeping are
+unchanged.
+
+**The adapters only shape the answer.** `AuthController.login` answers the
+signed-in account or the bare `401` — every refusal leaves through one
+`LoginRefusedException` and one handler, so a locked account's answer is a wrong
+password's byte for byte. The Epic handlers redirect to `/`, `/?signin=refused`
+or `/?signin=unavailable`, relative to the context path as before.
+
+**Deleted.** `EpicLoginLanding` and `EpicSignInRedirect`: the session ending they
+did is `LoginCompletion`'s, and what remains of the redirect — the three landings,
+relative to the context path — is one package-private `EpicLanding` both Epic
+handlers end in.
+`LoginAttemptService.recordRefusal`, a one-line pass-through: `LoginOutcomeService`
+calls `AuditTrail.recordLoginRefusal` itself, which still neither reads nor writes
+the User's login state (D12).
+
+This extends the 2026-10-09 rule "a success is recorded after sign-in" to password
+Login. ADR 0001's decision holds — the counting is still inside `LoginService` —
+though its passage naming `AuthController` and `SessionEstablishment` as the
+caller now reads `LoginCompletion` for both.

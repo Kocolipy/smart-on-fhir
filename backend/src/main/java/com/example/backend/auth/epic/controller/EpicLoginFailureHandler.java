@@ -4,15 +4,14 @@ import com.example.backend.auth.application.LoginOutcome;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.Unavailable;
-import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.EpicSignInRefusedException;
+import com.example.backend.auth.controller.LoginCompletion;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.epic.CauseChain;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicOutboundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.Optional;
 import org.springframework.context.annotation.Conditional;
@@ -32,10 +31,10 @@ import org.springframework.stereotype.Component;
  * <p>What failed is told apart here, from what Spring Security raised, and nowhere else: Epic
  * being unavailable — no answer in time, or a {@code 5xx}, from discovery, the JWKS or the token
  * endpoint — or a refusal with its exact reason (ADR 0013, "Audit"), read from what failed and
- * never from a message, which can quote what Epic sent. {@link LoginOutcomeService} records
- * the outcome — audit, log and counts — and the browser lands at {@code /?signin=unavailable} or
- * {@code /?signin=refused}, the session it held ended first, whoever it belonged to, and told
- * nothing more (D23, D24).
+ * never from a message, which can quote what Epic sent. {@link LoginCompletion#endUndecided}
+ * ends the Login — its outcome recorded, audit, log and counts, and the session the browser held
+ * ended, whoever it belonged to — and the browser lands at {@code /?signin=unavailable} or
+ * {@code /?signin=refused}, told nothing more (D23, D24).
  *
  * <p>The one {@link AuthenticationFailureHandler} in the application, which is how the Epic
  * security configuration finds it without depending on this web adapter. Exists only while Epic
@@ -59,10 +58,10 @@ public class EpicLoginFailureHandler implements AuthenticationFailureHandler {
     /** Spring Security's error code for a callback with no pending authorization request. */
     private static final String AUTHORIZATION_REQUEST_NOT_FOUND = "authorization_request_not_found";
 
-    private final LoginOutcomeService outcomes;
+    private final LoginCompletion loginCompletion;
 
-    public EpicLoginFailureHandler(LoginOutcomeService outcomes) {
-        this.outcomes = outcomes;
+    public EpicLoginFailureHandler(LoginCompletion loginCompletion) {
+        this.loginCompletion = loginCompletion;
     }
 
     @Override
@@ -70,9 +69,9 @@ public class EpicLoginFailureHandler implements AuthenticationFailureHandler {
             HttpServletRequest request, HttpServletResponse response,
             AuthenticationException failure) throws IOException {
         LoginOutcome outcome = outcomeOf(failure);
-        HttpSession session = request.getSession(false);
-        outcomes.record(outcome, session == null ? null : session.getId());
-        EpicLoginLanding.after(outcome, request, response);
+        loginCompletion.endUndecided(outcome, request);
+        (outcome instanceof Unavailable ? EpicLanding.UNAVAILABLE : EpicLanding.REFUSED)
+                .sendTo(request, response);
     }
 
     /** The outcome {@code failure} ended the Login in. */

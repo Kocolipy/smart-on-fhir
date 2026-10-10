@@ -1,6 +1,7 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -29,11 +30,13 @@ import org.springframework.stereotype.Component;
  * path's own; everything here is the session and CSRF work only a web adapter can do, shared so
  * no Login path can establish a session differently from another.
  *
- * <p>A component, injected into each Login path's web adapter, so every one of them is handed the
- * same instance over the chain's own repositories rather than assembling one of its own.
+ * <p>A component over the chain's own repositories, and package-private: its one caller is
+ * {@link LoginCompletion}, which runs it between the login decision and recording the Login's
+ * ending, so no login method's web adapter can sign a session in without the rest of the Login
+ * around it.
  */
 @Component
-public class SessionEstablishment {
+class SessionEstablishment {
 
     /**
      * The logger {@code session-start} has always been written under. The record moved here from
@@ -56,22 +59,16 @@ public class SessionEstablishment {
     }
 
     /**
-     * Signs the caller's session in as {@code authentication}.
+     * Signs the caller's session in as the Login {@code accepted}: as its authentication, with
+     * the authorities the login resolved; indexed and logged by the User's stable id; recording
+     * the hash of the role mapping those authorities were resolved under; and with a
+     * {@code session-start} naming its login method (D15).
      *
-     * @param authentication  the authenticated User, with the authorities the login resolved
-     * @param userId          the User's stable id, which the session is indexed and logged by
-     * @param roleMappingHash the hash of the role mapping those authorities were resolved under
-     * @param method          how the Login proved who signed in, which {@code session-start}
-     *                        records (D15)
      * @return the signed-in session, under its rotated id
      */
     public HttpSession establish(
-            Authentication authentication,
-            UUID userId,
-            String roleMappingHash,
-            AuditLoginMethod method,
-            HttpServletRequest request,
-            HttpServletResponse response) {
+            AcceptedLogin accepted, HttpServletRequest request, HttpServletResponse response) {
+        Authentication authentication = accepted.authentication();
         // Rotate before the context is saved, so the authentication lands in the
         // session the caller will keep using rather than the pre-login one.
         sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
@@ -98,11 +95,11 @@ public class SessionEstablishment {
         if (session != null) {
             session.setAttribute(
                     FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
-                    userId.toString());
+                    accepted.userId().toString());
             // The mapping the Permissions in the security context were resolved under, so a
             // session minted under a different mapping can be told apart from one minted under
             // the running one.
-            session.setAttribute(RoleMappingSessions.HASH_ATTRIBUTE, roleMappingHash);
+            session.setAttribute(RoleMappingSessions.HASH_ATTRIBUTE, accepted.roleMappingHash());
         }
 
         // The session id has just rotated, but its attributes moved with it — the
@@ -111,7 +108,7 @@ public class SessionEstablishment {
         csrfTokenRepository.saveToken(null, request, response);
 
         HttpSession signedIn = request.getSession();
-        recordSessionStart(userId, method, signedIn);
+        recordSessionStart(accepted.userId(), accepted.signedIn().method(), signedIn);
         return signedIn;
     }
 

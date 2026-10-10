@@ -18,6 +18,7 @@ import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
+import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
@@ -51,7 +52,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -132,9 +132,9 @@ class AuthControllerTests {
                 new com.example.backend.auth.PendingCommit();
         LoginAttemptService attempts = new LoginAttemptService(
                 users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
+        LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
         controller = new AuthController(
-                new LoginService(manager, attempts, identities,
-                        RecordingLoginCounts.uncounted(attempts)),
+                new LoginService(manager, attempts, identities, outcomes),
                 // The same flow against Postgres and Redis, the security filter chain included, is
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
@@ -147,8 +147,8 @@ class AuthControllerTests {
                         audit,
                         clock),
                 audit,
-                new SessionEstablishment(config.securityContextRepository(),
-                        config.sessionAuthenticationStrategy(), csrfTokenRepository),
+                new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
+                        config.sessionAuthenticationStrategy(), csrfTokenRepository), outcomes),
                 cookieSerializer);
     }
 
@@ -231,7 +231,7 @@ class AuthControllerTests {
                 new AuthController.LoginRequest("ada", "wrong-password"),
                 request,
                 new MockHttpServletResponse()))
-                .isInstanceOf(BadCredentialsException.class);
+                .isInstanceOf(AuthController.LoginRefusedException.class);
         assertThat(request.getSession(false)).isNull();
     }
 
@@ -252,7 +252,7 @@ class AuthControllerTests {
                 new AuthController.LoginRequest("ada", "wrong-password"),
                 request,
                 new MockHttpServletResponse()))
-                .isInstanceOf(BadCredentialsException.class);
+                .isInstanceOf(AuthController.LoginRefusedException.class);
 
         assertThat(previousUsers.isInvalid()).isTrue();
         assertThat(request.getSession(false)).isNull();
@@ -272,7 +272,7 @@ class AuthControllerTests {
                 new AuthController.LoginRequest("gone", "correct-password"),
                 request,
                 new MockHttpServletResponse()))
-                .isInstanceOf(org.springframework.security.authentication.DisabledException.class);
+                .isInstanceOf(AuthController.LoginRefusedException.class);
 
         assertThat(previous.isInvalid()).isTrue();
     }
@@ -290,7 +290,7 @@ class AuthControllerTests {
                 new AuthController.LoginRequest("ada", "wrong-password"),
                 new MockHttpServletRequest(),
                 new MockHttpServletResponse()))
-                .isInstanceOf(BadCredentialsException.class);
+                .isInstanceOf(AuthController.LoginRefusedException.class);
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
     }
@@ -474,6 +474,33 @@ class AuthControllerTests {
                         .content("{\"username\":\"ada\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));
+    }
+
+    /**
+     * Every refusal is the one refusal: a locked account's answer is byte for byte a wrong
+     * password's, so the answer cannot tell its reader that the account exists and is locked.
+     */
+    @Test
+    void aLockedAccountsRefusalAnswersExactlyAsAWrongPasswordsDoes() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpServletResponse wrongPassword = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", "wrong-password")))
+                .andReturn().getResponse();
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody("ada", "wrong-password")));
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody("ada", "wrong-password")));
+
+        MockHttpServletResponse locked = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", "correct-password")))
+                .andReturn().getResponse();
+
+        assertThat(users.require("ada").login().isLocked()).as("the account is locked").isTrue();
+        assertThat(List.of(locked.getStatus(), locked.getContentAsString(), locked.getHeaderNames()))
+                .isEqualTo(List.of(401, wrongPassword.getContentAsString(),
+                        wrongPassword.getHeaderNames()));
     }
 
     @Test
@@ -793,7 +820,7 @@ class AuthControllerTests {
                 new AuthController.LoginRequest("ada", "wrong-password"),
                 new MockHttpServletRequest(),
                 new MockHttpServletResponse()))
-                .isInstanceOf(BadCredentialsException.class);
+                .isInstanceOf(AuthController.LoginRefusedException.class);
         transaction.commit();
 
         assertThat(accountSessions.sessionsOf(ada)).containsExactly("ada-elsewhere");
@@ -968,7 +995,7 @@ class AuthControllerTests {
                     new AuthController.LoginRequest("ada", "wrong-password"),
                     new MockHttpServletRequest(),
                     new MockHttpServletResponse()))
-                    .isInstanceOf(BadCredentialsException.class);
+                    .isInstanceOf(AuthController.LoginRefusedException.class);
 
             assertThat(captured.withAction(
                     ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "session-start")).isEmpty();

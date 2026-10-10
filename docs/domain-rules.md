@@ -88,6 +88,15 @@ tells whether an account exists. A locked or deactivated User is refused only
 after its submitted password has been compared, exactly as a wrong password is,
 so its refusal takes no less work than any other.
 
+**An accepted Login is a success only once its session is signed in** — by
+either login method, the operational log's "Login accepted" and the `login`
+success count are written after the session is established, and name it by its
+`session.hash`; a Login whose session could not be established is neither logged
+nor counted a success. The audit trail's `LOGIN_SUCCESS` is the exception, and
+deliberately earlier: it is written with the cleared failure run, in the login
+decision's own transaction, so a success the trail cannot record is not a success
+(ADR 0004).
+
 ## Epic Login
 
 A Login by **EHR launch**: Epic opens the application in the clinician's system
