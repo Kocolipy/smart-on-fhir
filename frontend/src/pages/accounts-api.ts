@@ -3,9 +3,9 @@
  * and drives — `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page
  * because `src/pages/` holds more than one.
  *
- * Nothing here requests anything: every call goes through `useSessionRequest`
- * in the component that makes it, so a `401` still ends the session in one
- * place. This file only says what a response looks like and where each
+ * Nothing here requests anything: every call goes through `useGatedRead` or
+ * `useGatedWrite` (both behind `useSessionRequest`) in the component that
+ * makes it, so a `401` still ends the session in one place. This file only says what a response looks like and where each
  * operation lives.
  */
 
@@ -139,21 +139,11 @@ export const tokenActionPath = (
   action: "rotate" | "revoke",
 ) => `${tokensPath(connectorId)}/${encodeURIComponent(tokenId)}/${action}`;
 
-/** A JSON body for an unsafe request; `apiFetch` adds the CSRF header itself. */
-export const jsonBody = (
-  method: "POST",
-  body: unknown,
-): { method: string; body: string; headers: Record<string, string> } => ({
-  body: JSON.stringify(body),
-  headers: { "Content-Type": "application/json" },
-  method,
-});
-
 // ---- decoders ----------------------------------------------------------------------
 //
 // One per wire type, each taking the parsed body and returning the typed value or
 // throwing `DecodeError` (see `@/lib/decode`). A page passes the `jsonDecoder`
-// lift of one to `useSessionRequest`, so a body that drifted from these types
+// lift of one to `useGatedRead` or `useGatedWrite`, so a body that drifted from these types
 // is a `failed` result and the page's failure copy, never a half-rendered row.
 
 const decodeDirectGroup = (value: unknown): DirectGroup => {

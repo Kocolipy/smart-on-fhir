@@ -33,8 +33,10 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   a wrong current password or a lockout, never a reason to end the session by
   itself), and the decoder for the session's `permissions`.
 - `permissions.ts` — the Permission each administrative view requires
-  (`VIEW_PERMISSIONS`), `ADMINISTRATION_PERMISSIONS`, and the `holds` /
-  `holdsAny` checks every guard and page reads.
+  (`VIEW_PERMISSIONS`), `ADMINISTRATION_PERMISSIONS`, the Permission each write
+  requires (`WRITE_PERMISSIONS`, read both for the control a page offers and on
+  the operation it sends), and the `holds` / `holdsAny` checks every guard and
+  page reads.
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
   mount and owns the session status plus the one sign-in reason it recorded
   when it last ended a session (an Expired session, an Idle sign-out, a password
@@ -121,12 +123,19 @@ dropping an answer for a key it has moved off.
 
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the
-request (already behind `useSessionRequest`), what to do on success, and the
-copy for the statuses it cares about; the hook owns the pending flag, the
-page's single error line, the mapping of a refusal to copy, and withdrawing
-the error of the read(s) the write supersedes the moment it starts
-(`useGatedWrite({ supersedes: [groups, users] })` in `accounts.tsx`). The page
-keeps only what is its own: the request, its success handling, and its copy.
+operation as data — path, method, optional JSON body, optional success
+decoder, and the Permission the backend requires — plus what to do on success
+and the copy for the statuses it cares about. The hook sends the operation
+through `useSessionRequest` itself, and sends nothing for a session lacking
+the operation's Permission (it settles as `forbidden`, as the backend would
+answer), the way a gated read sends nothing without its own. It owns the
+pending flag, the page's single error line, the mapping of a refusal to copy,
+and withdrawing the error of the read(s) the write supersedes the moment it
+starts (`useGatedWrite({ supersedes: [groups, users] })` in `accounts.tsx`).
+The page keeps only what is its own: the operation, its success handling, its
+copy, and what to render from `holds(...)`. The hook has no branch for ADR
+0006's `400 scimType: mutability`: that refusal belongs to the SCIM surface,
+and none of the endpoints the pages call answers it.
 
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
 enforces the direction: only `src/auth/` and `src/lib/` may import
@@ -280,7 +289,8 @@ directory that a test run writes into belongs on this list.
 actions from the `permissions` `GET /api/auth/me` and the login response report
 — there is no role. `src/auth/permissions.ts` holds the one table of what each
 administrative view requires (`VIEW_PERMISSIONS`: Users `user:read`, Groups
-`group:read`, connectors `connector:read`) and the `holds` / `holdsAny` checks; a
+`group:read`, connectors `connector:read`), the one table of what each write
+requires (`WRITE_PERMISSIONS`), and the `holds` / `holdsAny` checks; a
 route states its requirement as `requiredPermissions`, which
 `resolveSessionRoute` reads as "any one of these", and a page hides each action
 it lacks the Permission for (Unlock and the forced change `user:write`, connector

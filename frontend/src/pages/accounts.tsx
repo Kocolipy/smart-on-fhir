@@ -2,10 +2,9 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
-import { holds, VIEW_PERMISSIONS } from "@/auth/permissions";
+import { holds, VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
-import { useSessionRequest } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -323,8 +322,6 @@ const readUserRow = jsonDecoder(decodeUserRow);
  * action withdraws whatever was shown, as the action supersedes it.
  */
 function useDirectory() {
-  const request = useSessionRequest();
-
   const users = useGatedRead({
     decode: readUserRows,
     failureMessage: "Unable to load the users. Please try again.",
@@ -345,14 +342,22 @@ function useDirectory() {
    * would only add a request that could disagree with it.
    */
   const runAction = (target: UserRow, action: UserAction) =>
-    write.run(() => request(userActionPath(target.id, action), { method: "POST" }, readUserRow), {
-      messages: actionMessages(action, target.userName),
-      onOk: (updated) => {
-        users.update((current) =>
-          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
-        );
+    write.run(
+      {
+        decode: readUserRow,
+        method: "POST",
+        path: userActionPath(target.id, action),
+        permission: WRITE_PERMISSIONS.users,
       },
-    });
+      {
+        messages: actionMessages(action, target.userName),
+        onOk: (updated) => {
+          users.update((current) =>
+            (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
+          );
+        },
+      },
+    );
 
   return { error: write.error, groups, pending: write.pending, runAction, users };
 }
@@ -378,7 +383,7 @@ export function Accounts() {
   const readUsers = holds(user, VIEW_PERMISSIONS.users);
   const readGroups = holds(user, VIEW_PERMISSIONS.groups);
   const { error, groups, pending, runAction, users } = useDirectory();
-  const onAction: OnAction | null = holds(user, "user:write")
+  const onAction: OnAction | null = holds(user, WRITE_PERMISSIONS.users)
     ? (target, action) => void runAction(target, action)
     : null;
 
@@ -431,8 +436,8 @@ export function Accounts() {
 
       {holds(user, VIEW_PERMISSIONS.connectors) ? (
         <Connectors
-          canIssueTokens={holds(user, "connector:token")}
-          canManageConnectors={holds(user, "connector:write")}
+          canIssueTokens={holds(user, WRITE_PERMISSIONS.tokens)}
+          canManageConnectors={holds(user, WRITE_PERMISSIONS.connectors)}
           grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
         />
       ) : null}

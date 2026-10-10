@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { apiFetch } from "@/lib/http";
+import { apiFetch, type ApiDecoder } from "@/lib/http";
 
 import {
   TOKEN_PERMISSIONS,
@@ -30,10 +30,13 @@ const auth: AuthContextState = {
   signOutForInactivity: vi.fn(),
   status: "authenticated",
   // connector:read is the precondition: the Accounts page renders this panel only with it.
+  // The session also holds what the default props offer (connector:write for
+  // connectors, connector:token for tokens), since each write names its own
+  // Permission and is never sent without it.
   user: {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
-    permissions: ["connector:read"],
+    permissions: ["connector:read", "connector:write", "connector:token"],
     username: "ada",
   },
 };
@@ -77,15 +80,42 @@ const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
 function routeApi({ actions = [], listings }: { actions?: object[]; listings: object[] }) {
   const reads = [...listings];
   const queue = [...actions];
-  apiFetchMock.mockImplementation(((path: string, init?: RequestInit) => {
+  apiFetchMock.mockImplementation(((
+    path: string,
+    init?: RequestInit,
+    decode?: ApiDecoder<unknown>,
+  ) => {
     if (path === "/api/admin/connectors" && (init?.method ?? "GET") === "GET") {
-      return Promise.resolve(reads.length > 1 ? reads.shift() : reads[0]);
+      return answer(reads.length > 1 ? reads.shift() : reads[0], decode);
     }
     const next = queue.shift();
     if (next === undefined) throw new Error(`unexpected ${init?.method} ${path}`);
-    return Promise.resolve(next);
+    return answer(next, decode);
   }) as never);
 }
+
+/**
+ * What `apiFetch` hands the page for a canned result: an `ok` result's `data`
+ * is the backend's JSON body, read through the decoder the page passed, and a
+ * body that decoder refuses is a plain `failed`, as `apiFetch` makes it — so a
+ * write naming the wrong decoder, or none where its answer has a body, fails
+ * the test rather than slipping the fixture through undecoded.
+ */
+async function answer(result: object | undefined, decode?: ApiDecoder<unknown>) {
+  if (result === undefined || !("kind" in result) || result.kind !== "ok") return result;
+  if (decode === undefined) return { kind: "ok", data: undefined };
+  try {
+    return {
+      kind: "ok",
+      data: await decode(Response.json("data" in result ? result.data : undefined)),
+    };
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
+/** Every request the page sent, as path and init — the operation it named. */
+const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
 
 function renderConnectors(
   {
@@ -240,15 +270,14 @@ describe("Connectors", () => {
     await user.type(screen.getByLabelText("New connector name"), "  Okta  ");
     await user.click(screen.getByRole("button", { name: "Create connector" }));
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
+    expect(sent()).toContainEqual([
       "/api/admin/connectors",
       {
         body: JSON.stringify({ displayName: "Okta" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },
-      expect.any(Function),
-    );
+    ]);
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByText("No tokens issued.")).toBeInTheDocument();
     expect(section("Okta").queryByRole("table")).not.toBeInTheDocument();
@@ -288,6 +317,22 @@ describe("Connectors", () => {
     );
     // The name is kept for a retry: only a successful create clears it.
     expect(screen.getByLabelText("New connector name")).toHaveValue("Okta");
+  });
+
+  it("reports a create the backend answers with an unreadable connector as failed", async () => {
+    routeApi({
+      actions: [{ kind: "ok", data: { displayName: "Okta" } }],
+      listings: [{ kind: "ok", data: [] }],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.type(await screen.findByLabelText("New connector name"), "Okta");
+    await user.click(screen.getByRole("button", { name: "Create connector" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Creating Okta failed. Please try again.",
+    );
   });
 
   it("does not submit a blank connector name", async () => {
@@ -344,15 +389,14 @@ describe("Connectors", () => {
     await user.type(screen.getByLabelText("Lifetime in days for Okta (default 365)"), "30");
     await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
+    expect(sent()).toContainEqual([
       `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
       {
         body: JSON.stringify({ lifetimeDays: 30, permissions: ["group:write", "user:read"] }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },
-      expect.any(Function),
-    );
+    ]);
     const disclosure = await screen.findByRole("region", { name: "New token for Okta" });
     expect(within(disclosure).getByLabelText("New token value")).toHaveTextContent(
       "scim_plaintext_value_shown_once",
@@ -392,14 +436,23 @@ describe("Connectors", () => {
     expect(issue).toBeEnabled();
     await user.click(issue);
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
+    expect(sent()).toContainEqual([
       `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
       expect.objectContaining({
         body: JSON.stringify({ lifetimeDays: null, permissions: ["group:read"] }),
       }),
-      expect.any(Function),
-    );
+    ]);
     expect(await screen.findByText("group:read · expires 2027-01-02")).toBeInTheDocument();
+  });
+
+  it("offers the issue form with no lifetime filled in, so the default stands", async () => {
+    routeApi({ listings: [{ kind: "ok", data: [connector()] }] });
+    renderConnectors();
+
+    expect(await screen.findByLabelText("Lifetime in days for Okta (default 365)")).toHaveAttribute(
+      "value",
+      "",
+    );
   });
 
   /** A token may carry only what the session holds itself: the rest is shown, not offered. */
@@ -434,11 +487,10 @@ describe("Connectors", () => {
 
     await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
+    expect(sent()).toContainEqual([
       `/api/admin/connectors/${CONNECTOR_ID}/tokens/${TOKEN_ID}/rotate`,
       { body: "{}", headers: { "Content-Type": "application/json" }, method: "POST" },
-      expect.any(Function),
-    );
+    ]);
     expect(await screen.findByLabelText("New token value")).toHaveTextContent("scim_rotated_value");
   });
 

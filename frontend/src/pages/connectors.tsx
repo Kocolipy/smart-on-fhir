@@ -1,9 +1,8 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import { VIEW_PERMISSIONS } from "@/auth/permissions";
+import { VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
-import { useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -15,7 +14,6 @@ import {
   decodeConnectors,
   decodeIssuedToken,
   formatDate,
-  jsonBody,
   tokenActionPath,
   tokensPath,
   type Connector,
@@ -333,8 +331,6 @@ interface ConnectorActions {
  * that at once.
  */
 function useConnectors() {
-  const request = useSessionRequest();
-
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
   // A failed read is reported as a failure, never as an empty list.
   const listing = useGatedRead({
@@ -346,21 +342,25 @@ function useConnectors() {
   const write = useGatedWrite({ supersedes: [listing] });
 
   /**
-   * One mutation: run it, report a refusal, then re-read — still inside the
-   * pending window. The re-read's own refusal, when it has one, is the latest
-   * thing to go wrong, so it is what the error line shows.
+   * What every mutation shares: report a refusal naming `what`, then re-read —
+   * still inside the pending window. The re-read's own refusal, when it has
+   * one, is the latest thing to go wrong, so it is what the error line shows.
    */
-  const mutate = <T,>(
-    what: string,
-    run: () => Promise<SessionResult<T>>,
-    onOk?: (data: T) => void,
-  ) => write.run(run, { after: () => listing.reload(), messages: failureMessages(what), onOk });
+  const mutationOptions = (what: string) => ({
+    after: () => listing.reload(),
+    messages: failureMessages(what),
+  });
 
   const create = (displayName: string, onCreated: () => void) =>
-    void mutate(
-      `Creating ${displayName}`,
-      () => request(CONNECTORS_PATH, jsonBody("POST", { displayName }), readConnector),
-      onCreated,
+    void write.run(
+      {
+        body: { displayName },
+        decode: readConnector,
+        method: "POST",
+        path: CONNECTORS_PATH,
+        permission: WRITE_PERMISSIONS.connectors,
+      },
+      { ...mutationOptions(`Creating ${displayName}`), onOk: onCreated },
     );
 
   const actionsFor = (connector: Connector): ConnectorActions => {
@@ -368,34 +368,44 @@ function useConnectors() {
       setDisclosure({ connectorName: connector.displayName, token });
     return {
       onDelete: () =>
-        void mutate(`Deleting ${connector.displayName}`, () =>
-          request(connectorPath(connector.id), { method: "DELETE" }),
+        void write.run(
+          {
+            method: "DELETE",
+            path: connectorPath(connector.id),
+            permission: WRITE_PERMISSIONS.connectors,
+          },
+          mutationOptions(`Deleting ${connector.displayName}`),
         ),
       onIssue: (permissions, lifetimeDays) =>
-        void mutate(
-          `Issuing a token for ${connector.displayName}`,
-          () =>
-            request(
-              tokensPath(connector.id),
-              jsonBody("POST", { lifetimeDays, permissions }),
-              readIssuedToken,
-            ),
-          disclose,
+        void write.run(
+          {
+            body: { lifetimeDays, permissions },
+            decode: readIssuedToken,
+            method: "POST",
+            path: tokensPath(connector.id),
+            permission: WRITE_PERMISSIONS.tokens,
+          },
+          { ...mutationOptions(`Issuing a token for ${connector.displayName}`), onOk: disclose },
         ),
       onRevoke: (token) =>
-        void mutate("Revoking the token", () =>
-          request(tokenActionPath(connector.id, token.id, "revoke"), { method: "POST" }),
+        void write.run(
+          {
+            method: "POST",
+            path: tokenActionPath(connector.id, token.id, "revoke"),
+            permission: WRITE_PERMISSIONS.tokens,
+          },
+          mutationOptions("Revoking the token"),
         ),
       onRotate: (token) =>
-        void mutate(
-          "Rotating the token",
-          () =>
-            request(
-              tokenActionPath(connector.id, token.id, "rotate"),
-              jsonBody("POST", {}),
-              readIssuedToken,
-            ),
-          disclose,
+        void write.run(
+          {
+            body: {},
+            decode: readIssuedToken,
+            method: "POST",
+            path: tokenActionPath(connector.id, token.id, "rotate"),
+            permission: WRITE_PERMISSIONS.tokens,
+          },
+          { ...mutationOptions("Rotating the token"), onOk: disclose },
         ),
     };
   };

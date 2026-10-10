@@ -1,49 +1,58 @@
 /**
  * The one gated write every page's action goes through.
  *
- * A page names the request (already behind {@link useSessionRequest}), what to
- * do on success, and the copy for the statuses its action cares about; the hook
- * owns the rest — the pending flag, the single error line, mapping a refusal to
- * copy (a transport refusal through the seam's own {@link refusalMessage}, a
- * `failed` one through the page's copy and this hook's defaults), and withdrawing the error
- * of whatever read(s) the write supersedes the moment it starts.
+ * A page names the operation — its path, method, optional JSON body, optional
+ * success decoder and optional Permission — what to do on success, and the copy
+ * for the statuses its action cares about; the hook owns the rest. It sends the
+ * operation through the session seam ({@link useSessionRequest}), so a `401`
+ * ends the session there exactly once and the page never sees
+ * `unauthenticated`. It owns the pending flag, the single error line, mapping a
+ * refusal to copy (a transport refusal through the seam's own
+ * {@link refusalMessage}, a `failed` one through the page's copy and this
+ * hook's defaults), and withdrawing the error of whatever read(s) the write
+ * supersedes the moment it starts.
  *
- * ADR 0006 holds a protected-resource refusal to `400 scimType: mutability`,
- * distinct from a generic `400`. None of `AdminAccountController` or
- * `AdminConnectorController` — the endpoints Accounts, Connectors and Showcase
- * call — ever answers that shape today: `mutability` is scoped to the SCIM
- * write surface (`ScimExceptionHandler`), which these pages never reach. The
- * hook still keys its own default for it, and a page's `messages.mutability`
- * overrides that default the same way `messages[404]` overrides the hook's
- * `404` — so the distinction exists the moment a page's endpoint starts
- * answering it, with nothing to add here first. A result only carries the
- * `detail` this reads when the page's request asked `apiFetch` to decode a
- * failure body; none of today's three pages do, so the branch is reachable but
- * unexercised by them.
+ * An operation naming a Permission the session does not hold is never sent: it
+ * settles as `forbidden` at once, which is what the backend would have
+ * answered. That is defence in the hook, mirroring {@link useGatedRead}; a page
+ * still decides what to render from `holds(...)`, and the backend still
+ * enforces every operation on its own.
  *
- * Precedence when a `failed` result's message is resolved: the mutability
- * default always wins over a generic `400` default, because ADR 0006 holds the
- * two apart however a page configures its copy. Short of that, a page's own
+ * There is no branch for ADR 0006's protected-resource refusal
+ * (`400 scimType: mutability`). That shape is the SCIM write surface's alone —
+ * `ScimExceptionHandler`, scoped to the SCIM controllers — and the endpoints
+ * this hook's pages call answer through the application's own exception
+ * handler, which never returns it; the SPA never calls SCIM. So no failure body
+ * is decoded here, and such a refusal would read as the generic `400`.
+ *
+ * Precedence when a `failed` result's message is resolved: a page's own
  * `messages[status]` wins, then its own `messages.default`, then this hook's
  * per-status default, then this hook's own last resort — so a page's `default`
- * stands for every status it does not name, exactly as it did before this hook
- * existed.
+ * stands for every status it does not name.
  */
 
 import { useState } from "react";
 
-import { readObject } from "@/lib/decode";
-import type { ApiResult } from "@/lib/http";
+import type { ApiDecoder, ApiRequestInit } from "@/lib/http";
 
-import { refusalMessage } from "./use-session-request";
+import type { Permission } from "./api";
+import { useAuth } from "./auth-context-value";
+import { holds } from "./permissions";
+import { refusalMessage, useSessionRequest, type SessionResult } from "./use-session-request";
 
 /**
- * What a write's request settles to: a `SessionResult` whose `failed` member
- * may carry a decoded failure body of type `E`. `E` is `never` — no body —
- * unless the request asked `apiFetch` to decode one, so a plain
- * `SessionResult<T>` is one of these as it stands.
+ * A write as data: what to send, and how to read the answer. `body`, when
+ * present, is sent as JSON; `apiFetch` adds the CSRF header itself.
  */
-export type WriteResult<T, E = never> = Exclude<ApiResult<T, E>, { kind: "unauthenticated" }>;
+export interface WriteOperation<T = void> {
+  path: string;
+  method: "POST" | "DELETE";
+  body?: unknown;
+  /** Reads the success body; omit it for an operation answering no content. */
+  decode?: ApiDecoder<T>;
+  /** The Permission the backend requires; without it the operation is never sent. */
+  permission?: Permission;
+}
 
 /** The subset of a `GatedRead` a write supersedes: cleared on start, consulted as the fallback. */
 export interface SupersededRead {
@@ -52,11 +61,7 @@ export interface SupersededRead {
 }
 
 /** Copy for a `failed` refusal, keyed by status; `default` covers everything unmapped. */
-export type RefusalMessages = Partial<Record<number, string>> & {
-  default?: string;
-  /** ADR 0006's protected-resource refusal — `400` with `scimType: "mutability"` — kept apart from a generic `400`. */
-  mutability?: string;
-};
+export type RefusalMessages = Partial<Record<number, string>> & { default?: string };
 
 export interface RunOptions<T> {
   /** The copy a page cares about for this action; falls back to the hook's own defaults. */
@@ -84,16 +89,21 @@ export interface GatedWriteOptions {
   supersedes?: readonly SupersededRead[];
 }
 
+/** Runs one write. Never rejects: a decoder or handler that throws is the caller's bug. */
+export interface RunWrite {
+  (operation: WriteOperation & { decode?: undefined }, options?: RunOptions<void>): Promise<void>;
+  <T>(
+    operation: WriteOperation<T> & { decode: ApiDecoder<T> },
+    options?: RunOptions<T>,
+  ): Promise<void>;
+}
+
 export interface GatedWrite {
   /** Whether a write is in flight; every control a write drives disables on this. */
   pending: boolean;
   /** The single error line: this write's own outcome, or the fallback described above. */
   error: string | null;
-  /** Runs one write. Never rejects: a request that throws is the caller's bug, not this hook's to catch. */
-  run: <T, E = never>(
-    request: () => Promise<WriteResult<T, E>>,
-    options?: RunOptions<T>,
-  ) => Promise<void>;
+  run: RunWrite;
 }
 
 /** Copy for a status this hook recognises without a page naming its own. */
@@ -103,40 +113,21 @@ const DEFAULT_REFUSAL_MESSAGES: Record<number, string> = {
   409: "Refused: the request conflicts with the resource's current state.",
 };
 
-/** ADR 0006's default for a protected-resource refusal, distinct from a generic `400`. */
-const DEFAULT_MUTABILITY_MESSAGE = "This can't be changed. Reload the page for its current state.";
-
 /** The last resort, when neither the page nor the hook names anything for the status. */
 const DEFAULT_REFUSAL_MESSAGE = "Unable to complete the action. Please try again.";
 
-/**
- * Whether a decoded failure body is ADR 0006's protected-resource shape:
- * `scimType: "mutability"`. `detail` is `undefined` when the page's request
- * never asked `apiFetch` to decode a failure body at all; that, and any body
- * the decoder refuses, is simply not this shape.
- */
-function isMutabilityRefusal(detail: unknown): boolean {
-  try {
-    readObject(detail, "refusal").oneOf("scimType", ["mutability"]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function messageFor<E>(
-  result: Extract<WriteResult<unknown, E>, { kind: "failed" }>,
-  messages: RefusalMessages,
-): string {
-  if (isMutabilityRefusal(result.detail)) {
-    return messages.mutability ?? DEFAULT_MUTABILITY_MESSAGE;
-  }
-  const { status } = result;
+function messageFor(status: number | undefined, messages: RefusalMessages): string {
   if (status !== undefined) {
     const named = messages[status] ?? messages.default ?? DEFAULT_REFUSAL_MESSAGES[status];
     if (named !== undefined) return named;
   }
   return messages.default ?? DEFAULT_REFUSAL_MESSAGE;
+}
+
+/** The request as `apiFetch` takes it: just the method, or the method and a JSON body. */
+function requestInit({ body, method }: WriteOperation<unknown>): ApiRequestInit {
+  if (body === undefined) return { method };
+  return { body: JSON.stringify(body), headers: { "Content-Type": "application/json" }, method };
 }
 
 /** The first non-null error among the reads a write supersedes, or `null` when none has one. */
@@ -148,6 +139,8 @@ function firstError(supersedes: readonly SupersededRead[]): string | null {
 }
 
 export function useGatedWrite({ supersedes = [] }: GatedWriteOptions = {}): GatedWrite {
+  const { user } = useAuth();
+  const request = useSessionRequest();
   const [ownError, setOwnError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   // Whether the most recent run supplied an `after` step: when it did, that
@@ -160,8 +153,15 @@ export function useGatedWrite({ supersedes = [] }: GatedWriteOptions = {}): Gate
   // during render is not guaranteed to reflect the latest commit.
   const [afterIsLatest, setAfterIsLatest] = useState(false);
 
-  const run = async <T, E = never>(
-    request: () => Promise<WriteResult<T, E>>,
+  const send = <T>(operation: WriteOperation<T>): Promise<SessionResult<T | void>> => {
+    if (operation.permission !== undefined && !holds(user, operation.permission)) {
+      return Promise.resolve({ kind: "forbidden" });
+    }
+    return request(operation.path, requestInit(operation), operation.decode);
+  };
+
+  const run = async <T>(
+    operation: WriteOperation<T>,
     { after, messages = {}, onOk }: RunOptions<T> = {},
   ): Promise<void> => {
     for (const dependency of supersedes) dependency.clearError();
@@ -169,11 +169,12 @@ export function useGatedWrite({ supersedes = [] }: GatedWriteOptions = {}): Gate
     setOwnError(null);
     setPending(true);
     try {
-      const result = await request();
+      // Without a decoder `T` is `void` (the overloads on `RunWrite` hold that).
+      const result = (await send(operation)) as SessionResult<T>;
       if (result.kind === "ok") {
         await onOk?.(result.data);
       } else if (result.kind === "failed") {
-        setOwnError(messageFor(result, messages));
+        setOwnError(messageFor(result.status, messages));
       } else {
         // `forbidden` or `csrf-expired`: the seam's own copy, whatever the page names.
         setOwnError(refusalMessage(result, DEFAULT_REFUSAL_MESSAGE));
@@ -188,6 +189,6 @@ export function useGatedWrite({ supersedes = [] }: GatedWriteOptions = {}): Gate
   return {
     error: afterIsLatest ? (supersededError ?? ownError) : (ownError ?? supersededError),
     pending,
-    run,
+    run: run as RunWrite,
   };
 }

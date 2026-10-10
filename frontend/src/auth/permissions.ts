@@ -25,6 +25,18 @@ export const VIEW_PERMISSIONS = {
  */
 export const ADMINISTRATION_PERMISSIONS: readonly Permission[] = Object.values(VIEW_PERMISSIONS);
 
+/**
+ * The Permission each write requires, named once: a page reads it both to
+ * decide whether to offer the control and on the operation the control sends,
+ * so the two cannot drift apart.
+ */
+export const WRITE_PERMISSIONS = {
+  connectors: "connector:write",
+  counter: "counter:write",
+  tokens: "connector:token",
+  users: "user:write",
+} as const satisfies Record<string, Permission>;
+
 /** Whether the session holds `permission`. No session holds nothing. */
 export function holds(
   user: Pick<AuthUser, "permissions"> | null | undefined,
