@@ -6,7 +6,6 @@ import com.example.backend.auth.domain.EpicInputField;
 import com.example.backend.auth.domain.EpicInputRule;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.epic.EpicRoutes;
-import com.example.backend.auth.epic.EpicSignInFailure;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +15,7 @@ import java.io.UncheckedIOException;
 import java.util.Optional;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -34,7 +34,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>A {@code code} outside D18's bounds is refused as {@code INVALID_CODE}.
  * </ol>
  *
- * <p>Each refusal goes to the one {@link EpicSignInFailure}, and Epic is never called. A callback
+ * <p>Each refusal goes to the flow's one failure handler, and Epic is never called. A callback
  * that passes goes on to the login filter with the request it took, which redeems the code once.
  */
 final class EpicCallbackFilter extends OncePerRequestFilter {
@@ -44,10 +44,11 @@ final class EpicCallbackFilter extends OncePerRequestFilter {
 
     private final EpicAuthorizationRequests authorizationRequests;
 
-    private final EpicSignInFailure signInFailure;
+    private final AuthenticationFailureHandler signInFailure;
 
     EpicCallbackFilter(
-            EpicAuthorizationRequests authorizationRequests, EpicSignInFailure signInFailure) {
+            EpicAuthorizationRequests authorizationRequests,
+            AuthenticationFailureHandler signInFailure) {
         this.authorizationRequests = authorizationRequests;
         this.signInFailure = signInFailure;
     }

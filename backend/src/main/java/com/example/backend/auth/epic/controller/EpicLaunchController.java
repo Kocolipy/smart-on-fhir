@@ -6,15 +6,16 @@ import com.example.backend.auth.domain.EpicInputField;
 import com.example.backend.auth.domain.EpicInputRule;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.epic.EpicLaunchContext;
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicRoutes;
-import com.example.backend.auth.epic.EpicSignInFailure;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.Optional;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  * carried survives into the clinician's. The {@code iss} must equal {@code APP_EPIC_FHIR_BASE}
  * exactly, compared as a string and never normalized (D10), and the {@code launch} must be within
  * D18's bounds; otherwise the launch is refused as {@code ISS_MISMATCH} or {@code INVALID_LAUNCH},
- * through the one {@link EpicSignInFailure}, which ends the session, records the refusal and logs
+ * through the one {@link EpicLoginFailureHandler}, which ends the session, records the refusal and logs
  * the field and the rule it broke — never the value.
  *
  * <p>An accepted launch is sent on to {@code /api/auth/epic/authorize}, the internal hop Spring
@@ -36,19 +37,20 @@ import org.springframework.web.bind.annotation.RestController;
  * the hop only while a launch is pending; a request reaching the hop's handler here held none,
  * and is refused as {@code INVALID_LAUNCH}.
  *
- * <p>Public: the browser arrives from Epic with no session of ours. While
- * {@code APP_EPIC_ENABLED} is off the release gate answers {@code 404} before either route is
- * reached, so the settings are always present when a handler runs.
+ * <p>Public: the browser arrives from Epic with no session of ours. Exists only while Epic Login
+ * is on; while it is off neither route is mapped, and the release gate answers {@code 404} for
+ * both.
  */
 @RestController
+@Conditional(EpicLogin.WhenOn.class)
 public class EpicLaunchController {
 
-    private final Optional<EpicLoginSettings> settings;
+    private final EpicLoginSettings settings;
 
-    private final EpicSignInFailure signInFailure;
+    private final EpicLoginFailureHandler signInFailure;
 
     public EpicLaunchController(
-            Optional<EpicLoginSettings> settings, EpicSignInFailure signInFailure) {
+            EpicLoginSettings settings, EpicLoginFailureHandler signInFailure) {
         this.settings = settings;
         this.signInFailure = signInFailure;
     }
@@ -59,8 +61,8 @@ public class EpicLaunchController {
             @RequestParam(name = "launch", required = false) String launch,
             HttpServletRequest request,
             HttpServletResponse response) throws IOException, ServletException {
-        String fhirBase = settings.map(epic -> epic.fhirBase().toString()).orElse("");
-        Optional<EpicInputRule> issBroken = EpicInputBounds.issBrokenBy(iss, fhirBase);
+        Optional<EpicInputRule> issBroken =
+                EpicInputBounds.issBrokenBy(iss, settings.fhirBase().toString());
         if (issBroken.isPresent()) {
             refuse(EpicLoginFailureReason.ISS_MISMATCH, EpicInputField.ISS, issBroken.get(),
                     request, response);

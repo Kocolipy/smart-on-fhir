@@ -8,17 +8,19 @@ import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.EpicSignInRefusedException;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.epic.CauseChain;
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicOutboundException;
-import com.example.backend.auth.epic.EpicSignInFailure;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.Optional;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidationException;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,9 +36,14 @@ import org.springframework.stereotype.Component;
  * the outcome — audit, log and counts — and the browser lands at {@code /?signin=unavailable} or
  * {@code /?signin=refused}, the session it held ended first, whoever it belonged to, and told
  * nothing more (D23, D24).
+ *
+ * <p>The one {@link AuthenticationFailureHandler} in the application, which is how the Epic
+ * security configuration finds it without depending on this web adapter. Exists only while Epic
+ * Login is on.
  */
 @Component
-public class EpicLoginFailureHandler implements EpicSignInFailure {
+@Conditional(EpicLogin.WhenOn.class)
+public class EpicLoginFailureHandler implements AuthenticationFailureHandler {
 
     /**
      * Spring Security's error code for an {@code id_token} nonce that is not the one sent, raised by

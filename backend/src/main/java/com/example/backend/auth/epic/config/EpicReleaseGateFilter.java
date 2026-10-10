@@ -1,6 +1,5 @@
 package com.example.backend.auth.epic.config;
 
-import com.example.backend.auth.epic.EpicReleaseGate;
 import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.web.ApiError;
 import jakarta.servlet.FilterChain;
@@ -18,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Makes the Epic Login routes unreachable while {@code APP_EPIC_ENABLED} is off, mirroring the
- * SCIM release gate.
+ * SCIM release gate: the whole of what {@link EpicLoginOff} adds to the application chain.
  *
  * <p>Ordered first in the application chain, ahead of the session, CSRF and authorization
  * filters, so a closed gate is the answer to every request under {@code /api/auth/epic} whatever
@@ -26,14 +25,14 @@ import tools.jackson.databind.json.JsonMapper;
  * be answered {@code 401} or {@code 403}, which says "this exists and you may not have it"; a
  * {@code 404} says the path is not served here, which is the truth while the switch is off.
  *
- * <p>Every other request passes straight through, as does every request while the gate is
- * open.
+ * <p>Every other request passes straight through. While the switch is on there is no gate at
+ * all: {@link EpicLoginOn} adds none, so nothing here asks whether Epic Login is on.
  *
  * <p>The body is the application API's generic refusal, {@link ApiError#of} for a {@code 404},
  * serialized here because no controller and no error page runs while the gate is closed — and
  * so the answer cannot be mistaken for the single-page application's HTML shell.
  */
-public class EpicReleaseGateFilter extends OncePerRequestFilter {
+final class EpicReleaseGateFilter extends OncePerRequestFilter {
 
     private static final String GATE_CLOSED_BODY =
             JsonMapper.builder().build().writeValueAsString(ApiError.of(HttpStatus.NOT_FOUND));
@@ -42,17 +41,11 @@ public class EpicReleaseGateFilter extends OncePerRequestFilter {
     private static final RequestMatcher NAMESPACE =
             PathPatternRequestMatcher.withDefaults().matcher(EpicRoutes.NAMESPACE + "/**");
 
-    private final EpicReleaseGate gate;
-
-    public EpicReleaseGateFilter(EpicReleaseGate gate) {
-        this.gate = gate;
-    }
-
     @Override
     protected void doFilterInternal(
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (gate.open() || !NAMESPACE.matches(request)) {
+        if (!NAMESPACE.matches(request)) {
             chain.doFilter(request, response);
             return;
         }
