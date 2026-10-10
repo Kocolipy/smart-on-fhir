@@ -8,7 +8,6 @@ import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicOutboundCall;
 import com.example.backend.auth.epic.EpicOutboundException;
 import com.example.backend.auth.epic.EpicRoutes;
-import com.example.backend.auth.epic.EpicSignInFailure;
 import com.example.backend.auth.epic.EpicTokenHandOff;
 import java.net.URI;
 import java.time.Clock;
@@ -40,6 +39,7 @@ import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.context.NullSecurityContextRepository;
@@ -50,8 +50,7 @@ import org.springframework.web.client.RestClientException;
 
 /**
  * Epic Login's OAuth 2.0 / OpenID Connect half (flow steps 2–4), as Spring Security's
- * {@code oauth2Login} on the existing application chain, applied by {@code SecurityConfig} while
- * Epic Login is on.
+ * {@code oauth2Login} on the existing application chain, applied by {@link EpicLoginOn}.
  *
  * <ul>
  *   <li><b>Authorize.</b> {@code GET /api/auth/epic/authorize}, the internal hop the launch
@@ -80,11 +79,11 @@ import org.springframework.web.client.RestClientException;
  * </ul>
  *
  * <p>Any OAuth error or failed check, and any Epic call that failed — discovery at the authorize
- * hop or the callback, the token call, the JWKS — goes to the one {@link EpicSignInFailure},
- * which lands the browser at {@code /?signin=refused} or, when Epic was unavailable,
+ * hop or the callback, the token call, the JWKS — goes to the one failure handler, Epic Login's
+ * web adapter {@code EpicLoginFailureHandler}, which lands the browser at {@code /?signin=refused} or, when Epic was unavailable,
  * {@code /?signin=unavailable}, its session ended (D23, D24).
  */
-public final class EpicLoginFlow {
+final class EpicLoginFlow {
 
     /** The clock skew {@code exp} and {@code iat} are checked with (flow step 4). */
     static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
@@ -104,7 +103,7 @@ public final class EpicLoginFlow {
 
     private final AuthenticationSuccessHandler signIn;
 
-    private final EpicSignInFailure signInFailure;
+    private final AuthenticationFailureHandler signInFailure;
 
     private final EpicAuthorizationRequests pendingRequests;
 
@@ -118,7 +117,7 @@ public final class EpicLoginFlow {
             ClientAssertionSigner signer,
             Clock clock,
             AuthenticationSuccessHandler signIn,
-            EpicSignInFailure signInFailure,
+            AuthenticationFailureHandler signInFailure,
             PendingAuthorizations pendingAuthorizations) {
         this.registrations = registrations;
         this.authorizationRequests =
@@ -132,8 +131,8 @@ public final class EpicLoginFlow {
         this.mfaEvidenceRequired = settings.mfaEvidenceRequired();
     }
 
-    /** Adds Epic Login to {@code http}, the application chain. */
-    public void applyTo(HttpSecurity http) {
+    /** Adds the OAuth 2.0 half to {@code http}, the application chain. */
+    void applyTo(HttpSecurity http) {
         // Ahead of the login filter: the callback's pending request is taken, and the callback
         // checked, before Spring Security sees it (D18, D27).
         http.addFilterBefore(new EpicCallbackFilter(pendingRequests, signInFailure),

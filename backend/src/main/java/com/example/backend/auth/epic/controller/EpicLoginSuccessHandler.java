@@ -13,9 +13,8 @@ import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
 import com.example.backend.auth.domain.EpicMfaEvidence;
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
-import com.example.backend.auth.epic.EpicSignIn;
-import com.example.backend.auth.epic.EpicSignInFailure;
 import com.example.backend.auth.epic.EpicTokenHandOff;
 import com.example.backend.auth.epic.FhirUserReference;
 import jakarta.servlet.ServletException;
@@ -27,9 +26,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 
 /**
@@ -60,10 +60,12 @@ import org.springframework.stereotype.Component;
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
  * Epic security configuration so that the configuration need not depend on a web adapter: it is
- * found by its type, {@link EpicSignIn}.
+ * the one {@link AuthenticationSuccessHandler} in the application, and found by that type. Exists
+ * only while Epic Login is on, so it is handed the settings themselves.
  */
 @Component
-public class EpicLoginSuccessHandler implements EpicSignIn {
+@Conditional(EpicLogin.WhenOn.class)
+public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     /** The {@code id_token} claim naming the signed-in FHIR user (SMART App Launch). */
     static final String FHIR_USER_CLAIM = "fhirUser";
@@ -72,9 +74,9 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
 
     private final SessionEstablishment sessionEstablishment;
 
-    private final ObjectProvider<EpicLoginSettings> settings;
+    private final EpicLoginSettings settings;
 
-    private final EpicSignInFailure signInFailure;
+    private final EpicLoginFailureHandler signInFailure;
 
     private final LoginOutcomeService outcomes;
 
@@ -85,8 +87,8 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
     public EpicLoginSuccessHandler(
             LoginService login,
             SessionEstablishment sessionEstablishment,
-            ObjectProvider<EpicLoginSettings> settings,
-            EpicSignInFailure signInFailure,
+            EpicLoginSettings settings,
+            EpicLoginFailureHandler signInFailure,
             LoginOutcomeService outcomes,
             AbsoluteSessionLifetimePolicy absoluteLifetime,
             Clock clock) {
@@ -155,21 +157,18 @@ public class EpicLoginSuccessHandler implements EpicSignIn {
 
     /** The MFA factor the Login was made with, as {@link EpicMfaEvidence#factorOf} decides it. */
     private Optional<AuditMfaFactor> mfaFactorOf(Authentication epic) {
-        EpicLoginSettings epicSettings = settings.getIfAvailable();
-        return EpicMfaEvidence.factorOf(
-                epicSettings != null && epicSettings.mfaEvidenceRequired(),
+        return EpicMfaEvidence.factorOf(settings.mfaEvidenceRequired(),
                 () -> epic.getPrincipal() instanceof OidcUser user
                         ? user.getIdToken().getClaimAsStringList(EpicMfaEvidence.AMR) : null);
     }
 
     /** The Practitioner ID the validated {@code id_token} names, if it names one here. */
     private Optional<String> practitionerIdOf(Authentication epic) {
-        EpicLoginSettings epicSettings = settings.getIfAvailable();
-        if (epicSettings == null || !(epic.getPrincipal() instanceof OidcUser user)) {
+        if (!(epic.getPrincipal() instanceof OidcUser user)) {
             return Optional.empty();
         }
         return FhirUserReference.practitionerId(
-                user.getIdToken().getClaimAsString(FHIR_USER_CLAIM), epicSettings.fhirBase(),
-                epicSettings.relativeFhirUserAllowed());
+                user.getIdToken().getClaimAsString(FHIR_USER_CLAIM), settings.fhirBase(),
+                settings.relativeFhirUserAllowed());
     }
 }

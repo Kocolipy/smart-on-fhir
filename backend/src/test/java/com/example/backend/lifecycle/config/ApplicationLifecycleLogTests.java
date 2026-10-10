@@ -7,9 +7,11 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.auth.epic.EcP384PrivateKeyPem;
-import com.example.backend.auth.epic.EpicReleaseGate;
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicSigningKey;
 import com.example.backend.auth.epic.EpicSigningKeys;
+import com.example.backend.auth.epic.config.EpicLoginOff;
+import com.example.backend.auth.epic.config.EpicLoginOn;
 import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.config.ScimReleaseGate;
@@ -104,8 +106,8 @@ class ApplicationLifecycleLogTests {
 
     /** Epic Login off: the switch, and no key id, since none was read. */
     @Test
-    void aClosedEpicGateIsRecordedAsOffWithNoKeyIds() {
-        listener(true, new EpicReleaseGate(false), Optional.empty()).started(ready(context));
+    void epicLoginOffIsRecordedAsOffWithNoKeyIds() {
+        listener(true, new EpicLoginOff()).started(ready(context));
 
         assertThat(CapturedLog.fields(onlyRecord("application-startup")))
                 .containsEntry("app.epic.enabled", false)
@@ -118,9 +120,8 @@ class ApplicationLifecycleLogTests {
      * key material — is on the record.
      */
     @Test
-    void anOpenEpicGateIsRecordedWithItsActiveAndNextKeyIds() {
-        listener(true, new EpicReleaseGate(true),
-                Optional.of(signingKeys("active-2026-04", "next-2026-10")))
+    void epicLoginOnIsRecordedWithItsActiveAndNextKeyIds() {
+        listener(true, epicLoginOn(signingKeys("active-2026-04", "next-2026-10")))
                 .started(ready(context));
 
         Map<String, Object> fields = CapturedLog.fields(onlyRecord("application-startup"));
@@ -135,8 +136,8 @@ class ApplicationLifecycleLogTests {
 
     /** No next key configured: the active {@code kid} alone. */
     @Test
-    void anOpenEpicGateWithoutANextKeyRecordsTheActiveKeyIdAlone() {
-        listener(true, new EpicReleaseGate(true), Optional.of(signingKeys("active-2026-04", null)))
+    void epicLoginOnWithoutANextKeyRecordsTheActiveKeyIdAlone() {
+        listener(true, epicLoginOn(signingKeys("active-2026-04", null)))
                 .started(ready(context));
 
         assertThat(CapturedLog.fields(onlyRecord("application-startup")))
@@ -211,18 +212,21 @@ class ApplicationLifecycleLogTests {
                 keyId, EcP384PrivateKeyPem.parse(EpicTestKeys.p384Pem()).orElseThrow());
     }
 
-    private ApplicationLifecycleLog listener(boolean scimOpen) {
-        return listener(scimOpen, new EpicReleaseGate(false), Optional.empty());
+    /** Epic Login on with {@code keys}; what it adds to a chain plays no part in the record. */
+    private static EpicLogin epicLoginOn(EpicSigningKeys keys) {
+        return new EpicLoginOn(keys, http -> { });
     }
 
-    private ApplicationLifecycleLog listener(
-            boolean scimOpen, EpicReleaseGate epicGate, Optional<EpicSigningKeys> epicKeys) {
+    private ApplicationLifecycleLog listener(boolean scimOpen) {
+        return listener(scimOpen, new EpicLoginOff());
+    }
+
+    private ApplicationLifecycleLog listener(boolean scimOpen, EpicLogin epicLogin) {
         return new ApplicationLifecycleLog(
                 context,
                 environment,
                 new ScimReleaseGate(scimOpen),
-                epicGate,
-                epicKeys,
+                epicLogin,
                 new DormancyPolicy(Duration.ofDays(61), Duration.ofDays(122)),
                 new AuditRetentionPolicy(Duration.ofDays(400), null));
     }

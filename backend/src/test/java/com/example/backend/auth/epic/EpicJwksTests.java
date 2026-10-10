@@ -80,12 +80,6 @@ class EpicJwksTests {
                 .containsOnlyKeys("kty", "crv", "x", "y", "kid", "use", "alg"));
     }
 
-    /** While Epic Login is off there are no keys, so there is nothing to publish. */
-    @Test
-    void withNoSigningKeysTheJwksIsEmpty() {
-        assertThat(EpicJwks.none().document()).isEqualTo(Map.of("keys", List.of()));
-    }
-
     private static Map<String, Object> expectedJwk(String kid, KeyPair pair) {
         ECPublicKey publicKey = (ECPublicKey) pair.getPublic();
         return Map.of(

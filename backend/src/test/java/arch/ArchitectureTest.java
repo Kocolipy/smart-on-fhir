@@ -836,6 +836,28 @@ public class ArchitectureTest {
                     + " never returned to the browser, so no handler can be handed them");
 
     /**
+     * The application chain knows Epic Login through one seam.
+     *
+     * <p>Whether Epic Login is on, and everything it adds to the chain while it is — the release
+     * gate while off; the callback filter, {@code oauth2Login}, its routes' rules and its handlers
+     * while on — is the Epic module's, behind {@code EpicLogin#applyTo}. The shared chain makes that
+     * one call and names no other Epic type, so turning Epic Login on or off, or changing what it
+     * adds, never touches the chain every other request goes through.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_application_chain_knows_epic_login_through_one_seam =
+        noClasses()
+            .that().haveFullyQualifiedName("com.example.backend.auth.config.SecurityConfig")
+            .should().dependOnClassesThat(DescribedPredicate.describe(
+                    "are Epic types other than EpicLogin",
+                    (com.tngtech.archunit.core.domain.JavaClass type) ->
+                            type.getPackageName().startsWith("com.example.backend.auth.epic")
+                                    && !type.getName().equals(
+                                            "com.example.backend.auth.epic.EpicLogin")))
+            .because("Epic Login plugs into the application chain at one seam, EpicLogin, which"
+                    + " owns its gate, routes and handlers");
+
+    /**
      * A connector token's stored form does not reach the audit slice either.
      *
      * <p>The audit boundary already refuses a {@code String}, which is what a plaintext

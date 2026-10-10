@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.auth.epic.EpicLoginProperties;
 import com.example.backend.auth.epic.EpicLoginSettings;
-import com.example.backend.auth.epic.EpicReleaseGate;
 import com.example.backend.auth.epic.EpicSigningKey;
 import com.example.backend.auth.epic.EpicSigningKeys;
 import com.example.backend.auth.epic.EpicTestKeys;
@@ -27,7 +26,8 @@ import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 /**
  * The Epic Login switch and its configuration, as startup sees them: a context holding
- * {@link EpicLoginConfig} either starts with the gate it resolved, or fails to start.
+ * {@link EpicLoginConfig} either starts — with no settings while the switch is off, and with the
+ * settings validated while it is on — or fails to start.
  */
 class EpicLoginConfigTests {
 
@@ -35,10 +35,10 @@ class EpicLoginConfigTests {
             .withUserConfiguration(EpicLoginConfig.class);
 
     @Test
-    void withNoEpicVariablesAtAllTheContextStartsWithTheGateClosed() {
+    void withNoEpicVariablesAtAllTheContextStartsWithEpicLoginOff() {
         contexts.run(context -> {
             assertThat(context).hasNotFailed();
-            assertThat(context.getBean(EpicReleaseGate.class).open()).isFalse();
+            assertThat(context).doesNotHaveBean(EpicLoginSettings.class);
         });
     }
 
@@ -47,7 +47,7 @@ class EpicLoginConfigTests {
      * gives it — so this is the binding a deployment gets, relaxed-binding names included.
      */
     @Test
-    void everyEpicVariableIsBoundFromTheEnvironmentAndOpensTheGate() {
+    void everyEpicVariableIsBoundFromTheEnvironmentAndTurnsEpicLoginOn() {
         Map<String, Object> environment = new HashMap<>(validEnvironment());
         environment.put("APP_EPIC_CLIENT_NEXT_KEY", EpicTestKeys.p384Pem());
         environment.put("APP_EPIC_CLIENT_NEXT_KEY_ID", "next-2026-10");
@@ -65,7 +65,7 @@ class EpicLoginConfigTests {
             assertThat(bound.clientNextKey()).startsWith("-----BEGIN PRIVATE KEY-----");
             assertThat(bound.connectTimeout()).isEqualTo(Duration.ofSeconds(3));
             assertThat(bound.readTimeout()).isEqualTo(Duration.ofSeconds(7));
-            assertThat(context.getBean(EpicReleaseGate.class)).isEqualTo(new EpicReleaseGate(true));
+            assertThat(context).hasSingleBean(EpicLoginSettings.class);
         });
     }
 
@@ -197,7 +197,7 @@ class EpicLoginConfigTests {
 
         withEnvironment(environment)
                 .withInitializer(context -> context.getEnvironment().setActiveProfiles("dev"))
-                .run(context -> assertThat(context.getBean(EpicReleaseGate.class).open()).isTrue());
+                .run(context -> assertThat(context).hasSingleBean(EpicLoginSettings.class));
     }
 
     /**
@@ -279,7 +279,7 @@ class EpicLoginConfigTests {
         environment.put("APP_EPIC_CLIENT_NEXT_KEY_ID", "next-2026-10");
 
         withEnvironment(environment)
-                .run(context -> assertThat(context.getBean(EpicReleaseGate.class).open()).isTrue());
+                .run(context -> assertThat(context).hasSingleBean(EpicLoginSettings.class));
     }
 
     @Test

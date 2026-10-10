@@ -45,11 +45,6 @@ public final class EpicJwks {
         return new EpicJwks(published);
     }
 
-    /** The JWKS of a deployment with no signing keys, which is to say with Epic Login off. */
-    public static EpicJwks none() {
-        return new EpicJwks(List.of());
-    }
-
     /** The JWKS as its JSON object: {@code {"keys": [...]}}. */
     public Map<String, Object> document() {
         return document;

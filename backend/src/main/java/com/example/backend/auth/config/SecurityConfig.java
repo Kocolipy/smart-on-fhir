@@ -1,11 +1,10 @@
 package com.example.backend.auth.config;
 
+import static com.example.backend.web.ReadRequests.read;
+
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
-import com.example.backend.auth.epic.EpicReleaseGate;
-import com.example.backend.auth.epic.EpicRoutes;
-import com.example.backend.auth.epic.config.EpicLoginFlow;
-import com.example.backend.auth.epic.config.EpicReleaseGateFilter;
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.RouteTemplates;
@@ -15,7 +14,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
@@ -39,13 +37,9 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
-import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
-import org.springframework.security.web.util.matcher.OrRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 
 @Configuration
 @EnableMethodSecurity
@@ -219,8 +213,7 @@ public class SecurityConfig {
             AccessRefusalLog accessRefusalLog,
             AuditTrail auditTrail,
             RouteTemplates routeTemplates,
-            EpicReleaseGate epicReleaseGate,
-            ObjectProvider<EpicLoginFlow> epicLogin) {
+            EpicLogin epicLogin) {
         // Both refusals record themselves before answering. The access-denied handler is the
         // chain's one handler, and the CSRF filter answers through the same one, so a missing
         // token and a missing Permission are each recorded once, under their own reason — and
@@ -228,10 +221,13 @@ public class SecurityConfig {
         AuthenticationEntryPoint unauthorized = new SessionAuthenticationEntryPoint(accessRefusalLog);
         AccessDeniedHandler forbidden = new RefusalLoggingAccessDeniedHandler(
                 accessRefusalLog, auditTrail, routeTemplates);
-        // Epic Login's OAuth 2.0 half, while APP_EPIC_ENABLED is on: the authorize hop and the
-        // callback are served by its filters, ahead of every rule below. Off, there is none,
-        // and the release gate answers 404 for both routes.
-        epicLogin.ifAvailable(flow -> flow.applyTo(http));
+        // Epic Login (ADR 0013), whichever state APP_EPIC_ENABLED puts it in, and everything it
+        // adds to this chain. Off, its release gate is ordered first, as the SCIM one is in its
+        // chain, so every request under /api/auth/epic is answered 404 before any session, CSRF
+        // or authorization filter decides anything. On, its filters serve the authorize hop and
+        // the callback, and its four routes are public, by rules ahead of every rule below —
+        // none of which names an Epic route.
+        epicLogin.applyTo(http);
         return http
                 // The default request handler: it XOR-masks the token it exposes
                 // (so GET /api/auth/csrf never returns the same bytes twice, which
@@ -250,13 +246,6 @@ public class SecurityConfig {
                         .securityContextRepository(securityContextRepository))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-                // First, as the SCIM release gate is in its chain: while APP_EPIC_ENABLED is
-                // off, every request under /api/auth/epic is answered 404 before any session,
-                // CSRF or authorization filter decides anything, so the routes cannot be
-                // probed for existence. Every other request passes straight through.
-                .addFilterBefore(
-                        new EpicReleaseGateFilter(epicReleaseGate),
-                        WebAsyncManagerIntegrationFilter.class)
                 // Before the context is loaded from the session, so an expired
                 // session presents to the rest of the chain — including the
                 // context-loading filter itself — as if no session existed.
@@ -295,17 +284,6 @@ public class SecurityConfig {
                         // to authenticate: a guest's call creates the session the token is
                         // bound to, and login then carries that session forward.
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
-                        // Our public JWKS: Epic fetches it, with no session, to verify our client
-                        // assertions (D14). Public keys only. While APP_EPIC_ENABLED is off the
-                        // release gate above answers 404 before this rule is consulted.
-                        .requestMatchers(read(EpicRoutes.JWKS)).permitAll()
-                        // Epic Login's browser routes (ADR 0013): the launch URL Epic opens, the
-                        // internal hop to Epic's authorization endpoint, and the callback Epic
-                        // redirects back to. The browser arrives from Epic with no session of
-                        // ours; each answers with a redirect. 404 while the switch is off.
-                        .requestMatchers(read(EpicRoutes.LAUNCH),
-                                read(EpicRoutes.AUTHORIZE),
-                                read(EpicRoutes.CALLBACK)).permitAll()
                         // ---- self-service: authenticated, no Permission ----
                         // The whole of what a session confined by a required password change may
                         // do: read its own standing, submit the change, and log out (the token
@@ -369,17 +347,6 @@ public class SecurityConfig {
                         // listed route does not serve, /scim/** when the SCIM chain is off.
                         .anyRequest().denyAll())
                 .build();
-    }
-
-    /**
-     * A read of {@code path}: {@code GET}, and the {@code HEAD} the dispatcher answers with the
-     * same handler. A rule for {@code GET} alone would leave {@code HEAD} to the deny-all rule,
-     * refusing a read the operation itself serves.
-     */
-    private static RequestMatcher read(String path) {
-        PathPatternRequestMatcher.Builder paths = PathPatternRequestMatcher.withDefaults();
-        return new OrRequestMatcher(
-                paths.matcher(HttpMethod.GET, path), paths.matcher(HttpMethod.HEAD, path));
     }
 
     /**

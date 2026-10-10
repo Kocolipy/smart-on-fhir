@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic.config;
 
+import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicOutboundInterceptor;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -35,7 +36,7 @@ public class EpicRestClientConfig {
     public static final String EPIC_REST_CLIENT = "epicRestClient";
 
     @Bean(EPIC_REST_CLIENT)
-    @Conditional(EpicLoginEnabled.class)
+    @Conditional(EpicLogin.WhenOn.class)
     public RestClient epicRestClient(RestClient.Builder builder, EpicLoginSettings settings,
             MeterRegistry registry, ObjectProvider<Tracer> tracer) {
         HttpClient client = HttpClient.newBuilder()
