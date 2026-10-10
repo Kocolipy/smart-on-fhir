@@ -74,9 +74,10 @@ export function resolveSessionRoute({
 
   if (status === "guest") {
     if (requires === "guest") return { kind: "render" };
-    // A change ends the session on purpose, so the page it was made from is no
-    // destination to replay: the next sign-in lands on the default instead.
-    if (signInReason === "password-changed") {
+    // A change, or the lockout a change ran into, ends the session for good,
+    // so the page it was made from is no destination to replay: the next
+    // sign-in is no continuation of this one and lands on the default instead.
+    if (signInReason === "password-changed" || signInReason === "locked") {
       return { kind: "redirect", state: { reason: signInReason }, to: LOGIN_PATH };
     }
     // An Idle sign-out replays the page it left, as an expiry does: the User

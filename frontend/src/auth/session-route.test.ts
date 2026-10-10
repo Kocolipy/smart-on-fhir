@@ -115,6 +115,11 @@ describe("resolveSessionRoute for the change-required flag", () => {
       { kind: "redirect", state: { reason: "password-changed" }, to: LOGIN_PATH },
     ],
     [
+      "returns a User whose change locked the account to login, recording no return destination",
+      input({ pathname: CREDENTIAL_CHANGE_PATH, signInReason: "locked", status: "guest" }),
+      { kind: "redirect", state: { reason: "locked" }, to: LOGIN_PATH },
+    ],
+    [
       "renders login after a successful change",
       input({
         pathname: LOGIN_PATH,

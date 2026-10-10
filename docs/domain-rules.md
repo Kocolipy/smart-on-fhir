@@ -73,14 +73,19 @@ returns to login with the sign-in reason `inactive` — the code's name for it, 
 the glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
 
 **Sign-in reason** — why a Guest is at the login page, from a closed set of
-five: an expired session, an idle sign-out, the User's own successful password
-change, an Epic refusal and Epic being unavailable. The first three the SPA
-records itself when it ends the session, one at a time, and carries in router
-state; the Epic two arrive as the backend's `?signin=refused` or
-`?signin=unavailable` landing marker. An Epic marker wins over any router state,
-since the landing is a fresh navigation. A password change carries no return
-destination, so the next sign-in lands on the default; the other two do. A cold
-arrival and a logout carry none and the login page says nothing.
+six: an expired session, an idle sign-out, the User's own successful password
+change, a password change whose wrong current passwords reached the lockout
+threshold (`locked`: the account is locked, every session of the User revoked,
+and an Admin must Unlock it before the User signs in again), an Epic refusal and
+Epic being unavailable. The first four the SPA records itself when it ends the
+session, one at a time, and carries in router state; the Epic two arrive as the
+backend's `?signin=refused` or `?signin=unavailable` landing marker. An Epic
+marker wins over any router state, since the landing is a fresh navigation. A
+password change and a lockout carry no return destination, so the next sign-in
+lands on the default; the other two do. A cold arrival and a logout carry none
+and the login page says nothing. A refused Login records none either, and its
+refusal never says "locked", which would tell a guesser the account exists:
+only the User's own session, ended by its own change, is told of the lockout.
 `frontend/src/auth/sign-in-reason.ts` is the one owner of the set, the
 carriage, the precedence and the copy.
 

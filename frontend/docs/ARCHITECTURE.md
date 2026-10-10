@@ -37,17 +37,24 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   requires (`WRITE_PERMISSIONS`, read both for the control a page offers and on
   the operation it sends), and the `holds` / `holdsAny` checks every guard and
   page reads.
+- `session-transitions.ts` — `useSessionTransitions`, the **session
+  transitions**: the one place the auth state (status, user, sign-in reason)
+  changes, as `signIn(user)` or `end(reason)`, and the only `src/auth` caller of
+  `discardCsrfToken()`. Each transition changes the state and forgets the token
+  in the same step, so the two cannot drift apart.
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
-  mount and owns the session status plus the one sign-in reason it recorded
-  when it last ended a session (an Expired session, an Idle sign-out, a password
-  change, or none).
+  mount and maps each session event onto a transition: a login, a refused login
+  and a logout; an expiry, an Idle sign-out, a password change and the lockout
+  a change can run into, each recording its sign-in reason (none for a logout
+  or a refused login).
 - `auth-context-value.ts` — the context object and the `useAuth` hook, split out
   so a consumer importing the hook does not pull in the provider component.
   `useAuth` deliberately exposes no way to _end_ a session, and no sign-in
   reason: that is `useAuthState`'s, internal to `src/auth`, for the guards.
-- `sign-in-reason.ts` — the **sign-in reason**: the closed set of five (Expired
-  session, Idle sign-out, password changed, Epic refused, Epic unavailable), how
-  each reaches the login page (the first three as `reason` in router state, the
+- `sign-in-reason.ts` — the **sign-in reason**: the closed set of six (Expired
+  session, Idle sign-out, password changed, locked by a password change, Epic
+  refused, Epic unavailable), how each reaches the login page (the first four
+  as `reason` in router state, the
   Epic two as the backend's `?signin=refused|unavailable` marker), which wins
   (an Epic marker over any router state), and the copy for each. Router state
   is decoded against the set, not cast, so a stale or foreign `reason` in the
@@ -68,7 +75,8 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   authenticated session. It times the backend's own idle window
   (`idleTimeoutSeconds`), counts only user input as activity, shares it across
   tabs, and warns a minute before signing out (`/frontend/AGENTS.md`, "Backend
-  contract").
+  contract"). Its "stay" is a `GET /api/auth/me` through `useSessionRequest`,
+  so a session already ended takes the seam's one `401` rule.
 - `password-policy.ts` — the backend's password length bounds, mirrored so the
   change form can state the rule; the backend still decides.
 
@@ -152,9 +160,12 @@ from that endpoint before the first unsafe request, adds the header on unsafe
 methods only, and on an unsafe request's `403` re-fetches the token and retries
 exactly once. A safe request's `403` cannot be CSRF, so it is not retried. Login,
 a refused login (the backend ends the session the browser held before its `401`),
-logout, a password change and an expired session all change the session, so
-each discards the held token (`discardCsrfToken()`), and the next unsafe request
-fetches the new session's before it is sent.
+logout, a password change or the lockout it runs into, an expired session and an
+Idle sign-out all change the session, so each discards the held token
+(`discardCsrfToken()`), and the next unsafe request fetches the new session's
+before it is sent. `src/auth/session-transitions.ts` is the one caller in
+`src/auth`: each transition there forgets the token as it changes the auth
+state, so no event can do one without the other.
 
 Its interface returns an `ApiResult`: `ok` carries data from an explicit decoder,
 `unauthenticated` means the session ended, `forbidden` is an authorization
@@ -328,8 +339,10 @@ the page shows its statement of the unmet rule. The backend answers a wrong
 current password and a lockout with the same bodiless `401`, so `api.ts` tells
 them apart by asking `GET /api/auth/me` whether the session survived: a wrong
 password leaves it standing; reaching the lockout threshold revokes every
-session of the User, and the page then says an Admin must Unlock the account and
-closes the form. Every refusal clears all three fields. The inputs are
+session of the User, so the context ends the session as for a change, recording
+the sign-in reason `locked`, and the guard returns the visitor to login — no
+return destination — which says an Admin must Unlock the account. Every
+refusal that leaves the session standing clears all three fields. The inputs are
 uncontrolled, because React mirrors a controlled input's value into the DOM
 `value` attribute, and no message the page shows contains either value.
 
@@ -339,7 +352,8 @@ session to `/change-password`, renders an authenticated route for any session,
 renders a Permission-guarded one for a session holding any of its Permissions,
 and redirects every other session to `/showcase`. A Guest's redirect carries the
 provider's sign-in reason as `reason` beside the return destination; after a
-successful change it carries `reason: "password-changed"` instead of one.
+successful change it carries `reason: "password-changed"` instead of one, and
+after a lockout `reason: "locked"`.
 Spring Security remains authoritative for server operations: every operation
 requires its own declared Permission, and a flagged session is refused everything but the change and
 logout, even if client-side routing is bypassed, so the guard decides what is

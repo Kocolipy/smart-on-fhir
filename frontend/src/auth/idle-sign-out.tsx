@@ -26,8 +26,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-import * as authApi from "./api";
+import { ME_PATH } from "./api";
 import { useAuthState } from "./auth-context-value";
+import { useSessionRequest } from "./use-session-request";
 
 /** How long before the limit the warning opens: about a minute, per the session contract. */
 const WARNING_LEAD_MS = 60_000;
@@ -119,27 +120,25 @@ function useIdleClock(limitMs: number, onIdle: () => void) {
 }
 
 export function IdleSignOut({ idleTimeoutSeconds }: { idleTimeoutSeconds: number }) {
-  const { expireSession, logout, signOutForInactivity } = useAuthState();
+  const { logout, signOutForInactivity } = useAuthState();
+  const request = useSessionRequest();
   const onIdle = useCallback(() => void signOutForInactivity(), [signOutForInactivity]);
   const { markActive, warning } = useIdleClock(idleTimeoutSeconds * 1000, onIdle);
   const [staying, setStaying] = useState(false);
 
   /**
    * Keeps the session with one authenticated request, which renews the
-   * backend's idle clock too. A session that turns out to have ended already
-   * takes the ordinary expiry path; one the request could not reach stays
-   * warned, and the limit decides.
+   * backend's idle clock too. It goes through the request seam like any other,
+   * so a session that turns out to have ended already is expired there, by the
+   * one `401` rule. Any other answer leaves the warning up rather than claim
+   * the session was kept, and the limit decides.
    */
   const stay = useCallback(async () => {
     setStaying(true);
-    // Only the request's own failure is caught: one the backend could not be
-    // reached for leaves the warning up rather than claim the session was kept.
-    const current = await authApi.getCurrentUser().catch(() => undefined);
+    const result = await request(ME_PATH);
     setStaying(false);
-    if (current === undefined) return;
-    if (current) markActive();
-    else expireSession();
-  }, [expireSession, markActive]);
+    if (result.kind === "ok") markActive();
+  }, [markActive, request]);
 
   if (!warning) return null;
   return (

@@ -56,7 +56,9 @@ each page's endpoints and Permissions; this list holds the rules.
   (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
   read and gated write every page listing and action goes through
   (`use-gated-read.ts`, `use-gated-write.ts`), the idle sign-out (see
-  "Backend contract"), and the sign-in reason (`sign-in-reason.ts`): why a
+  "Backend contract"), the session transitions (`session-transitions.ts`), the
+  one place the auth state changes and the CSRF token is forgotten with it,
+  and the sign-in reason (`sign-in-reason.ts`): why a
   Guest is at the login page, how that reaches it, and what the page says. A gated read sends nothing for a session lacking its
   Permission; a gated write takes the operation as data (path, method,
   optional JSON body, optional decoder, optional Permission), sends it
@@ -135,8 +137,12 @@ backend side moves. What the SPA has to honour:
   methods only, and always sends `credentials: "include"`. The token is worth
   exactly as long as its session, so `src/auth/` calls `discardCsrfToken()`
   whenever the session changes — after login, a refused login, logout, a
-  password change, and an expiry — and the next unsafe request fetches the new
-  session's before it is sent. A refused login is one of them because the
+  password change or the lockout it runs into, an expiry, an Idle sign-out, and
+  the start-up `GET /api/auth/me` check settling the session either way — and
+  the next unsafe request fetches the new session's before it is sent.
+  `src/auth/session-transitions.ts` is the one place that call is made: each of
+  its transitions (`signIn`, `end(reason)`) changes the auth state and forgets
+  the token in the same step, so no caller can do one without the other. A refused login is one of them because the
   backend ends whatever session the browser held before answering its bare
   `401`, so a retry after a wrong password needs the next session's token
   rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
@@ -170,8 +176,9 @@ backend side moves. What the SPA has to honour:
   sign-out counts only user input (pointer, key, touch, wheel, scroll) as
   activity, never a request, and shares it across tabs over a
   `BroadcastChannel`. A minute before the limit an `alertdialog` offers to stay
-  signed in, which is a `GET /api/auth/me` and so renews the backend's idle
-  clock too; at the limit the SPA calls logout, discards the CSRF token and
+  signed in, which is a `GET /api/auth/me` sent through `useSessionRequest` —
+  so a session already ended takes that seam's one `401` rule — and renews the
+  backend's idle clock too; at the limit the SPA calls logout, discards the CSRF token and
   sends the user to login with the sign-in reason `inactive`. A session the backend ended first
   still takes the ordinary `401` path below.
 - **Sessions are also capped at 8 hours from creation**, independent of the

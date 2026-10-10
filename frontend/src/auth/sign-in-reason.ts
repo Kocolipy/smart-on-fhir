@@ -7,18 +7,38 @@
  * contract carries it, and the login page renders the notice this module gives.
  */
 
+import type { PasswordChangeOutcome } from "./api";
+
 /**
  * The reasons the SPA records when it ends a session: an Expired session, an
- * Idle sign-out, and the User's own successful password change. Exactly one or
- * none at a time, so no impossible combination can be represented. They reach
- * the login page in router state, as `SignInReasonState`.
+ * Idle sign-out, the User's own successful password change, and a password
+ * change that locked the account instead. Exactly one or none at a time, so no
+ * impossible combination can be represented. They reach the login page in
+ * router state, as `SignInReasonState`.
  */
-export type SessionEndReason = "expired" | "inactive" | "password-changed";
+export type SessionEndReason = "expired" | "inactive" | "locked" | "password-changed";
+
+/**
+ * The reason a password change records, or `null` for an outcome that leaves
+ * the session standing. A change replaces the password and a lockout revokes
+ * every session of the User, so both end this one; every refusal keeps it.
+ */
+export function sessionEndReasonFor(outcome: PasswordChangeOutcome): SessionEndReason | null {
+  switch (outcome.kind) {
+    case "changed":
+      return "password-changed";
+    case "locked":
+      return "locked";
+    default:
+      return null;
+  }
+}
 
 /** Every `SessionEndReason`, so router state can be checked against the set. */
 const SESSION_END_REASONS: ReadonlySet<unknown> = new Set<SessionEndReason>([
   "expired",
   "inactive",
+  "locked",
   "password-changed",
 ]);
 
@@ -52,6 +72,10 @@ function noticeFor(reason: SignInReason): string {
       return "Your session ended. Please sign in again.";
     case "inactive":
       return "You were signed out because you were inactive. Please sign in again.";
+    case "locked":
+      // Said only here, after the User's own session ended: a refused login
+      // never says "locked", which would tell a guesser the name is real.
+      return "Too many incorrect passwords: the account is now locked and your session has ended. An Admin must Unlock the account before you can sign in again.";
     case "password-changed":
       return "Your password was changed. Sign in with your new password.";
     case "epic-refused":
