@@ -163,21 +163,28 @@ describe("ChangePassword", () => {
     expect(field("Current password")).not.toHaveAttribute("maxlength");
   });
 
-  it("submits current and new password and shows nothing on success", async () => {
-    const auth = flaggedAuth();
-    vi.mocked(auth.changePassword).mockResolvedValue({ kind: "changed" });
-    renderPage(auth);
+  it.each([
+    ["a success", { kind: "changed" }],
+    // The lockout ended the session too, so the login page says it, not this one.
+    ["a lockout", { kind: "locked" }],
+  ] as [string, PasswordChangeOutcome][])(
+    "submits current and new password and shows nothing on %s",
+    async (_name, outcome) => {
+      const auth = flaggedAuth();
+      vi.mocked(auth.changePassword).mockResolvedValue(outcome);
+      renderPage(auth);
 
-    await fillAndSubmit();
+      await fillAndSubmit();
 
-    expect(auth.changePassword).toHaveBeenCalledTimes(1);
-    expect(auth.changePassword).toHaveBeenCalledWith(CURRENT, NEXT);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    // Only a refusal clears the form; on success the route guard replaces the
-    // page, so this one does nothing further — no reset, no locked state.
-    expect(field("Current password")).toHaveValue(CURRENT);
-    expect(field("Current password")).toBeEnabled();
-  });
+      expect(auth.changePassword).toHaveBeenCalledTimes(1);
+      expect(auth.changePassword).toHaveBeenCalledWith(CURRENT, NEXT);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      // Only a refusal the User can correct clears the form; an ended session
+      // has the route guard replace the page, so this one does nothing further.
+      expect(field("Current password")).toHaveValue(CURRENT);
+      expect(field("Current password")).toBeEnabled();
+    },
+  );
 
   it("refuses a mismatched confirmation without submitting, and clears the fields", async () => {
     const auth = flaggedAuth();
@@ -237,26 +244,6 @@ describe("ChangePassword", () => {
       expect(submit()).toBeEnabled();
     },
   );
-
-  it("shows that an Admin must Unlock a locked account and closes the form", async () => {
-    const auth = unflaggedAuth();
-    vi.mocked(auth.changePassword).mockResolvedValue({ kind: "locked" });
-    renderPage(auth);
-
-    await fillAndSubmit();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^Too many incorrect passwords: the account is now locked and this session has ended\. An Admin must Unlock the account before you can sign in again\.$/,
-    );
-    expectFieldsCleared();
-    expectNoValueEchoed(consoleSpies);
-    for (const name of ["Current password", "New password", "Confirm new password"]) {
-      expect(field(name)).toBeDisabled();
-    }
-    expect(submit()).toBeDisabled();
-    expect(screen.queryByRole("link", { name: "Back" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
-  });
 
   it("clears an earlier refusal when the next submission starts", async () => {
     const auth = flaggedAuth();

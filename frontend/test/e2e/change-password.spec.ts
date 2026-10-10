@@ -226,7 +226,7 @@ test("the form states the policy, and the browser holds back a too-short passwor
   }
 });
 
-test("wrong current passwords lock the account, and the page says an Admin must Unlock it", async ({
+test("wrong current passwords lock the account, ending the session, and login says an Admin must Unlock it", async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -246,11 +246,14 @@ test("wrong current passwords lock the account, and the page says an Admin must 
       await expect(own.getByRole("alert")).toHaveText("The current password is incorrect.");
     }
     await submitChange(own, "Wrong-Guess-last-xyz", REPLACEMENT);
-    await expect(own.getByRole("alert")).toHaveText(
-      "Too many incorrect passwords: the account is now locked and this session has ended. An Admin must Unlock the account before you can sign in again.",
+
+    // The lockout ended the session, so the SPA's does too: the visitor lands
+    // on login, which says why, with no return destination to the change page.
+    await expect(own.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+    await expect(own).toHaveURL(/\/$/);
+    await expect(own.getByRole("status")).toHaveText(
+      "Too many incorrect passwords: the account is now locked and your session has ended. An Admin must Unlock the account before you can sign in again.",
     );
-    await expect(own.getByLabel("Current password")).toBeDisabled();
-    await expect(own.getByRole("button", { name: "Change password" })).toBeDisabled();
 
     // The backend's side of it: this session is gone and the password no longer signs in.
     expect((await own.request.get("/api/auth/me")).status()).toBe(401);
@@ -260,10 +263,6 @@ test("wrong current passwords lock the account, and the page says an Admin must 
     } finally {
       await api.dispose();
     }
-
-    // Signing out still works, and leads to login.
-    await own.getByRole("button", { name: "Sign out" }).click();
-    await expect(own.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   } finally {
     await context.close();
     await deprovision(user);

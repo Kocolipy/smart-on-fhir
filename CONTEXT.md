@@ -41,8 +41,9 @@ they have.
 
 **Sign-in reason**:
 Why a Guest is at the login page — an Expired session, an Idle sign-out, a
-password change, or an Epic Login that was refused or found Epic unavailable —
-and so what the page says. A cold arrival has none.
+password change, a Lockout that a password change ran into, or an Epic Login
+that was refused or found Epic unavailable — and so what the page says. A cold
+arrival has none.
 _Avoid_: provenance, login notice flag
 
 **Idle timeout**:

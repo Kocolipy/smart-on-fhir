@@ -12,13 +12,15 @@ export type AuthStatus = "checking" | "authenticated" | "guest";
  *
  * Deliberately has no member for *ending* a session: a feature request that
  * comes back unauthenticated is handled by `useSessionRequest`, so no page has
- * to remember to relay it. `changePassword` ends one only on success, which is
- * the backend's doing — it revokes every session of the User, this one included.
+ * to remember to relay it. `changePassword` ends one only on a success or a
+ * lockout, which is the backend's doing — either revokes every session of the
+ * User, this one included.
  */
 export interface AuthContextValue {
   /**
-   * Submits the session's own password change. On `changed` the auth state is
-   * already cleared, so the route guard returns the visitor to login.
+   * Submits the session's own password change. On `changed` or `locked` the
+   * auth state is already cleared, so the route guard returns the visitor to
+   * login, which says which.
    */
   changePassword: (currentPassword: string, newPassword: string) => Promise<PasswordChangeOutcome>;
   login: (username: string, password: string) => Promise<void>;
@@ -32,7 +34,8 @@ export interface AuthContextState extends AuthContextValue {
   expireSession: () => void;
   /**
    * Why the current `guest` status began — an Expired session, an Idle
-   * sign-out or a password change — or `null` for a cold visit or a logout.
+   * sign-out, a password change or the lockout a change ran into — or `null`
+   * for a cold visit, a logout or a refused login.
    * Read by the route guards, which carry it to the login page.
    */
   signInReason: SessionEndReason | null;

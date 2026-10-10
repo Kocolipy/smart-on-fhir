@@ -5,6 +5,7 @@ import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 import { DEFAULT_DESTINATION } from "@/auth/session-route";
+import { sessionEndReasonFor } from "@/auth/sign-in-reason";
 import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,18 +20,25 @@ import {
 const MISMATCH_MESSAGE = "The new password and its confirmation do not match.";
 
 /**
- * What a refused change means to the User. None of these contain either
- * submitted value: a policy refusal shows the backend's statement of the rule,
- * which names the rule and never the password.
+ * The outcomes that end the session, which the login page explains instead.
+ * Which those are is `sessionEndReasonFor`'s rule; this type only narrows.
  */
-function refusalMessage(outcome: Exclude<PasswordChangeOutcome, { kind: "changed" }>): string {
+type SessionEnding = Extract<PasswordChangeOutcome, { kind: "changed" | "locked" }>;
+
+const endsSession = (outcome: PasswordChangeOutcome): outcome is SessionEnding =>
+  sessionEndReasonFor(outcome) !== null;
+
+/**
+ * What a refused change means to the User, while the session stands. None of
+ * these contain either submitted value: a policy refusal shows the backend's
+ * statement of the rule, which names the rule and never the password.
+ */
+function refusalMessage(outcome: Exclude<PasswordChangeOutcome, SessionEnding>): string {
   switch (outcome.kind) {
     case "policy-violation":
       return outcome.message;
     case "current-password-rejected":
       return "The current password is incorrect.";
-    case "locked":
-      return "Too many incorrect passwords: the account is now locked and this session has ended. An Admin must Unlock the account before you can sign in again.";
     case "forbidden":
       return FORBIDDEN_MESSAGE;
     case "csrf-expired":
@@ -48,8 +56,9 @@ const inputClass =
  *
  * Where it is offered is the route guard's decision: every authenticated
  * visitor may open it, and a session with the change-required flag is offered
- * nothing else. On success the backend ends every session of the User, so the
- * auth state is cleared and the guard returns the visitor to login.
+ * nothing else. On success the backend ends every session of the User, and on
+ * a lockout it revokes them; either way the auth state is cleared and the guard
+ * returns the visitor to login, which says why.
  *
  * The fields are uncontrolled on purpose. A controlled input mirrors its value
  * into the DOM `value` attribute, and a password belongs in no attribute; read
@@ -58,7 +67,6 @@ const inputClass =
 export function ChangePassword() {
   const { changePassword, logout, user } = useAuth();
   const [error, setError] = useState("");
-  const [locked, setLocked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const confined = user?.passwordChangeRequired === true;
 
@@ -81,10 +89,10 @@ export function ChangePassword() {
     setSubmitting(true);
     try {
       const outcome = await changePassword(currentPassword, newPassword);
-      // On success the guard has already moved on; there is nothing to show.
-      if (outcome.kind === "changed") return;
+      // A change or a lockout ended the session, and the guard has already
+      // moved on to login, which says which; there is nothing to show here.
+      if (endsSession(outcome)) return;
       form.reset();
-      setLocked(outcome.kind === "locked");
       setError(refusalMessage(outcome));
     } finally {
       setSubmitting(false);
@@ -113,7 +121,6 @@ export function ChangePassword() {
               <input
                 autoComplete="current-password"
                 className={inputClass}
-                disabled={locked}
                 id="currentPassword"
                 name="currentPassword"
                 required
@@ -128,7 +135,6 @@ export function ChangePassword() {
                 aria-describedby="newPasswordRequirements"
                 autoComplete="new-password"
                 className={inputClass}
-                disabled={locked}
                 id="newPassword"
                 maxLength={PASSWORD_LENGTH.max}
                 minLength={PASSWORD_LENGTH.min}
@@ -155,7 +161,6 @@ export function ChangePassword() {
               <input
                 autoComplete="new-password"
                 className={inputClass}
-                disabled={locked}
                 id="confirmPassword"
                 maxLength={PASSWORD_LENGTH.max}
                 minLength={PASSWORD_LENGTH.min}
@@ -169,7 +174,7 @@ export function ChangePassword() {
                 {error}
               </p>
             ) : null}
-            <Button className="w-full" disabled={submitting || locked} type="submit">
+            <Button className="w-full" disabled={submitting} type="submit">
               {submitting ? "Changing password…" : "Change password"}
             </Button>
           </form>
@@ -178,7 +183,7 @@ export function ChangePassword() {
           <Button variant="outline" onClick={() => void logout()}>
             Sign out
           </Button>
-          {confined || locked ? null : (
+          {confined ? null : (
             <Link
               className="text-sm font-medium underline underline-offset-4"
               to={DEFAULT_DESTINATION}

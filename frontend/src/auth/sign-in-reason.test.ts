@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { signInNoticeFor, type SignInReasonState } from "./sign-in-reason";
+import type { PasswordChangeOutcome } from "./api";
+import { sessionEndReasonFor, signInNoticeFor, type SignInReasonState } from "./sign-in-reason";
 
 const EXPIRED = "Your session ended. Please sign in again.";
 const INACTIVE = "You were signed out because you were inactive. Please sign in again.";
 const CHANGED = "Your password was changed. Sign in with your new password.";
+const LOCKED =
+  "Too many incorrect passwords: the account is now locked and your session has ended. An Admin must Unlock the account before you can sign in again.";
 const EPIC_REFUSED = "Sign-in from Epic was refused";
 const EPIC_UNAVAILABLE = "Sign-in from Epic is temporarily unavailable. Try again shortly.";
 
@@ -28,6 +31,11 @@ describe("signInNoticeFor", () => {
       "a password change, carried in router state",
       carrying({ reason: "password-changed" }),
       CHANGED,
+    ],
+    [
+      "a lockout during a password change, carried in router state",
+      carrying({ reason: "locked" }),
+      LOCKED,
     ],
     ["an Epic refusal, landed as ?signin=refused", landing("?signin=refused"), EPIC_REFUSED],
     [
@@ -71,5 +79,21 @@ describe("signInNoticeFor", () => {
     ["router state that is not an object", { search: "", state: "expired" }, null],
   ])("says the right thing for %s", (_name, location, notice) => {
     expect(signInNoticeFor(location)).toBe(notice);
+  });
+});
+
+describe("sessionEndReasonFor", () => {
+  it.each<[PasswordChangeOutcome, string | null]>([
+    // The two outcomes after which the backend holds no session for the User.
+    [{ kind: "changed" }, "password-changed"],
+    [{ kind: "locked" }, "locked"],
+    // Every refusal leaves the session standing, so it records no reason.
+    [{ kind: "policy-violation", message: "Too short." }, null],
+    [{ kind: "current-password-rejected" }, null],
+    [{ kind: "forbidden" }, null],
+    [{ kind: "csrf-expired" }, null],
+    [{ kind: "failed" }, null],
+  ])("a password change that came to %o ends the session for %s", (outcome, reason) => {
+    expect(sessionEndReasonFor(outcome)).toBe(reason);
   });
 });

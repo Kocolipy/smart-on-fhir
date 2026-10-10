@@ -8,6 +8,7 @@ import { Login } from "@/pages/login";
 
 import * as authApi from "./api";
 import { AuthProvider } from "./auth-context";
+import { useAuth } from "./auth-context-value";
 import { GuestRoute, ProtectedRoute } from "./route-guards";
 import { LOGIN_PATH } from "./session-route";
 import { useSessionRequest } from "./use-session-request";
@@ -85,6 +86,19 @@ function PollingPage() {
   return <p>Accounts page</p>;
 }
 
+/** A page submitting a password change through the context, as the real one does. */
+function PasswordChangeButton() {
+  const { changePassword } = useAuth();
+  return (
+    <>
+      <p>Accounts page</p>
+      <button onClick={() => void changePassword("wrong-value", "new-value")} type="button">
+        Change password
+      </button>
+    </>
+  );
+}
+
 async function signedIn(
   current: authApi.AuthUser = user(),
   page: ReactNode = <p>Accounts page</p>,
@@ -109,8 +123,14 @@ async function signedIn(
   );
   await act(async () => {});
   expect(screen.getByText("Accounts page")).toBeInTheDocument();
+  // The start-up check and its sign-in are behind us; count from here.
   api.getCurrentUser.mockClear();
+  vi.mocked(http.discardCsrfToken).mockClear();
 }
+
+/** What the stay's `GET /api/auth/me` comes back as, through the transport. */
+const stayAnswers = (result: http.ApiResult<void>) =>
+  vi.mocked(http.apiFetch).mockResolvedValue(result);
 
 const warning = () => screen.queryByRole("alertdialog");
 
@@ -130,6 +150,7 @@ describe("IdleSignOut", () => {
     FakeBroadcastChannel.open = [];
     vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
     api.logout.mockResolvedValue(undefined);
+    stayAnswers({ data: undefined, kind: "ok" });
   });
 
   afterEach(() => {
@@ -298,6 +319,25 @@ describe("IdleSignOut", () => {
       expect(api.logout).not.toHaveBeenCalled();
     });
 
+    it("never fires for a session a password change locked, so login keeps saying why", async () => {
+      api.changePassword.mockResolvedValue({ kind: "locked" });
+      await signedIn(user(), <PasswordChangeButton />);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+      });
+
+      await advance(LIMIT_MS);
+
+      expect({
+        loggedOut: api.logout.mock.calls.length,
+        notice: screen.getByRole("status").textContent,
+      }).toEqual({
+        loggedOut: 0,
+        notice:
+          "Too many incorrect passwords: the account is now locked and your session has ended. An Admin must Unlock the account before you can sign in again.",
+      });
+    });
+
     it("releases the channel once signed out", async () => {
       await signedIn();
 
@@ -384,7 +424,7 @@ describe("IdleSignOut", () => {
         fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
       });
 
-      expect(api.getCurrentUser).toHaveBeenCalledOnce();
+      expect(http.apiFetch).toHaveBeenCalledExactlyOnceWith("/api/auth/me", {});
       expect(warning()).not.toBeInTheDocument();
       // A full limit from the stay, not from the last input.
       await advance(WARN_AT_MS - 1);
@@ -398,8 +438,8 @@ describe("IdleSignOut", () => {
     it("shows the stay in progress while its request is out", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      let answer: (current: authApi.AuthUser | null) => void = () => undefined;
-      api.getCurrentUser.mockReturnValue(
+      let answer: (result: http.ApiResult<void>) => void = () => undefined;
+      vi.mocked(http.apiFetch).mockReturnValue(
         new Promise((resolve) => {
           answer = resolve;
         }),
@@ -410,7 +450,7 @@ describe("IdleSignOut", () => {
       });
       expect(screen.getByRole("button", { name: "Staying signed in…" })).toBeDisabled();
 
-      await act(async () => answer(user()));
+      await act(async () => answer({ data: undefined, kind: "ok" }));
       expect(warning()).not.toBeInTheDocument();
     });
 
@@ -424,14 +464,14 @@ describe("IdleSignOut", () => {
       });
 
       expect(cancel.defaultPrevented).toBe(true);
-      expect(api.getCurrentUser).toHaveBeenCalledOnce();
+      expect(http.apiFetch).toHaveBeenCalledExactlyOnceWith("/api/auth/me", {});
       expect(warning()).not.toBeInTheDocument();
     });
 
     it("leaves a session the backend has already ended to the ordinary expiry path", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      api.getCurrentUser.mockResolvedValue(null);
+      stayAnswers({ kind: "unauthenticated" });
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
@@ -444,20 +484,26 @@ describe("IdleSignOut", () => {
       );
     });
 
-    it("stays up when the stay request cannot reach the backend, and the limit decides", async () => {
-      await signedIn();
-      await advance(WARN_AT_MS);
-      api.getCurrentUser.mockRejectedValue(new Error("offline"));
+    it.each([
+      ["cannot reach the backend", { kind: "failed" }],
+      ["is refused", { kind: "forbidden" }],
+    ] as const)(
+      "stays up when the stay request %s, and the limit decides",
+      async (_, result: http.ApiResult<void>) => {
+        await signedIn();
+        await advance(WARN_AT_MS);
+        stayAnswers(result);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+        });
 
-      expect(warning()).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Stay signed in" })).toBeEnabled();
-      await advance(LIMIT_MS - WARN_AT_MS);
-      expectSignedOutForInactivity();
-    });
+        expect(warning()).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Stay signed in" })).toBeEnabled();
+        await advance(LIMIT_MS - WARN_AT_MS);
+        expectSignedOutForInactivity();
+      },
+    );
 
     it("signs out on request, without claiming inactivity", async () => {
       await signedIn();
