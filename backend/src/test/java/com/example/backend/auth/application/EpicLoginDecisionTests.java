@@ -65,16 +65,17 @@ class EpicLoginDecisionTests {
         PasswordEncoder passwordEncoder = config.passwordEncoder();
         LoginIdentityService identities = new LoginIdentityService(
                 users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+        SessionRevocationService revocation = new SessionRevocationService(
+                new InMemoryAccountSessions(),
+                new PendingCommit(),
+                audit,
+                new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new SessionRevocationService(
-                        new InMemoryAccountSessions(),
-                        new PendingCommit(),
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(5),
-                audit,
-                new MutableClock(NOW));
+                new LoginStateService(
+                        users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
+                revocation,
+                audit);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,

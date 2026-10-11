@@ -51,7 +51,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  *
  * <p>What a counted failure implies once it reaches the limit — the Lockout itself, its
  * {@code LOCKOUT_SET}, the revocation of every Session, the Bootstrap Admin's exemption — is
- * {@code FailureCounter}'s and is asserted in {@code FailureCounterTests}; this story keeps what
+ * {@code LoginStateService}'s and is asserted in {@code LoginStateServiceTests}; this story keeps what
  * only the whole chain can show: that refusals are counted, that a lock is enforced on the
  * correct password, and that only an Unlock lifts it.
  *
@@ -100,16 +100,15 @@ class LoginLockoutTests {
 
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                new SessionRevocationService(
-                        sessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(5),
+        SessionRevocationService revocation = new SessionRevocationService(
+                sessions,
+                transaction,
                 audit,
-                clock);
+                new RecordingOperationalAlerts());
+        LoginStateService loginState =
+                new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock);
+        LoginAttemptService attempts =
+                new LoginAttemptService(users, loginState, revocation, audit);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,
@@ -118,11 +117,8 @@ class LoginLockoutTests {
         administration = new IdentityAdministrationService(
                 users,
                 groups,
-                new SessionRevocationService(
-                        sessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
+                loginState,
+                revocation,
                 audit,
                 clock);
     }

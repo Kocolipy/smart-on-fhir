@@ -51,33 +51,29 @@ class PasswordChangeServiceTests {
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
     private final MutableClock clock = new MutableClock(ScimIdentities.NOW);
 
+    private final SessionRevocationService revocation = new SessionRevocationService(
+            accountSessions,
+            transaction,
+            audit,
+            new RecordingOperationalAlerts());
+    private final LoginStateService loginState = new LoginStateService(
+            users, revocation, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
+    private final LoginAttemptService attempts =
+            new LoginAttemptService(users, loginState, revocation, audit);
+
     private PasswordChangeService service;
     private ScimUser ada;
 
     @BeforeEach
     void setUp() {
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                new SessionRevocationService(
-                        accountSessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(MAX_ATTEMPTS),
-                audit,
-                clock);
         service = new PasswordChangeService(
                 users,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 encoder,
                 attempts,
-                new SessionRevocationService(
-                        accountSessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                audit,
-                clock);
+                loginState,
+                revocation,
+                audit);
         ada = users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
                 encoder.encode(CURRENT), 1, null, null, ScimIdentities.NOW)));
         accountSessions.open(ada.id(), "submitting-session");
@@ -161,7 +157,7 @@ class PasswordChangeServiceTests {
      * The change endpoint's own half of the Lockout: its wrong current passwords count into the
      * login run, and once that locks the User the endpoint refuses even the correct password as
      * {@code ACCOUNT_LOCKED}, without counting it. What imposing the Lockout implies — its audit
-     * and the revocation of every Session — is {@code FailureCounterTests}'.
+     * and the revocation of every Session — is {@code LoginStateServiceTests}'.
      */
     @Test
     void atTheThresholdTheUserLocksAndEvenTheCorrectPasswordIsRefused() {
@@ -260,23 +256,10 @@ class PasswordChangeServiceTests {
                 users,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 verifiesAnything,
-                new LoginAttemptService(
-                        users,
-                        new SessionRevocationService(
-                                accountSessions,
-                                transaction,
-                                audit,
-                                new RecordingOperationalAlerts()),
-                        new LockoutPolicy(MAX_ATTEMPTS),
-                        audit,
-                        clock),
-                new SessionRevocationService(
-                        accountSessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                audit,
-                clock);
+                attempts,
+                loginState,
+                revocation,
+                audit);
         ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
 
         assertThatThrownBy(() -> permissive.changePassword(carol.id(), "anything-at-all", NEXT))

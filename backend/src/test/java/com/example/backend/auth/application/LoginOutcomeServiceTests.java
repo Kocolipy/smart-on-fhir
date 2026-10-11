@@ -64,17 +64,19 @@ class LoginOutcomeServiceTests {
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
+    private final SessionRevocationService revocation = new SessionRevocationService(
+            new InMemoryAccountSessions(),
+            new PendingCommit(),
+            audit,
+            new RecordingOperationalAlerts());
+
     private final LoginOutcomeService outcomes = new LoginOutcomeService(
             new LoginAttemptService(
                     users,
-                    new SessionRevocationService(
-                            new InMemoryAccountSessions(),
-                            new PendingCommit(),
-                            audit,
-                            new RecordingOperationalAlerts()),
-                    new LockoutPolicy(5),
-                    audit,
-                    new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
+                    new LoginStateService(users, revocation, new LockoutPolicy(5), audit,
+                            new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
+                    revocation,
+                    audit),
             audit, counts, counts);
 
     // ---- signed in ----------------------------------------------------------------------------

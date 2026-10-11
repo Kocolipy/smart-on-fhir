@@ -20,6 +20,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -74,14 +75,17 @@ class IdentityAdministrationServiceTests {
     private final MutableClock clock = new MutableClock(NOW);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
+    private final SessionRevocationService revocation = new SessionRevocationService(
+            sessions,
+            transaction,
+            audit,
+            new RecordingOperationalAlerts());
+
     private final IdentityAdministrationService service = new IdentityAdministrationService(
             users,
             groups,
-            new SessionRevocationService(
-                    sessions,
-                    transaction,
-                    audit,
-                    new RecordingOperationalAlerts()),
+            new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock),
+            revocation,
             audit,
             clock);
 

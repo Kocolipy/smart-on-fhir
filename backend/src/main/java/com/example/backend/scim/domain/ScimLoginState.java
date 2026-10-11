@@ -1,6 +1,7 @@
 package com.example.backend.scim.domain;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * A User's authentication state: the stored credential, the run of consecutive
@@ -143,6 +144,19 @@ public record ScimLoginState(
      */
     public boolean isPasswordChangeRequired() {
         return passwordChangeRequiredSince != null;
+    }
+
+    /**
+     * Whether {@code other} holds the same failure run as this state: the same count and the same
+     * lock, instant and cause alike. Those are exactly the components
+     * {@link ScimUserRepository#updateLoginState} writes, so a caller holding two states that
+     * share a run knows writing the second would change nothing. Everything else — the credential,
+     * the dormancy basis, the change-required flag — is not compared.
+     */
+    public boolean sameFailureRunAs(ScimLoginState other) {
+        return failedLoginAttempts == other.failedLoginAttempts
+                && Objects.equals(lockedAt, other.lockedAt)
+                && lockCause == other.lockCause;
     }
 
     /**

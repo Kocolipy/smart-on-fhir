@@ -21,6 +21,7 @@ import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.SessionRevocationService;
@@ -133,16 +134,15 @@ class AuthControllerTests {
                 new com.example.backend.auth.InMemoryAccountSessions();
         transaction =
                 new com.example.backend.auth.PendingCommit();
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                new SessionRevocationService(
-                        accountSessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(3),
+        SessionRevocationService revocation = new SessionRevocationService(
+                accountSessions,
+                transaction,
                 audit,
-                clock);
+                new RecordingOperationalAlerts());
+        LoginStateService loginState =
+                new LoginStateService(users, revocation, new LockoutPolicy(3), audit, clock);
+        LoginAttemptService attempts =
+                new LoginAttemptService(users, loginState, revocation, audit);
         LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
         controller = new AuthController(
                 new LoginService(manager, attempts, identities, outcomes),
@@ -154,13 +154,9 @@ class AuthControllerTests {
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
                         attempts,
-                        new SessionRevocationService(
-                                accountSessions,
-                                transaction,
-                                audit,
-                                new RecordingOperationalAlerts()),
-                        audit,
-                        clock),
+                        loginState,
+                        revocation,
+                        audit),
                 new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
                         config.sessionAuthenticationStrategy(), csrfTokenRepository), outcomes,
                         sessionEnding),

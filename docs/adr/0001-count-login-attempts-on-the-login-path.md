@@ -13,7 +13,8 @@ Written before the login identity moved onto SCIM Users: `AccountService` and
 checks the password, never by a listener — is unchanged. Two paths now do so:
 `LoginService`, and `PasswordChangeService`, whose wrong current password
 lengthens the same failure run. Both record through `LoginAttemptService`, and
-both carry out the count and any lockout it imposes through one `FailureCounter`.
+both carry out the count and any lockout it imposes through the one login-state
+module, `LoginStateService`, which they still call explicitly (issue #42).
 
 ## Context
 
@@ -62,7 +63,7 @@ see ADR 0014.)
   at an endpoint: adding such a path means routing it through `LoginService`.
 - Events remain unpublished by this path, so nothing else can observe logins by
   subscribing. Auditing is recorded here instead: `LoginAttemptService` appends
-  `LOGIN_SUCCESS` and `LOGIN_FAILURE`, and `FailureCounter` appends `LOCKOUT_SET`
+  `LOGIN_SUCCESS` and `LOGIN_FAILURE`, and `LoginStateService` appends `LOCKOUT_SET`
   when a lockout is imposed.
 
 ## Alternatives considered

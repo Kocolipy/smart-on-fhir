@@ -17,7 +17,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,6 +64,7 @@ public class IdentityAdministrationService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
+    private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
     private final Clock clock;
@@ -72,11 +72,13 @@ public class IdentityAdministrationService {
     public IdentityAdministrationService(
             ScimUserRepository users,
             ScimGroupRepository groups,
+            LoginStateService loginState,
             SessionRevocationService sessions,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
         this.groups = groups;
+        this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
         this.clock = clock;
@@ -139,9 +141,11 @@ public class IdentityAdministrationService {
      * expires it and no other operation lifts it, so an identity that locked itself out, or that
      * the dormancy job locked, stays locked until an administrator performs exactly this.
      *
-     * <p>Lifting a lock also restarts the dormancy window ({@link ScimUserRepository#resetDormancyBasis}),
-     * so the next dormancy run does not lock again a User that has not yet had the chance to sign
-     * in. The audit event records the cause of the lock it lifted.
+     * <p>What the Unlock does to the login state is decided and written by
+     * {@link LoginStateService#unlocked}, and the response is built from that decision. Lifting a
+     * lock also restarts the dormancy window, so the next dormancy run does not lock again a User
+     * that has not yet had the chance to sign in. The audit event records the cause of the lock it
+     * lifted.
      *
      * <p>Lifting a lock always requires a change of password, because the credential that reached
      * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
@@ -169,24 +173,13 @@ public class IdentityAdministrationService {
             audit.recordUnlockRefused(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
             throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
         }
-        ScimLoginState before = user.login();
-        ScimLoginState after = before.withFailureRunCleared();
-        if (after != before) {
-            users.updateLoginState(user.id(), after);
-        }
-        audit.recordLockoutLiftedByUnlock(actorId, user.id(), auditCause(before.lockCause()));
-        if (before.isLocked()) {
-            Instant now = clock.instant();
-            users.resetDormancyBasis(user.id(), now);
-            after = after.withDormancyBasisReset(now);
-            if (before.hasPassword()) {
-                after = after.withPasswordChangeRequired(now);
-                users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
-                audit.recordPasswordChangeRequired(actorId, user.id());
-            }
+        LoginStateService.Unlock unlocked = loginState.unlocked(user);
+        audit.recordLockoutLiftedByUnlock(actorId, user.id(), auditCause(user.login().lockCause()));
+        if (unlocked.changeRequired()) {
+            audit.recordPasswordChangeRequired(actorId, user.id());
         }
         succeeded(Operation.UNLOCK, user.id());
-        return summarize(user, after);
+        return summarize(user, unlocked.state());
     }
 
     /** The lifted lock's cause in the audit trail's own vocabulary, or none when none stood. */

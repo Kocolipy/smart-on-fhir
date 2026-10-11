@@ -4,12 +4,9 @@ import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
-import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,48 +25,35 @@ import org.springframework.transaction.annotation.Transactional;
  * here: {@link LoginIdentityService} reports a locked identity to Spring Security, which rejects it
  * whatever the password, once it has compared that password as it would a wrong one.
  *
- * <p>Each method is its own transaction, and both write through the SCIM User port's narrow
- * login-state operation. Narrow matters twice over. It cannot revert a profile attribute a connector
- * or an administrator changed between this attempt starting and finishing — and it does not advance
- * the resource's version, because a failure run is not a SCIM attribute: a wrong password changes
- * nothing a connector can read, and moving the ETag would invalidate every cached copy of the User
- * on every mistyped password.
- *
- * <p>Imposing a lock also ends the identity's live sessions, because a lock that left them alone
- * would close the front door while the identity kept acting through a session it already held. The
- * revocation runs after the transaction commits, because Redis is not in the transaction and a
- * revocation already performed cannot be undone by a rollback — see
- * {@code /docs/adr/0002-revoke-sessions-after-commit.md}. Both failure paths carry that out through
- * one {@link FailureCounter}, which persists the counted failure and, on a newly imposed lock,
- * audits it and schedules the revocation; each path then records only its own refusal. Every
- * revocation here — the lockout's, and an accepted login's one-session-per-User sweep — goes
- * through {@link SessionRevocationService}, which audits and logs it under its cause.
+ * <p>Each method is its own transaction. What an attempt does to the login state — the failure
+ * run, the Lockout, the dormancy basis — is not decided here: each method reports the event to
+ * {@link LoginStateService}, which decides the new state, writes it through the SCIM User port's
+ * narrow operations and, on a newly imposed Lockout, audits it and schedules the revocation of
+ * every Session. Each path here then records only its own events. Every revocation — the
+ * lockout's, and an accepted login's one-session-per-User sweep — goes through
+ * {@link SessionRevocationService}, which audits and logs it under its cause.
  *
  * <p>This is also where the login path's audit events are recorded, for the same reason the counting
- * is here: this class already holds the identity the attempt was made against, so each path names
- * its subject without a second read. Telling a lockout being imposed from one already in force is
- * {@link FailureCounter}'s, which holds the login state before and after the counted failure.
+ * is triggered here: this class already holds the identity the attempt was made against, so each
+ * path names its subject without a second read.
  */
 @Service
 public class LoginAttemptService {
 
     private final ScimUserRepository users;
+    private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
-    private final Clock clock;
-    private final FailureCounter failures;
 
     public LoginAttemptService(
             ScimUserRepository users,
+            LoginStateService loginState,
             SessionRevocationService sessions,
-            LockoutPolicy policy,
-            AuditTrail audit,
-            Clock clock) {
+            AuditTrail audit) {
         this.users = users;
+        this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
-        this.clock = clock;
-        this.failures = new FailureCounter(users, sessions, policy, audit, clock);
     }
 
     /**
@@ -101,7 +85,7 @@ public class LoginAttemptService {
     public PasswordRefusalReason recordFailure(String username, PasswordRefusalReason reason) {
         Optional<ScimUser> found = find(username);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
-        found.ifPresent(failures::count);
+        found.ifPresent(loginState::failureCounted);
         audit.recordLoginFailure(
                 found.map(ScimUser::id).orElse(null), recorded.audited(), AuditLoginMethod.PASSWORD);
         return recorded;
@@ -134,7 +118,7 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordPasswordSuccess(UUID userId, String retainedSessionId) {
-        recordSuccess(userId, retainedSessionId, Confinement.BY_CHANGE_REQUIRED_FLAG,
+        recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.PASSWORD,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.PASSWORD));
     }
 
@@ -153,34 +137,19 @@ public class LoginAttemptService {
     public void recordEpicSuccess(
             UUID userId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
-        recordSuccess(userId, retainedSessionId, Confinement.NONE,
+        recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.EPIC,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.SSO, mfaFactor));
     }
 
     /**
-     * @param confinement whether the Login's session is confined while the change-required flag is
-     *     set — a password Login's is, an Epic Login's is not
+     * @param kind the kind of Login, which {@link LoginStateService} reads to decide whether it is
+     *     confined and so whether it moves the dormancy basis
      */
-    private void recordSuccess(UUID userId, String retainedSessionId, Confinement confinement,
-            Consumer<ScimUser> recordLoginSuccess) {
+    private void recordSuccess(UUID userId, String retainedSessionId,
+            LoginStateService.LoginKind kind, Consumer<ScimUser> recordLoginSuccess) {
         ScimUser user = users.findById(userId).orElseThrow(() ->
                 new IllegalStateException("the authenticated User no longer exists"));
-        ScimLoginState cleared = user.login().withFailureRunCleared();
-        if (cleared != user.login()) {
-            users.updateLoginState(user.id(), cleared);
-        }
-        // A login moves the dormancy basis, the one thing the dormancy job measures from — unless
-        // its session is confined because the User still owes a required password change. A
-        // confined session can do nothing but change the password or log out, so it is not use of
-        // the account, and counting it would let an imposed credential that is never replaced stay
-        // live for as long as somebody keeps logging in with it (ADR 0008). The change itself
-        // moves the basis instead (PasswordChangeService). Only a password Login is confined: an
-        // Epic Login presented no password of ours, so it is real use even while the flag is set
-        // (ADR 0008 addendum). Its own narrow write, so it neither advances the version nor
-        // rewrites the failure run.
-        if (!confinement.confines(user.login().isPasswordChangeRequired())) {
-            users.recordAuthentication(user.id(), clock.instant());
-        }
+        loginState.credentialVerified(user, kind);
         recordLoginSuccess.accept(user);
         sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
     }
@@ -203,7 +172,7 @@ public class LoginAttemptService {
             return;
         }
         ScimUser user = found.get();
-        failures.count(user);
+        loginState.failureCounted(user);
         audit.recordPasswordChangeRefused(
                 user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
     }
