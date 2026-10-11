@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
@@ -155,7 +154,7 @@ class RefusalTimingEquivalenceTests {
     @Test
     void aLockedIdentityIsRefusedAsLockedWhateverThePassword() {
         assertThat(List.of(refuse("locked", "correct-password"), refuse("locked", "wrong-password")))
-                .containsOnly(AuditRefusalReason.ACCOUNT_LOCKED);
+                .containsOnly(PasswordRefusalReason.ACCOUNT_LOCKED);
     }
 
     /** The comparison runs first, but deactivation still refuses the right password. */
@@ -163,7 +162,7 @@ class RefusalTimingEquivalenceTests {
     void aDeactivatedIdentityIsRefusedAsDisabledWhateverThePassword() {
         assertThat(List.of(refuse("deactivated", "correct-password"),
                         refuse("deactivated", "wrong-password")))
-                .containsOnly(AuditRefusalReason.ACCOUNT_DISABLED);
+                .containsOnly(PasswordRefusalReason.ACCOUNT_DISABLED);
     }
 
     /**
@@ -217,7 +216,7 @@ class RefusalTimingEquivalenceTests {
     }
 
     /** Submits a Login expected to be refused, returning the reason Spring Security refused it for. */
-    private AuditRefusalReason refuse(String username, String password) {
+    private PasswordRefusalReason refuse(String username, String password) {
         LoginDecision decision = login.logIn(username, password);
         assertThat(decision.accepted()).as("the Login was refused").isEmpty();
         return ((PasswordRefused) decision.outcome()).reason();

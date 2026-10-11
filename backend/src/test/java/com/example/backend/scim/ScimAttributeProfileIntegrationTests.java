@@ -105,12 +105,12 @@ class ScimAttributeProfileIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("Attribute profile", "test-admin").id();
+        UUID connector = connectors.create("Attribute profile", null).id();
         token = connectors.issueToken(
-                connector, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
-        UUID other = connectors.create("Attribute profile, other", "test-admin").id();
+                connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+        UUID other = connectors.create("Attribute profile, other", null).id();
         otherToken = connectors.issueToken(
-                other, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
+                other, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"ap-ada","externalId":"ap-Ext-Ada",

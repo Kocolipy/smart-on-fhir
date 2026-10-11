@@ -245,6 +245,20 @@ class AdminAccountEndpointTests {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * An administrator's session that names no acting User by stable id is answered as an
+     * anonymous request is: without that id the self-target rule cannot be decided.
+     */
+    @Test
+    void anAdministratorSessionNamingNobodyIsUnauthorized() throws Exception {
+        UUID id = require("test-user").id();
+        MockHttpSession unindexed = authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES);
+        unindexed.removeAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME);
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id)).session(unindexed))
+                .andExpect(status().isUnauthorized());
+    }
+
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
@@ -445,6 +459,13 @@ class AdminAccountEndpointTests {
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
                 securityContext);
+        // The principal index a Login writes: the signed-in User's stable id, or — for a caller
+        // this test did not provision — the id of somebody no row here carries.
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+                users.findByNormalizedUserName(NormalizedUserName.of(name))
+                        .map(ScimUser::id)
+                        .orElseGet(UUID::randomUUID)
+                        .toString());
         return session;
     }
 }

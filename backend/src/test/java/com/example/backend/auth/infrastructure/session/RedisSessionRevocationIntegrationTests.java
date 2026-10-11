@@ -2,7 +2,7 @@ package com.example.backend.auth.infrastructure.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.scim.ScimIdentities;
@@ -109,7 +109,7 @@ class RedisSessionRevocationIntegrationTests {
         UUID stableId = created.id();
         Session session = openSessionFor(stableId);
 
-        administration.forcePasswordChange(stableId, "some-other-admin");
+        administration.forcePasswordChange(stableId, UUID.randomUUID()); // some other administrator
 
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }
@@ -129,7 +129,7 @@ class RedisSessionRevocationIntegrationTests {
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             attempts.recordFailure(
-                    created.profile().userName(), AuditRefusalReason.BAD_CREDENTIALS);
+                    created.profile().userName(), PasswordRefusalReason.BAD_CREDENTIALS);
         }
 
         assertThat(require(created.profile().userName()).login().isLocked()).isTrue();

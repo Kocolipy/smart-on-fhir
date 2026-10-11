@@ -3,7 +3,6 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -94,22 +93,18 @@ public class LoginAttemptService {
      * <p>Every append on this path is fail-open: the caller is already receiving a bare {@code 401}
      * and a trail that cannot be written must not change that answer. See {@link AuditTrail}.
      *
-     * @return the reason the {@code LOGIN_FAILURE} was recorded under: {@code reason}, or
-     *     {@code UNKNOWN_ACCOUNT} when the name matched no User
+     * @return the reason the {@code LOGIN_FAILURE} was recorded under: {@code reason} as
+     *     {@link PasswordRefusalReason#settled} settles it — {@code UNKNOWN_ACCOUNT} when the
+     *     name matched no User
      */
     @Transactional
-    public AuditRefusalReason recordFailure(String username, AuditRefusalReason reason) {
+    public PasswordRefusalReason recordFailure(String username, PasswordRefusalReason reason) {
         Optional<ScimUser> found = find(username);
-        if (found.isEmpty()) {
-            audit.recordLoginFailure(
-                    null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD);
-            return AuditRefusalReason.UNKNOWN_ACCOUNT;
-        }
-
-        ScimUser user = found.get();
-        failures.count(user);
-        audit.recordLoginFailure(user.id(), reason, AuditLoginMethod.PASSWORD);
-        return reason;
+        PasswordRefusalReason recorded = reason.settled(found.isPresent());
+        found.ifPresent(failures::count);
+        audit.recordLoginFailure(
+                found.map(ScimUser::id).orElse(null), recorded.audited(), AuditLoginMethod.PASSWORD);
+        return recorded;
     }
 
     /**
@@ -126,12 +121,20 @@ public class LoginAttemptService {
      * takes and for the same reason ({@code /docs/adr/0002-revoke-sessions-after-commit.md}): a
      * rolled-back login must not have signed its owner out everywhere else.
      *
+     * <p>The User is named by the stable id its authentication carries ({@link LoginPrincipal}),
+     * never looked up again by name: a directory rename landing after authentication cannot move
+     * the success, the cleared run or the sweep onto whichever User holds the name by then. A User
+     * gone by then fails the Login closed — nothing is written, and no {@code LOGIN_SUCCESS} is
+     * silently skipped.
+     *
+     * @param userId            the stable id of the User the Login authenticated
      * @param retainedSessionId the id the caller's own session is stored under, which the login
      *     continues in and so is the one session kept; {@code null} when the caller holds none
+     * @throws IllegalStateException if no User has {@code userId}
      */
     @Transactional
-    public void recordPasswordSuccess(String username, String retainedSessionId) {
-        recordSuccess(username, retainedSessionId, Confinement.BY_CHANGE_REQUIRED_FLAG,
+    public void recordPasswordSuccess(UUID userId, String retainedSessionId) {
+        recordSuccess(userId, retainedSessionId, Confinement.BY_CHANGE_REQUIRED_FLAG,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.PASSWORD));
     }
 
@@ -148,9 +151,9 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordEpicSuccess(
-            String username, String retainedSessionId, AuditMfaFactor mfaFactor) {
+            UUID userId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
-        recordSuccess(username, retainedSessionId, Confinement.NONE,
+        recordSuccess(userId, retainedSessionId, Confinement.NONE,
                 user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.SSO, mfaFactor));
     }
 
@@ -158,28 +161,28 @@ public class LoginAttemptService {
      * @param confinement whether the Login's session is confined while the change-required flag is
      *     set — a password Login's is, an Epic Login's is not
      */
-    private void recordSuccess(String username, String retainedSessionId, Confinement confinement,
+    private void recordSuccess(UUID userId, String retainedSessionId, Confinement confinement,
             Consumer<ScimUser> recordLoginSuccess) {
-        find(username).ifPresent(user -> {
-            ScimLoginState cleared = user.login().withFailureRunCleared();
-            if (cleared != user.login()) {
-                users.updateLoginState(user.id(), cleared);
-            }
-            // A login moves the dormancy basis, the one thing the dormancy job measures from —
-            // unless its session is confined because the User still owes a required password
-            // change. A confined session can do nothing but change the password or log out, so it
-            // is not use of the account, and counting it would let an imposed credential that is
-            // never replaced stay live for as long as somebody keeps logging in with it (ADR
-            // 0008). The change itself moves the basis instead (PasswordChangeService). Only a
-            // password Login is confined: an Epic Login presented no password of ours, so it is
-            // real use even while the flag is set (ADR 0008 addendum). Its own narrow write, so
-            // it neither advances the version nor rewrites the failure run.
-            if (!confinement.confines(user.login().isPasswordChangeRequired())) {
-                users.recordAuthentication(user.id(), clock.instant());
-            }
-            recordLoginSuccess.accept(user);
-            sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
-        });
+        ScimUser user = users.findById(userId).orElseThrow(() ->
+                new IllegalStateException("the authenticated User no longer exists"));
+        ScimLoginState cleared = user.login().withFailureRunCleared();
+        if (cleared != user.login()) {
+            users.updateLoginState(user.id(), cleared);
+        }
+        // A login moves the dormancy basis, the one thing the dormancy job measures from — unless
+        // its session is confined because the User still owes a required password change. A
+        // confined session can do nothing but change the password or log out, so it is not use of
+        // the account, and counting it would let an imposed credential that is never replaced stay
+        // live for as long as somebody keeps logging in with it (ADR 0008). The change itself
+        // moves the basis instead (PasswordChangeService). Only a password Login is confined: an
+        // Epic Login presented no password of ours, so it is real use even while the flag is set
+        // (ADR 0008 addendum). Its own narrow write, so it neither advances the version nor
+        // rewrites the failure run.
+        if (!confinement.confines(user.login().isPasswordChangeRequired())) {
+            users.recordAuthentication(user.id(), clock.instant());
+        }
+        recordLoginSuccess.accept(user);
+        sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
     }
 
     /**

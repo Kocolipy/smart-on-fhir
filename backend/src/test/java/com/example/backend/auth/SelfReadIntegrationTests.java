@@ -102,9 +102,9 @@ class SelfReadIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("self-read-connector", "test-admin").id();
+        UUID connectorId = connectors.create("self-read-connector", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
     }
 

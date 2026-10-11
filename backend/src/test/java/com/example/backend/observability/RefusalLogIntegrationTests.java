@@ -69,9 +69,9 @@ class RefusalLogIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("refusal-log-connector", "test-admin").id();
+        UUID connectorId = connectors.create("refusal-log-connector", null).id();
         writeToken = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

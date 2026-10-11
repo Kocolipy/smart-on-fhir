@@ -134,8 +134,8 @@ class ApiContractFixtureTests {
                 .addFilters(requestIdFilter, springSessionRepositoryFilter,
                         springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("api-contract", ADMIN).id();
-        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL)
+        UUID connector = connectors.create("api-contract", null).id();
+        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
     }
 

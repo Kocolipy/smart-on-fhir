@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -244,7 +245,8 @@ class EpicTokensIntegrationTests {
         Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
         assertThat(tokensOf(signedIn)).as("kept until the session ends").isPresent();
 
-        administration.forcePasswordChange(EPIC.practitioners().idOf(practitioner), BOOTSTRAP_ADMIN);
+        administration.forcePasswordChange(
+                EPIC.practitioners().idOf(practitioner), UUID.randomUUID()); // an administrator
 
         assertThat(tokensOf(signedIn)).isEmpty();
     }

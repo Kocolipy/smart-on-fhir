@@ -1,7 +1,6 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
@@ -113,11 +112,12 @@ public class LoginOutcomeService {
     }
 
     private void passwordRefused(PasswordRefused refused, String sessionHash) {
-        AuditRefusalReason recorded = attempts.recordFailure(refused.username(), refused.reason());
+        PasswordRefusalReason recorded =
+                attempts.recordFailure(refused.username(), refused.reason());
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             refusedWarning(Operation.LOGIN, refused, sessionHash).log();
         }
-        counts.refused(refused.method(), recorded);
+        counts.refused(refused.method(), recorded.audited());
     }
 
     private void epicRefused(EpicRefused refused, String sessionHash) {

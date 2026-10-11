@@ -17,7 +17,6 @@ import java.util.UUID;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -144,7 +143,7 @@ public class LoginIdentityService implements UserDetailsService {
      * Security's own vocabulary, and the login and {@code /me} responses continue to report it.
      */
     @Override
-    public UserDetails loadUserByUsername(String username) {
+    public LoginPrincipal loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
         return userDetailsOf(user, Confinement.BY_CHANGE_REQUIRED_FLAG);
@@ -167,7 +166,7 @@ public class LoginIdentityService implements UserDetailsService {
      * the User provisioned as {@code eABC}. The Bootstrap Admin, recognised by its reservation
      * marker, links to nothing whatever its name (D6): password Login is its recovery path.
      */
-    public Optional<UserDetails> loadEpicLinkedUser(String practitionerId) {
+    public Optional<LoginPrincipal> loadEpicLinkedUser(String practitionerId) {
         if (practitionerId == null || practitionerId.isBlank()) {
             return Optional.empty();
         }
@@ -177,7 +176,11 @@ public class LoginIdentityService implements UserDetailsService {
                 .map(user -> userDetailsOf(user, Confinement.NONE));
     }
 
-    private UserDetails userDetailsOf(ScimUser user, Confinement confinement) {
+    /**
+     * The User as a {@link LoginPrincipal}: Spring Security's view of it, carrying the stable id
+     * the rest of the Login works from, so nothing after authentication reads the User by name.
+     */
+    private LoginPrincipal userDetailsOf(ScimUser user, Confinement confinement) {
         User.UserBuilder builder = User.withUsername(user.profile().userName())
                 .password(user.login().hasPassword()
                         ? user.login().passwordHash()
@@ -187,19 +190,21 @@ public class LoginIdentityService implements UserDetailsService {
         } else {
             builder.authorities(authoritiesOf(user));
         }
-        return builder
+        return new LoginPrincipal(user.id(), builder
                 .accountLocked(user.login().isLocked())
                 // `active` is what the administrative listing reports, so authentication has to
                 // honour it: an inactive User that could still log in would make the listing a
                 // lie.
                 .disabled(!user.profile().active())
-                .build();
+                .build());
     }
 
     /**
-     * The stable id behind a userName, for a caller that has just authenticated it and needs to
-     * key application-owned state — the session index, the counter feature — by that id rather
-     * than by the userName Spring Security itself keeps using.
+     * The stable id behind a userName, for a caller that holds only the userName Spring Security
+     * keeps using and needs to key application-owned state — the counter feature — by that id.
+     *
+     * <p>Not for a Login: the {@link LoginPrincipal} a Login authenticated carries its User's id
+     * already, and a second lookup by name would follow whichever User holds the name by then.
      */
     public UUID resolveUserId(String username) {
         return users.findByNormalizedUserName(normalized(username))

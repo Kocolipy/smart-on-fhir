@@ -155,10 +155,10 @@ class PasswordChangeLifecycleIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("lifecycle-connector", BOOTSTRAP_ADMIN).id();
+        UUID connectorId = connectors.create("lifecycle-connector", null).id();
         this.connectorId = connectorId;
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, BOOTSTRAP_ADMIN, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
     }
 

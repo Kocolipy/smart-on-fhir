@@ -9,14 +9,11 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
-import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorRepository;
 import com.example.backend.scim.domain.ScimConnectorToken;
 import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
-import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserRepository;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -43,6 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link IssuedConnectorToken} the issue and rotation methods return. It is never
  * held in a field, never logged, and never written anywhere but that response — what
  * is persisted is its digest.
+ *
+ * <p>Every write names its acting administrator by {@code actorId}: the stable id its signed-in
+ * session holds, recorded as the event's actor. Never a {@code userName}, which a connector may
+ * rename between the administrator signing in and acting, handing it to another User. A
+ * {@code null} id — a session that identifies nobody — records the event with no actor: no rule
+ * here turns on who the actor is, and an event with no actor is more use than no event.
  */
 @Service
 public class ConnectorAdministrationService {
@@ -54,7 +57,6 @@ public class ConnectorAdministrationService {
     private final ScimConnectorRepository connectors;
     private final ScimConnectorTokenRepository tokens;
     private final ScimExternalIdRepository aliases;
-    private final ScimUserRepository users;
     private final AuditTrail audit;
     private final SecureRandom random;
     private final Clock clock;
@@ -63,14 +65,12 @@ public class ConnectorAdministrationService {
             ScimConnectorRepository connectors,
             ScimConnectorTokenRepository tokens,
             ScimExternalIdRepository aliases,
-            ScimUserRepository users,
             AuditTrail audit,
             SecureRandom random,
             Clock clock) {
         this.connectors = connectors;
         this.tokens = tokens;
         this.aliases = aliases;
-        this.users = users;
         this.audit = audit;
         this.random = random;
         this.clock = clock;
@@ -86,11 +86,11 @@ public class ConnectorAdministrationService {
 
     /** Creates a connector holding no tokens yet. */
     @Transactional
-    public ConnectorSummary create(String displayName, String requestedBy) {
+    public ConnectorSummary create(String displayName, UUID actorId) {
         Instant now = clock.instant();
         ScimConnector connector = ScimConnector.create(UUID.randomUUID(), displayName, now);
         connectors.save(connector);
-        audit.recordConnectorCreated(actorId(requestedBy), connector.id());
+        audit.recordConnectorCreated(actorId, connector.id());
         succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
         return summarize(connector, now);
     }
@@ -116,7 +116,7 @@ public class ConnectorAdministrationService {
      * likely to have the wrong id than to want a second no-op.
      */
     @Transactional
-    public void delete(UUID connectorId, String requestedBy) {
+    public void delete(UUID connectorId, UUID actorId) {
         ScimConnector connector = requireLive(connectorId);
         Instant now = clock.instant();
         int revoked = tokens.revokeAllForConnector(connectorId, now);
@@ -128,7 +128,7 @@ public class ConnectorAdministrationService {
         for (int token = 0; token < revoked; token++) {
             audit.recordConnectorTokenRevoked(null, connectorId);
         }
-        audit.recordConnectorDeleted(actorId(requestedBy), connectorId);
+        audit.recordConnectorDeleted(actorId, connectorId);
         succeeded(Operation.CONNECTOR_DELETE, Type.DELETION);
     }
 
@@ -153,14 +153,13 @@ public class ConnectorAdministrationService {
             UUID connectorId,
             Collection<Permission> requested,
             Duration lifetime,
-            String requestedBy,
+            UUID actorId,
             Set<Permission> held) {
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(requested);
         Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
         requireLive(connectorId);
-        UUID actor = actorId(requestedBy);
         if (!permissions.heldWithin(held)) {
-            audit.recordConnectorTokenIssueRefused(actor, connectorId, permissions.values());
+            audit.recordConnectorTokenIssueRefused(actorId, connectorId, permissions.values());
             escalationRefused(Operation.CONNECTOR_TOKEN_ISSUE);
             throw new ConnectorTokenEscalationException();
         }
@@ -175,7 +174,7 @@ public class ConnectorAdministrationService {
                 now,
                 now.plus(validLifetime));
         tokens.save(issued);
-        audit.recordConnectorTokenIssued(actor, connectorId, permissions.values());
+        audit.recordConnectorTokenIssued(actorId, connectorId, permissions.values());
         succeeded(Operation.CONNECTOR_TOKEN_ISSUE, Type.CREATION);
         return disclose(issued, minted.presentedValue());
     }
@@ -210,15 +209,14 @@ public class ConnectorAdministrationService {
             UUID tokenId,
             Collection<Permission> requested,
             Duration overlap,
-            String requestedBy,
+            UUID actorId,
             Set<Permission> held) {
         ScimConnectorToken existing = requireToken(tokenId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
                 requested == null ? existing.permissions().values() : requested);
         ScimConnector connector = requireLive(existing.connectorId());
-        UUID actor = actorId(requestedBy);
         if (!permissions.heldWithin(held)) {
-            audit.recordConnectorTokenRotateRefused(actor, connector.id(), permissions.values());
+            audit.recordConnectorTokenRotateRefused(actorId, connector.id(), permissions.values());
             escalationRefused(Operation.CONNECTOR_TOKEN_ROTATE);
             throw new ConnectorTokenEscalationException();
         }
@@ -238,7 +236,7 @@ public class ConnectorAdministrationService {
                 ConnectorTokenPolicy.overlapEnd(now, overlap, existing.expiresAt()),
                 replacement.id()));
 
-        audit.recordConnectorTokenRotated(actor, connector.id(), permissions.values());
+        audit.recordConnectorTokenRotated(actorId, connector.id(), permissions.values());
         succeeded(Operation.CONNECTOR_TOKEN_ROTATE, Type.CHANGE);
         return disclose(replacement, minted.presentedValue());
     }
@@ -251,33 +249,14 @@ public class ConnectorAdministrationService {
      * revoking a credential twice is a thing worth being able to see.
      */
     @Transactional
-    public void revokeToken(UUID tokenId, String requestedBy) {
+    public void revokeToken(UUID tokenId, UUID actorId) {
         ScimConnectorToken existing = requireToken(tokenId);
         ScimConnectorToken revoked = existing.revoked(clock.instant());
         if (revoked != existing) {
             tokens.save(revoked);
         }
-        audit.recordConnectorTokenRevoked(actorId(requestedBy), existing.connectorId());
+        audit.recordConnectorTokenRevoked(actorId, existing.connectorId());
         succeeded(Operation.CONNECTOR_TOKEN_REVOKE, Type.DELETION);
-    }
-
-    /**
-     * The stable id behind the administrator's {@code userName}, for the event's actor
-     * reference. {@code null} when the name resolves to no identity — the same call
-     * {@code IdentityAdministrationService} makes, and for the same reason: an event
-     * with no actor is more use than no event, and what it never becomes is the
-     * {@code userName} itself.
-     *
-     * <p>Resolved through the SCIM User port rather than through the login surface's own
-     * service, which is what keeps this slice from depending on {@code auth}: the
-     * dependency runs {@code auth -> scim} only, and a lookup here of an
-     * {@code auth.application} class would close that into a cycle the architecture test
-     * refuses.
-     */
-    private UUID actorId(String requestedBy) {
-        return users.findByNormalizedUserName(NormalizedUserName.of(requestedBy))
-                .map(ScimUser::id)
-                .orElse(null);
     }
 
     private ScimConnector requireLive(UUID connectorId) {

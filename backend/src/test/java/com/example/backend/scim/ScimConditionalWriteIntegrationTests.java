@@ -129,14 +129,14 @@ class ScimConditionalWriteIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorA = connectors.create("Okta", "test-admin").id();
-        UUID connectorB = connectors.create("Entra", "test-admin").id();
+        connectorA = connectors.create("Okta", null).id();
+        UUID connectorB = connectors.create("Entra", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

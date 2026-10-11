@@ -38,7 +38,13 @@ public final class RequestActor {
         request.setAttribute(USER_ATTRIBUTE, userId);
     }
 
-    /** The stable id of the User the request was authenticated as by session, or {@code null}. */
+    /**
+     * The stable id of the User the request was authenticated as by session, or {@code null}.
+     *
+     * <p>Also how a web adapter outside {@code auth} — connector administration — names the
+     * acting administrator: by the id its signed-in session holds, as the chain resolved it, and
+     * never by the {@code userName} a rename can hand to another User.
+     */
     public static UUID userOf(HttpServletRequest request) {
         return attribute(request, USER_ATTRIBUTE);
     }

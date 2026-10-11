@@ -3,10 +3,10 @@ package com.example.backend.auth.config;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.application.LoginCounts;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.util.List;
 
 /**
  * The {@code login} counter (ADR 0013, "Metrics"), the adapter of {@link LoginCounts}: one count
@@ -22,8 +22,8 @@ import java.util.List;
  *
  * <p>Every series exists from the start, at zero: an alert on a count's increase then sees the
  * first event too, which a series appearing at 1 would hide from it. Those are each method's own
- * outcomes and reasons — a password Login's {@link #PASSWORD_REASONS}, and an Epic Login's
- * {@link EpicLoginFailureReason} list — and nothing else.
+ * outcomes and reasons — a password Login's {@link PasswordRefusalReason} list, and an Epic
+ * Login's {@link EpicLoginFailureReason} list — and nothing else.
  *
  * <p>Registered whether or not Epic Login is on ({@link LoginMetricsConfig}), because password
  * Login always is; in this configuration package because that is the adapter layer the onion
@@ -36,17 +36,6 @@ public final class LoginMetrics implements LoginCounts {
 
     /** The reason tag's value on a success, which has none. */
     static final String NO_REASON = "none";
-
-    /**
-     * Every reason a password Login's refusal is counted under: the four Spring Security reports,
-     * and {@code UNKNOWN_ACCOUNT}, which recording the refusal settles by looking the name up.
-     */
-    static final List<AuditRefusalReason> PASSWORD_REASONS = List.of(
-            AuditRefusalReason.BAD_CREDENTIALS,
-            AuditRefusalReason.UNKNOWN_ACCOUNT,
-            AuditRefusalReason.ACCOUNT_LOCKED,
-            AuditRefusalReason.ACCOUNT_DISABLED,
-            AuditRefusalReason.OTHER);
 
     /** How a Login ended, as the {@code outcome} tag spells it. */
     private enum Outcome {
@@ -68,8 +57,8 @@ public final class LoginMetrics implements LoginCounts {
         for (AuditLoginMethod method : AuditLoginMethod.values()) {
             ending(method, Outcome.SUCCESS, NO_REASON);
         }
-        for (AuditRefusalReason reason : PASSWORD_REASONS) {
-            ending(AuditLoginMethod.PASSWORD, Outcome.REFUSED, reason.name());
+        for (PasswordRefusalReason reason : PasswordRefusalReason.values()) {
+            ending(AuditLoginMethod.PASSWORD, Outcome.REFUSED, reason.audited().name());
         }
         for (EpicLoginFailureReason reason : EpicLoginFailureReason.values()) {
             if (reason != EpicLoginFailureReason.EPIC_UNAVAILABLE) {

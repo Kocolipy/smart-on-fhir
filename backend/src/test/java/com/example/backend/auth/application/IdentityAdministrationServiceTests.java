@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -61,6 +62,10 @@ class IdentityAdministrationServiceTests {
 
     /** The recovery identity's name, which is deliberately NOT what protects it. */
     private static final String BOOTSTRAP = "root";
+
+    /** The acting administrator of a test that does not provision one. */
+    private static final UUID UNPROVISIONED_ADMIN =
+            UUID.fromString("00000000-0000-0000-0000-0000000ad001");
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
@@ -160,7 +165,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup admins = givenAdminGroup(bob);
         ScimGroup eng = groups.create(ScimIdentities.group("Engineering", bob));
 
-        IdentitySummary unlocked = service.unlock(bob.id(), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(bob.id(), actor(BOOTSTRAP));
 
         assertThat(unlocked.admin()).isTrue();
         assertThat(unlocked.bootstrapAdmin()).isFalse();
@@ -288,7 +293,7 @@ class IdentityAdministrationServiceTests {
     void unlockingEndsTheLockoutAndTheFailureRun() {
         givenLocked("bob");
 
-        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(users.require("bob").login().lockedAt()).isNull();
@@ -300,7 +305,7 @@ class IdentityAdministrationServiceTests {
     void unlockingDoesNotActivateAnInactiveIdentity() {
         users.given(lockedAndInactive("bob"));
 
-        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.active()).isFalse();
@@ -312,7 +317,7 @@ class IdentityAdministrationServiceTests {
         given("bob");
         int before = users.writes();
 
-        assertThat(service.unlock(id("bob"), BOOTSTRAP).locked()).isFalse();
+        assertThat(service.unlock(id("bob"), actor(BOOTSTRAP)).locked()).isFalse();
         assertThat(users.writes()).isEqualTo(before);
     }
 
@@ -324,7 +329,7 @@ class IdentityAdministrationServiceTests {
     void unlockingDoesNotAdvanceTheResourceVersion() {
         ScimUser bob = givenLocked("bob");
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(users.require("bob").version()).isEqualTo(bob.version());
     }
@@ -334,7 +339,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = givenLocked("bob");
         sessions.open(bob.id(), "session-1");
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
@@ -349,7 +354,7 @@ class IdentityAdministrationServiceTests {
         givenLocked("bob");
         clock.advanceBy(A_LONG_TIME);
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(users.require("bob").login().lockedAt()).isNull();
         assertThat(users.require("bob").login().failedLoginAttempts()).isZero();
@@ -363,9 +368,9 @@ class IdentityAdministrationServiceTests {
         UUID nobody = UUID.randomUUID();
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock(nobody, BOOTSTRAP))
+        assertThatThrownBy(() -> service.unlock(nobody, actor(BOOTSTRAP)))
                 .isInstanceOf(UnknownIdentityException.class);
-        assertThatThrownBy(() -> service.forcePasswordChange(nobody, BOOTSTRAP))
+        assertThatThrownBy(() -> service.forcePasswordChange(nobody, actor(BOOTSTRAP)))
                 .isInstanceOf(UnknownIdentityException.class);
 
         assertThat(users.writes()).isEqualTo(before);
@@ -389,7 +394,7 @@ class IdentityAdministrationServiceTests {
                 bob.createdAt(),
                 NOW));
 
-        IdentitySummary unlocked = service.unlock(bob.id(), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(bob.id(), actor(BOOTSTRAP));
 
         assertThat(unlocked.userName()).isEqualTo("robert");
         assertThat(unlocked.locked()).isFalse();
@@ -403,7 +408,7 @@ class IdentityAdministrationServiceTests {
         ScimUser recovery = given(BOOTSTRAP);
         ScimUser bob = givenLocked("bob");
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(audit.recorded()).containsExactly(
                 new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), "FAILURES"),
@@ -443,7 +448,7 @@ class IdentityAdministrationServiceTests {
         ScimUser carol = givenLockedForDormancy("carol");
         clock.advanceBy(A_LONG_TIME);
 
-        IdentitySummary unlocked = service.unlock(carol.id(), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(carol.id(), actor(BOOTSTRAP));
 
         ScimLoginState after = users.require("carol").login();
         assertThat(after.isLocked()).isFalse();
@@ -467,7 +472,7 @@ class IdentityAdministrationServiceTests {
         givenLocked("bob");
         clock.advanceBy(A_LONG_TIME);
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
     }
@@ -479,7 +484,7 @@ class IdentityAdministrationServiceTests {
         ScimUser dave = users.given(ScimIdentities.userAuthenticatedAt("dave", lastLogin));
         clock.advanceBy(Duration.ofDays(1));
 
-        IdentitySummary result = service.unlock(dave.id(), BOOTSTRAP);
+        IdentitySummary result = service.unlock(dave.id(), actor(BOOTSTRAP));
 
         assertThat(users.require("dave").login().lastAuthenticatedAt()).isEqualTo(lastLogin);
         assertThat(result.lastAuthenticatedAt()).isEqualTo(lastLogin);
@@ -493,7 +498,7 @@ class IdentityAdministrationServiceTests {
         ScimUser idle = users.given(ScimIdentities.userWithLoginState("idle",
                 ScimLoginState.CREDENTIALLESS.withDormancyLock(NOW)));
 
-        IdentitySummary unlocked = service.unlock(idle.id(), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(idle.id(), actor(BOOTSTRAP));
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.passwordChangeRequired()).isFalse();
@@ -511,24 +516,48 @@ class IdentityAdministrationServiceTests {
         given(BOOTSTRAP);
         given("bob");
 
-        service.unlock(id("bob"), BOOTSTRAP);
+        service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).hasSize(1);
     }
 
     /**
-     * An administrator whose own resource cannot be resolved — renamed between
-     * authenticating and acting — still produces an event, with no actor rather than with
-     * the name.
+     * The acting administrator is named by the stable id its session holds, so a rename between
+     * signing in and acting changes nothing about who is recorded as the actor.
      */
     @Test
-    void anUnresolvableAdministratorIsRecordedAsNoActorRatherThanAName() {
+    void aRenamedAdministratorIsStillRecordedAsTheActorByItsStableId() {
+        ScimUser admin = given("admin");
         ScimUser bob = given("bob");
+        users.rename(admin.id(), "admin-renamed");
 
-        service.unlock(bob.id(), "vanished");
+        service.unlock(bob.id(), admin.id());
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, null, bob.id(), null));
+                AuditOperation.LOCKOUT_LIFT, admin.id(), bob.id(), null));
+    }
+
+    /**
+     * The self-target check compares stable ids: an administrator acting on the User that took
+     * its former name is acting on somebody else, and is not refused.
+     */
+    @Test
+    void anAdminActingOnTheUserWhoTookItsFormerNameIsNotSelfTargeting() {
+        ScimUser admin = given("admin");
+        users.rename(admin.id(), "admin-renamed");
+        ScimUser successor = givenLocked("admin");
+
+        assertThat(service.unlock(successor.id(), admin.id()).locked()).isFalse();
+    }
+
+    /** An administrator renamed since signing in still cannot act on its own account. */
+    @Test
+    void aRenamedAdminStillCannotUnlockItsOwnAccount() {
+        ScimUser admin = givenLocked("admin");
+        users.rename(admin.id(), "admin-renamed");
+
+        assertThatThrownBy(() -> service.unlock(admin.id(), admin.id()))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
     }
 
     /**
@@ -552,8 +581,8 @@ class IdentityAdministrationServiceTests {
         ScimUser carol = given("carol");
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            service.unlock(id("bob"), BOOTSTRAP);
-            service.forcePasswordChange(carol.id(), BOOTSTRAP);
+            service.unlock(id("bob"), actor(BOOTSTRAP));
+            service.forcePasswordChange(carol.id(), actor(BOOTSTRAP));
 
             assertThat(Map.of(
                             LogEvent.LOCAL_ACTION, "identity.unlock",
@@ -584,9 +613,9 @@ class IdentityAdministrationServiceTests {
         ScimUser ada = givenLocked("ada");
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            assertThatThrownBy(() -> service.unlock(ada.id(), "ada"))
+            assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
                     .isInstanceOf(ForbiddenIdentityChangeException.class);
-            assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), "ada"))
+            assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), ada.id()))
                     .isInstanceOf(ForbiddenIdentityChangeException.class);
 
             assertThat(Map.of(
@@ -617,7 +646,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = givenLocked("bob");
         clock.advanceBy(Duration.ofHours(1));
 
-        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), actor(BOOTSTRAP));
 
         assertThat(unlocked.passwordChangeRequired()).isTrue();
         assertThat(users.require("bob").login().passwordChangeRequiredSince())
@@ -635,7 +664,7 @@ class IdentityAdministrationServiceTests {
         users.given(ScimIdentities.userWithLoginState(
                 "carol", new ScimLoginState(null, 3, NOW)));
 
-        IdentitySummary unlocked = service.unlock(id("carol"), BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("carol"), actor(BOOTSTRAP));
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.passwordChangeRequired()).isFalse();
@@ -648,7 +677,7 @@ class IdentityAdministrationServiceTests {
     void anIdempotentUnlockRequiresNoChange() {
         given("bob");
 
-        assertThat(service.unlock(id("bob"), BOOTSTRAP).passwordChangeRequired()).isFalse();
+        assertThat(service.unlock(id("bob"), actor(BOOTSTRAP)).passwordChangeRequired()).isFalse();
         assertThat(users.require("bob").login().isPasswordChangeRequired()).isFalse();
     }
 
@@ -657,7 +686,7 @@ class IdentityAdministrationServiceTests {
         ScimUser ada = givenLocked("ada");
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock(id("ADA"), "ada"))
+        assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertThat(users.writes()).isEqualTo(before);
@@ -675,7 +704,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = given("bob");
         sessions.open(bob.id(), "bob-session");
 
-        IdentitySummary forced = service.forcePasswordChange(id("bob"), BOOTSTRAP);
+        IdentitySummary forced = service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
 
         assertThat(forced.passwordChangeRequired()).isTrue();
         assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
@@ -694,7 +723,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = given("bob");
         sessions.open(bob.id(), "bob-session");
 
-        service.forcePasswordChange(id("bob"), BOOTSTRAP);
+        service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
         transaction.commit();
 
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
@@ -710,7 +739,7 @@ class IdentityAdministrationServiceTests {
         clock.advanceBy(Duration.ofDays(3));
         int before = users.writes();
 
-        assertThat(service.forcePasswordChange(id("bob"), BOOTSTRAP).passwordChangeRequired()).isTrue();
+        assertThat(service.forcePasswordChange(id("bob"), actor(BOOTSTRAP)).passwordChangeRequired()).isTrue();
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
@@ -727,8 +756,8 @@ class IdentityAdministrationServiceTests {
                 "fay", new ScimLoginState("hash", 0, null, null, NOW)));
         givenAdminGroup(eve, fay);
 
-        IdentitySummary flagged = service.forcePasswordChange(id("eve"), BOOTSTRAP);
-        IdentitySummary alreadyFlagged = service.forcePasswordChange(id("fay"), BOOTSTRAP);
+        IdentitySummary flagged = service.forcePasswordChange(id("eve"), actor(BOOTSTRAP));
+        IdentitySummary alreadyFlagged = service.forcePasswordChange(id("fay"), actor(BOOTSTRAP));
 
         assertThat(flagged.admin()).isTrue();
         assertThat(flagged.createdAt()).isEqualTo(eve.createdAt()).isNotNull();
@@ -740,7 +769,7 @@ class IdentityAdministrationServiceTests {
     void forcingAChangeOnACredentiallessUserIsRefused() {
         ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
 
-        assertThatThrownBy(() -> service.forcePasswordChange(id("carol"), BOOTSTRAP))
+        assertThatThrownBy(() -> service.forcePasswordChange(id("carol"), actor(BOOTSTRAP)))
                 .isInstanceOf(UnsafeIdentityChangeException.class);
 
         assertRefusedWithoutEffect(carol, AuditAdministrativeRefusal.CREDENTIALLESS_TARGET);
@@ -750,7 +779,7 @@ class IdentityAdministrationServiceTests {
     void anAdminCannotForceAChangeOnTheirOwnAccount() {
         ScimUser ada = given("ada");
 
-        assertThatThrownBy(() -> service.forcePasswordChange(id("ada"), "Ada"))
+        assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), ada.id()))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertRefusedWithoutEffect(ada, AuditAdministrativeRefusal.SELF_TARGET);
@@ -761,7 +790,7 @@ class IdentityAdministrationServiceTests {
         ScimUser recovery = givenBootstrapAdmin();
         given("ada");
 
-        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), "ada"))
+        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), id("ada")))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isFalse();
@@ -781,29 +810,44 @@ class IdentityAdministrationServiceTests {
     void theBootstrapAdminCannotFlagItself() {
         ScimUser bootstrap = givenBootstrapAdmin();
 
-        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), BOOTSTRAP))
+        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), actor(BOOTSTRAP)))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertRefusedWithoutEffect(bootstrap, AuditAdministrativeRefusal.SELF_TARGET);
     }
 
     /**
-     * A requester with no usable name — null or blank, which only a bypassed web adapter could
-     * send — names nobody: it is not the subject, so nothing is refused as self-targeted, and the
-     * event records no actor rather than failing the operation.
+     * An operation with no acting administrator — which only a bypassed web adapter could send —
+     * is refused before anything is written: whether it targets the actor itself cannot be
+     * decided without one.
      */
     @Test
-    void aRequesterWithNoNameIsNobodyRatherThanAFailure() {
+    void anUnlockWithNoActorIsRefusedBeforeAnythingIsWritten() {
         ScimUser bob = givenLocked("bob");
+
+        assertThatNullPointerException().isThrownBy(() -> service.unlock(bob.id(), null));
+
+        assertThat(users.require("bob").login().isLocked()).isTrue();
+    }
+
+    @Test
+    void aForcedChangeWithNoActorIsRefusedBeforeAnythingIsWritten() {
         ScimUser carol = given("carol");
 
-        assertThat(service.unlock(bob.id(), null).locked()).isFalse();
-        assertThat(service.forcePasswordChange(carol.id(), "  ").passwordChangeRequired()).isTrue();
+        assertThatNullPointerException()
+                .isThrownBy(() -> service.forcePasswordChange(carol.id(), null));
 
-        assertThat(audit.recorded())
-                .extracting(Recorded::actorId)
-                .containsOnlyNulls()
-                .hasSize(3);
+        assertThat(audit.recorded()).isEmpty();
+    }
+
+    /**
+     * The stable id the acting administrator's session holds: its own, when the test provisioned
+     * it, or that of an administrator the test did not need to provision.
+     */
+    private UUID actor(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName))
+                .map(ScimUser::id)
+                .orElse(UNPROVISIONED_ADMIN);
     }
 
     private void assertRefusedWithoutEffect(ScimUser target, AuditAdministrativeRefusal reason) {

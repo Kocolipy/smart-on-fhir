@@ -110,7 +110,7 @@ class ScimUserProvisioningIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Okta", "test-admin").id();
+        connectorId = connectors.create("Okta", null).id();
         writeToken = issueTokenFor(connectorId, TokenPermissions.ALL);
     }
 
@@ -411,7 +411,7 @@ class ScimUserProvisioningIntegrationTests {
                 .formatted(USER_SCHEMA));
         UUID id = UUID.fromString(body(created).get("id").asText());
 
-        UUID otherConnector = connectors.create("Entra", "test-admin").id();
+        UUID otherConnector = connectors.create("Entra", null).id();
         String otherToken = issueTokenFor(otherConnector, TokenPermissions.ALL);
         aliases.put(otherConnector, id, "entra-1");
 
@@ -423,7 +423,7 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(rawAs(otherToken, id)).doesNotContain("okta-1");
 
         // A third connector set none, and sees none rather than inheriting one.
-        UUID thirdConnector = connectors.create("Ping", "test-admin").id();
+        UUID thirdConnector = connectors.create("Ping", null).id();
         String thirdToken = issueTokenFor(thirdConnector, TokenPermissions.ALL);
         assertThat(readAs(thirdToken, id).get("externalId")).isNull();
     }
@@ -742,7 +742,7 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     private String issueTokenFor(UUID connector, java.util.Set<com.example.backend.authorization.domain.Permission> scope) {
-        return connectors.issueToken(connector, scope, null, "test-admin", TokenPermissions.ALL).presentedValue();
+        return connectors.issueToken(connector, scope, null, null, TokenPermissions.ALL).presentedValue();
     }
 
     private JsonNode body(MvcResult result) throws Exception {

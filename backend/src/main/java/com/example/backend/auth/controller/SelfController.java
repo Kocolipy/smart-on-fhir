@@ -2,14 +2,9 @@ package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.SelfReadService;
 import com.example.backend.auth.application.SelfRecord;
-import com.example.backend.auth.application.UnknownSessionIdentityException;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -38,17 +33,6 @@ public class SelfController {
 
     @GetMapping
     public SelfRecord read(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session == null) {
-            throw new UnknownSessionIdentityException();
-        }
-        return selfReads.read(HttpSessionAttributes.signedIn(session).owner()
-                .orElseThrow(UnknownSessionIdentityException::new));
-    }
-
-    /** A session that identifies nobody: the bare {@code 401} an anonymous request gets. */
-    @ExceptionHandler(UnknownSessionIdentityException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public void unknownSessionIdentity() {
+        return selfReads.read(HttpSessionAttributes.ownerOf(request));
     }
 }

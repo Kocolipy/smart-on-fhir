@@ -129,9 +129,9 @@ class OperationalTelemetryIntegrationTests {
         String externalId = "telemetry-ext-" + suffix;
         String filter = "userName eq \"" + userName + "\"";
 
-        connectorId = connectors.create("Telemetry probe " + suffix, ADMIN).id();
+        connectorId = connectors.create("Telemetry probe " + suffix, null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
         forbidden.addAll(List.of(userName, externalId, filter, token));
 
         HttpClient connector = HttpClient.newHttpClient();
@@ -214,14 +214,14 @@ class OperationalTelemetryIntegrationTests {
         }
         if (scimUserId != null) {
             String token = connectors.issueToken(
-                    connectorId, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL).presentedValue();
+                    connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
             HttpResponse<String> current = send(
                     HttpClient.newHttpClient(), scim("/Users/" + scimUserId, token).GET());
             String etag = current.headers().firstValue("ETag").orElseThrow();
             send(HttpClient.newHttpClient(), scim("/Users/" + scimUserId, token)
                     .header("If-Match", etag).DELETE());
         }
-        connectors.delete(connectorId, ADMIN);
+        connectors.delete(connectorId, null);
     }
 
     // ---- AC: metrics exist with the required tag dimensions -----------------------

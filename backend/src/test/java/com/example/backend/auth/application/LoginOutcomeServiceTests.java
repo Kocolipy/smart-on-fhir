@@ -130,7 +130,7 @@ class LoginOutcomeServiceTests {
     void aPasswordRefusalIsAuditedWithItsReasonAndSubjectAndCountsTowardTheFailureRun() {
         UUID ada = users.given(ScimIdentities.user("ada")).id();
 
-        outcomes.record(new PasswordRefused("ada", AuditRefusalReason.BAD_CREDENTIALS), SESSION);
+        outcomes.record(new PasswordRefused("ada", PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, ada, "BAD_CREDENTIALS"));
@@ -144,10 +144,10 @@ class LoginOutcomeServiceTests {
      * the session it ran in, but neither a user nor the submitted name.
      */
     @ParameterizedTest(name = "{0} is one generic WARN")
-    @EnumSource(value = AuditRefusalReason.class,
+    @EnumSource(value = PasswordRefusalReason.class,
             names = {"BAD_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "OTHER"})
     void aPasswordRefusalIsOneGenericWarnWithNoReasonNoUserAndTheSessionsHash(
-            AuditRefusalReason reason) {
+            PasswordRefusalReason reason) {
         users.given(ScimIdentities.user("lovelace"));
         List<ILoggingEvent> records;
         try (LogContext.Scope colleague = LogContext.userId(UUID.randomUUID())) {
@@ -169,9 +169,9 @@ class LoginOutcomeServiceTests {
     }
 
     @ParameterizedTest(name = "{0} is counted as password:refused:{0}")
-    @EnumSource(value = AuditRefusalReason.class,
+    @EnumSource(value = PasswordRefusalReason.class,
             names = {"BAD_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "OTHER"})
-    void aPasswordRefusalIsCountedUnderItsReason(AuditRefusalReason reason) {
+    void aPasswordRefusalIsCountedUnderItsReason(PasswordRefusalReason reason) {
         users.given(ScimIdentities.user("ada"));
 
         outcomes.record(new PasswordRefused("ada", reason), SESSION);
@@ -182,7 +182,7 @@ class LoginOutcomeServiceTests {
     /** A name that matches no User is recorded, and counted, as the unknown account it is. */
     @Test
     void aPasswordRefusalOfAnUnknownNameIsAuditedAndCountedAsAnUnknownAccount() {
-        outcomes.record(new PasswordRefused("nobody", AuditRefusalReason.BAD_CREDENTIALS), SESSION);
+        outcomes.record(new PasswordRefused("nobody", PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT"));
@@ -192,7 +192,7 @@ class LoginOutcomeServiceTests {
     @Test
     void aPasswordRefusalWithNoSessionCarriesNoSessionHash() {
         List<ILoggingEvent> records = recording(
-                new PasswordRefused("nobody", AuditRefusalReason.BAD_CREDENTIALS), null);
+                new PasswordRefused("nobody", PasswordRefusalReason.BAD_CREDENTIALS), null);
 
         assertThat(CapturedLog.fields(records.getFirst())).doesNotContainKey(LogEvent.SESSION_HASH);
     }
@@ -200,21 +200,20 @@ class LoginOutcomeServiceTests {
     /** The submitted name is half a credential: an outcome printed anywhere still omits it. */
     @Test
     void aPasswordRefusalNeverPrintsTheSubmittedName() {
-        assertThat(new PasswordRefused("ada-typed-her-password", AuditRefusalReason.BAD_CREDENTIALS))
+        assertThat(new PasswordRefused("ada-typed-her-password", PasswordRefusalReason.BAD_CREDENTIALS))
                 .hasToString("PasswordRefused[reason=BAD_CREDENTIALS]");
     }
 
     /**
-     * Spring Security never reports an unknown account, and the Epic reasons are not a password
-     * Login's: a refusal for any of them is a caller's bug, refused rather than recorded.
+     * Spring Security never reports an unknown account — recording the refusal settles it — so a
+     * refusal for one is a caller's bug, refused rather than recorded. The Epic reasons cannot be
+     * a password Login's at all: they are not in its closed set.
      */
-    @ParameterizedTest(name = "{0} is no password refusal")
-    @EnumSource(value = AuditRefusalReason.class, mode = EnumSource.Mode.EXCLUDE,
-            names = {"BAD_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "OTHER"})
-    void aPasswordRefusalHasOnlyAReasonSpringSecurityReports(AuditRefusalReason reason) {
-        assertThatThrownBy(() -> new PasswordRefused("ada", reason))
+    @Test
+    void aPasswordRefusalHasOnlyAReasonSpringSecurityReports() {
+        assertThatThrownBy(() -> new PasswordRefused("ada", PasswordRefusalReason.UNKNOWN_ACCOUNT))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("not a password Login's refusal: " + reason.name());
+                .hasMessage("not a password Login's refusal: UNKNOWN_ACCOUNT");
     }
 
     /** A password Login carries no MFA factor; an Epic Login always does (D17). */

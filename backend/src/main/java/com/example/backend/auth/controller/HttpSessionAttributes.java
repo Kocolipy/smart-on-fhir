@@ -1,9 +1,12 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.auth.domain.SignedInSession;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * The servlet container's session as {@link SignedInSession} reads and writes it, for the web
@@ -23,6 +26,23 @@ public record HttpSessionAttributes(HttpSession session) implements SignedInSess
     /** {@code session} as the signed-in session module sees it. */
     public static SignedInSession signedIn(HttpSession session) {
         return SignedInSession.of(new HttpSessionAttributes(session));
+    }
+
+    /**
+     * The stable id of the User whose signed-in session {@code request} carries — the principal
+     * index the Login wrote and the client cannot — for a handler that must name its caller.
+     * Never the {@code userName} the principal carries, which a directory rename can hand to
+     * another User between signing in and acting. {@link SessionIdentityAdvice} answers the
+     * refusal with the bare {@code 401} an anonymous request gets.
+     *
+     * @throws UnknownSessionIdentityException if there is no session, or it names no stable id
+     */
+    public static UUID ownerOf(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            throw new UnknownSessionIdentityException();
+        }
+        return signedIn(session).owner().orElseThrow(UnknownSessionIdentityException::new);
     }
 
     @Override

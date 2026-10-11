@@ -9,7 +9,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
@@ -231,7 +230,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         audit.reset();
 
-        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(AuditRefusalReason.ACCOUNT_LOCKED);
+        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .as("the refusal is audited as the lockout, not as a generic failure")
@@ -285,7 +284,7 @@ class LoginLockoutTests {
 
         clock.advanceBy(A_LONG_TIME);
 
-        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(AuditRefusalReason.ACCOUNT_LOCKED);
+        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
         assertThat(users.require("ada").login().isLocked()).isTrue();
     }
 
@@ -298,7 +297,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         clock.advanceBy(A_LONG_TIME);
 
-        administration.unlock(users.require("ada").id(), BOOTSTRAP_ADMIN);
+        administration.unlock(users.require("ada").id(), users.require(BOOTSTRAP_ADMIN).id());
 
         Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).accepted().orElseThrow().authentication();
         assertThat(authentication.getName()).isEqualTo("ada");
@@ -312,7 +311,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         audit.reset();
 
-        administration.unlock(users.require("ada").id(), BOOTSTRAP_ADMIN);
+        administration.unlock(users.require("ada").id(), users.require(BOOTSTRAP_ADMIN).id());
 
         assertThat(audit.of(AuditOperation.LOCKOUT_LIFT))
                 .singleElement()
@@ -343,7 +342,7 @@ class LoginLockoutTests {
         assertThat(List.of(wrongPassword, locked))
                 .extracting(PasswordRefused::reason)
                 .containsExactly(
-                        AuditRefusalReason.BAD_CREDENTIALS, AuditRefusalReason.ACCOUNT_LOCKED);
+                        PasswordRefusalReason.BAD_CREDENTIALS, PasswordRefusalReason.ACCOUNT_LOCKED);
     }
 
     @Test

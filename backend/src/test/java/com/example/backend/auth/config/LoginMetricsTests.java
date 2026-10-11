@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * {@link LoginMetrics}, the adapter the alert rules read: one {@code login} counter for both login
@@ -34,6 +36,13 @@ class LoginMetricsTests {
                 "ACCOUNT_DISABLED", "OTHER")) {
             assertThat(ending("password", "refused", reason).count()).as(reason).isZero();
         }
+    }
+
+    /** A reason added to the closed set has its series from the start, with no second edit. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(PasswordRefusalReason.class)
+    void everyPasswordRefusalReasonHasItsSeriesAtZeroFromTheStart(PasswordRefusalReason reason) {
+        assertThat(ending("password", "refused", reason.name()).count()).isZero();
     }
 
     @Test

@@ -9,7 +9,6 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -23,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -59,6 +59,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class IdentityAdministrationService {
 
     private static final Logger log = LoggerFactory.getLogger(IdentityAdministrationService.class);
+
+    private static final String ACTOR_REQUIRED =
+            "an administrative operation names its acting administrator by stable id";
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
@@ -154,12 +157,14 @@ public class IdentityAdministrationService {
      * <p>Idempotent on an identity serving no lockout: it is returned unchanged, no change is
      * required and the dormancy window is not restarted — there was no lockout for the credential
      * to have reached, and an Unlock is not a way to keep an unused account from going dormant.
+     *
+     * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
     @Transactional
-    public IdentitySummary unlock(UUID userId, String requestedBy) {
+    public IdentitySummary unlock(UUID userId, UUID actorId) {
+        Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         ScimUser user = require(userId);
-        UUID actorId = actorId(requestedBy);
-        if (isSelf(user, requestedBy)) {
+        if (isSelf(user, actorId)) {
             refused(Operation.UNLOCK, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
             audit.recordUnlockRefused(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
             throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
@@ -213,12 +218,14 @@ public class IdentityAdministrationService {
      *
      * <p>Idempotent: a User already required to change is returned unchanged, and the instant
      * the change was first required is kept.
+     *
+     * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
     @Transactional
-    public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
+    public IdentitySummary forcePasswordChange(UUID userId, UUID actorId) {
+        Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         ScimUser user = require(userId);
-        UUID actorId = actorId(requestedBy);
-        if (isSelf(user, requestedBy)) {
+        if (isSelf(user, actorId)) {
             throw refuseForcedChange(actorId, user.id(),
                     AuditAdministrativeRefusal.SELF_TARGET,
                     new ForbiddenIdentityChangeException(
@@ -256,54 +263,15 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * Whether the caller is the identity they are acting on.
+     * Whether the caller is the identity they are acting on, compared by stable id.
      *
-     * <p>Compared on the NORMALIZED userName, not on the raw strings: the session names its
-     * principal by whatever spelling it logged in with, and a raw comparison would let an
-     * administrator whose session carries a differently-cased spelling of their own name unlock or
-     * flag themselves.
-     *
-     * <p>A blank or unresolvable caller is not the subject. It cannot be: a name that does not
-     * normalize names nobody, so there is no identity for it to be equal to.
+     * <p>The acting administrator is named by the stable id its signed-in session holds, never by
+     * {@code userName}: a directory rename between signing in and acting would otherwise let an
+     * administrator act on itself past the guard, or refuse it acting on the User that took its
+     * former name.
      */
-    private static boolean isSelf(ScimUser user, String requestedBy) {
-        return normalized(requestedBy)
-                .map(name -> name.equals(user.profile().normalizedUserName()))
-                .orElse(false);
-    }
-
-    /**
-     * The stable id behind the administrator's userName, for the event's actor reference.
-     *
-     * <p>{@code null} when the name resolves to no identity, which is not a case worth refusing the
-     * operation over: the caller is an authenticated administrator whose own row could have been
-     * renamed between authentication and this call, and an event recorded with no actor is more use
-     * than no event at all. What it never becomes is the userName itself.
-     *
-     * <p>A name that cannot be normalized at all — null, or blank — is the same answer rather than
-     * an exception. It reaches here only if the web adapter's own guarantees were bypassed, and
-     * failing the whole administrative operation with a {@code 500} over an unidentifiable ACTOR
-     * would be a worse answer than recording the change with no actor named.
-     */
-    private UUID actorId(String requestedBy) {
-        return normalized(requestedBy)
-                .flatMap(users::findByNormalizedUserName)
-                .map(ScimUser::id)
-                .orElse(null);
-    }
-
-    /**
-     * The submitted name in the form lookups and comparisons use, or empty when it has no such form.
-     *
-     * <p>Normalization throws on a blank value, and every caller here wants "then it names nobody"
-     * rather than a propagated failure — so the conversion happens once, in one place, instead of at
-     * three call sites that could each get the guard wrong.
-     */
-    private static Optional<NormalizedUserName> normalized(String userName) {
-        if (userName == null || userName.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(NormalizedUserName.of(userName));
+    private static boolean isSelf(ScimUser user, UUID actorId) {
+        return user.id().equals(actorId);
     }
 
     private static boolean isAdmin(Optional<ScimGroup> adminGroup, ScimUser user) {

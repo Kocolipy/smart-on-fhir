@@ -134,11 +134,11 @@ class ScimQueryProtocolIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Query protocol", "test-admin").id();
+        connectorId = connectors.create("Query protocol", null).id();
         writeToken = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
         readToken = connectors.issueToken(
-                connectorId, TokenPermissions.READ, null, "test-admin", TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.READ, null, null, TokenPermissions.ALL).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"qp-alice","externalId":"ext-alice",

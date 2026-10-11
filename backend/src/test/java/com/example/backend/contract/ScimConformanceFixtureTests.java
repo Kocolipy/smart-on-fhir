@@ -141,19 +141,19 @@ class ScimConformanceFixtureTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("conformance", "test-admin").id();
-        UUID other = connectors.create("conformance-other", "test-admin").id();
+        UUID connector = connectors.create("conformance", null).id();
+        UUID other = connectors.create("conformance-other", null).id();
         writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         readOnlyToken = connectors.issueToken(connector, TokenPermissions.READ, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         userReadToken = connectors.issueToken(connector, Set.of(Permission.USER_READ), null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         writeOnlyToken = connectors.issueToken(connector,
                 Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE), null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         otherConnectorToken = connectors.issueToken(other, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

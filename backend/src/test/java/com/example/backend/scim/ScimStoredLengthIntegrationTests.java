@@ -117,9 +117,9 @@ class ScimStoredLengthIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Length limits", "test-admin").id();
+        connectorId = connectors.create("Length limits", null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

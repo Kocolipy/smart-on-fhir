@@ -1,6 +1,7 @@
 package com.example.backend.scim.controller;
 
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.ConnectorTokenEscalationException;
@@ -8,12 +9,12 @@ import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.application.UnknownConnectorException;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
-import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -54,6 +55,14 @@ import org.springframework.web.bind.annotation.RestController;
  * listing returns; {@link IssuedConnectorToken} carries the plaintext and is returned
  * only by issue and rotate, on a response marked {@code Cache-Control: no-store} so
  * it is not written to a shared cache on its way to the browser.
+ *
+ * <p>The acting administrator is named by the stable id its signed-in session holds, as the
+ * security chain resolved it ({@link RequestActor#userOf}) — never by the {@code userName} the
+ * principal carries, which a connector may rename between the administrator signing in and
+ * acting. Unlike account administration, which refuses a session naming nobody with {@code 401},
+ * a {@code null} id here is passed on and recorded as an event with no actor: no rule of
+ * connector administration turns on who the actor is, and this slice cannot read the
+ * {@code auth} module's session without closing the {@code auth -> scim} dependency into a cycle.
  */
 @RestController
 @RequestMapping("/api/admin/connectors")
@@ -107,8 +116,8 @@ public class AdminConnectorController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('connector:write')")
     public ConnectorSummary create(
-            @Valid @RequestBody CreateConnectorRequest request, Principal principal) {
-        return connectors.create(request.displayName(), principal.getName());
+            @Valid @RequestBody CreateConnectorRequest request, HttpServletRequest http) {
+        return connectors.create(request.displayName(), RequestActor.userOf(http));
     }
 
     /**
@@ -118,8 +127,8 @@ public class AdminConnectorController {
     @DeleteMapping("/{connectorId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAuthority('connector:write')")
-    public void delete(@PathVariable UUID connectorId, Principal principal) {
-        connectors.delete(connectorId, principal.getName());
+    public void delete(@PathVariable UUID connectorId, HttpServletRequest http) {
+        connectors.delete(connectorId, RequestActor.userOf(http));
     }
 
     /**
@@ -131,12 +140,13 @@ public class AdminConnectorController {
     public ResponseEntity<IssuedConnectorToken> issueToken(
             @PathVariable UUID connectorId,
             @Valid @RequestBody IssueTokenRequest request,
-            Authentication caller) {
+            Authentication caller,
+            HttpServletRequest http) {
         return disclosed(connectors.issueToken(
                 connectorId,
                 permissions(request.permissions()),
                 days(request.lifetimeDays()),
-                caller.getName(),
+                RequestActor.userOf(http),
                 held(caller)));
     }
 
@@ -150,14 +160,15 @@ public class AdminConnectorController {
             @PathVariable UUID connectorId,
             @PathVariable UUID tokenId,
             @Valid @RequestBody(required = false) RotateTokenRequest request,
-            Authentication caller) {
+            Authentication caller,
+            HttpServletRequest http) {
         Integer overlapDays = request == null ? null : request.overlapDays();
         List<String> requested = request == null ? null : request.permissions();
         return disclosed(connectors.rotateToken(
                 tokenId,
                 requested == null ? null : permissions(requested),
                 days(overlapDays),
-                caller.getName(),
+                RequestActor.userOf(http),
                 held(caller)));
     }
 
@@ -166,8 +177,8 @@ public class AdminConnectorController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAuthority('connector:token')")
     public void revokeToken(
-            @PathVariable UUID connectorId, @PathVariable UUID tokenId, Principal principal) {
-        connectors.revokeToken(tokenId, principal.getName());
+            @PathVariable UUID connectorId, @PathVariable UUID tokenId, HttpServletRequest http) {
+        connectors.revokeToken(tokenId, RequestActor.userOf(http));
     }
 
     /**

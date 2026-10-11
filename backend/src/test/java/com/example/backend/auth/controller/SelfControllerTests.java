@@ -57,6 +57,7 @@ class SelfControllerTests {
         groups.given(ScimIdentities.group("Builders", bob));
         mvc = MockMvcBuilders
                 .standaloneSetup(new SelfController(new SelfReadService(users, groups)))
+                .setControllerAdvice(new SessionIdentityAdvice())
                 .build();
     }
 

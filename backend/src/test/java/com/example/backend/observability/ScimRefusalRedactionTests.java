@@ -84,9 +84,9 @@ class ScimRefusalRedactionTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("refusal-redaction", "test-admin").id();
+        UUID connectorId = connectors.create("refusal-redaction", null).id();
         token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

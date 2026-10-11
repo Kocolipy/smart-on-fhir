@@ -355,9 +355,27 @@ class LoginIdentityServiceTests {
     // Resolving the stable id
 
     /**
-     * The stable id behind a userName, which the session index is keyed by. Spring Security
-     * carries the userName, so without this the session index would be keyed by a mutable
-     * value.
+     * The User Spring Security authenticates carries its stable id, so a Login works from the
+     * one read it made rather than looking the name up again.
+     */
+    @Test
+    void theAuthenticatedPrincipalCarriesTheUsersStableId() {
+        ScimUser stored = users.given(ScimIdentities.user("Ada"));
+
+        assertThat(service.loadUserByUsername("ADA").userId()).isEqualTo(stored.id());
+    }
+
+    @Test
+    void theEpicLinkedPrincipalCarriesTheUsersStableId() {
+        ScimUser stored = users.given(ScimIdentities.user("eADA"));
+
+        assertThat(service.loadEpicLinkedUser("eADA").orElseThrow().userId())
+                .isEqualTo(stored.id());
+    }
+
+    /**
+     * The stable id behind a userName, for a caller holding only the name Spring Security carries
+     * — the counter feature. A Login does not need it: its principal carries the id.
      */
     @Test
     void resolvesTheStableIdBehindAUserName() {
