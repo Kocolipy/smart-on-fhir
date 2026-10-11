@@ -10,11 +10,13 @@ import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.domain.PasswordNormalization;
 import com.example.backend.web.SpaRoutes;
+import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -191,10 +193,40 @@ public class SecurityConfig {
         return new AbsoluteSessionLifetimePolicy(maxLifetime);
     }
 
+    /**
+     * The bean name of the web layer's absolute-lifetime filter. The chain places it by name, as a
+     * plain {@link Filter}, so this configuration never names the type: one adapter layer does not
+     * depend on another. A name that matched no bean would fail startup rather than leave the
+     * chain without the filter.
+     */
+    static final String ABSOLUTE_SESSION_LIFETIME_FILTER = "absoluteSessionLifetimeFilter";
+
+    /** The bean name of the web layer's logging-context filter; see the one above. */
+    static final String SESSION_USER_LOG_CONTEXT_FILTER = "sessionUserLogContextFilter";
+
+    /**
+     * Keeps the absolute-lifetime filter out of the servlet container. Boot registers every
+     * {@link Filter} bean there unless a registration says otherwise, and there it would run
+     * outside this chain, so its once-per-request marker would then skip it here. The chain is
+     * the only place it runs.
+     */
     @Bean
-    public AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter(
-            AbsoluteSessionLifetimePolicy absoluteSessionLifetimePolicy, Clock clock) {
-        return new AbsoluteSessionLifetimeFilter(absoluteSessionLifetimePolicy, clock);
+    public FilterRegistrationBean<Filter> absoluteSessionLifetimeFilterRegistration(
+            @Qualifier(ABSOLUTE_SESSION_LIFETIME_FILTER) Filter filter) {
+        return chainOnly(filter);
+    }
+
+    /** Keeps the logging-context filter out of the servlet container, for the reason above. */
+    @Bean
+    public FilterRegistrationBean<Filter> sessionUserLogContextFilterRegistration(
+            @Qualifier(SESSION_USER_LOG_CONTEXT_FILTER) Filter filter) {
+        return chainOnly(filter);
+    }
+
+    private static FilterRegistrationBean<Filter> chainOnly(Filter filter) {
+        FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**
@@ -209,7 +241,8 @@ public class SecurityConfig {
             HttpSecurity http,
             SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository,
-            AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter,
+            @Qualifier(ABSOLUTE_SESSION_LIFETIME_FILTER) Filter absoluteSessionLifetimeFilter,
+            @Qualifier(SESSION_USER_LOG_CONTEXT_FILTER) Filter sessionUserLogContextFilter,
             AccessRefusalLog accessRefusalLog,
             AuditTrail auditTrail,
             RouteTemplates routeTemplates,
@@ -252,12 +285,10 @@ public class SecurityConfig {
                 .addFilterBefore(
                         absoluteSessionLifetimeFilter, SecurityContextHolderFilter.class)
                 // After the context is loaded, so the caller's stable id is in the logging
-                // context for every record the rest of the request emits. Constructed here
-                // rather than declared as a bean: a Filter bean is also registered with the
-                // servlet container, where it would run first — ahead of any security context
-                // — and its once-per-request marker would then skip it in this chain.
-                .addFilterAfter(
-                        new SessionUserLogContextFilter(), SecurityContextHolderFilter.class)
+                // context for every record the rest of the request emits. Both filters are the
+                // web layer's beans, kept out of the servlet container by their disabled
+                // registrations above, so each runs here and only here.
+                .addFilterAfter(sessionUserLogContextFilter, SecurityContextHolderFilter.class)
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp
                                 .policyDirectives(CONTENT_SECURITY_POLICY))
@@ -297,11 +328,8 @@ public class SecurityConfig {
                         // change was required does not hold it, so it is refused here with 403,
                         // as it is everywhere but the three routes above. Every active User
                         // without the flag holds ROLE_USER, whatever Roles it has or lacks, so
-                        // a misconfigured mapping can never take these away.
+                        // a misconfigured mapping can never take it away.
                         .requestMatchers(read("/api/self")).hasRole(USER_ROLE)
-                        .requestMatchers(read("/api/session")).hasRole(USER_ROLE)
-                        .requestMatchers(HttpMethod.PUT, "/api/session").hasRole(USER_ROLE)
-                        .requestMatchers(HttpMethod.DELETE, "/api/session").hasRole(USER_ROLE)
                         // ---- Permission per operation (backstop; see above) ----
                         .requestMatchers(read("/api/admin/accounts"))
                                 .hasAuthority(Permission.USER_READ.value())

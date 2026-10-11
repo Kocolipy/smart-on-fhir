@@ -11,11 +11,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.authorization.TestRoleMappings;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.boot.web.servlet.ServletContextInitializerBeans;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpSession;
@@ -68,6 +73,9 @@ class SecurityConfigTests {
     private SecurityContextRepository securityContextRepository;
 
     @Autowired
+    private ConfigurableApplicationContext applicationContext;
+
+    @Autowired
     private CsrfTokenRepository csrfTokenRepository;
 
     private MockMvc mvc;
@@ -84,6 +92,39 @@ class SecurityConfigTests {
         mvc = MockMvcBuilders.standaloneSetup(new ProbeController())
                 .addFilter(proxy)
                 .build();
+    }
+
+    /**
+     * The two session filters run once each, inside the application chain, at their positions:
+     * the absolute-lifetime check just ahead of the filter that loads the security context from
+     * the session, so an expired session is gone before anything reads it, and the logging
+     * context just after it, once there is a caller to name. Neither is also registered with the
+     * servlet container. A container registration would run it outside the chain, and its
+     * once-per-request marker would then skip it inside.
+     */
+    @Test
+    void eachSessionFilterRunsOnceInsideTheChainBesideTheContextLoaderAndNotInTheContainer() {
+        Filter lifetime = applicationContext.getBean("absoluteSessionLifetimeFilter", Filter.class);
+        Filter logContext = applicationContext.getBean("sessionUserLogContextFilter", Filter.class);
+        List<Filter> chain = securityFilterChain.getFilters();
+        int loader = IntStream.range(0, chain.size())
+                .filter(index -> chain.get(index) instanceof SecurityContextHolderFilter)
+                .findFirst().orElseThrow();
+        List<Filter> registeredWithTheContainer = new ServletContextInitializerBeans(
+                        applicationContext.getBeanFactory()).stream()
+                .filter(FilterRegistrationBean.class::isInstance)
+                .map(FilterRegistrationBean.class::cast)
+                .filter(FilterRegistrationBean::isEnabled)
+                .map(registration -> (Filter) registration.getFilter())
+                .toList();
+
+        assertThat(List.of(
+                        chain.stream().filter(filter -> filter == lifetime).count(),
+                        chain.stream().filter(filter -> filter == logContext).count(),
+                        (long) chain.indexOf(lifetime) - loader,
+                        (long) chain.indexOf(logContext) - loader))
+                .containsExactly(1L, 1L, -1L, 1L);
+        assertThat(registeredWithTheContainer).doesNotContain(lifetime, logContext);
     }
 
     /**
@@ -119,7 +160,7 @@ class SecurityConfigTests {
      */
     @Test
     void unsafeRequestWithoutACsrfTokenIsForbidden() throws Exception {
-        mvc.perform(post("/api/session"))
+        mvc.perform(post("/api/count/reset"))
                 .andExpect(status().isForbidden());
     }
 
@@ -137,7 +178,7 @@ class SecurityConfigTests {
                 .andReturn();
         String[] token = issued.getResponse().getContentAsString().split(":", 2);
 
-        mvc.perform(post("/api/session").session(session).header(token[0], token[1]))
+        mvc.perform(post("/api/count/reset").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -154,7 +195,7 @@ class SecurityConfigTests {
                 HttpSessionCsrfTokenRepository.class.getName().concat(".CSRF_TOKEN"));
         assertThat(stored).as("the token the probe left in the session").isNotNull();
 
-        mvc.perform(post("/api/session").session(session)
+        mvc.perform(post("/api/count/reset").session(session)
                         .header(stored.getHeaderName(), stored.getToken()))
                 .andExpect(status().isForbidden());
     }
@@ -210,7 +251,7 @@ class SecurityConfigTests {
 
         mvc.perform(post("/").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/session"))
+        mvc.perform(get("/api/self"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -220,7 +261,7 @@ class SecurityConfigTests {
      */
     @Test
     void theFrontendAllowanceReadsThePathBeneathTheContextPath() throws Exception {
-        mvc.perform(get("/app/api/session").contextPath("/app"))
+        mvc.perform(get("/app/api/self").contextPath("/app"))
                 .andExpect(status().isUnauthorized());
     }
 

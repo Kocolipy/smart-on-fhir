@@ -69,7 +69,7 @@ public class EpicLoginFailureHandler implements AuthenticationFailureHandler {
             HttpServletRequest request, HttpServletResponse response,
             AuthenticationException failure) throws IOException {
         LoginOutcome outcome = outcomeOf(failure);
-        loginCompletion.endUndecided(outcome, request);
+        loginCompletion.endUndecided(outcome, request, response);
         (outcome instanceof Unavailable ? EpicLanding.UNAVAILABLE : EpicLanding.REFUSED)
                 .sendTo(request, response);
     }

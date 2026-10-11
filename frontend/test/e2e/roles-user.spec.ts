@@ -1,7 +1,19 @@
 import { expect, test } from "@playwright/test";
 
-import { postAdminAction } from "./auth.helpers";
-import { BACKEND_URL } from "./scim.helpers";
+import { csrfHeaderFor, postAdminAction, submitLoginViaApi } from "./auth.helpers";
+import {
+  anonymousApi,
+  BACKEND_URL,
+  createConnector,
+  deleteConnector,
+  deprovisionUser,
+  E2E_PREFIX,
+  OWN_PASSWORD,
+  provisionUser,
+  runId,
+  scimApi,
+  settlePassword,
+} from "./scim.helpers";
 
 // The seeded `user`: a baseline User, in no mapped Group, so holding only the
 // baseline Permissions every User holds — the counter's. What it sees and what
@@ -80,7 +92,46 @@ test.describe("baseline User API", () => {
 
   test("keeps its self-service and reads its counter", async ({ page }) => {
     expect((await page.request.get("/api/self")).status()).toBe(200);
-    expect((await page.request.get("/api/session")).status()).toBe(200);
     expect((await page.request.get("/api/count")).status()).toBe(200);
+  });
+
+  /**
+   * Logout is how a caller ends its own session, and the session it ended is
+   * refused afterwards. The User signed out is a baseline User this test
+   * provisions, not the seeded `user`: ending the session `user.json` holds
+   * would sign out every spec that replays it, `console-errors.spec.ts` in the
+   * `admin` project included. The CSRF token is sent, because Logout is not
+   * exempt from CSRF: without it the CSRF filter answers 403 and nobody is
+   * signed out.
+   */
+  test("signs out through Logout, after which its session is refused", async ({ browser }) => {
+    const admin = await browser.newContext({
+      baseURL: test.info().project.use.baseURL,
+      storageState: "test/e2e/.auth/admin.json",
+    });
+    const adminPage = await admin.newPage();
+    const connector = await createConnector(adminPage, `${E2E_PREFIX}logout-${runId()}`);
+    const scim = await scimApi(connector.token);
+    const api = await anonymousApi();
+    let userId: string | undefined;
+    try {
+      const userName = `${E2E_PREFIX}logout-${runId()}`;
+      userId = await provisionUser(scim, userName);
+      await settlePassword(userName);
+      expect((await submitLoginViaApi(api, userName, OWN_PASSWORD)).status()).toBe(200);
+      expect((await api.get("/api/auth/me")).status(), "signed in").toBe(200);
+
+      const logout = await api.delete("/api/auth/logout", { headers: await csrfHeaderFor(api) });
+
+      expect(logout.status()).toBe(204);
+      expect(logout.headers()["clear-site-data"]).toBe('"cache","cookies","storage"');
+      expect((await api.get("/api/auth/me")).status()).toBe(401);
+    } finally {
+      await api.dispose();
+      if (userId !== undefined) await deprovisionUser(scim, userId);
+      await scim.dispose();
+      await deleteConnector(adminPage, connector.id);
+      await admin.close();
+    }
   });
 });

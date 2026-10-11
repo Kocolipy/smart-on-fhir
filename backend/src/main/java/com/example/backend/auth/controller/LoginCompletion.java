@@ -13,7 +13,6 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,10 +32,11 @@ import org.springframework.stereotype.Component;
  *       {@code user-authentication} record and the {@code login} success count, naming the session
  *       the User goes on to use. Only now, so a Login that never got its session — the session
  *       step or the method's work failing — is not logged or counted a success.
- *   <li><b>On a refusal, end the browser's session</b>, whoever it belonged to, and clear the
- *       security context (ADR 0013, D24, and its password analogue), so a shared browser is never
- *       left signed in as the previous User after a Login that signed nobody in. A refused Login
- *       that arrived without a session creates none.
+ *   <li><b>On a refusal, end the browser's session</b>, whoever it belonged to (ADR 0013, D24,
+ *       and its password analogue), so a shared browser is never left signed in as the previous
+ *       User after a Login that signed nobody in. {@link SessionEnding} ends it, for
+ *       {@link SessionEnding.Reason#LOGIN_SIGNED_NOBODY_IN}: invalidated, the security context
+ *       cleared, the cookie expired. A refused Login that arrived without a session creates none.
  * </ol>
  *
  * <p>An Epic Login can also end before any login decision — at the launch, the authorize hop or
@@ -56,16 +56,20 @@ public class LoginCompletion {
 
     private final LoginOutcomeService outcomes;
 
-    public LoginCompletion(SessionEstablishment sessionEstablishment, LoginOutcomeService outcomes) {
+    private final SessionEnding sessionEnding;
+
+    LoginCompletion(SessionEstablishment sessionEstablishment, LoginOutcomeService outcomes,
+            SessionEnding sessionEnding) {
         this.sessionEstablishment = sessionEstablishment;
         this.outcomes = outcomes;
+        this.sessionEnding = sessionEnding;
     }
 
     /**
      * {@link #complete(Function, Consumer, HttpServletRequest, HttpServletResponse)} for a login
      * method with no work of its own on the signed-in session.
      */
-    public Optional<SignedInSession> complete(Function<String, LoginDecision> decide,
+    public Optional<EstablishedLogin> complete(Function<String, LoginDecision> decide,
             HttpServletRequest request, HttpServletResponse response) {
         return complete(decide, signedIn -> { }, request, response);
     }
@@ -81,7 +85,7 @@ public class LoginCompletion {
      * @return the session the Login signed in, or empty when it was refused — a refusal its
      *     decision has recorded already
      */
-    public Optional<SignedInSession> complete(Function<String, LoginDecision> decide,
+    public Optional<EstablishedLogin> complete(Function<String, LoginDecision> decide,
             Consumer<HttpSession> onSignedIn, HttpServletRequest request,
             HttpServletResponse response) {
         HttpSession existing = request.getSession(false);
@@ -89,14 +93,14 @@ public class LoginCompletion {
                 decide.apply(existing == null ? null : existing.getId()).accepted();
         if (decided.isEmpty()) {
             // Recorded by the decision already, which counted it; ended here.
-            endBrowserSession(request);
+            sessionEnding.end(SessionEnding.Reason.LOGIN_SIGNED_NOBODY_IN, request, response);
             return Optional.empty();
         }
         AcceptedLogin accepted = decided.get();
         HttpSession session = sessionEstablishment.establish(accepted, request, response);
         onSignedIn.accept(session);
         outcomes.record(accepted.signedIn(), session.getId());
-        return Optional.of(new SignedInSession(accepted.authentication(), session));
+        return Optional.of(new EstablishedLogin(accepted.authentication(), session));
     }
 
     /**
@@ -106,28 +110,20 @@ public class LoginCompletion {
      * @throws IllegalArgumentException if {@code outcome} is a signed-in one, which only a
      *     decision reaches
      */
-    public void endUndecided(LoginOutcome outcome, HttpServletRequest request) {
+    public void endUndecided(LoginOutcome outcome, HttpServletRequest request,
+            HttpServletResponse response) {
         if (outcome instanceof SignedIn) {
             throw new IllegalArgumentException("a Login signs in only by a login decision");
         }
         HttpSession session = request.getSession(false);
         outcomes.record(outcome, session == null ? null : session.getId());
-        endBrowserSession(request);
-    }
-
-    /** Ends whatever session the browser held, whoever it belonged to, and clears the context. */
-    private static void endBrowserSession(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
-        SecurityContextHolder.clearContext();
+        sessionEnding.end(SessionEnding.Reason.LOGIN_SIGNED_NOBODY_IN, request, response);
     }
 
     /**
      * The session an accepted Login signed in, under its rotated id, and the authentication it was
      * signed in as.
      */
-    public record SignedInSession(Authentication authentication, HttpSession session) {
+    public record EstablishedLogin(Authentication authentication, HttpSession session) {
     }
 }

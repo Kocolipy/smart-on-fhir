@@ -1,17 +1,11 @@
 package com.example.backend.auth.controller;
 
-import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.observability.LogContext;
-import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -20,16 +14,11 @@ import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.session.web.http.CookieSerializer;
-import org.springframework.session.web.http.CookieSerializer.CookieValue;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -43,31 +32,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    /** The response header a logout asks the browser to clear the origin's data with. */
-    static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
-
-    /** Every data type a signed-out session may have left in the browser. */
-    static final String CLEAR_SITE_DATA_ON_LOGOUT = "\"cache\",\"cookies\",\"storage\"";
-
-    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
-
     private final LoginService login;
     private final PasswordChangeService passwordChanges;
-    private final AuditTrail audit;
     private final LoginCompletion loginCompletion;
-    private final CookieSerializer cookieSerializer;
+    private final SessionEnding sessionEnding;
 
-    public AuthController(
+    AuthController(
             LoginService login,
             PasswordChangeService passwordChanges,
-            AuditTrail audit,
             LoginCompletion loginCompletion,
-            CookieSerializer cookieSerializer) {
+            SessionEnding sessionEnding) {
         this.login = login;
         this.passwordChanges = passwordChanges;
-        this.audit = audit;
         this.loginCompletion = loginCompletion;
-        this.cookieSerializer = cookieSerializer;
+        this.sessionEnding = sessionEnding;
     }
 
     /**
@@ -88,7 +66,7 @@ public class AuthController {
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        LoginCompletion.SignedInSession signedIn = loginCompletion.complete(
+        LoginCompletion.EstablishedLogin signedIn = loginCompletion.complete(
                         retained -> login.logIn(body.username(), body.password(), retained),
                         request, response)
                 .orElseThrow(LoginRefusedException::new);
@@ -121,54 +99,18 @@ public class AuthController {
         return userResponse(authentication, session);
     }
 
+    /**
+     * Logout: the caller's session ends for {@link SessionEnding.Reason#LOGOUT} — recorded against
+     * the account it belongs to, fail-closed, then invalidated, the security context cleared, the
+     * cookie expired and {@code Clear-Site-Data} sent, whether or not a live session arrived.
+     *
+     * <p>No CSRF work: the token lived in the session just invalidated, so it is already gone, and
+     * the next login fetches one for the session it creates.
+     */
     @DeleteMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(HttpServletRequest request, HttpServletResponse response) {
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            // Recorded before the session is invalidated, and from the session
-            // itself: the principal index holds the account's stable id, which is
-            // what an event may name, while the security context names it by
-            // username, which is what an event may not. Fail-closed, so a logout
-            // this service cannot account for leaves the session standing rather
-            // than ending it silently.
-            recordLogout(session);
-            session.invalidate();
-        }
-        SecurityContextHolder.clearContext();
-
-        // Invalidating the session server-side leaves the browser holding a
-        // cookie that now names nothing. Expire it so a later request arrives
-        // without a session id at all.
-        cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
-
-        // Tells the browser to drop what the signed-out session left behind — cached responses,
-        // cookies and storage — whether or not a live session arrived with the request, so a
-        // caller whose session already expired is cleaned up the same way.
-        response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
-
-        // No CSRF work: the token lived in the session just invalidated, so it is
-        // already gone, and the next login fetches one for the session it creates.
-    }
-
-    /**
-     * Records the logout against the account the session belongs to.
-     *
-     * <p>A session that identifies nobody — minted before it was signed in to, or
-     * carrying an index that is no stable id — has no account to name, and nothing
-     * was logged out, so nothing is recorded rather than an event with an invented
-     * subject.
-     */
-    private void recordLogout(HttpSession session) {
-        HttpSessionAttributes.signedIn(session).owner().ifPresent(userId -> {
-            audit.recordLogout(userId);
-            // Beside the audit append, after it succeeded: the trail is the record of who
-            // logged out, and this is the operational stream's line for the same moment.
-            try (LogContext.Scope scope = LogContext.userId(userId)) {
-                LogEvent.success(log, Operation.LOGOUT, Category.PROCESS, Type.USER, Type.END)
-                        .log();
-            }
-        });
+        sessionEnding.end(SessionEnding.Reason.LOGOUT, request, response);
     }
 
     /**
@@ -216,8 +158,9 @@ public class AuthController {
      * identifies nobody, with no index or one that is no stable id, is refused with the same bare
      * {@code 401} as a wrong current password. On success every
      * session of that User has been revoked after the commit, this one included; it is also
-     * invalidated here, directly, so the servlet container's copy cannot be written back when the
-     * request completes, and the cookie is expired so the next request arrives as a stranger.
+     * ended here, directly, for {@link SessionEnding.Reason#PASSWORD_CHANGED}, so the servlet
+     * container's copy cannot be written back when the request completes, and the cookie is expired
+     * so the next request arrives as a stranger.
      */
     @PostMapping("/change-password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -233,9 +176,7 @@ public class AuthController {
                 .orElseThrow(CurrentPasswordRejectedException::new);
         passwordChanges.changePassword(userId, body.currentPassword(), body.newPassword());
 
-        session.invalidate();
-        SecurityContextHolder.clearContext();
-        cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
+        sessionEnding.end(SessionEnding.Reason.PASSWORD_CHANGED, request, response);
     }
 
     /** Wrong current password, lockout, inactive: the same bare {@code 401} Login gives. */

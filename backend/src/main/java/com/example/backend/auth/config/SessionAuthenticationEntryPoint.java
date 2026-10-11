@@ -2,6 +2,7 @@ package com.example.backend.auth.config;
 
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
+import com.example.backend.observability.EndedSession;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -62,7 +63,7 @@ public class SessionAuthenticationEntryPoint implements AuthenticationEntryPoint
      * session that was simply never signed in to, ended nothing.
      */
     static boolean ended(HttpServletRequest request) {
-        if (request.getAttribute(AbsoluteSessionLifetimeFilter.ENDED_ATTRIBUTE) != null) {
+        if (EndedSession.markedOn(request)) {
             return true;
         }
         return request.getRequestedSessionId() != null && !request.isRequestedSessionIdValid();

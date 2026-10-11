@@ -607,7 +607,6 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(status(get("/api/admin/connectors"), session)).isEqualTo(403);
         assertThat(status(get("/api/count"), session)).isEqualTo(403);
         assertThat(status(post("/api/count/increment"), session)).isEqualTo(403);
-        assertThat(status(get("/api/session"), session)).isEqualTo(403);
         assertThat(status(get("/actuator/prometheus"), session)).isEqualTo(403);
     }
 

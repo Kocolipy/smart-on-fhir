@@ -1,4 +1,4 @@
-package com.example.backend.auth.config;
+package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -9,6 +9,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.SignedInSession;
+import com.example.backend.observability.EndedSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import java.time.Duration;
@@ -130,8 +131,7 @@ class AbsoluteSessionLifetimeFilterTests {
         }
 
         assertThat(session.isInvalid()).isTrue();
-        assertThat(request.getAttribute(AbsoluteSessionLifetimeFilter.ENDED_ATTRIBUTE))
-                .isEqualTo(Boolean.TRUE);
+        assertThat(EndedSession.markedOn(request)).isTrue();
         assertThat(records).singleElement().satisfies(record -> {
             assertThat(record.getLevel()).isEqualTo(Level.INFO);
             assertThat(record.getFormattedMessage()).isEqualTo("Session ended");
@@ -182,7 +182,7 @@ class AbsoluteSessionLifetimeFilterTests {
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.KIND, "event")).isEmpty();
         }
-        assertThat(request.getAttribute(AbsoluteSessionLifetimeFilter.ENDED_ATTRIBUTE)).isNull();
+        assertThat(EndedSession.markedOn(request)).isFalse();
     }
 
     // ---- a session holding Epic tokens is stored no longer than its lifetime (#24) -----------

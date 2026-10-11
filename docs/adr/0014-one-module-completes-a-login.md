@@ -144,3 +144,38 @@ that drifted.
 **An application service instead of a web adapter.** Rejected: establishing and
 ending a session is servlet work. `LoginCompletion` depends on no Epic bean, so it
 exists whether Epic Login is on or not.
+
+## Addendum (2026-10-11): step 5 ends the session through `SessionEnding`
+
+Step 5 no longer ends the browser's session itself. `LoginCompletion` hands it to
+`SessionEnding` (`com.example.backend.auth.controller`), the one module that ends
+the caller's own session, with the reason `LOGIN_SIGNED_NOBODY_IN`. Logout and the
+end of a session after a password change use the same module, each with its own
+reason, so the steps cannot drift apart between the three again. The sequence is
+fixed: the reason's record, the invalidation, the security-context clear, the
+session-cookie expiry, and `Clear-Site-Data` where the reason sends it.
+
+Two things change for a Login that signed nobody in, by either method. The
+answer, whether a bare `401` or Epic's redirect, now also expires the session
+cookie, as Logout's always has. It still sends no `Clear-Site-Data`. Its own
+record stays `LoginOutcomeService`'s, and a refused Login that arrived without a
+session still creates none. `LoginCompletion.endUndecided` now takes the response,
+so the cookie can be expired, and the pairing `complete` returns is named
+`LoginCompletion.EstablishedLogin`. Only the domain module is named
+`SignedInSession`.
+
+The same day, so that one servlet adapter of `SignedInSession.Attributes` could
+serve every reader, the application chain's two session filters,
+`AbsoluteSessionLifetimeFilter` and `SessionUserLogContextFilter`, moved from
+`auth.config` to `auth.controller` beside it. Before, each adapter layer had a
+byte-identical copy of `HttpSessionAttributes`, because the onion rule forbids one
+adapter layer depending on another, and that rule is unchanged. The filters are now
+named web-layer beans. `SecurityConfig` places them by name as plain `Filter`s at
+the same positions, the lifetime check just before `SecurityContextHolderFilter`
+and the logging context just after it. Disabled `FilterRegistrationBean`s keep both
+out of the servlet container. The request mark that tells the chain's entry point a
+session was just ended, which used to be a constant on the filter, is now
+`observability.EndedSession`, so the entry point does not reach into the web layer.
+The lifetime filter's own ending is unchanged: it records `session-end`, expires no
+cookie, and is the one stated exception to `SessionEnding`, because it ends a
+session for its age rather than at the caller's request.

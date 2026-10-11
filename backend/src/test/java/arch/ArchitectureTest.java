@@ -377,8 +377,7 @@ public class ArchitectureTest {
             // Our public JWKS, which Epic fetches with no session (D14).
             "com.example.backend.auth.epic.controller.EpicJwksController",
             // The EHR launch, which the browser opens from Epic with no session of ours (D1).
-            "com.example.backend.auth.epic.controller.EpicLaunchController",
-            "com.example.backend.session.controller.SessionController");
+            "com.example.backend.auth.epic.controller.EpicLaunchController");
 
     /**
      * The SCIM protocol's handlers, which sit on the bearer chain: it authorizes connector tokens
@@ -445,11 +444,10 @@ public class ArchitectureTest {
             // (backend/AGENTS.md).
             Map.entry("scim", Set.of("audit", "authorization", "observability")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
-            // counter, lifecycle and session are leaves, which no entry names: removing one must
-            // not break another module.
+            // counter and lifecycle are leaves, which no entry names: removing one must not break
+            // another module.
             Map.entry("counter", Set.of("auth")),
-            Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")),
-            Map.entry("session", Set.of()));
+            Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")));
 
     private static final String ROOT_PACKAGE = "com.example.backend";
 
@@ -1048,6 +1046,84 @@ public class ArchitectureTest {
                 .haveFullyQualifiedName("com.example.backend.auth.controller.SessionEstablishment")
             .because("ADR 0014: no adapter can sign a session in without the rest of the Login"
                     + " around it");
+
+    /**
+     * The login surface ends the caller's session through {@code SessionEnding} alone.
+     *
+     * <p>Logout, the end of a session after a password change, and a Login that signed nobody in
+     * each name a {@code SessionEnding.Reason}; the module runs the record, the invalidation, the
+     * context clear, the cookie expiry and {@code Clear-Site-Data} in one order. A handler that
+     * invalidated, cleared or expired by hand would be a second copy of the sequence, which is how
+     * the copies that preceded the module drifted apart.
+     *
+     * <p>One named exception: {@code AbsoluteSessionLifetimeFilter}, a chain filter rather than a
+     * handler, which ends a session that outlived its policy before the security context is loaded
+     * and lets the request go on as a stranger's. It expires no cookie, because the same request
+     * may go on to open the next session, and it records its own {@code session-end}. It ends no
+     * session at the caller's request, so it is not one of the module's reasons.
+     *
+     * <p>And a second: {@code EpicLaunchController}'s accepted launch, which replaces the session
+     * rather than ending it (ADR 0013, D9). It invalidates the session the browser held and opens
+     * the Login's new one in the same response, whose cookie names the new session; expiring the
+     * cookie there would contradict it. Its refusals end the session through
+     * {@code SessionEnding}, like every other Login that signed nobody in.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_session_ending_ends_the_callers_session =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.auth..")
+            .and().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.SessionEnding(\\$.*)?")
+            .and().doNotHaveFullyQualifiedName(
+                    "com.example.backend.auth.controller.AbsoluteSessionLifetimeFilter")
+            .and().doNotHaveFullyQualifiedName(
+                    "com.example.backend.auth.epic.controller.EpicLaunchController")
+            .should().callMethod(jakarta.servlet.http.HttpSession.class, "invalidate")
+            .orShould().callMethod(
+                    org.springframework.security.core.context.SecurityContextHolder.class,
+                    "clearContext")
+            .because("every way the login surface ends the caller's session runs SessionEnding's"
+                    + " one sequence for a stated reason");
+
+    /**
+     * {@code SignedInSession} names one thing: the domain module that owns the signed-in session's
+     * attributes. A second type of that name — a nested pairing of an authentication and a
+     * session, say — reads at every call site as the module, and is not it.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule one_type_is_named_signed_in_session =
+        classes()
+            .that().haveSimpleName("SignedInSession")
+            .should().haveFullyQualifiedName("com.example.backend.auth.domain.SignedInSession")
+            .because("the signed-in session module is the one type of that name");
+
+    /**
+     * The signed-in session's attributes are adapted twice, once per session API: the servlet
+     * container's {@code HttpSession}, for the web handlers and the application chain's session
+     * filters alike (the filters are web-layer beans the security configuration places by name),
+     * and Spring Session's stored session, read-only. A third would be a copy that can drift.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_signed_in_session_has_one_adapter_per_session_api =
+        classes()
+            .that().implement("com.example.backend.auth.domain.SignedInSession$Attributes")
+            .should().haveFullyQualifiedName("com.example.backend.auth.controller.HttpSessionAttributes")
+            .orShould().haveFullyQualifiedName(
+                    "com.example.backend.auth.infrastructure.session.SpringSessionAttributes")
+            .because("one servlet adapter and one Spring Session adapter serve every reader of the"
+                    + " signed-in session");
+
+    /** The session cookie is expired in one place, beside the invalidation it follows. */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_session_ending_expires_the_session_cookie =
+        noClasses()
+            .that().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.SessionEnding(\\$.*)?")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "CookieSerializer.writeCookieValue",
+                    (JavaMethodCall call) -> call.getTargetOwner().isAssignableTo(
+                                    org.springframework.session.web.http.CookieSerializer.class)
+                            && call.getName().equals("writeCookieValue")))
+            .because("the session cookie is expired by SessionEnding, as one step of ending the"
+                    + " caller's session, never on its own");
 
     // ADR 0001: count login attempts on the login path
     @com.tngtech.archunit.junit.ArchTest

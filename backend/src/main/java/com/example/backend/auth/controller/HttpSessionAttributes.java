@@ -7,11 +7,14 @@ import java.time.Instant;
 
 /**
  * The servlet container's session as {@link SignedInSession} reads and writes it, for the web
- * adapters: every handler here and in {@code auth.epic.controller} asks the signed-in session its
- * questions through this, and none reads the attribute map itself.
+ * adapters: every handler here and in {@code auth.epic.controller}, and the application chain's
+ * session filters ({@link AbsoluteSessionLifetimeFilter}, {@link SessionUserLogContextFilter}),
+ * asks the signed-in session its questions through this, and none reads the attribute map itself.
  *
- * <p>Delegation only; the shape is the module's. {@code auth.config}'s filters hold a copy of
- * their own, because one adapter layer does not depend on another.
+ * <p>Delegation only; the shape is the module's. It is the one servlet adapter: the filters that
+ * need it are the web layer's own beans, which the security configuration places by name, so no
+ * other adapter layer needs a copy. Spring Session's stored session has the other adapter,
+ * {@code auth.infrastructure.session.SpringSessionAttributes}.
  *
  * @param session the session to read and write
  */

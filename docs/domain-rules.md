@@ -556,7 +556,7 @@ sends them there.
 
 **User** — any identity in the SCIM directory, signed in or not. Every active
 User with a session receives baseline access — self-service: `GET /api/auth/me`,
-its own password change, logout, `/api/self` and `/api/session` — and nothing
+its own password change, logout and `/api/self` — and nothing
 else without a Permission, in the browser or over the API. Baseline access is
 `ROLE_USER`, granted to every session not confined by
 the change-required flag, whatever Roles it holds or lacks, so a misconfigured
@@ -572,7 +572,7 @@ needs, and whatever declares nothing is refused. Three kinds of operation:
 
 - **Public** — `POST /api/auth/login`, `GET /api/auth/csrf` and
   `/actuator/health`, reachable with no session.
-- **Self-service** — authenticated, no Permission: the five baseline routes
+- **Self-service** — authenticated, no Permission: the four baseline routes
   above. They act only on the session's own User and take no User id from the
   request, so there is no caller-supplied id to check ownership against.
 - **One Permission** — every other operation requires exactly one, declared on
@@ -794,8 +794,8 @@ a connector write never clears it.
 **Confined session** — a session issued by a password Login while the
 change-required flag is set. It holds no Permission and not even baseline access,
 a Superuser's included, so it may call only `GET /api/auth/me`, the self-service
-change and logout; every other endpoint, `/api/admin/**`, `/api/self` and
-`/api/session` included, answers `403`. An Epic Login is never confined: it
+change and logout; every other endpoint, `/api/admin/**` and `/api/self`
+included, answers `403`. An Epic Login is never confined: it
 presents no password of this service's, so the imposed credential the flag marks
 is not what it used, and it receives the authorities the User would hold with the
 flag clear (ADR 0008's 2026-10-09 addendum). A User who only ever signs in

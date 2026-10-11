@@ -44,6 +44,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -215,7 +216,7 @@ class AuthorizationContractTests {
         List<Operation> selfService = withAccess(Access.SELF_SERVICE);
         assertThat(selfService).extracting(Operation::toString).contains(
                 "GET /api/auth/me", "POST /api/auth/change-password", "DELETE /api/auth/logout",
-                "GET /api/self", "GET /api/session", "PUT /api/session", "DELETE /api/session");
+                "GET /api/self");
         for (Operation operation : selfService) {
             assertThat(call(operation, session(List.of())))
                     .as("%s with baseline access alone", operation)
@@ -425,6 +426,33 @@ class AuthorizationContractTests {
                     .as("%s %s", undeclared[0], undeclared[1])
                     .isEqualTo(403);
         }
+    }
+
+    /**
+     * {@code /api/session} no longer exists. It is answered as any route nothing declares — a
+     * session holding every Permission is refused, a caller with none is unauthenticated — and
+     * neither answer carries the id of the session that asked.
+     */
+    @Test
+    void the_retired_session_endpoint_is_an_undeclared_route_and_names_no_session_id()
+            throws Exception {
+        List<String> answers = new ArrayList<>();
+        for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
+            MockHttpSession session = session(EVERY_PERMISSION);
+            MockHttpServletRequestBuilder signedIn = request(method, "/api/session").session(session);
+            MockHttpServletRequestBuilder guest = request(method, "/api/session");
+            if (method == HttpMethod.DELETE) {
+                // A token for each, so the refusal is the authorization one and not the CSRF
+                // filter's.
+                SessionCsrf.withCsrf(mvc, signedIn);
+                SessionCsrf.withCsrf(mvc, guest);
+            }
+            MockHttpServletResponse refused = mvc.perform(signedIn).andReturn().getResponse();
+            MockHttpServletResponse anonymous = mvc.perform(guest).andReturn().getResponse();
+            assertThat(refused.getContentAsString()).doesNotContain(session.getId());
+            answers.add(method + " " + refused.getStatus() + " " + anonymous.getStatus());
+        }
+        assertThat(answers).containsExactly("GET 403 401", "DELETE 403 401");
     }
 
     @Test

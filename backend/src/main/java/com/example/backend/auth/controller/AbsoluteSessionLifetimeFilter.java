@@ -1,8 +1,9 @@
-package com.example.backend.auth.config;
+package com.example.backend.auth.controller;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokens;
 import com.example.backend.auth.domain.SignedInSession;
+import com.example.backend.observability.EndedSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -20,6 +21,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -27,7 +29,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * an existing session.
  *
  * <p>Runs before the security context is loaded from the session (see its
- * placement in {@link SecurityConfig#securityFilterChain}), so an expired
+ * placement in {@code SecurityConfig#securityFilterChain}), so an expired
  * session is invalidated and its authentication cleared before anything later
  * in the chain reads either — the rest of the chain sees exactly what it would
  * see if the browser had presented no session cookie at all, and a protected
@@ -48,13 +50,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * asked of {@link SignedInSession}, so the age and the owner are read here exactly
  * as everywhere else.
  */
+@Component(AbsoluteSessionLifetimeFilter.BEAN_NAME)
 public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
 
     /**
-     * Set on a request whose session this filter ended, so the entry point that answers it can
-     * say the session expired rather than that there never was one.
+     * The bean name the security configuration places this filter by, as a plain
+     * {@code jakarta.servlet.Filter}: it never names this type, because one adapter layer does not
+     * depend on another.
      */
-    static final String ENDED_ATTRIBUTE = AbsoluteSessionLifetimeFilter.class.getName() + ".ended";
+    static final String BEAN_NAME = "absoluteSessionLifetimeFilter";
 
     /** The cause a session-end record names for a session ended here. */
     static final String CAUSE = "absolute-lifetime";
@@ -84,7 +88,7 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
                 UUID owner = signedIn.owner().orElse(null);
                 session.invalidate();
                 SecurityContextHolder.clearContext();
-                request.setAttribute(ENDED_ATTRIBUTE, Boolean.TRUE);
+                EndedSession.mark(request);
                 recordEnded(owner);
             } else {
                 // This request renews the session for its idle bound again, so near the

@@ -221,8 +221,8 @@ Permissions asked for.
 
 **Baseline access**:
 What every active User holds without any Role and without a required
-password change: self-service (`/api/auth/me`, change-password, logout,
-`/api/self`, `/api/session`), spelled `ROLE_USER` in the session and not a Role,
+password change: self-service (`/api/auth/me`, change-password, logout and
+`/api/self`), spelled `ROLE_USER` in the session and not a Role,
 and the baseline Permissions `counter:read` and `counter:write`.
 
 **Counter**:
