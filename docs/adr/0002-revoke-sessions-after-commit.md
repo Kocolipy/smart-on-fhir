@@ -9,7 +9,7 @@ Accepted.
 The disable endpoint this ADR was written against has since been removed;
 deactivation now comes only from the directory (SCIM). The decision stands and is
 carried by the `AfterCommit` port (`auth.application.AfterCommit`): every service
-that ends sessions as part of a write — a lockout imposed by `FailureCounter`, a
+that ends sessions as part of a write — a lockout imposed by `LoginStateService`, a
 dormancy lockout, a password change, a SCIM User or Group write — revokes them
 only once its transaction commits.
 
@@ -78,7 +78,7 @@ disabling does.
   so it must not lazily load anything. It takes the account's id
   (`AccountSessions.revokeAll(UUID)`), which is why this is cheap.
 - Testable: the `PendingCommit` double distinguishes the orderings — e.g.
-  `FailureCounterTests.aRolledBackLockoutRevokesNothing` — and
+  `LoginStateServiceTests.aRolledBackLockoutRevokesNothing` — and
   `AfterCommitAdapterTests` drives Spring's real synchronization registry.
 
 ## Alternatives considered

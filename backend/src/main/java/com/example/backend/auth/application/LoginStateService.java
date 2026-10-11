@@ -1,0 +1,204 @@
+package com.example.backend.auth.application;
+
+import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Optional;
+import org.springframework.stereotype.Service;
+
+/**
+ * The login-state module: the one owner of a User's Failure run, its dormancy basis and its
+ * change-required flag on the Login side. A caller reports what happened — a failure counted, a
+ * credential verified, a password changed, an Unlock — and this decides the resulting state and
+ * carries out the narrow writes it implies. No caller writes those fields itself.
+ *
+ * <p>The rules, event by event:
+ *
+ * <ul>
+ *   <li><b>Failure counted</b> — a refused password Login or a self-service change's wrong current
+ *       password: the run lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a
+ *       Lockout for failures as of now. A User already locked is left as it is, whatever its lock
+ *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
+ *       reservation marker ({@code /docs/adr/0007-permanent-lockout-until-admin-unlock.md}).
+ *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
+ *       moves unless the Login builds a Confined session (ADR 0008 and its addendum).
+ *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
+ *       stored and the flag cleared in one write), and the dormancy basis moves.
+ *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, and when a lock
+ *       stood the dormancy basis restarts (ADR 0011) and, for a User with a password, a change is
+ *       required. Idempotent on a User serving no lockout: only its run is cleared.
+ * </ul>
+ *
+ * <h2>Confinement</h2>
+ *
+ * <p>Whether a Login builds a Confined session is decided here ({@link #confines}), and both of its
+ * consequences read that one answer: the dormancy basis this module moves, and the authorities
+ * {@link LoginIdentityService} issues. A password Login by a User whose flag is set is confined; an
+ * Epic Login never is, because it presented no password of ours (D20), so it moves the basis while
+ * the flag stays set — only a successful password change clears it.
+ *
+ * <h2>What a newly imposed Lockout implies</h2>
+ *
+ * <p>The transition into a Lockout — and only the transition — is audited as {@code LOCKOUT_SET}
+ * and ends every Session of the User, in that order after the new state is written, so a counting
+ * path's own refusal event, recorded once this returns, lands last. The revocation is the Session
+ * revocation module's ({@link SessionRevocationService}) under
+ * {@link SessionRevocationCause#FAILURE_RUN_LOCKOUT}: it runs after the transaction commits,
+ * because Redis is not in the transaction ({@code /docs/adr/0002-revoke-sessions-after-commit.md}),
+ * and it is audited under that cause. It is the one revocation a refusal imposes, so a session
+ * store that fails is recorded and alerted without changing the path's bare refusal (ADR 0004's
+ * 2026-10-10 addendum). The {@code LOCKOUT_SET} append is fail-open, as everything on the failure
+ * path is ({@link AuditTrail}).
+ *
+ * <h2>Narrow writes</h2>
+ *
+ * <p>Every write goes through one narrow port operation per field set —
+ * {@link ScimUserRepository#updateLoginState} for the run and the lock,
+ * {@link ScimUserRepository#recordAuthentication} and
+ * {@link ScimUserRepository#resetDormancyBasis} for the basis,
+ * {@link ScimUserRepository#requirePasswordChange} and
+ * {@link ScimUserRepository#completePasswordChange} for the flag — never a full-row write, and a
+ * field the decision leaves unchanged is not written at all.
+ *
+ * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
+ * commits with it. Counting is still triggered explicitly from the Login and password-change paths
+ * ({@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}); nothing here listens for
+ * events.
+ */
+@Service
+public class LoginStateService {
+
+    /** The kind of Login that verified a credential, which decides whether it is confined. */
+    public enum LoginKind {
+        /** A password Login: the change-required flag marks the very credential it presented. */
+        PASSWORD,
+        /** An Epic Login: it presented no password of ours, so the flag does not confine it. */
+        EPIC
+    }
+
+    /**
+     * What an Unlock decided.
+     *
+     * @param state          the User's login state as the Unlock left it
+     * @param changeRequired whether the Unlock required a password change
+     */
+    public record Unlock(ScimLoginState state, boolean changeRequired) {
+    }
+
+    private final ScimUserRepository users;
+    private final SessionRevocationService sessions;
+    private final LockoutPolicy policy;
+    private final AuditTrail audit;
+    private final Clock clock;
+
+    public LoginStateService(
+            ScimUserRepository users,
+            SessionRevocationService sessions,
+            LockoutPolicy policy,
+            AuditTrail audit,
+            Clock clock) {
+        this.users = users;
+        this.sessions = sessions;
+        this.policy = policy;
+        this.audit = audit;
+        this.clock = clock;
+    }
+
+    /**
+     * Whether a Login of this kind, by a User in this state, builds a Confined session: one that
+     * may only change the password or log out.
+     */
+    public static boolean confines(LoginKind kind, ScimLoginState state) {
+        return kind == LoginKind.PASSWORD && state.isPasswordChangeRequired();
+    }
+
+    /**
+     * A refused password Login or password-change attempt against {@code user}: counts it, and on a
+     * newly imposed Lockout audits it and revokes every Session of the User after the commit.
+     */
+    public void failureCounted(ScimUser user) {
+        ScimLoginState before = user.login();
+        ScimLoginState after = user.isExemptFromLockout()
+                ? before.withFailureCounted()
+                : before.withFailureRecorded(policy, clock.instant());
+        writeFailureRun(user, before, after);
+        if (after.isLocked() && !before.isLocked()) {
+            audit.recordLockoutSet(user.id());
+            sessions.revokeAllAfterCommit(
+                    user.id(), SessionRevocationCause.FAILURE_RUN_LOCKOUT, null);
+        }
+    }
+
+    /**
+     * An accepted Login by {@code user}: clears its run, and moves its dormancy basis unless the
+     * Login builds a Confined session — a confined session can do nothing but change the password
+     * or log out, so it is not use of the account, and counting it would let an imposed credential
+     * nobody replaces stay live for as long as somebody keeps logging in with it (ADR 0008).
+     */
+    public void credentialVerified(ScimUser user, LoginKind kind) {
+        ScimLoginState before = user.login();
+        writeFailureRun(user, before, before.withFailureRunCleared());
+        if (!confines(kind, before)) {
+            users.recordAuthentication(user.id(), clock.instant());
+        }
+    }
+
+    /**
+     * A self-service change of {@code user}'s password to {@code passwordHash}, its current one
+     * having verified: clears the run, completes the change, and moves the dormancy basis — for a
+     * User that owed the change it is the first use of the account, since its confined Logins did
+     * not move the basis.
+     *
+     * @return the instant the change was completed at, which the credential, the dormancy basis
+     *     and the caller's password history all share; empty when the User was gone by the write,
+     *     in which case the basis is not moved
+     */
+    public Optional<Instant> passwordChanged(ScimUser user, String passwordHash) {
+        ScimLoginState before = user.login();
+        writeFailureRun(user, before, before.withFailureRunCleared());
+        Instant now = clock.instant();
+        if (users.completePasswordChange(user.id(), passwordHash, now).isEmpty()) {
+            return Optional.empty();
+        }
+        users.recordAuthentication(user.id(), now);
+        return Optional.of(now);
+    }
+
+    /**
+     * An Admin Unlock of {@code user}: clears the run and any Lockout, and when a lock stood
+     * restarts the dormancy basis and, for a User with a password, requires a change — the
+     * credential that reached the limit may be the one an attacker was guessing. A User serving no
+     * lockout has only its run cleared.
+     *
+     * @return the state the Unlock left, and whether it required a change
+     */
+    public Unlock unlocked(ScimUser user) {
+        ScimLoginState before = user.login();
+        ScimLoginState after = before.withFailureRunCleared();
+        writeFailureRun(user, before, after);
+        if (!before.isLocked()) {
+            return new Unlock(after, false);
+        }
+        Instant now = clock.instant();
+        after = after.withDormancyBasisReset(now);
+        users.resetDormancyBasis(user.id(), now);
+        if (!before.hasPassword()) {
+            return new Unlock(after, false);
+        }
+        after = after.withPasswordChangeRequired(now);
+        users.requirePasswordChange(user.id(), now);
+        return new Unlock(after, true);
+    }
+
+    /** Writes the run and the lock when the decision changed either, and nothing otherwise. */
+    private void writeFailureRun(ScimUser user, ScimLoginState before, ScimLoginState after) {
+        if (!after.sameFailureRunAs(before)) {
+            users.updateLoginState(user.id(), after);
+        }
+    }
+}

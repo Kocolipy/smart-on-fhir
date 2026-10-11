@@ -87,16 +87,16 @@ class RefusalTimingEquivalenceTests {
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         RecordingAuditTrail audit = new RecordingAuditTrail();
+        SessionRevocationService revocation = new SessionRevocationService(
+                new InMemoryAccountSessions(),
+                new PendingCommit(),
+                audit,
+                new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new SessionRevocationService(
-                        new InMemoryAccountSessions(),
-                        new PendingCommit(),
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(5),
-                audit,
-                clock);
+                new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock),
+                revocation,
+                audit);
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 attempts,

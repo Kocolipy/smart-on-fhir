@@ -71,13 +71,14 @@ class PasswordLoginRenameTests {
         ada = users.given(withPassword("ada", 0)).id();
         LoginIdentityService identities = new LoginIdentityService(
                 users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+        SessionRevocationService revocation = new SessionRevocationService(
+                sessions, transaction, audit, new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new SessionRevocationService(
-                        sessions, transaction, audit, new RecordingOperationalAlerts()),
-                new LockoutPolicy(5),
-                audit,
-                new MutableClock(NOW));
+                new LoginStateService(
+                        users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
+                revocation,
+                audit);
         AuthenticationManager real = config.authenticationManager(identities, passwordEncoder);
         AuthenticationManager racing = request -> {
             Authentication authenticated =

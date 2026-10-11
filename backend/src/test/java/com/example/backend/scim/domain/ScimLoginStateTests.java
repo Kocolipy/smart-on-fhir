@@ -294,4 +294,45 @@ class ScimLoginStateTests {
         assertThatThrownBy(() -> state.withDormancyBasisReset(null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+    /**
+     * Two states share a failure run when their count and their lock agree, whatever else differs:
+     * the run is exactly what {@link ScimUserRepository#updateLoginState} writes, so a caller can
+     * skip a write that would change nothing.
+     */
+    @Test
+    void states_differing_only_outside_the_run_share_a_failure_run() {
+        ScimLoginState state = new ScimLoginState("hash", 2, NOW, LockCause.FAILURES, null, null);
+
+        assertThat(state.sameFailureRunAs(new ScimLoginState(
+                "other", 2, NOW, LockCause.FAILURES, NOW.minusSeconds(60), NOW))).isTrue();
+    }
+
+    /** A different count is a different failure run. */
+    @Test
+    void a_different_count_is_a_different_failure_run() {
+        assertThat(new ScimLoginState("hash", 2, null)
+                .sameFailureRunAs(new ScimLoginState("hash", 3, null))).isFalse();
+    }
+
+    /** A different lock instant is a different failure run. */
+    @Test
+    void a_different_lock_instant_is_a_different_failure_run() {
+        assertThat(new ScimLoginState("hash", 3, NOW)
+                .sameFailureRunAs(new ScimLoginState("hash", 3, NOW.plusSeconds(1)))).isFalse();
+    }
+
+    /** A lock where the other has none is a different failure run. */
+    @Test
+    void a_lock_against_none_is_a_different_failure_run() {
+        assertThat(new ScimLoginState("hash", 3, NOW)
+                .sameFailureRunAs(new ScimLoginState("hash", 3, null))).isFalse();
+    }
+
+    /** The same instant locked for another cause is a different failure run. */
+    @Test
+    void a_different_lock_cause_is_a_different_failure_run() {
+        assertThat(new ScimLoginState("hash", 0, NOW, LockCause.FAILURES, null, null)
+                .sameFailureRunAs(new ScimLoginState("hash", 0, NOW, LockCause.DORMANCY, null, null)))
+                .isFalse();
+    }
 }

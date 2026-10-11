@@ -22,6 +22,7 @@ import com.example.backend.auth.application.LoginOutcome.Unavailable;
 import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginDecision;
+import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
@@ -102,16 +103,17 @@ class LoginCompletionTests {
                 ScimIdentities.NOW)).id();
         LoginIdentityService identities = new LoginIdentityService(
                 users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+        SessionRevocationService revocation = new SessionRevocationService(
+                accountSessions,
+                new PendingCommit(),
+                audit,
+                new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new SessionRevocationService(
-                        accountSessions,
-                        new PendingCommit(),
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(5),
-                audit,
-                new MutableClock(NOW));
+                new LoginStateService(
+                        users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
+                revocation,
+                audit);
         outcomes = new LoginOutcomeService(attempts, audit, counts, counts);
         login = new LoginService(config.authenticationManager(identities, passwordEncoder),
                 attempts, identities, outcomes);

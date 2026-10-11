@@ -146,7 +146,7 @@ public class LoginIdentityService implements UserDetailsService {
     public LoginPrincipal loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return userDetailsOf(user, Confinement.BY_CHANGE_REQUIRED_FLAG);
+        return userDetailsOf(user, LoginStateService.LoginKind.PASSWORD);
     }
 
     /**
@@ -173,19 +173,24 @@ public class LoginIdentityService implements UserDetailsService {
         return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
                 .filter(user -> user.profile().userName().equals(practitionerId))
                 .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
-                .map(user -> userDetailsOf(user, Confinement.NONE));
+                .map(user -> userDetailsOf(user, LoginStateService.LoginKind.EPIC));
     }
 
     /**
      * The User as a {@link LoginPrincipal}: Spring Security's view of it, carrying the stable id
      * the rest of the Login works from, so nothing after authentication reads the User by name.
+     *
+     * <p>Whether the session is confined is the login-state module's rule
+     * ({@link LoginStateService#confines}), the same answer that decides whether the Login moves
+     * the dormancy basis, so the two halves of a Login cannot disagree about it. Asking it writes
+     * nothing.
      */
-    private LoginPrincipal userDetailsOf(ScimUser user, Confinement confinement) {
+    private LoginPrincipal userDetailsOf(ScimUser user, LoginStateService.LoginKind kind) {
         User.UserBuilder builder = User.withUsername(user.profile().userName())
                 .password(user.login().hasPassword()
                         ? user.login().passwordHash()
                         : noPasswordSetMarker());
-        if (confinement.confines(user.login().isPasswordChangeRequired())) {
+        if (LoginStateService.confines(kind, user.login())) {
             builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
         } else {
             builder.authorities(authoritiesOf(user));

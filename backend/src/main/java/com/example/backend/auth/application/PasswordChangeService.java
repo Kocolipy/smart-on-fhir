@@ -9,10 +9,8 @@ import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
-import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -36,11 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>The new password must satisfy {@link PasswordPolicy} and must not match the current
  *       password or one of the retained previous ones — decided by {@link PasswordAcceptance}, the
  *       same owner SCIM writes use. A refusal names the rule, never a value.
- *   <li>Accepted: the new password is stored as the hash acceptance produced, the flag is cleared,
- *       the version advances, acceptance remembers the new hash, a {@code PASSWORD_CHANGE} event is
- *       committed with the write,
- *       and every session of the User — the one that submitted this included — ends after the
- *       commit.
+ *   <li>Accepted: reported to {@link LoginStateService#passwordChanged}, which clears the failure
+ *       run, stores the hash acceptance produced and clears the flag (the version advances), and
+ *       moves the dormancy basis; then acceptance remembers the new hash, a
+ *       {@code PASSWORD_CHANGE} event is committed with the write, and every session of the User —
+ *       the one that submitted this included — ends after the commit.
  * </ol>
  *
  * <h2>Why a refusal commits</h2>
@@ -59,29 +57,31 @@ public class PasswordChangeService {
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
+    private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
-    private final Clock clock;
 
     /**
      * @param passwordAcceptance decides on, encodes and remembers the new password
      * @param passwordEncoder    verifies the current password; this flow's own concern
+     * @param loginState         decides and writes what the accepted change does to the login
+     *                           state, and says when the change was completed
      */
     public PasswordChangeService(
             ScimUserRepository users,
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginAttemptService attempts,
+            LoginStateService loginState,
             SessionRevocationService sessions,
-            AuditTrail audit,
-            Clock clock) {
+            AuditTrail audit) {
         this.users = users;
         this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
         this.attempts = attempts;
+        this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
-        this.clock = clock;
     }
 
     /**
@@ -110,20 +110,11 @@ public class PasswordChangeService {
                     case PasswordAcceptance.Refused refused -> throw refusePolicy(user, refused.rule());
                 };
 
-        Instant now = clock.instant();
-        String passwordHash = accepted.passwordHash();
-        // The current password verified, which ends a failure run as an accepted login does.
-        ScimLoginState cleared = user.login().withFailureRunCleared();
-        if (cleared != user.login()) {
-            users.updateLoginState(userId, cleared);
-        }
-        users.completePasswordChange(userId, passwordHash, now)
+        // The run cleared, the change completed and the dormancy basis moved are the login-state
+        // module's to decide and write; a User gone by the write is refused like a stale read.
+        Instant changedAt = loginState.passwordChanged(user, accepted.passwordHash())
                 .orElseThrow(CurrentPasswordRejectedException::new);
-        // The current password verified, so this is use of the account, and for a User that
-        // owed the change it is the first: its confined logins did not move the dormancy basis
-        // (LoginAttemptService#recordPasswordSuccess), so the change does.
-        users.recordAuthentication(userId, now);
-        passwordAcceptance.remember(userId, accepted, now);
+        passwordAcceptance.remember(userId, accepted, changedAt);
         audit.recordPasswordChanged(userId);
         sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
         LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)

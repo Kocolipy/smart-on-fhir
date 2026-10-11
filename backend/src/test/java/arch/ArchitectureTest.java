@@ -805,19 +805,22 @@ public class ArchitectureTest {
             .because("RepresentationChange decides which resources' versions a write advances,"
                     + " so every write path applies one rule (issue #137)");
 
+    /** The login-state module, the one owner of the Login-side login-state writes. */
+    private static final String LOGIN_STATE_MODULE =
+            "com.example.backend.auth.application.LoginStateService";
+
     /**
-     * What a newly imposed failure Lockout implies has one owner:
-     * {@code auth.application.FailureCounter}. It persists the counted failure and, on the
+     * What a newly imposed failure Lockout implies has one owner: the login-state module,
+     * {@code auth.application.LoginStateService}. It writes the counted failure and, on the
      * transition into the lock, records {@code LOCKOUT_SET} and revokes the User's Sessions after
      * the commit. A counting path that recorded the Lockout itself would be repeating the edge
      * test, and a copy that forgot the revocation would read like its neighbour. The audit slice,
      * which implements the trail, is the one other place that may name the method.
      */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule only_the_failure_counter_records_a_lockout =
+    static final ArchRule only_the_login_state_module_records_a_lockout =
         noClasses()
-            .that().doNotHaveFullyQualifiedName(
-                    "com.example.backend.auth.application.FailureCounter")
+            .that().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
             .and().resideOutsideOfPackage("com.example.backend.audit..")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is AuditTrail.recordLockoutSet",
@@ -826,8 +829,41 @@ public class ArchitectureTest {
                                     && call.getTargetOwner().isAssignableTo(
                                             "com.example.backend.audit.domain.AuditTrail")))
             .allowEmptyShould(true)
-            .because("FailureCounter carries out what a newly imposed Lockout implies, so every"
-                    + " counting path audits it and revokes Sessions the same way (issue #139)");
+            .because("the login-state module carries out what a newly imposed Lockout implies, so"
+                    + " every counting path audits it and revokes Sessions the same way (issues"
+                    + " #139, #42)");
+
+    /**
+     * On the login surface, the Failure run, the dormancy basis and the completed password change
+     * are written by the login-state module alone: the Login, password-change and Unlock paths
+     * report what happened and the module decides the new state (issue #42). The directory's own
+     * writes — a reactivation, the development seed — are the {@code scim} slice's and outside
+     * this rule.
+     *
+     * <p>Deliberately left off the guarded writes: {@code requirePasswordChange}, the
+     * change-required flag's write. The module owns it for an Unlock, but an Admin forcing a
+     * change ({@code IdentityAdministrationService.forcePasswordChange}) also calls it, and a
+     * forced change is not one of the four Login-side events this module decides. So this rule
+     * does NOT stop other code on the login surface from setting the flag; guarding that write
+     * belongs with moving the forced change onto the module, not here.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_login_state_module_writes_the_login_state_on_the_login_surface =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.auth..")
+            .and().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is a ScimUserRepository login-state write",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            Set.of("updateLoginState", "recordAuthentication",
+                                            "resetDormancyBasis", "completePasswordChange")
+                                    .contains(call.getName())
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scim.domain.ScimUserRepository")))
+            .allowEmptyShould(true)
+            .because("one module decides the Login-side login state, so no path writes the failure"
+                    + " run, the dormancy basis or the completed password change its own way (issue"
+                    + " #42)");
 
     /**
      * An audit event is constructed inside the audit slice and nowhere else.

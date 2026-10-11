@@ -54,16 +54,16 @@ class LoginAttemptServiceTests {
 
     @BeforeEach
     void setUp() {
+        SessionRevocationService revocation = new SessionRevocationService(
+                sessions,
+                transaction,
+                audit,
+                new RecordingOperationalAlerts());
         attempts = new LoginAttemptService(
                 users,
-                new SessionRevocationService(
-                        sessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
-                new LockoutPolicy(3),
-                audit,
-                clock);
+                new LoginStateService(users, revocation, new LockoutPolicy(3), audit, clock),
+                revocation,
+                audit);
         users.given(ScimIdentities.user("ada"));
     }
 
@@ -411,7 +411,7 @@ class LoginAttemptServiceTests {
     }
 
     // What a counted failure implies — the Lockout, its audit, the revocation, the Bootstrap
-    // Admin's exemption — is FailureCounter's and is tested in FailureCounterTests. What stays
+    // Admin's exemption — is LoginStateService's and is tested in LoginStateServiceTests. What stays
     // here is the login path's own: that it counts, the refusal it records, and where that
     // refusal lands relative to the Lockout's events.
 
