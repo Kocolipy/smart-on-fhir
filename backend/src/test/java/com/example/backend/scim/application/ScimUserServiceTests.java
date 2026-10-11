@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -127,7 +128,7 @@ class ScimUserServiceTests {
     private final ScimUserService service = new ScimUserService(
             users, groups, aliases,
             new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
-            sessions, tombstones, audit, clock,
+            sessions, LoginStateModules.over(users, clock), tombstones, audit, clock,
             new InMemoryScimQueryRepository(users, groups));
 
     private ScimUserResource ada;
@@ -1152,6 +1153,34 @@ class ScimUserServiceTests {
                 .containsExactly(engineers.id());
     }
 
+    /**
+     * Taking {@code active} from false to true is a Reactivation: the write stores the dormancy
+     * basis the login-state module restarted as of the write, so the dormancy job does not lock a
+     * User the directory has just brought back.
+     */
+    @Test
+    void a_reactivation_restarts_the_dormancy_basis_as_of_the_write() {
+        patch(new SetActive(false));
+        assertThat(stored().login().lastAuthenticatedAt()).as("before").isNull();
+
+        patch(new SetActive(true));
+
+        assertThat(stored().login().lastAuthenticatedAt()).isEqualTo(LATER);
+    }
+
+    /** A PUT restating {@code active=true} and a PATCH of {@code active} are one Reactivation. */
+    @Test
+    void a_reactivation_by_put_leaves_the_login_state_a_patch_does() {
+        patch(new SetActive(false));
+        patch(new SetActive(true));
+        ScimLoginState patched = stored().login();
+        patch(new SetActive(false));
+
+        put(minimal("ada", true), null, "ext-ada");
+
+        assertThat(stored().login()).isEqualTo(patched);
+    }
+
     /** A PUT that does not assert {@code active} keeps the stored value rather than reactivating. */
     @Test
     void a_put_without_active_keeps_the_stored_value() {
@@ -1170,7 +1199,7 @@ class ScimUserServiceTests {
         ScimUserService querying = new ScimUserService(
                 users, groups, aliases,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
-                sessions, tombstones, audit, clock,
+                sessions, LoginStateModules.over(users, clock), tombstones, audit, clock,
                 (query, connectorId, baseUri) -> {
                     askedFor.add(connectorId);
                     // The total is the whole match, not the page, so it differs from the one hit.

@@ -17,6 +17,7 @@ import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserLoginState.Credential;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -31,10 +32,11 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * The login-state module: what each Login-side event — a counted failure, a verified credential,
- * a completed password change, an Unlock — leaves stored as the User's login state, and what a
- * newly imposed Lockout implies: one {@code LOCKOUT_SET} and one revocation of every Session, after
- * the commit.
+ * The login-state module: what each event — a counted failure, a verified credential, a completed
+ * password change, an Unlock, a dormancy lock — leaves stored as the User's login state; what each
+ * directory event — a create, a SCIM replacement with its Reactivation, the dormant fixture's
+ * reset — leaves; and what a newly imposed Lockout implies: one {@code LOCKOUT_SET} and one
+ * revocation of every Session, after the commit.
  *
  * <p>The paths that report the events are tested for what is theirs alone (their refusal event,
  * their response, the order their refusal lands in) in {@link LoginAttemptServiceTests},
@@ -66,7 +68,8 @@ class LoginStateServiceTests {
         PASSWORD_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.PASSWORD)),
         EPIC_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.EPIC)),
         PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
-        UNLOCKED((module, user) -> module.unlocked(user));
+        UNLOCKED((module, user) -> module.unlocked(user)),
+        DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
 
         private final BiConsumer<LoginStateService, ScimUser> report;
 
@@ -132,7 +135,13 @@ class LoginStateServiceTests {
                         new ScimLoginState(null, 0, null, null, NOW, null)),
                 row("an Unlock of an unlocked User clears its run and nothing else",
                         Event.UNLOCKED, false, run(2),
-                        new ScimLoginState("hash", 0, null, null, EARLIER, null)));
+                        new ScimLoginState("hash", 0, null, null, EARLIER, null)),
+                row("the dormancy job locks for dormancy as of now and leaves the run as it is",
+                        Event.DORMANCY_LOCKED, false, flaggedWithRun(2),
+                        new ScimLoginState("hash", 2, NOW, LockCause.DORMANCY, EARLIER, EARLIER)),
+                row("the dormancy job keeps a failure lock and its cause",
+                        Event.DORMANCY_LOCKED, false, locked(LockCause.FAILURES),
+                        locked(LockCause.FAILURES)));
     }
 
     private static Arguments row(String rule, Event event, boolean bootstrapAdmin,
@@ -152,6 +161,91 @@ class LoginStateServiceTests {
         event.report.accept(loginState, stored);
 
         assertThat(users.require("ada").login()).isEqualTo(expected);
+    }
+
+    // ---- the directory's events: what a SCIM write leaves ------------------------------------
+
+    /** A write as a SCIM use case reports it: {@code active} after it, and its credential. */
+    private record Write(boolean active, Credential credential) {
+
+        static final Write REACTIVATES = new Write(true, Credential.unchanged("hash"));
+        static final Write DEACTIVATES = new Write(false, Credential.unchanged("hash"));
+        static final Write KEEPS_ACTIVE = new Write(true, Credential.unchanged("hash"));
+        static final Write KEEPS_INACTIVE = new Write(false, Credential.unchanged("hash"));
+    }
+
+    static Stream<Arguments> directoryWrites() {
+        return Stream.of(
+                Arguments.of("a Reactivation resets the basis and re-dates a required change",
+                        false, flaggedWithRun(2), Write.REACTIVATES,
+                        new ScimLoginState("hash", 2, null, null, NOW, NOW)),
+                Arguments.of("a Reactivation of a User owing nothing requires a change",
+                        false, run(0), Write.REACTIVATES,
+                        new ScimLoginState("hash", 0, null, null, NOW, NOW)),
+                Arguments.of("a Reactivation of a credentialless User requires no change",
+                        false, new ScimLoginState(null, 0, null, null, EARLIER, null),
+                        new Write(true, Credential.cleared()),
+                        new ScimLoginState(null, 0, null, null, NOW, null)),
+                Arguments.of("a Reactivation removing the password re-dates no kept flag",
+                        false, flaggedWithRun(0), new Write(true, Credential.cleared()),
+                        new ScimLoginState(null, 0, null, null, NOW, EARLIER)),
+                Arguments.of("a Reactivation does not lift a lock",
+                        false, locked(LockCause.DORMANCY), Write.REACTIVATES,
+                        new ScimLoginState("hash", LIMIT, EARLIER, LockCause.DORMANCY, NOW, NOW)),
+                Arguments.of("re-asserting active over an active User resets nothing",
+                        true, run(0), Write.KEEPS_ACTIVE, run(0)),
+                Arguments.of("a deactivation resets nothing",
+                        true, run(0), Write.DEACTIVATES, run(0)),
+                Arguments.of("staying inactive resets nothing",
+                        false, run(0), Write.KEEPS_INACTIVE, run(0)),
+                Arguments.of("a connector-set password is stored and requires a change as of now",
+                        true, run(0), new Write(true, Credential.set("connector-hash")),
+                        new ScimLoginState("connector-hash", 0, null, null, EARLIER, NOW)),
+                Arguments.of("a removed password is stored, and no directory write clears the flag",
+                        true, flaggedWithRun(0), new Write(true, Credential.cleared()),
+                        new ScimLoginState(null, 0, null, null, EARLIER, EARLIER)));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("directoryWrites")
+    void eachDirectoryWriteLeavesTheLoginStateItsRuleDecides(String rule, boolean storedActive,
+            ScimLoginState given, Write write, ScimLoginState expected) {
+        ScimUser stored = new ScimUser(UUID.randomUUID(),
+                ScimIdentities.profile("ada", storedActive), given, null,
+                ScimUser.INITIAL_VERSION, EARLIER, EARLIER);
+
+        ScimLoginState written = loginState.afterReplacement(
+                stored, ScimIdentities.profile("ada", write.active()), write.credential(), NOW);
+
+        assertThat(written).isEqualTo(expected);
+    }
+
+    /** A connector chose and transported the first password, so the User must replace it. */
+    @Test
+    void aUserCreatedWithAPasswordOwesAChangeAsOfItsCreation() {
+        assertThat(loginState.created("hash", NOW))
+                .isEqualTo(new ScimLoginState("hash", 0, null, null, null, NOW));
+    }
+
+    /** The flag arrives with the first password, so a credentialless User owes none. */
+    @Test
+    void aUserCreatedWithoutAPasswordOwesNothing() {
+        assertThat(loginState.created(null, NOW)).isEqualTo(ScimLoginState.CREDENTIALLESS);
+    }
+
+    /**
+     * The development seed puts the dormant fixture back on every startup: the fixture password
+     * with no change owed, no run and no lock, and its basis backdated so the startup run locks it.
+     */
+    @Test
+    void theDormantFixtureIsResetToDormant() {
+        ScimUser fixture = users.given(ScimIdentities.userWithLoginState("ada",
+                new ScimLoginState("chosen-hash", 2, EARLIER, LockCause.DORMANCY, EARLIER, EARLIER)));
+
+        loginState.dormantFixtureReset(fixture, "fixture-hash", NOW, Duration.ofDays(91));
+
+        assertThat(users.require("ada").login()).isEqualTo(new ScimLoginState(
+                "fixture-hash", 0, null, null, NOW.minus(Duration.ofDays(91)), null));
     }
 
     // ---- what a newly imposed Lockout implies ------------------------------------------------
@@ -260,6 +354,34 @@ class LoginStateServiceTests {
         countTimes(1);
 
         assertThat(users.writes()).isEqualTo(writesBefore);
+    }
+
+    // ---- the dormancy lock -------------------------------------------------------------------
+
+    /** The job audits and revokes only for a lock it imposed, so the module says whether it did. */
+    @ParameterizedTest(name = "a User locked for {0} before the job reports {1}")
+    @CsvSource({"NOTHING, true", "FAILURES, false", "DORMANCY, false"})
+    void theDormancyLockReportsWhetherItImposedOne(String before, boolean imposed) {
+        ScimLoginState given = before.equals("NOTHING") ? run(0) : locked(LockCause.valueOf(before));
+        ScimUser user = users.given(ScimIdentities.userWithLoginState("ada", given));
+
+        assertThat(loginState.dormancyLocked(user, NOW)).isEqualTo(imposed);
+    }
+
+    /**
+     * A lock the login path imposed between the job's read and its write is kept: the module
+     * decided from the read, and the store refuses to overwrite a lock that stands.
+     */
+    @Test
+    void aFailureLockImposedAfterTheJobsReadIsKeptWithItsCause() {
+        ScimUser read = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
+        loginState.failureCounted(read);
+
+        boolean imposed = loginState.dormancyLocked(read, NOW.plusSeconds(1));
+
+        assertThat(imposed).isFalse();
+        assertThat(users.require("ada").login()).isEqualTo(
+                new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null));
     }
 
     /**

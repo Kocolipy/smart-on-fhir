@@ -2,20 +2,25 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserLoginState;
+import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 /**
- * The login-state module: the one owner of a User's Failure run, its dormancy basis and its
- * change-required flag on the Login side. A caller reports what happened — a failure counted, a
- * credential verified, a password changed, an Unlock — and this decides the resulting state and
- * carries out the narrow writes it implies. No caller writes those fields itself.
+ * The login-state module: the one owner of a User's Failure run and lock, its dormancy basis and
+ * its change-required flag. A caller reports what happened — a failure counted, a credential
+ * verified, a password changed, an Unlock, a dormancy lock, a directory write — and this decides
+ * the resulting state and carries out the narrow writes it implies, or hands the state back to be
+ * stored with the write it belongs to. No caller decides those fields itself.
  *
  * <p>The rules, event by event:
  *
@@ -32,6 +37,24 @@ import org.springframework.stereotype.Service;
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, and when a lock
  *       stood the dormancy basis restarts (ADR 0011) and, for a User with a password, a change is
  *       required. Idempotent on a User serving no lockout: only its run is cleared.
+ *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
+ *       run untouched; an existing lock and its cause are never overwritten (ADR 0011).
+ * </ul>
+ *
+ * <h2>The directory's events</h2>
+ *
+ * <p>The directory cannot name this module — the dependency between {@code scim} and
+ * {@code auth} runs one way — so it asks through the {@link ScimUserLoginState} port this
+ * implements, as it reaches Session revocation through {@code ScimUserSessions}:
+ *
+ * <ul>
+ *   <li><b>Created</b> — a User created with a credential somebody else chose owes a change.
+ *   <li><b>Replaced</b> — a SCIM replacement, PUT and PATCH alike. A connector-set password owes a
+ *       change, and a <b>Reactivation</b> — {@code active} from false to true — restarts the
+ *       dormancy basis and, for a User with a password, requires a change. True over true is no
+ *       Reactivation. The state is returned and stored by the replacement's own row write, which
+ *       stores what it is given.
+ *   <li><b>Dormant fixture reset</b> — the development seed's dormant User, put back each startup.
  * </ul>
  *
  * <h2>Confinement</h2>
@@ -59,11 +82,14 @@ import org.springframework.stereotype.Service;
  *
  * <p>Every write goes through one narrow port operation per field set —
  * {@link ScimUserRepository#updateLoginState} for the run and the lock,
+ * {@link ScimUserRepository#imposeLock} for the dormancy lock,
  * {@link ScimUserRepository#recordAuthentication} and
  * {@link ScimUserRepository#resetDormancyBasis} for the basis,
  * {@link ScimUserRepository#requirePasswordChange} and
  * {@link ScimUserRepository#completePasswordChange} for the flag — never a full-row write, and a
- * field the decision leaves unchanged is not written at all.
+ * field the decision leaves unchanged is not written at all. A directory create or replacement is
+ * not one of these writes: the state this hands back rides the profile's own row write, which
+ * writes only the columns that differ.
  *
  * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
  * commits with it. Counting is still triggered explicitly from the Login and password-change paths
@@ -71,7 +97,7 @@ import org.springframework.stereotype.Service;
  * events.
  */
 @Service
-public class LoginStateService {
+public class LoginStateService implements ScimUserLoginState {
 
     /** The kind of Login that verified a credential, which decides whether it is confined. */
     public enum LoginKind {
@@ -193,6 +219,87 @@ public class LoginStateService {
         after = after.withPasswordChangeRequired(now);
         users.requirePasswordChange(user.id(), now);
         return new Unlock(after, true);
+    }
+
+    /**
+     * The dormancy job found {@code user} past the lockout window as of {@code now} (ADR 0011):
+     * locks it for dormancy, leaving the failure run as it stands — dormancy is not a failed
+     * attempt. A User already locked keeps its lock and the cause it was first locked for.
+     * Whether the User is due is the job's {@code DormancyVerdict}, not this; the job's audit
+     * event and Session revocation follow only a lock this imposed.
+     *
+     * <p>The lock is stored only where none stands by the write — the one place that is checked,
+     * because only the write can see a lock the login path imposed after the job's read. That read
+     * does not serialize with the login path, so a failure lock imposed in between is kept rather
+     * than overwritten.
+     *
+     * @return whether this imposed the lock
+     */
+    public boolean dormancyLocked(ScimUser user, Instant now) {
+        ScimLoginState locked = user.login().withDormancyLock(now);
+        return users.imposeLock(user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
+    }
+
+    /**
+     * A User was created — by a connector, or as the seeded Bootstrap Admin: a credential somebody
+     * else chose (a connector's, or the deployment's configured one) is known outside the User,
+     * so a User created with one owes a change as of its creation. A User created without one owes
+     * nothing; the flag arrives with its first password.
+     */
+    @Override
+    public ScimLoginState created(String passwordHash, Instant now) {
+        ScimLoginState created = ScimLoginState.of(passwordHash);
+        return created.hasPassword() ? created.withPasswordChangeRequired(now) : created;
+    }
+
+    /**
+     * A connector replaced {@code stored} — by PUT or by PATCH, one rule for both: the credential
+     * becomes the written one, and the rest is decided here.
+     *
+     * <ul>
+     *   <li>A password the connector set owes a change as of {@code now}, for the reason a
+     *       created one does.
+     *   <li>A Reactivation — {@code active} from false to true — restarts the dormancy basis at
+     *       {@code now}, so the next dormancy run does not lock again a User the directory has
+     *       just brought back, and, for a User that holds a credential after the write, requires
+     *       a change as of {@code now}: a credential that sat unused across a deactivation is not
+     *       trusted on return. Re-dated when already set, so the flag records the Reactivation
+     *       that imposed it. A Reactivation lifts no lock; only an Unlock does.
+     *   <li>{@code true} over {@code true} is no Reactivation and resets nothing, so a connector
+     *       re-asserting {@code active} on every sync cannot hold a dormant User open.
+     * </ul>
+     *
+     * <p>No directory write clears the flag — only the User's own completed change does — and the
+     * failure run and the lock are carried as read, since the replacement does not store them.
+     */
+    @Override
+    public ScimLoginState afterReplacement(
+            ScimUser stored, ScimUserProfile profile, Credential credential, Instant now) {
+        ScimLoginState after = stored.login().withCredential(credential.passwordHash());
+        if (credential.connectorSet()) {
+            after = after.withPasswordChangeRequired(now);
+        }
+        if (!stored.profile().active() && profile.active()) {
+            after = after.withDormancyBasisReset(now);
+            if (after.hasPassword()) {
+                after = after.withPasswordChangeRequired(now);
+            }
+        }
+        return after;
+    }
+
+    /**
+     * The development seed reset its dormant fixture: the fixture password back with no change
+     * owed, the run and any lock cleared, and the dormancy basis {@code dormantFor} before
+     * {@code now}, so the development profile's startup run of the job locks it again.
+     */
+    @Override
+    public void dormantFixtureReset(
+            ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
+        ScimLoginState before = fixture.login();
+        writeFailureRun(fixture, before, before.withFailureRunCleared());
+        users.completePasswordChange(fixture.id(), passwordHash, now);
+        users.resetDormancyBasis(fixture.id(), now.minus(dormantFor));
     }
 
     /** Writes the run and the lock when the decision changed either, and nothing otherwise. */

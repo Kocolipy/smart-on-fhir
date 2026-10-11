@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.InvalidRoleMappingException;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -58,7 +59,9 @@ class ScimSeedConfigStartupTests {
             .withBean(ScimSeedService.class, () -> new ScimSeedService(
                     users, groups, () -> { }, new RecordingAuditTrail(),
                     new MarkingPasswordEncoder(),
-                    Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping))
+                    Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping,
+                    LoginStateModules.over(
+                            users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC))))
             .withBean(DormancyPolicy.class, DormancyPolicy::defaults)
             .withUserConfiguration(ScimSeedConfig.class)
             .withPropertyValues(

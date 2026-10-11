@@ -8,6 +8,15 @@ Accepted. It supersedes the dormancy jobs that ADR 0008 relies on
 (inactivity deactivation and dormant-authority revocation), and it extends ADR
 0007's Lockout with a second cause.
 
+The values the job writes are decided by the login-state module,
+`LoginStateService` (issue #43). The job reports each due User to it. The module
+decides the lock (`DORMANCY`, failure run untouched) and stores it through a
+set-based update. That update keeps its `locked_at is null` condition as a
+compare-and-set, so a cause that already stands is still never overwritten. The
+same module decides what a Reactivation resets, for SCIM `PUT` and `PATCH`
+alike, and what an Unlock resets. Neither the persistence adapter nor its
+queries hold any of these rules.
+
 ## Context
 
 Two jobs enforce dormancy today. Inactivity deactivation sets `active=false` at

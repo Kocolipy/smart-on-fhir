@@ -7,6 +7,7 @@ import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
@@ -48,6 +49,7 @@ class DevDormancyStartupConfigTests {
                     new PendingCommit(),
                     audit,
                     new RecordingOperationalAlerts()),
+            LoginStateModules.over(users, clock),
             lock,
             DormancyPolicy.defaults(),
             TestRoleMappings.superuserOnly(),

@@ -2,6 +2,7 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
@@ -109,12 +110,22 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
     }
 
     /**
-     * Writes the changed profile columns and credential, then advances the version once.
+     * Writes the changed profile columns and the given credential, change-required flag and
+     * dormancy basis, then advances the version once. Stores what it is given: which login state a
+     * write leaves is decided before it reaches here (see the port).
      *
      * <p>The entity is {@code @DynamicUpdate}, so the UPDATE names only the columns that differ
-     * from what was loaded. That is what keeps this write from touching the failure-run columns
-     * the login path writes without the resource lock: they are not assigned here, so they are
-     * not dirty, so they are not written.
+     * from what was loaded — by the caller's locked read, earlier in the same transaction. That is
+     * what keeps this write from touching what the login path writes without the resource lock:
+     * the failure run and the lock are not assigned here at all, and a flag or basis given as it
+     * was read is not dirty, so it is not written.
+     *
+     * <p>That comparison is against the locked read only because the entity loaded here IS the
+     * one that read loaded: {@link #findByIdForUpdate} locks the resource row, not this one, so a
+     * Login can commit a newer basis to this row in between, and an entity reloaded from the
+     * database would see it and treat the caller's older value as a change. Nothing between the
+     * two may therefore clear the persistence context — no {@code clearAutomatically} statement
+     * may run in the SCIM write path before this call.
      *
      * <p>{@code saveAndFlush} so a taken {@code userName} surfaces here, attributable, rather than
      * at commit after the response is decided.
@@ -128,9 +139,6 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         ScimUserEntity entity = stored.get();
         ScimUserProfile profile = user.profile();
         ScimName name = profile.name();
-        // Decided from the STORED flag, before the profile is replaced: a false-to-true
-        // transition is a reactivation and resets the dormancy window; true over true is not.
-        boolean reactivated = !entity.isActive() && profile.active();
         entity.replaceProfile(
                 profile.userName(),
                 profile.normalizedUserName().value(),
@@ -146,20 +154,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 profile.locale(),
                 profile.timezone(),
                 emailValues(profile.emails()));
-        entity.getLogin().replacePasswordHash(user.login().passwordHash());
-        if (user.login().isPasswordChangeRequired()) {
-            // Sets, never clears: a replacement is a connector's write, and no connector write
-            // clears the flag. Assigning the stored value leaves the column clean.
-            entity.getLogin().requirePasswordChange(user.login().passwordChangeRequiredSince());
-        }
-        if (reactivated) {
-            entity.getLogin().resetDormancyBasis(now);
-            if (entity.getLogin().getPasswordHash() != null) {
-                // A credential that sat unused across a deactivation is not trusted on return.
-                // Re-dated, so the flag records the reactivation that imposed it.
-                entity.getLogin().requirePasswordChange(now);
-            }
-        }
+        ScimLoginState login = user.login();
+        entity.getLogin().storeDirectoryLoginState(
+                login.passwordHash(),
+                login.passwordChangeRequiredSince(),
+                login.lastAuthenticatedAt());
         try {
             users.saveAndFlush(entity);
         } catch (DataIntegrityViolationException violation) {
@@ -203,31 +202,6 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 loginState.lockCause() == null ? null : loginState.lockCause().name());
     }
 
-    /**
-     * Writes {@code active} and advances the resource's version, because {@code active}
-     * is a SCIM attribute and deactivating a User changes what a connector reads.
-     *
-     * <p>Re-reads rather than returning a locally-assembled value: the version the caller
-     * needs is the one the database just computed, and the increment happens there so a
-     * concurrent bump cannot be lost.
-     *
-     * <p>Empty when no row matched, which the use case renders as a {@code 404}. Checking
-     * the update's own row count rather than reading first is what keeps the answer from
-     * being stale between the check and the write.
-     */
-    @Override
-    public Optional<ScimUser> updateActive(UUID id, boolean active, Instant now) {
-        // A reactivation is tried first, because only it resets the dormancy basis and only the
-        // statement's own `active = false` condition can tell a transition from an assertion
-        // without a read that could be stale by the time of the write.
-        int written = active ? users.reactivate(id, now) : 0;
-        if (written == 0 && users.updateActive(id, active) == 0) {
-            return Optional.empty();
-        }
-        RepresentationChange.userWritten(id, now).advanceIn(resources);
-        return findById(id);
-    }
-
     /** The dormancy basis alone; the resource row and its version are untouched. */
     @Override
     public void recordAuthentication(UUID id, Instant authenticatedAt) {
@@ -239,10 +213,10 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         return users.findDormantUnlockedUserIds(cutoff);
     }
 
-    /** The lock instant and its cause, only where no lock stands; the version is untouched. */
+    /** The given lock instant and cause, only where no lock stands; the version is untouched. */
     @Override
-    public boolean lockForDormancy(UUID id, Instant now) {
-        return users.lockForDormancy(id, now, LockCause.DORMANCY.name()) == 1;
+    public boolean imposeLock(UUID id, Lockout lockout) {
+        return users.imposeLock(id, lockout.at(), lockout.cause().name()) == 1;
     }
 
     /** The dormancy basis alone; the resource row and its version are untouched. */
@@ -263,8 +237,10 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
     }
 
     /**
-     * The credential and the flag in one statement, then the version once — for the reason
-     * {@link #updateActive} checks the statement's own row count rather than reading first.
+     * The credential and the flag in one statement, then the version once. Re-reads rather than
+     * returning a locally-assembled value: the version the caller needs is the one the database
+     * just computed. Empty when the statement matched no row — its own row count, rather than a
+     * read first, so the answer cannot go stale between the check and the write.
      */
     @Override
     public Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now) {

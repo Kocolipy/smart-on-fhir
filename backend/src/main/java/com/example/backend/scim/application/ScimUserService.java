@@ -24,6 +24,7 @@ import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserEdit;
+import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -66,7 +67,9 @@ import org.springframework.transaction.annotation.Transactional;
  *       without one is applied unconditionally, still under the lock and in one transaction with
  *       its version advance, so unconditional writers serialize rather than interleave;
  *   <li>refuse the Bootstrap Admin, which no SCIM write may change;
- *   <li>compute the desired state in memory, refuse a value its column cannot hold — too long,
+ *   <li>compute the desired state in memory — its login state, a Reactivation's included, is the
+ *       login-state module's decision ({@link ScimUserLoginState}), and PUT and PATCH report it
+ *       the same way — refuse a value its column cannot hold — too long,
  *       or carrying a forbidden control character ({@link ScimAttributeLimits}) — refuse a
  *       password the {@link PasswordPolicy} does
  *       not accept — its intrinsic rules, then reuse — and write only if something differs — a
@@ -89,6 +92,7 @@ public class ScimUserService {
     private final ScimExternalIdRepository aliases;
     private final PasswordAcceptance passwordAcceptance;
     private final ScimUserSessions sessions;
+    private final ScimUserLoginState loginStates;
     private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
     private final Clock clock;
@@ -100,6 +104,7 @@ public class ScimUserService {
             ScimExternalIdRepository aliases,
             PasswordAcceptance passwordAcceptance,
             ScimUserSessions sessions,
+            ScimUserLoginState loginStates,
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
             Clock clock,
@@ -110,6 +115,7 @@ public class ScimUserService {
         this.aliases = aliases;
         this.passwordAcceptance = passwordAcceptance;
         this.sessions = sessions;
+        this.loginStates = loginStates;
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
@@ -158,13 +164,10 @@ public class ScimUserService {
         }
         Instant now = clock.instant();
         String passwordHash = password == null ? null : password.passwordHash();
-        ScimUser user = ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now);
-        if (password != null) {
-            // A credential chosen and transported by a connector is known outside the User, so
-            // the User must replace it before using it for anything else. A User provisioned
-            // without one is not flagged; the flag arrives with its first password.
-            user = withLogin(user, user.login().withPasswordChangeRequired(now));
-        }
+        // Whether the new credential owes a change is the login-state module's decision.
+        ScimUser user = withLogin(
+                ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now),
+                loginStates.created(passwordHash, now));
         ScimUser created;
         try {
             created = users.create(user);
@@ -349,11 +352,12 @@ public class ScimUserService {
                         () -> audit.recordScimUserWriteRejected(
                                 connectorId, id, AuditScimRefusal.INVALID_VALUE))
                 : null;
-        String passwordHash = switch (password.kind()) {
-            case UNCHANGED -> current.login().passwordHash();
-            case CLEAR -> null;
-            case SET -> accepted.passwordHash();
+        ScimUserLoginState.Credential credential = switch (password.kind()) {
+            case UNCHANGED -> ScimUserLoginState.Credential.unchanged(current.login().passwordHash());
+            case CLEAR -> ScimUserLoginState.Credential.cleared();
+            case SET -> ScimUserLoginState.Credential.set(accepted.passwordHash());
         };
+        String passwordHash = credential.passwordHash();
         ScimWriteEffects<AuditUserAttribute> effects = ScimWriteEffects.ofUserWrite(id,
                 new ScimWriteEffects.UserState(
                         before.profile(), before.externalId(), current.login().passwordHash()),
@@ -369,8 +373,9 @@ public class ScimUserService {
         Instant now = clock.instant();
         ScimUser written;
         try {
-            written = users.replace(desired(current, after.profile(), passwordHash,
-                            accepted != null ? now : null), now)
+            written = users.replace(desired(current, after.profile(), loginStates.afterReplacement(
+                            current, after.profile(), credential, now)),
+                            now)
                     .orElseThrow();
         } catch (DuplicateUserNameException duplicate) {
             audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
@@ -435,32 +440,15 @@ public class ScimUserService {
     }
 
     /**
-     * The User to write: the new profile and credential, everything else as stored. The failure
-     * run is carried but not written — the port's replacement leaves it to the login path.
-     *
-     * <p>{@code passwordChangeRequiredAt} is the instant a connector-set password requires a change
-     * as of, or {@code null} when this write sets no password. It only ever SETS the flag: every
-     * connector-set password is one the User did not choose, and no connector write — omitting the
-     * password, removing it, or changing anything else — clears it. {@code null} keeps the stored
-     * flag, and the port's replacement never writes a null over a set one.
+     * The User to write: the new profile, and the login state the login-state module decided for
+     * the write; everything else as stored. The failure run and the lock ride along unwritten —
+     * the port's replacement leaves them to the login path.
      */
-    private static ScimUser desired(
-            ScimUser current,
-            ScimUserProfile profile,
-            String passwordHash,
-            Instant passwordChangeRequiredAt) {
-        ScimLoginState login = current.login();
+    private static ScimUser desired(ScimUser current, ScimUserProfile profile, ScimLoginState login) {
         return new ScimUser(
                 current.id(),
                 profile,
-                new ScimLoginState(
-                        passwordHash,
-                        login.failedLoginAttempts(),
-                        login.lockedAt(),
-                        login.lastAuthenticatedAt(),
-                        passwordChangeRequiredAt == null
-                                ? login.passwordChangeRequiredSince()
-                                : passwordChangeRequiredAt),
+                login,
                 current.reservedName(),
                 current.version(),
                 current.createdAt(),

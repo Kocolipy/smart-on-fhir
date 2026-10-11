@@ -46,9 +46,10 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@code DORMANCY_ROLE_REVOCATION} event names the User and the Roles lost, and its sessions
  *       end after the commit. A connector may re-add a membership; while the User stays dormant
  *       the next run removes it again.
- *   <li><strong>Lockout</strong> — an unlocked User is locked with {@code lock_cause=DORMANCY}
- *       through {@link ScimUserRepository#lockForDormancy}, which writes only where no lock
- *       stands, so a User already locked keeps its lock and its cause. An actorless
+ *   <li><strong>Lockout</strong> — the job reports each due User to the login-state module
+ *       ({@link LoginStateService#dormancyLocked}), which decides the lock — {@code DORMANCY}, the
+ *       failure run untouched — and stores it only where no lock stands, so a User already locked
+ *       keeps its lock and its cause. For a lock it imposed an actorless
  *       {@code DORMANCY_LOCKOUT} event is recorded, and the User's sessions end after the commit
  *       (ADR 0002). {@code active} is never written: it is the directory's.
  * </ul>
@@ -94,6 +95,7 @@ public class DormancyService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final SessionRevocationService sessions;
+    private final LoginStateService loginState;
     private final ScheduledJobLock lock;
     private final DormancyPolicy policy;
     private final RoleMapping roleMapping;
@@ -104,6 +106,7 @@ public class DormancyService {
             ScimUserRepository users,
             ScimGroupRepository groups,
             SessionRevocationService sessions,
+            LoginStateService loginState,
             ScheduledJobLock lock,
             DormancyPolicy policy,
             RoleMapping roleMapping,
@@ -112,6 +115,7 @@ public class DormancyService {
         this.users = users;
         this.groups = groups;
         this.sessions = sessions;
+        this.loginState = loginState;
         this.lock = lock;
         this.policy = policy;
         this.roleMapping = roleMapping;
@@ -189,7 +193,7 @@ public class DormancyService {
         for (UUID candidate : users.findDormantUnlockedUserIds(policy.lockoutCutoff(now))) {
             Optional<ScimUser> user = users.findByIdForUpdate(candidate);
             if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()
-                    || !users.lockForDormancy(candidate, now)) {
+                    || !loginState.dormancyLocked(user.get(), now)) {
                 continue;
             }
             audit.recordDormancyLockout(candidate);

@@ -48,16 +48,16 @@ public class ScimLoginStateValue {
     private String lockCause;
 
     /**
-     * When the User last authenticated or was explicitly reactivated, or null when neither has
-     * happened — the dormancy basis, with the resource's creation time as the fallback.
+     * When the User last authenticated, was reactivated or was unlocked, or null when none of
+     * those has happened — the dormancy basis, with the resource's creation time as the fallback.
      */
     @Column(name = "last_authenticated_at")
     private Instant lastAuthenticatedAt;
 
     /**
      * When a password change was required of the User, or null when none is — the
-     * change-required flag. Written only by its own narrow
-     * statements, never through this object's mutators.
+     * change-required flag. Written by its own narrow statements, and by a SCIM replacement
+     * storing the value it was given.
      */
     @Column(name = "password_change_required_since")
     private Instant passwordChangeRequiredSince;
@@ -105,28 +105,16 @@ public class ScimLoginStateValue {
     }
 
     /**
-     * Resets the dormancy basis to the instant of an explicit reactivation. Called only by a SCIM
-     * replacement that takes {@code active} from false to true — an inactive User cannot log in,
-     * so there is no concurrent login whose timestamp this could overwrite.
+     * Assigns what a SCIM replacement stores of the login state — the credential, the
+     * change-required flag and the dormancy basis — as given. The values are decided before they
+     * reach here; this holds no rule about them. Assigning a value equal to the one loaded leaves
+     * its column clean, so only what the write changed is written. The failure run and the lock
+     * have no mutator: the login path writes them through its own narrow statements.
      */
-    public void resetDormancyBasis(Instant reactivatedAt) {
-        this.lastAuthenticatedAt = reactivatedAt;
-    }
-
-    /**
-     * Replaces the stored credential — the only mutator here, and deliberately only for the hash:
-     * the failure run and the lock instant are written by the login path's own narrow statement.
-     * Assigning the same value leaves the column clean, so an unchanged credential is not written.
-     */
-    public void replacePasswordHash(String passwordHash) {
+    public void storeDirectoryLoginState(
+            String passwordHash, Instant passwordChangeRequiredSince, Instant lastAuthenticatedAt) {
         this.passwordHash = passwordHash;
-    }
-
-    /**
-     * Sets the change-required flag, for a SCIM replacement that set a password. There is no
-     * mutator that clears it: the self-service change clears it through its own statement.
-     */
-    public void requirePasswordChange(Instant since) {
-        this.passwordChangeRequiredSince = since;
+        this.passwordChangeRequiredSince = passwordChangeRequiredSince;
+        this.lastAuthenticatedAt = lastAuthenticatedAt;
     }
 }

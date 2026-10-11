@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
@@ -64,6 +65,7 @@ class DormancyScheduleConfigTests {
                 users,
                 groups,
                 sessions,
+                LoginStateModules.over(users, clock),
                 lock,
                 DormancyPolicy.defaults(),
                 TestRoleMappings.superuserOnly(),

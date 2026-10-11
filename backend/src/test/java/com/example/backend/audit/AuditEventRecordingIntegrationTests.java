@@ -18,6 +18,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -478,11 +479,12 @@ class AuditEventRecordingIntegrationTests {
     /**
      * Returns the User to active, unlocked and with no failure run recorded.
      *
-     * <p>Two narrow writes rather than one full-row write, because that is what the port
-     * offers: the login state and the {@code active} flag are written separately, and only the
-     * second advances the resource's version — a failure run is not a SCIM attribute.
+     * <p>Two writes, because that is what the port offers: the failure run and the lock through
+     * their narrow write, which a replacement never stores, and {@code active} through the
+     * replacement, which alone advances the resource's version — a failure run is not a SCIM
+     * attribute.
      *
-     * <p>Wrapped in a transaction because both are modifying queries: without one they have no
+     * <p>Wrapped in a transaction because both write: without one they have no
      * {@code EntityManager} to flush.
      */
     private void restore(String userName) {
@@ -490,9 +492,11 @@ class AuditEventRecordingIntegrationTests {
             ScimUser user = require(userName);
             users.updateLoginState(
                     user.id(), ScimLoginState.of(user.login().passwordHash()));
-            users.updateActive(user.id(), true, Instant.now());
-            // Reactivation requires a password change; the shared seeded baseline is unflagged.
-            users.completePasswordChange(user.id(), user.login().passwordHash(), Instant.now());
+            // Arranged through the store, which keeps what it is given: active again, and with
+            // the shared seeded baseline's unflagged credential and unmoved dormancy basis.
+            users.replace(ScimIdentities.withActive(user, true, new ScimLoginState(
+                    user.login().passwordHash(), 0, null, null,
+                    user.login().lastAuthenticatedAt(), null)), Instant.now());
         });
     }
 

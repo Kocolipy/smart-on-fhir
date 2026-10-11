@@ -28,6 +28,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -574,20 +575,35 @@ class DormancyIntegrationTests {
         assertThat(passwordChangeRequiredSince(ada))
                 .as("re-asserting active over an active User is not a reactivation")
                 .isNull();
+    }
 
-        userService.patch(connector, ada, ifMatch(ada), List.of(
+    /**
+     * A Reactivation is one event whichever verb carries it: a PATCH of {@code active} and a PUT
+     * restating the profile with {@code active=true} report it to the login-state module the same
+     * way, so two Users in the same state, reactivated at the same instant, one by each, are left
+     * in the same login state — credentials aside, which are each User's own.
+     */
+    @Test
+    void aReactivationByPutAndByPatchLeavesTheSameLoginState() {
+        UUID byPatch = createSettledUser("reactivate-by-patch");
+        UUID byPut = createSettledUser("reactivate-by-put");
+        userService.patch(connector, byPatch, ifMatch(byPatch), List.of(
                 new ScimUserPatchOperation.SetActive(false)));
-        long versionBeforeUpdateActive = version(ada);
-        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
-                users.updateActive(ada, true, clock.instant()));
-        assertThat(passwordChangeRequiredSince(ada))
-                .as("updateActive(true) reactivated a credentialed User")
+        userService.patch(connector, byPut, ifMatch(byPut), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+
+        userService.patch(connector, byPatch, ifMatch(byPatch), List.of(
+                new ScimUserPatchOperation.SetActive(true)));
+        userService.replace(connector, byPut, ifMatch(byPut), new ScimUserReplacement(
+                profile("reactivate-by-put", null, true), null, null, true));
+
+        ScimLoginState patched = users.findById(byPatch).orElseThrow().login();
+        assertThat(patched.lastAuthenticatedAt())
+                .as("the PATCH was a Reactivation, so the comparison is not of two no-ops")
                 .isEqualTo(clock.instant());
-        // `active` is a SCIM attribute, so the write is a RepresentationChange: a connector
-        // holding the old ETag must see it go stale.
-        assertThat(version(ada))
-                .as("updateActive advanced the User's version exactly once")
-                .isEqualTo(versionBeforeUpdateActive + 1);
+        assertThat(users.findById(byPut).orElseThrow().login())
+                .usingRecursiveComparison().ignoringFields("passwordHash")
+                .isEqualTo(patched);
     }
 
     /** A credentialless User has no credential to distrust: reactivating it sets no flag. */

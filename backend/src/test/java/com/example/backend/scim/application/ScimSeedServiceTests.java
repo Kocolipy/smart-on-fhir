@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.InvalidRoleMappingException;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -68,7 +69,8 @@ class ScimSeedServiceTests {
             audit,
             passwordEncoder,
             Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
-            TestRoleMappings.superuserOnly());
+            TestRoleMappings.superuserOnly(),
+            LoginStateModules.over(users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC)));
 
     /**
      * The Bootstrap Admin is the only User a deployment is seeded with: the non-administrative
@@ -614,7 +616,8 @@ class ScimSeedServiceTests {
     private ScimSeedService seedingUnder(RoleMapping mapping) {
         return new ScimSeedService(
                 users, groups, seedLock, audit, passwordEncoder,
-                Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping);
+                Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping,
+                LoginStateModules.over(users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC)));
     }
 
     private static RoleMapping mappingWith(UUID... more) {

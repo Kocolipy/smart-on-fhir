@@ -54,63 +54,24 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
             @Param("lockCause") String lockCause);
 
     /**
-     * Locks the User as of {@code now} with this cause where no lock stands, and writes nothing
-     * else — the dormancy job's lockout. The {@code lockedAt is null} condition is what keeps a
-     * lock imposed in the meantime, and its cause, as they are. Not a SCIM attribute, so the
-     * resource row and its version are untouched.
+     * Stores the given lock instant and cause where no lock stands, and writes nothing else. The
+     * values are the caller's; the {@code lockedAt is null} condition is a compare-and-set, so a
+     * lock imposed in the meantime, and its cause, are kept as they are. Not a SCIM attribute, so
+     * the resource row and its version are untouched.
      *
      * @return how many rows were written; zero when the User is already locked or gone
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update ScimUserEntity u
-               set u.login.lockedAt = :now,
+               set u.login.lockedAt = :lockedAt,
                    u.login.lockCause = :lockCause
              where u.resourceId = :id
                and u.login.lockedAt is null""")
-    int lockForDormancy(
+    int imposeLock(
             @Param("id") UUID id,
-            @Param("now") Instant now,
+            @Param("lockedAt") Instant lockedAt,
             @Param("lockCause") String lockCause);
-
-    /**
-     * Writes the {@code active} column alone. Unlike {@link #updateLoginState} the
-     * caller must also advance the resource's version, because {@code active} IS a SCIM
-     * attribute — see {@code ScimUserPersistenceAdapter#updateActive}, which does both in
-     * one transaction.
-     *
-     * @return how many rows were written; zero when no User has that id
-     */
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("update ScimUserEntity u set u.active = :active where u.resourceId = :id")
-    int updateActive(@Param("id") UUID id, @Param("active") boolean active);
-
-    /**
-     * Reactivates an INACTIVE User, resets its dormancy basis to the reactivation instant and —
-     * when it holds a credential — requires a password change as of that instant, in one
-     * statement.
-     *
-     * <p>The {@code active = false} condition is the point: it is what makes this a transition
-     * rather than an assertion, so writing {@code true} over an active User matches no row and
-     * resets nothing.
-     *
-     * <p>The change requirement follows the spec: a credential that sat unused across a
-     * deactivation should not be trusted on return. A credentialless User keeps whatever it had,
-     * which is no flag — the flag arrives with its first password.
-     *
-     * @return how many rows were written; zero when no inactive User has that id
-     */
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("""
-            update ScimUserEntity u
-               set u.active = true,
-                   u.login.lastAuthenticatedAt = :now,
-                   u.login.passwordChangeRequiredSince =
-                       case when u.login.passwordHash is not null then :now
-                            else u.login.passwordChangeRequiredSince end
-             where u.resourceId = :id
-               and u.active = false""")
-    int reactivate(@Param("id") UUID id, @Param("now") Instant now);
 
     /**
      * Writes the dormancy basis alone. Not a SCIM attribute, so the resource row — and with it
