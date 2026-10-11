@@ -4,10 +4,6 @@ import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.authorization.domain.RoleMapping;
-import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ProtectedResourceException;
@@ -37,8 +33,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -99,12 +93,12 @@ import org.springframework.transaction.annotation.Transactional;
  * the User holds from its next sign-in.
  *
  * <p>Which Users gain or lose a Role, and whose Sessions end, is decided by
- * {@link ScimWriteEffects} from the membership before and after; this class carries it out.
+ * {@link ScimWriteEffects} from the membership before and after, and carried out by the apply
+ * step every SCIM write shares ({@link ScimWriteEffectsApplier}), which also advances the version
+ * of a write that moved only the calling connector's alias.
  */
 @Service
 public class ScimGroupService {
-
-    private static final Logger log = LoggerFactory.getLogger(ScimGroupService.class);
 
     private final ScimGroupRepository groups;
     private final ScimUserRepository users;
@@ -113,8 +107,8 @@ public class ScimGroupService {
     private final AuditTrail audit;
     private final Clock clock;
     private final ScimQueryRepository queries;
-    private final ScimUserSessions sessions;
     private final RoleMapping roleMapping;
+    private final ScimWriteEffectsApplier effects;
 
     public ScimGroupService(
             ScimGroupRepository groups,
@@ -130,11 +124,11 @@ public class ScimGroupService {
         this.groups = groups;
         this.users = users;
         this.aliases = aliases;
-        this.sessions = sessions;
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
         this.roleMapping = roleMapping;
+        this.effects = new ScimWriteEffectsApplier(users, groups, sessions, audit);
     }
 
     /**
@@ -345,8 +339,9 @@ public class ScimGroupService {
         }
         audit.recordScimGroupDeleted(connector.connectorId(), id);
         if (deleted) {
-            carryOut(connector.connectorId(), ScimWriteEffects.ofGroupDeletion(
-                    id, memberIdSet(group), roleMapping.roleOf(id)));
+            effects.apply(ScimWriteEffectsApplier.Writer.connector(connector.connectorId()),
+                    ScimWriteEffects.ofGroupDeletion(id, memberIdSet(group), roleMapping.roleOf(id)),
+                    now);
         }
         return deleted;
     }
@@ -412,66 +407,22 @@ public class ScimGroupService {
             // have seen a moment earlier, which is the truthful answer either way.
             return Optional.empty();
         }
-        ScimWriteEffects<AuditGroupAttribute> effects = ScimWriteEffects.ofGroupWrite(id,
+        ScimWriteEffects<AuditGroupAttribute> implied = ScimWriteEffects.ofGroupWrite(id,
                 new ScimWriteEffects.GroupState(
                         current.displayName(), memberIdSet(current), currentAlias),
                 new ScimWriteEffects.GroupState(
                         written.displayName(), memberIdSet(written), edit.externalId()),
                 roleMapping.roleOf(id));
-        if (effects.stored().alias()) {
+        if (implied.stored().alias()) {
             writeAlias(connectorId, id, edit.externalId());
-            if (effects.stored().aliasOnly()) {
-                // The alias is not a Group column, so the replacement above saw no change and
-                // advanced nothing; the representation this connector reads did change, so its
-                // version and lastModified must. A write that also moved a column already did.
-                written = groups.advanceVersion(id, desired.lastModifiedAt()).orElse(null);
-                if (written == null) {
-                    return Optional.empty();
-                }
-            }
         }
-        audit.recordScimGroupReplaced(connectorId, id, effects.audited());
-        carryOut(connectorId, effects);
-        return Optional.of(projection(connector, written));
-    }
-
-    /**
-     * Carries out the Role changes and Session revocations a write's effects name: each change of
-     * power is audited (fail-open, ADR 0004) and logged, and each revocation is requested of the
-     * port, which ends the Sessions only once the write commits (ADR 0002). Which Users these are
-     * is {@link ScimWriteEffects}'s decision; this method decides nothing.
-     */
-    private void carryOut(UUID connectorId, ScimWriteEffects<AuditGroupAttribute> effects) {
-        for (ScimWriteEffects.RoleChange change : effects.roleChanges()) {
-            switch (change.kind()) {
-                case GRANTED -> {
-                    audit.recordRoleGranted(
-                            connectorId, change.userId(), change.groupId(), change.role());
-                    logRoleChange(Operation.ROLE_GRANT, change);
-                }
-                case REVOKED -> {
-                    audit.recordRoleRevoked(
-                            connectorId, change.userId(), change.groupId(), change.role());
-                    logRoleChange(Operation.ROLE_REVOKE, change);
-                }
-            }
-        }
-        for (ScimWriteEffects.SessionRevocation revocation : effects.revocations()) {
-            sessions.revokeAfterCommit(connectorId, revocation.userId(), revocation.causes());
-        }
-    }
-
-    /**
-     * The change of power in the application log, beside the audit event: {@code INFO}, classified
-     * {@code user-administration} / {@code change} / {@code success}, naming the User, the Group
-     * by id and the Role — never a {@code userName} or the Group's {@code displayName}.
-     */
-    private static void logRoleChange(Operation operation, ScimWriteEffects.RoleChange change) {
-        LogEvent.success(log, operation, Category.PROCESS, Type.CHANGE)
-                .addKeyValue(LogEvent.USER_TARGET_ID, change.userId().toString())
-                .addKeyValue(LogEvent.GROUP_ID, change.groupId().toString())
-                .addKeyValue(LogEvent.ROLE_NAME, change.role().name())
-                .log();
+        audit.recordScimGroupReplaced(connectorId, id, implied.audited());
+        // The alias is not a Group column, so a replacement that moved only the alias advanced
+        // nothing; the apply step advances the version the connector reads.
+        effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId), implied,
+                desired.lastModifiedAt());
+        // Read back rather than taken from the replacement: the version may have advanced above.
+        return groups.findById(id).map(group -> projection(connector, group));
     }
 
     /**

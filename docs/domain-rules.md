@@ -501,18 +501,27 @@ connector cannot detect.
 **Resource version** — every resource whose rendered document a SCIM write
 changed advances its version exactly once, and no other resource advances; the
 version is the resource's strong ETag and its `meta.version`.
-`RepresentationChange` is the one place that decides who moved. A User's
-document lists its Groups by `displayName`, and a Group's lists its members, so:
+`RepresentationChange` is the one place that decides who moved, inside the
+statement that stores the change; the SCIM write apply step carries out
+everything else a write implies, and advances only the version of a write that
+stored nothing but an alias. A User's document lists its Groups by
+`displayName`, and a Group's lists its members by their member label — a
+member's `displayName`, or its `userName` when it has none — so:
 
 - a User's own write — replacement, `PATCH`, an `active` change, a completed
-  password change — advances that User alone;
+  password change — advances that User; when it changes the User's label, it
+  also advances every Group the User is a direct member of, so an `If-Match`
+  holding such a Group's earlier version no longer matches. A `userName` change
+  of a User that has a `displayName` leaves its label, and its Groups, alone;
 - a Group membership that starts or stops advances the Group and each User whose
   membership changed, and a member removed and re-added in one write advances
   neither;
 - a Group rename advances the Group and every member, before and after;
 - Group creation advances each initial member, and Group deletion each former
   member; User deletion advances each of its Groups;
-- a Group's `externalId` alias written alone advances the Group alone;
+- a User's `externalId` alias written alone advances the User alone, and a
+  Group's advances the Group alone: the alias is the calling connector's, kept
+  beside the resource rather than in it, so neither side renders the other's;
 - a Group write that changes neither name, membership nor alias advances
   nothing, not even the Group, so a connector converging on a desired state does
   not invalidate every cached copy on each re-send.

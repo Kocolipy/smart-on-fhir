@@ -62,7 +62,9 @@ public interface ScimUserRepository {
     /**
      * Replaces the User's profile with the given one, stores the given credential, change-required
      * flag and dormancy basis, and advances its version exactly once, reporting the User as it now
-     * stands.
+     * stands. When the write changed the label each of the User's Groups renders it with — its
+     * {@code displayName}, or its {@code userName} when it has none — every one of those Groups'
+     * versions advances with it, since each Group's document changed too.
      *
      * <p>Stores what it is given and decides nothing: the login state in {@code user} — a
      * Reactivation's reset basis and required change included — is the login-state module's
@@ -80,6 +82,16 @@ public interface ScimUserRepository {
      *                                    User — from the failed statement, not a prior read
      */
     Optional<ScimUser> replace(ScimUser user, Instant now);
+
+    /**
+     * Advances the User's own version and {@code meta.lastModified} and nothing else — for a
+     * write whose only visible change is the calling connector's {@code externalId}, which no
+     * User column records, so there is nothing for {@link #replace} to write.
+     *
+     * <p>No Group's version moves: a Group renders its members by id and label, never an alias.
+     * A write matching no row advances nothing.
+     */
+    void advanceVersion(UUID id, Instant now);
 
     /**
      * The live User holding this normalized {@code userName}, or empty.

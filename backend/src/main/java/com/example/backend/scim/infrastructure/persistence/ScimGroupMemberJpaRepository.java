@@ -51,6 +51,15 @@ interface ScimGroupMemberJpaRepository
     List<ScimGroupMemberRow> findMembersOfGroups(@Param("groupIds") Collection<UUID> groupIds);
 
     /**
+     * The label {@link #findMembersOfGroups} renders a member with, from that member's own
+     * attributes: the same {@code coalesce(displayName, userName)}, for deciding whether a User
+     * write changed what its Groups show. Kept beside the query so the two cannot drift apart.
+     */
+    static String memberLabel(String displayName, String userName) {
+        return displayName != null ? displayName : userName;
+    }
+
+    /**
      * The Groups this User is a direct member of — the read-only reverse view.
      *
      * <p>Returns references rather than Groups so one User's read does not carry every

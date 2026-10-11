@@ -44,6 +44,39 @@ class RepresentationChangeTests {
         }
 
         @Test
+        void a_replacement_that_keeps_the_member_label_advances_that_user_alone() {
+            RepresentationChange change = RepresentationChange.userReplaced(
+                    ALICE, "Alice", "Alice", List.of(GROUP), NOW);
+
+            assertThat(change.advanced()).containsExactly(ALICE);
+        }
+
+        @Test
+        void a_replacement_that_changes_the_member_label_advances_the_user_and_its_groups() {
+            UUID other = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
+
+            RepresentationChange change = RepresentationChange.userReplaced(
+                    ALICE, "Alice", "Alice Anew", List.of(GROUP, other), NOW);
+
+            assertThat(change.advanced()).containsExactlyInAnyOrder(ALICE, GROUP, other);
+            assertThat(change.at()).isEqualTo(NOW);
+        }
+
+        @Test
+        void a_label_change_that_only_changes_case_is_a_label_change() {
+            assertThat(RepresentationChange.userReplaced(
+                    ALICE, "alice", "Alice", List.of(GROUP), NOW).advanced())
+                    .containsExactlyInAnyOrder(ALICE, GROUP);
+        }
+
+        @Test
+        void a_label_change_of_a_user_in_no_group_advances_that_user_alone() {
+            assertThat(RepresentationChange.userReplaced(
+                    ALICE, "Alice", "Alice Anew", List.of(), NOW).advanced())
+                    .containsExactly(ALICE);
+        }
+
+        @Test
         void a_deleted_user_advances_every_group_it_belonged_to_and_not_itself() {
             UUID other = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
 

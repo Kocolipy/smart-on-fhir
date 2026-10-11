@@ -19,6 +19,7 @@ import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.application.ScimRoleRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ScimUser;
@@ -41,14 +42,18 @@ class DevDormancyStartupConfigTests {
     private final InMemoryScheduledJobLock lock = new InMemoryScheduledJobLock();
     private final MutableClock clock = new MutableClock(ScimIdentities.NOW);
 
+    private final SessionRevocationService sessions = new SessionRevocationService(
+            new InMemoryAccountSessions(),
+            new PendingCommit(),
+            audit,
+            new RecordingOperationalAlerts());
+
     private final DormancyService dormancy = new DormancyService(
             users,
             groups,
-            new SessionRevocationService(
-                    new InMemoryAccountSessions(),
-                    new PendingCommit(),
-                    audit,
-                    new RecordingOperationalAlerts()),
+            new ScimRoleRevocationService(
+                    users, groups, sessions, audit, TestRoleMappings.superuserOnly()),
+            sessions,
             LoginStateModules.over(users, clock),
             lock,
             DormancyPolicy.defaults(),
