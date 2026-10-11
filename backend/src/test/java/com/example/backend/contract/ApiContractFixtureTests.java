@@ -192,7 +192,7 @@ class ApiContractFixtureTests {
         List<Fixture> all = new ArrayList<>();
         authentication(all);
         self(all);
-        sessionAndCounter(all);
+        counter(all);
         administration(all);
         connectors(all);
         audit(all);
@@ -326,29 +326,9 @@ class ApiContractFixtureTests {
         });
     }
 
-    // ---- /api/session, /api/count -----------------------------------------------------
+    // ---- /api/count ------------------------------------------------------------------------
 
-    private static void sessionAndCounter(List<Fixture> all) {
-        add(all, "session: GET, PUT and DELETE, with their refusals", t -> {
-            Cookie session = t.settle(t.provision(true));
-            t.expect(t.get("/api/session").cookie(session), 200);
-            t.expect(t.get("/api/session"), 401);
-            t.expect(t.csrf(t.call(HttpMethod.PUT, "/api/session")).cookie(session)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"displayName\":\"Contract\"}"), 200);
-            t.expect(t.csrf(t.call(HttpMethod.PUT, "/api/session")).cookie(session)
-                    .contentType(MediaType.APPLICATION_JSON).content("{\"displayName\":\" \"}"),
-                    400);
-            t.expect(t.call(HttpMethod.PUT, "/api/session").cookie(session)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"displayName\":\"Contract\"}"), 403);
-            t.expect(t.csrf(t.call(HttpMethod.PUT, "/api/session"))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"displayName\":\"Contract\"}"), 401);
-            t.expect(t.call(HttpMethod.DELETE, "/api/session").cookie(session), 403);
-            t.expect(t.csrf(t.call(HttpMethod.DELETE, "/api/session")).cookie(session), 204);
-            t.expect(t.csrf(t.call(HttpMethod.DELETE, "/api/session")), 401);
-        });
+    private static void counter(List<Fixture> all) {
         add(all, "count: GET, increment and reset, with their refusals", t -> {
             // counter:read and counter:write are baseline: every active User holds them, the
             // Superuser and a User in no mapped Group alike. Only a confined session lacks them.

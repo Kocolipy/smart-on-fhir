@@ -9,6 +9,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.observability.AccessRefusalLog;
+import com.example.backend.observability.EndedSession;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestActor;
 import com.example.backend.observability.RequestIdFilter;
@@ -81,7 +82,7 @@ class ApplicationChainRefusalTests {
     @Test
     void a_session_the_absolute_lifetime_just_ended_is_expired() throws Exception {
         MockHttpServletRequest request = request("GET", "/api/self");
-        request.setAttribute(AbsoluteSessionLifetimeFilter.ENDED_ATTRIBUTE, Boolean.TRUE);
+        EndedSession.mark(request);
 
         ILoggingEvent record = onlyRecord(() -> entryPoint().commence(request, response, null));
 

@@ -128,7 +128,6 @@ servers:
     description: Local development
 tags:
   - name: Authentication
-  - name: Session
   - name: Counter
   - name: Administration
   - name: Connectors
@@ -218,6 +217,13 @@ paths:
             the request arrived with is ended before this answer, whoever it
             belonged to, and its CSRF token with it; a retry fetches a new token
             from `GET /api/auth/csrf`.
+          headers:
+            Set-Cookie:
+              description: |
+                An expired session cookie, so the browser stops sending an id that
+                names nothing. No `Clear-Site-Data`.
+              schema:
+                type: string
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/me:
@@ -435,6 +441,13 @@ paths:
               description: Where the browser goes next.
               schema:
                 type: string
+            Set-Cookie:
+              description: |
+                On a redirect to `/?signin=refused` or `/?signin=unavailable`, an
+                expired session cookie, so the browser stops sending an id that
+                names nothing. No `Clear-Site-Data`.
+              schema:
+                type: string
         "404":
           description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
           content:
@@ -470,6 +483,13 @@ paths:
           headers:
             Location:
               description: Where the browser goes next.
+              schema:
+                type: string
+            Set-Cookie:
+              description: |
+                On a redirect to `/?signin=refused` or `/?signin=unavailable`, an
+                expired session cookie, so the browser stops sending an id that
+                names nothing. No `Clear-Site-Data`.
               schema:
                 type: string
         "404":
@@ -534,6 +554,13 @@ paths:
               description: Where the browser goes next.
               schema:
                 type: string
+            Set-Cookie:
+              description: |
+                On a redirect to `/?signin=refused` or `/?signin=unavailable`, an
+                expired session cookie, so the browser stops sending an id that
+                names nothing. No `Clear-Site-Data`.
+              schema:
+                type: string
         "404":
           description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
           content:
@@ -581,64 +608,6 @@ paths:
           description: |
             The session is confined by the change-required flag and lacks
             baseline access. No body.
-  /api/session:
-    get:
-      tags: [Session]
-      summary: Get session state
-      operationId: getSession
-      security:
-        - sessionCookie: []
-      responses:
-        "200":
-          description: Current session state.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SessionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-    put:
-      tags: [Session]
-      summary: Update session state
-      operationId: updateSession
-      security:
-        - sessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateSessionRequest"
-      responses:
-        "200":
-          description: Updated session state.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SessionResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/CsrfTokenRejected"
-    delete:
-      tags: [Session]
-      summary: Delete the current session
-      operationId: deleteSession
-      security:
-        - sessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "204":
-          description: The session was invalidated.
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/CsrfTokenRejected"
   /api/count:
     get:
       tags: [Counter]
@@ -3283,29 +3252,6 @@ components:
             Whether this is the Superuser Group — the server-seeded Admin group,
             whose Role holds every Permission, which cannot be renamed or deleted
             and whose Bootstrap Admin membership is frozen.
-    UpdateSessionRequest:
-      type: object
-      required: [displayName]
-      properties:
-        displayName:
-          type: string
-          minLength: 1
-          maxLength: 100
-          pattern: ".*\\S.*"
-    SessionResponse:
-      type: object
-      required: [id, createdAt, maxInactiveIntervalSeconds]
-      properties:
-        id:
-          type: string
-        displayName:
-          type: [string, "null"]
-        createdAt:
-          type: string
-          format: date-time
-        maxInactiveIntervalSeconds:
-          type: integer
-          format: int32
     CountResponse:
       type: object
       required: [count]

@@ -35,6 +35,7 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimUser;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpSession;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,6 +57,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationException;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.web.http.DefaultCookieSerializer;
 
 /**
  * How a Login is completed ({@link LoginCompletion}), by either login method: the login decision,
@@ -68,6 +70,9 @@ class LoginCompletionTests {
     private static final Instant NOW = Instant.parse("2026-10-10T00:00:00Z");
 
     private static final String PASSWORD = "correct-password";
+
+    /** Mirrors {@code server.servlet.session.cookie.name}. */
+    private static final String SESSION_COOKIE = "JSESSIONID";
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
@@ -130,7 +135,7 @@ class LoginCompletionTests {
         request.getSession();
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            Optional<LoginCompletion.SignedInSession> signedIn = completion.complete(
+            Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(
                     password(PASSWORD), request, new MockHttpServletResponse());
 
             String signedInId = signedIn.orElseThrow().session().getId();
@@ -196,7 +201,7 @@ class LoginCompletionTests {
 
     @Test
     void anAcceptedLoginHandsBackTheAuthenticationItSignedIn() {
-        Optional<LoginCompletion.SignedInSession> signedIn = completion.complete(
+        Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(
                 password(PASSWORD), new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.orElseThrow().authentication().getName()).isEqualTo("ada");
@@ -205,7 +210,7 @@ class LoginCompletionTests {
     /** The session it hands back is the signed-in one, carrying the User's stable id. */
     @Test
     void anAcceptedLoginHandsBackTheSessionItSignedIn() {
-        Optional<LoginCompletion.SignedInSession> signedIn = completion.complete(
+        Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(
                 password(PASSWORD), new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.orElseThrow().session()
@@ -219,7 +224,7 @@ class LoginCompletionTests {
      */
     @Test
     void anAcceptedLoginsSessionCarriesTheRoleMappingItsAuthoritiesWereResolvedUnder() {
-        Optional<LoginCompletion.SignedInSession> signedIn = completion.complete(
+        Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(
                 password(PASSWORD), new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.orElseThrow().session()
@@ -232,7 +237,7 @@ class LoginCompletionTests {
     void theSignedInWorkIsHandedTheSessionTheLoginSignedIn() {
         List<HttpSession> handed = new ArrayList<>();
 
-        Optional<LoginCompletion.SignedInSession> signedIn = completion.complete(password(PASSWORD),
+        Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(password(PASSWORD),
                 handed::add, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(handed).containsExactly(signedIn.orElseThrow().session());
@@ -292,6 +297,21 @@ class LoginCompletionTests {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
+    /**
+     * The session it ended is gone from the browser too: the cookie naming it is expired, so the
+     * retry arrives with no session id at all, and no Clear-Site-Data wipes the login page.
+     */
+    @Test
+    void aRefusedLoginExpiresTheSessionCookieAndClearsNoSiteData() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        completion.complete(password("wrong"), request, response);
+
+        assertExpiredWithoutClearSiteData(response);
+    }
+
     @Test
     void aRefusedLoginWithoutASessionCreatesNone() {
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -337,7 +357,7 @@ class LoginCompletionTests {
 
         try (CapturedLog captured = CapturedLog.attach()) {
             completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                    request);
+                    request, new MockHttpServletResponse());
 
             assertThat(captured.withAction(Level.WARN, LogEvent.ACTION, "user-authentication"))
                     .singleElement()
@@ -349,7 +369,7 @@ class LoginCompletionTests {
     @Test
     void anUndecidedEndingIsRecordedOnce() {
         completion.endUndecided(new Unavailable(new FailedCall("token", ErrorCategory.SERVER, 503)),
-                new MockHttpServletRequest());
+                new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(counts.moved()).containsExactly("failed_call:token:server", "sso:unavailable");
     }
@@ -360,7 +380,7 @@ class LoginCompletionTests {
         MockHttpSession held = (MockHttpSession) request.getSession();
 
         completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                request);
+                request, new MockHttpServletResponse());
 
         assertThat(held.isInvalid()).isTrue();
     }
@@ -370,9 +390,21 @@ class LoginCompletionTests {
         SecurityContextHolder.getContext().setAuthentication(previousUser());
 
         completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                new MockHttpServletRequest());
+                new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void anUndecidedEndingExpiresTheSessionCookieAndClearsNoSiteData() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
+                request, response);
+
+        assertExpiredWithoutClearSiteData(response);
     }
 
     @Test
@@ -380,7 +412,7 @@ class LoginCompletionTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
 
         completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                request);
+                request, new MockHttpServletResponse());
 
         assertThat(request.getSession(false)).isNull();
     }
@@ -389,12 +421,20 @@ class LoginCompletionTests {
     @Test
     void aSignedInLoginCannotEndUndecided() {
         assertThatThrownBy(() -> completion.endUndecided(SignedIn.password(ada),
-                new MockHttpServletRequest()))
+                new MockHttpServletRequest(), new MockHttpServletResponse()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(counts.moved()).isEmpty();
     }
 
     // ---- helpers ----------------------------------------------------------------------------
+
+    private static void assertExpiredWithoutClearSiteData(MockHttpServletResponse response) {
+        Cookie cleared = response.getCookie(SESSION_COOKIE);
+        assertThat(cleared).as("the session cookie is written").isNotNull();
+        assertThat(List.of(cleared.getValue(), cleared.getMaxAge(),
+                        String.valueOf(response.getHeader("Clear-Site-Data"))))
+                .containsExactly("", 0, "null");
+    }
 
     /** Whoever the browser was signed in as before this Login. */
     private static Authentication previousUser() {
@@ -408,8 +448,10 @@ class LoginCompletionTests {
     }
 
     private LoginCompletion completionOver(SessionAuthenticationStrategy rotation) {
+        DefaultCookieSerializer cookies = new DefaultCookieSerializer();
+        cookies.setCookieName(SESSION_COOKIE);
         return new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
-                rotation, config.csrfTokenRepository()), outcomes);
+                rotation, config.csrfTokenRepository()), outcomes, new SessionEnding(audit, cookies));
     }
 
     /** Every {@code user-authentication} record of an accepted Login. */

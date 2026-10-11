@@ -1,4 +1,4 @@
-package com.example.backend.auth.config;
+package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

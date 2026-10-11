@@ -127,6 +127,7 @@ class AuthControllerTests {
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
+        SessionEnding sessionEnding = new SessionEnding(audit, cookieSerializer);
         Clock clock = Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC);
         accountSessions =
                 new com.example.backend.auth.InMemoryAccountSessions();
@@ -160,10 +161,10 @@ class AuthControllerTests {
                                 new RecordingOperationalAlerts()),
                         audit,
                         clock),
-                audit,
                 new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
-                        config.sessionAuthenticationStrategy(), csrfTokenRepository), outcomes),
-                cookieSerializer);
+                        config.sessionAuthenticationStrategy(), csrfTokenRepository), outcomes,
+                        sessionEnding),
+                sessionEnding);
     }
 
     private static ScimUser identity(String userName, String passwordHash) {
