@@ -146,7 +146,6 @@ describe("Showcase", () => {
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Change password" })).toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();
   });
@@ -162,14 +161,11 @@ describe("Showcase", () => {
 
   it("renders the original home page and signed-in user", async () => {
     renderShowcase();
-    expect(screen.getByRole("heading", { name: "Front End" })).toBeInTheDocument();
-    expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
   it("renders safely while authenticated user details are unavailable", () => {
     renderShowcase({ ...auth, user: null });
-    expect(screen.getByText("Signed in as")).toBeInTheDocument();
     // No session details, so no Permission: nothing is offered and nothing is asked for.
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();
@@ -394,12 +390,5 @@ describe("Showcase", () => {
 
     expect(auth.expireSession).toHaveBeenCalledOnce();
     expect(count()).toHaveTextContent(/^Clicked 0 times$/);
-  });
-
-  it("signs out", async () => {
-    const user = userEvent.setup();
-    renderShowcase();
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(auth.logout).toHaveBeenCalledOnce();
   });
 });

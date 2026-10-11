@@ -51,6 +51,50 @@ describe("App", () => {
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
   });
 
+  describe("Sign out from the shell", () => {
+    const me = () =>
+      Response.json({
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: [],
+        username: "ada",
+      });
+
+    it("takes the User to login with no Sign-in reason", async () => {
+      window.history.replaceState(null, "", "/showcase");
+      stubFetchWithCsrf(
+        vi
+          .fn()
+          .mockResolvedValueOnce(me())
+          .mockResolvedValueOnce(new Response(null, { status: 204 })),
+      );
+      render(<App />);
+
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Sign out" }));
+
+      expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("keeps the User signed in, saying so, when the logout fails", async () => {
+      window.history.replaceState(null, "", "/showcase");
+      stubFetchWithCsrf(
+        vi
+          .fn()
+          .mockResolvedValueOnce(me())
+          .mockResolvedValueOnce(new Response(null, { status: 500 })),
+      );
+      render(<App />);
+
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Sign out" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /^Unable to sign out\. Please try again\. You are still signed in\.$/,
+      );
+      expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
+    });
+  });
+
   it("returns to login when the showcase discovers an expired session", async () => {
     window.history.replaceState(null, "", "/showcase");
     stubFetchWithCsrf(

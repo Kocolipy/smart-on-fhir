@@ -88,16 +88,13 @@ describe("ChangePassword", () => {
     vi.restoreAllMocks();
   });
 
-  it("tells a flagged User the change is required and offers no way onward but signing out", () => {
+  it("tells a flagged User the change is required", () => {
     renderPage(flaggedAuth());
 
     expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
     expect(
       screen.getByText(/^Your password must be replaced before you can continue\. /),
     ).toBeInTheDocument();
-    expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Back" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -106,15 +103,12 @@ describe("ChangePassword", () => {
 
     // No flag to read means no confinement: the unflagged copy and a way back.
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
-    expect(screen.getByText(/^Signed in as\s*$/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back" })).toBeInTheDocument();
   });
 
-  it("offers an unflagged User a way back", () => {
+  it("tells an unflagged User it is a voluntary change", () => {
     renderPage(unflaggedAuth());
 
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/showcase");
   });
 
   it("keeps every field a masked password field with the matching autocomplete hint", () => {
@@ -266,14 +260,5 @@ describe("ChangePassword", () => {
 
     finish?.({ kind: "changed" });
     expect(await screen.findByRole("button", { name: "Change password" })).toBeEnabled();
-  });
-
-  it("signs out from the page", async () => {
-    const auth = flaggedAuth();
-    renderPage(auth);
-
-    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(auth.logout).toHaveBeenCalledTimes(1);
   });
 });

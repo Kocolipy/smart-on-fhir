@@ -109,62 +109,48 @@ function CounterControls({
  * page appears only for a User who may see one of its views.
  */
 export function Showcase() {
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
   const canRead = holds(user, "counter:read");
   const { count, error, increment, isUpdating, reset } = useCounter();
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-6 p-8">
-      <div className="flex w-full items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Front End</h1>
-        </div>
-        <Button variant="outline" onClick={() => void logout()}>
-          Sign out
-        </Button>
-      </div>
-
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Baseline is live</CardTitle>
-          <CardDescription>
-            React + Vite + Tailwind, with the tooling gates wired up.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CounterReading canRead={canRead} count={count} />
-          {error ? (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
-        </CardContent>
-        <CardFooter className="gap-2">
-          <CounterControls
-            canWrite={holds(user, WRITE_PERMISSIONS.counter)}
-            count={count}
-            increment={increment}
-            isUpdating={isUpdating}
-            reset={reset}
-          />
-          <div className="ml-auto flex gap-4">
-            {holdsAny(user, ADMINISTRATION_PERMISSIONS) ? (
-              <Link className={LINK_CLASS} to="/accounts">
-                Manage accounts
-              </Link>
-            ) : null}
-            {holds(user, "audit:read") ? (
-              <Link className={LINK_CLASS} to="/audit">
-                View audit log
-              </Link>
-            ) : null}
-            <Link className={LINK_CLASS} to={CREDENTIAL_CHANGE_PATH}>
-              Change password
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Baseline is live</CardTitle>
+        <CardDescription>React + Vite + Tailwind, with the tooling gates wired up.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <CounterReading canRead={canRead} count={count} />
+        {error ? (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </CardContent>
+      <CardFooter className="gap-2">
+        <CounterControls
+          canWrite={holds(user, WRITE_PERMISSIONS.counter)}
+          count={count}
+          increment={increment}
+          isUpdating={isUpdating}
+          reset={reset}
+        />
+        <div className="ml-auto flex gap-4">
+          {holdsAny(user, ADMINISTRATION_PERMISSIONS) ? (
+            <Link className={LINK_CLASS} to="/accounts">
+              Manage accounts
             </Link>
-          </div>
-        </CardFooter>
-      </Card>
-    </main>
+          ) : null}
+          {holds(user, "audit:read") ? (
+            <Link className={LINK_CLASS} to="/audit">
+              View audit log
+            </Link>
+          ) : null}
+          <Link className={LINK_CLASS} to={CREDENTIAL_CHANGE_PATH}>
+            Change password
+          </Link>
+        </div>
+      </CardFooter>
+    </Card>
   );
 }

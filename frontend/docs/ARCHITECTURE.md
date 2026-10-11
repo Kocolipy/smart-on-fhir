@@ -322,7 +322,7 @@ needs no rule of its own for that, since it acts only on what `/me` reports.
 to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
 the login route, an unknown path (which falls back to login first) — redirects
 there, ahead of the Permission check and of any recorded return destination, so a
-flagged Superuser is confined exactly as a flagged User is. The page offers sign-out,
+flagged Superuser is confined exactly as a flagged User is. The signed-in shell offers Sign out,
 so a flagged User is never stuck on it. An unflagged User may open it too, for a
 voluntary change, and the showcase links to it.
 
@@ -363,11 +363,31 @@ _rendered_ and never what is _permitted_.
 `index.html` for any unmatched path — that fallback is the backend's side of the
 SPA contract, and a deep link like `/showcase` 404s without it.
 
-A new protected area is a new `<Route>` wrapped in the existing
-`ProtectedRoute`. Nested layouts and lazy route chunks are both unused; each page
-renders its own sign-out, so there is no app shell. Add a layout route in
-`App.tsx` when two pages need the same header or navigation, and a lazy chunk
-when one page's code is heavy enough to be worth loading on demand — not before.
+The four signed-in pages (Showcase, Accounts, Audit, Change password) are
+children of one layout route in `App.tsx`: a `ProtectedRoute` around
+`SignedInShell` (`pages/signed-in-shell.tsx`). The shell owns the header (who is
+signed in and the page title), the back link and Sign out; a page renders none of
+them, only its body. Each signed-in page is declared exactly once, as an entry in
+`SIGNED_IN_PAGES` (`pages/signed-in-pages.tsx`): its path, element, optional
+`permissions` guard, and the shell metadata (title, back link, column width,
+centering). `App.tsx` maps the table to `<Route>`s, and the shell finds the
+current entry with `matchPath` (an unknown path falls back to the Showcase
+layout), so **adding a signed-in page means adding one entry to that table** and
+nothing in `App.tsx` or the shell. (The router is `BrowserRouter`, so route
+`handle` / `useMatches` is not available; the table is the single source
+instead.) The back link is withheld from a session confined to
+`/change-password`. An entry with `permissions` (Accounts, Audit) is wrapped in
+its own `ProtectedRoute` inside the shell. Sign out shows a pending state while the logout is in flight.
+When the logout fails or comes back CSRF-expired, the auth context's `logout`
+throws before it ends anything, so the session stands and the CSRF token stays
+with it (ADR-0009: the token is forgotten only through the session transitions);
+the shell catches that and shows an error line saying the User is still signed
+in. The Idle sign-out is a separate path and keeps its rule: a logout that fails
+still ends the session there.
+
+A new protected area is a new `<Route>` under that layout, wrapped in its own
+`ProtectedRoute` when it needs a Permission. Lazy route chunks are unused; add
+one when a page's code is heavy enough to be worth loading on demand — not before.
 
 ## What is deliberately absent
 
@@ -380,11 +400,11 @@ to need it does not have to invent a convention.
 | Server-state caching            | a query library wrapping `apiFetch`, wired in `App.tsx` beside `AuthProvider`        |
 | Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
 | Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
-| Nested layouts, lazy routes     | `src/App.tsx`, when pages share a header or nav, or a page is heavy                  |
+| Lazy routes                     | `src/App.tsx`, when a page is heavy                                                  |
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
 Already present, and where it lives: routing in `src/App.tsx`, authentication in
 `src/auth/` (the idle sign-out and its expiry warning included), typed HTTP
 results in `src/lib/http.ts`, and the top-level error
 boundary in `src/components/error-boundary.tsx`, wrapped around the whole tree
-in `App.tsx` because there is no app shell for it to sit inside.
+in `App.tsx`, outside the signed-in shell, so a shell failure is caught too.

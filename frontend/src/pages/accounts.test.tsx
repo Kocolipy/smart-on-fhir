@@ -22,12 +22,14 @@ vi.mock("./connectors", () => ({
   Connectors: ({
     canIssueTokens,
     canManageConnectors,
+    grantablePermissions,
   }: {
     canIssueTokens: boolean;
     canManageConnectors: boolean;
+    grantablePermissions: readonly string[];
   }) => (
     <p data-testid="connectors-panel">
-      {`manage=${String(canManageConnectors)} issue=${String(canIssueTokens)}`}
+      {`manage=${String(canManageConnectors)} issue=${String(canIssueTokens)} grant=${grantablePermissions.join(",")}`}
     </p>
   ),
 }));
@@ -767,15 +769,6 @@ describe("Accounts", () => {
     // the route guard replaces this page on the same update.
     expect(auth.expireSession).toHaveBeenCalledOnce();
   });
-
-  it("signs out", async () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    const user = userEvent.setup();
-    renderAccounts();
-
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(auth.logout).toHaveBeenCalledOnce();
-  });
 });
 
 describe("Accounts by Permission", () => {
@@ -839,5 +832,14 @@ describe("Accounts by Permission", () => {
 
     renderAccounts(holding(["connector:read", "connector:token"]));
     expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=false issue=true");
+  });
+
+  it("offers the connector panel to grant only the token Permissions the session holds", () => {
+    routeApi({ users: { kind: "ok", data: [] } });
+    renderAccounts(holding(["connector:read", "connector:token", "group:read", "user:write"]));
+
+    expect(screen.getByTestId("connectors-panel")).toHaveTextContent(
+      /grant=group:read,user:write$/,
+    );
   });
 });

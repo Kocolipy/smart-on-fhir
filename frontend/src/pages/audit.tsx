@@ -1,7 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 
-import { useAuth } from "@/auth/auth-context-value";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -287,7 +285,6 @@ function useAuditEvents() {
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { logout, user } = useAuth();
   const {
     draft,
     error,
@@ -303,17 +300,7 @@ export function Audit() {
   } = useAuditEvents();
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-6xl flex-col gap-6 p-8">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Audit</h1>
-        </div>
-        <Button variant="outline" onClick={() => void logout()}>
-          Sign out
-        </Button>
-      </div>
-
+    <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle>Audit trail</CardTitle>
@@ -363,10 +350,6 @@ export function Audit() {
           </div>
         </CardContent>
       </Card>
-
-      <Link className="text-sm font-medium underline underline-offset-4" to="/showcase">
-        Back to showcase
-      </Link>
-    </main>
+    </div>
   );
 }
