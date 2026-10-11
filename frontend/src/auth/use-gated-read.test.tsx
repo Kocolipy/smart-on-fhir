@@ -107,19 +107,14 @@ describe("useGatedRead", () => {
     await act(async () => {});
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(result.current).toMatchObject({
-      data: null,
-      error: null,
-      failed: false,
-      loading: false,
-    });
+    expect(result.current).toMatchObject({ error: null, view: { kind: "not-permitted" } });
   });
 
   it("is loading, with nothing failed, until the read answers", () => {
     const { result } = renderRead();
 
     expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
-    expect(result.current).toMatchObject({ data: null, error: null, failed: false, loading: true });
+    expect(result.current).toMatchObject({ error: null, view: { kind: "loading" } });
   });
 
   it("reads the path with a plain GET", () => {
@@ -135,19 +130,14 @@ describe("useGatedRead", () => {
     const { result } = renderRead();
     await answer(count(7));
 
-    expect(result.current).toMatchObject({ data: 7, error: null, failed: false, loading: false });
+    expect(result.current).toMatchObject({ error: null, view: { data: 7, kind: "ready" } });
   });
 
   it("shows the seam's copy for a refusal and keeps the session", async () => {
     const { result } = renderRead();
     await answer(new Response(null, { status: 403 }));
 
-    expect(result.current).toMatchObject({
-      data: null,
-      error: FORBIDDEN_MESSAGE,
-      failed: true,
-      loading: false,
-    });
+    expect(result.current).toMatchObject({ error: FORBIDDEN_MESSAGE, view: { kind: "failed" } });
     expect(expireSession).not.toHaveBeenCalled();
   });
 
@@ -155,24 +145,14 @@ describe("useGatedRead", () => {
     const { result } = renderRead();
     await answer(new Response(null, { status: 500 }));
 
-    expect(result.current).toMatchObject({
-      data: null,
-      error: FAILURE,
-      failed: true,
-      loading: false,
-    });
+    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("treats a success body that does not decode as a failure, not as data", async () => {
     const { result } = renderRead();
     await answer(Response.json({ count: "seven" }));
 
-    expect(result.current).toMatchObject({
-      data: null,
-      error: FAILURE,
-      failed: true,
-      loading: false,
-    });
+    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("ends the session on an unauthenticated read and reports a failure", async () => {
@@ -180,10 +160,10 @@ describe("useGatedRead", () => {
     await answer(new Response(null, { status: 401 }));
 
     expect(expireSession).toHaveBeenCalledTimes(1);
-    expect(result.current).toMatchObject({ data: null, error: FAILURE, failed: true });
+    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
-  it("keeps the last data when a re-read is refused, and clears the refusal when one succeeds", async () => {
+  it("keeps the last data as stale when a re-read is refused, and is ready again when one succeeds", async () => {
     const { result } = renderRead();
     await answer(count(3));
 
@@ -193,17 +173,20 @@ describe("useGatedRead", () => {
     });
     expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
     // A re-read is not a first load: what was read stays on screen meanwhile.
-    expect(result.current).toMatchObject({ data: 3, loading: false });
+    expect(result.current.view).toEqual({ data: 3, kind: "ready" });
     await answer(new Response(null, { status: 403 }));
     await act(() => reloaded);
-    expect(result.current).toMatchObject({ data: 3, error: FORBIDDEN_MESSAGE, failed: true });
+    expect(result.current).toMatchObject({
+      error: FORBIDDEN_MESSAGE,
+      view: { data: 3, kind: "stale" },
+    });
 
     act(() => {
       reloaded = result.current.reload();
     });
     await answer(count(4));
     await act(() => reloaded);
-    expect(result.current).toMatchObject({ data: 4, error: null, failed: false });
+    expect(result.current).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
   });
 
   it("does not re-read while gated off", async () => {
@@ -212,7 +195,7 @@ describe("useGatedRead", () => {
     await act(() => result.current.reload());
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(result.current).toMatchObject({ data: null, failed: false, loading: false });
+    expect(result.current.view).toEqual({ kind: "not-permitted" });
   });
 
   it("replaces the data locally", async () => {
@@ -221,7 +204,24 @@ describe("useGatedRead", () => {
 
     act(() => result.current.update((current) => (current ?? 0) + 10));
 
-    expect(result.current).toMatchObject({ data: 13, failed: false });
+    expect(result.current.view).toEqual({ data: 13, kind: "ready" });
+  });
+
+  it("holds data a response states as read while the first read is in flight", () => {
+    const { result } = renderRead();
+
+    act(() => result.current.update(() => 6));
+
+    expect(result.current.view).toEqual({ data: 6, kind: "ready" });
+  });
+
+  it("holds data a later response states as stale after a failed first read", async () => {
+    const { result } = renderRead();
+    await answer(new Response(null, { status: 500 }));
+
+    act(() => result.current.update((current) => (current ?? 0) + 10));
+
+    expect(result.current.view).toEqual({ data: 10, kind: "stale" });
   });
 
   it("withdraws the refusal copy on request, still reporting the read failed", async () => {
@@ -230,7 +230,7 @@ describe("useGatedRead", () => {
 
     act(() => result.current.clearError());
 
-    expect(result.current).toMatchObject({ error: null, failed: true });
+    expect(result.current).toMatchObject({ error: null, view: { kind: "failed" } });
   });
 
   it("resets and asks nothing when the Permission is withdrawn", async () => {
@@ -239,12 +239,17 @@ describe("useGatedRead", () => {
 
     hook.withPermissions([]);
 
-    expect(hook.result.current).toMatchObject({
-      data: null,
-      error: null,
-      failed: false,
-      loading: false,
-    });
+    expect(hook.result.current).toMatchObject({ error: null, view: { kind: "not-permitted" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no re-read once the Permission is withdrawn", async () => {
+    const hook = renderRead();
+    await answer(count(1));
+
+    hook.withPermissions([]);
+    await act(() => hook.result.current.reload());
+
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -252,10 +257,10 @@ describe("useGatedRead", () => {
     const hook = renderRead({ permissions: [] });
 
     hook.withPermissions(["counter:read"]);
-    expect(hook.result.current.loading).toBe(true);
+    expect(hook.result.current.view).toEqual({ kind: "loading" });
     await answer(count(5));
 
-    expect(hook.result.current).toMatchObject({ data: 5, loading: false });
+    expect(hook.result.current.view).toEqual({ data: 5, kind: "ready" });
   });
 
   it("drops an answer that lands after the Permission was withdrawn", async () => {
@@ -264,7 +269,7 @@ describe("useGatedRead", () => {
     hook.withPermissions([]);
     await answer(count(9));
 
-    expect(hook.result.current).toMatchObject({ data: null, failed: false, loading: false });
+    expect(hook.result.current.view).toEqual({ kind: "not-permitted" });
   });
 
   it("resets to loading and reads the new path when the path changes", async () => {
@@ -273,15 +278,10 @@ describe("useGatedRead", () => {
 
     hook.withOptions({ path: "/api/other" });
 
-    expect(hook.result.current).toMatchObject({
-      data: null,
-      error: null,
-      failed: false,
-      loading: true,
-    });
+    expect(hook.result.current).toMatchObject({ error: null, view: { kind: "loading" } });
     expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
     await answer(count(2));
-    expect(hook.result.current).toMatchObject({ data: 2, loading: false });
+    expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
   });
 
   it("drops the old path's answer once the path has moved", async () => {
@@ -289,10 +289,10 @@ describe("useGatedRead", () => {
 
     hook.withOptions({ path: "/api/other" });
     await answer(count(1)); // the old path's
-    expect(hook.result.current).toMatchObject({ data: null, loading: true });
+    expect(hook.result.current.view).toEqual({ kind: "loading" });
 
     await answer(count(2)); // the new path's
-    expect(hook.result.current).toMatchObject({ data: 2, loading: false });
+    expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
   });
 
   it("drops a re-read's answer once the path has moved", async () => {
@@ -307,7 +307,7 @@ describe("useGatedRead", () => {
     await answer(count(8)); // the re-read of the old path
     await act(() => reloaded);
 
-    expect(hook.result.current).toMatchObject({ data: null, loading: true });
+    expect(hook.result.current.view).toEqual({ kind: "loading" });
     expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
   });
 
@@ -324,7 +324,7 @@ describe("useGatedRead", () => {
     expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
     await answer(count(3));
     await act(() => reloaded);
-    expect(hook.result.current.data).toBe(3);
+    expect(hook.result.current.view).toEqual({ data: 3, kind: "ready" });
   });
 
   it("reports a refusal with the failure copy current when it lands", async () => {
@@ -335,6 +335,9 @@ describe("useGatedRead", () => {
     hook.withOptions({ failureMessage });
     await answer(new Response(null, { status: 500 }));
 
-    expect(hook.result.current).toMatchObject({ error: failureMessage, failed: true });
+    expect(hook.result.current).toMatchObject({
+      error: failureMessage,
+      view: { data: 1, kind: "stale" },
+    });
   });
 });

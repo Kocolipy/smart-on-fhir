@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import { useGatedRead } from "@/auth/use-gated-read";
+import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -14,16 +14,20 @@ import {
   formatInstant,
   parseAuditFilters,
   type AuditEvent,
+  type AuditEventPage,
   type AuditFilters,
   UNFILTERED_AUDIT_QUERY,
   type AuditQuery,
 } from "./audit-api";
+import { ListingBody } from "./listing-body";
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** Module-level, so it is one stable function across renders and hook dependencies. */
 const readAuditPage = jsonDecoder(decodeAuditEventPage);
+
+const eventsOf = (page: AuditEventPage) => page.events;
 
 const AUDIT_COLUMNS = [
   "Occurred",
@@ -96,7 +100,7 @@ function EventRow({ event }: { event: AuditEvent }) {
   );
 }
 
-function AuditTable({ events }: { events: AuditEvent[] }) {
+function AuditTable({ events }: { events: readonly AuditEvent[] }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
       <caption className="sr-only">Audit events</caption>
@@ -255,13 +259,9 @@ function useAuditEvents() {
     else setQuery(parsed.query);
   };
 
-  const totalPages = reading.data?.totalPages ?? 0;
-
   return {
     draft,
     error: refusal ?? reading.error,
-    events: reading.data?.events ?? null,
-    failed: reading.failed,
     nextPage: () => setQuery((current) => auditQueryAtPage(current, current.page + 1)),
     page: query.page,
     // No clamp: the Previous button that calls this is disabled at page zero,
@@ -270,8 +270,60 @@ function useAuditEvents() {
     reload: reading.reload,
     setDraft,
     submit,
-    totalPages,
+    view: reading.view,
   };
+}
+
+/** The page count a read stated for the current query, or `null` while none has. */
+function totalPagesOf(view: ReadView<AuditEventPage>): number | null {
+  switch (view.kind) {
+    case "not-permitted":
+    case "loading":
+    case "failed":
+      return null;
+    case "ready":
+    case "stale":
+      return view.data.totalPages;
+  }
+}
+
+/**
+ * Previous, the position and Next. The total is named only once a read of the
+ * current query has stated it, and never as fewer pages than the one shown —
+ * so a page still loading, or one that failed, reads "Page 3", not "Page 3 of 1".
+ */
+function Pager({
+  nextPage,
+  page,
+  previousPage,
+  totalPages,
+}: {
+  nextPage: () => void;
+  page: number;
+  previousPage: () => void;
+  totalPages: number | null;
+}) {
+  const position = page + 1;
+  return (
+    <>
+      <Button disabled={page === 0} onClick={previousPage} size="sm" variant="outline">
+        Previous
+      </Button>
+      <p className="text-sm text-muted-foreground">
+        {totalPages === null
+          ? `Page ${position}`
+          : `Page ${position} of ${Math.max(totalPages, position)}`}
+      </p>
+      <Button
+        disabled={position >= (totalPages ?? 0)}
+        onClick={nextPage}
+        size="sm"
+        variant="outline"
+      >
+        Next
+      </Button>
+    </>
+  );
 }
 
 /**
@@ -288,19 +340,8 @@ function useAuditEvents() {
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const {
-    draft,
-    error,
-    events,
-    failed,
-    nextPage,
-    page,
-    previousPage,
-    reload,
-    setDraft,
-    submit,
-    totalPages,
-  } = useAuditEvents();
+  const { draft, error, nextPage, page, previousPage, reload, setDraft, submit, view } =
+    useAuditEvents();
 
   return (
     <div className="flex flex-col gap-6">
@@ -321,32 +362,26 @@ export function Audit() {
           ) : null}
 
           <div className="overflow-x-auto">
-            {failed ? null : events === null ? (
-              <p className="text-sm text-muted-foreground">Loading audit events…</p>
-            ) : events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No audit events match the current filters.
-              </p>
-            ) : (
-              <AuditTable events={events} />
-            )}
+            {/* A refresh that failed hides the events last read: the trail is
+                evidence, and rows it could not confirm are not shown as it. */}
+            <ListingBody
+              empty="No audit events match the current filters."
+              loading="Loading audit events…"
+              rows={eventsOf}
+              staleRows="hide"
+              view={view}
+            >
+              {(events) => <AuditTable events={events} />}
+            </ListingBody>
           </div>
 
           <div className="flex items-center justify-between gap-4">
-            <Button disabled={page === 0} onClick={previousPage} size="sm" variant="outline">
-              Previous
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Page {page + 1} of {Math.max(totalPages, 1)}
-            </p>
-            <Button
-              disabled={page + 1 >= totalPages}
-              onClick={nextPage}
-              size="sm"
-              variant="outline"
-            >
-              Next
-            </Button>
+            <Pager
+              nextPage={nextPage}
+              page={page}
+              previousPage={previousPage}
+              totalPages={totalPagesOf(view)}
+            />
             <Button onClick={() => void reload()} size="sm" variant="outline">
               Refresh
             </Button>

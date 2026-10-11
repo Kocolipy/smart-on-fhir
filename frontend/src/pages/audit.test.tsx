@@ -154,6 +154,9 @@ function renderAudit(value: AuthContextState = auth) {
 
 const table = () => screen.getByRole("table", { name: "Audit events" });
 
+/** The pager's position line, "Page N" or "Page N of M". */
+const pager = () => screen.getByText(/^Page \d+/);
+
 /** Waits for the table to render, then returns it. */
 const findTable = () => screen.findByRole("table", { name: "Audit events" });
 
@@ -435,6 +438,99 @@ describe("Audit", () => {
         expect.any(Function),
       );
     });
+
+    // The total belongs to a page read; until the next one is read it is unknown.
+    it("names no total while the next page loads", async () => {
+      apiFetchMock
+        .mockResolvedValueOnce({
+          kind: "ok",
+          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        } as never)
+        .mockReturnValueOnce(new Promise(() => {}) as never);
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+
+      expect(pager()).toHaveTextContent(/^Page 2$/);
+    });
+
+    it("names no total once the next page fails", async () => {
+      apiFetchMock
+        .mockResolvedValueOnce({
+          kind: "ok",
+          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        } as never)
+        .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("alert");
+
+      expect(pager()).toHaveTextContent(/^Page 2$/);
+    });
+
+    it("names no total for a session lacking audit:read", () => {
+      renderAudit({ ...auth, user: { ...auth.user!, permissions: [] } });
+
+      expect(pager()).toHaveTextContent(/^Page 1$/);
+    });
+
+    it("keeps the total a page stated when its Refresh fails", async () => {
+      apiFetchMock
+        .mockResolvedValueOnce({
+          kind: "ok",
+          data: pageOf([EVENT_1], { totalElements: 51, totalPages: 2 }),
+        } as never)
+        .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Refresh" }));
+      await screen.findByRole("alert");
+
+      expect(pager()).toHaveTextContent(/^Page 1 of 2$/);
+    });
+
+    it("never names a total smaller than the page it is on", async () => {
+      apiFetchMock
+        .mockResolvedValueOnce({
+          kind: "ok",
+          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        } as never)
+        // The trail shrank under the filters between the two reads.
+        .mockResolvedValueOnce({
+          kind: "ok",
+          data: pageOf([], { page: 1, totalElements: 1, totalPages: 1 }),
+        } as never);
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("No audit events match the current filters.");
+
+      expect(pager()).toHaveTextContent(/^Page 2 of 2$/);
+    });
+  });
+
+  // The audit trail is evidence: rows a refresh could not confirm are not shown as the trail.
+  it("hides the events last read once a Refresh fails", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "ok", data: pageOf([EVENT_1]) } as never)
+      .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+    const user = userEvent.setup();
+    renderAudit();
+
+    await findTable();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByRole("alert");
+
+    expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
   });
 
   it("reloads on Refresh without changing the filters", async () => {

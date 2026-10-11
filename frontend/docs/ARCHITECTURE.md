@@ -114,7 +114,16 @@ request is built, so a malformed one is refused on the page and nothing is sent.
 Ids are shown as ids, never resolved to usernames, which would need `user:read`.
 The page reads on mount, on a filter submit, on paging and on Refresh, and never
 on a timer: every request renews the server session, so a page that polled
-would never reach the idle timeout.
+would never reach the idle timeout. The pager names a total only once a read of
+the current query has stated one, and never fewer pages than the one shown, so
+a page still loading or one that failed reads "Page 3", not "Page 3 of 1".
+
+`pages/listing-body.tsx` is the one listing body Accounts, Connectors and Audit
+render a gated read through: the loading line, the empty line, and a blank body
+for a failure — whose copy is on the page's error line, so a failure is never
+shown as empty or as still loading. Each page names its `staleRows` choice for a
+refresh that fails: Connectors keeps the rows last read, Accounts and Audit hide
+them.
 
 Every request goes through `useSessionRequest`, so a `401` ends the session in
 one place and a `403` never does: it reaches the page as `forbidden`, which shows
@@ -125,9 +134,12 @@ copy the page supplies, because only the page knows what was being attempted.
 Every listing read — Users, Groups, connectors, the audit trail and the Showcase counter — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the path, the
 decoder, the Permission the read requires and its failure copy; the hook sends
-nothing without the Permission, and otherwise returns the data or the refusal
-and its message, resetting when the Permission or the path changes and
-dropping an answer for a key it has moved off.
+nothing without the Permission, resets when the Permission or the path changes,
+and drops an answer for a key it has moved off. What it returns is one closed
+`ReadView` — `not-permitted`, `loading`, `failed` (nothing was ever read),
+`ready`, or `stale` (a refresh failed and the last data is kept) — beside the
+refusal's copy for the error line. A page switches on the view rather than
+re-checking the read's Permission or rebuilding the states from loose flags.
 
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the

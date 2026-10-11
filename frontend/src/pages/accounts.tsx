@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { holds, VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
-import { useGatedRead } from "@/auth/use-gated-read";
+import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
   type UserRow,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
+import { ListingBody } from "./listing-body";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
 const UNLOCK_EXPLANATION =
@@ -205,7 +206,7 @@ function UsersTable({
   onAction: OnAction | null;
   pending: boolean;
   signedIn: string | undefined;
-  users: UserRow[];
+  users: readonly UserRow[];
 }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
@@ -234,7 +235,7 @@ function UsersTable({
   );
 }
 
-function GroupsTable({ groups }: { groups: GroupRow[] }) {
+function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
       <caption className="sr-only">Groups</caption>
@@ -269,42 +270,51 @@ function GroupsTable({ groups }: { groups: GroupRow[] }) {
 }
 
 /**
- * A projection's card: its loading state, its empty state — both withheld when
- * the read failed, so a failure is never also reported as an empty directory or
- * as a load still under way — and otherwise its table.
+ * A projection's card around the shared listing body, or nothing for a
+ * session without the projection's read Permission.
+ *
+ * A failed re-read hides the rows: a row's actions act on what it states, so
+ * rows the listing could not confirm are not offered. The page re-reads
+ * neither listing today — a row action replaces its row from the response —
+ * so this decides only what a future re-read would show.
  */
-function ProjectionCard({
+function ProjectionCard<R>({
   children,
   description,
   empty,
-  failed,
-  rows,
   title,
+  view,
 }: {
-  children: ReactNode;
+  children: (rows: readonly R[]) => ReactNode;
   description: string;
   empty: string;
-  failed: boolean;
-  rows: unknown[] | null;
   title: string;
+  view: ReadView<R[]>;
 }) {
-  // A failed read is never followed by a successful one on this page, so a
-  // failure always means there are no rows to show.
-  let body: ReactNode = children;
-  if (failed) body = null;
-  else if (rows === null)
-    body = <p className="text-sm text-muted-foreground">Loading {title.toLowerCase()}…</p>;
-  else if (rows.length === 0) body = <p className="text-sm text-muted-foreground">{empty}</p>;
+  if (view.kind === "not-permitted") return null;
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="overflow-x-auto">{body}</CardContent>
+      <CardContent className="overflow-x-auto">
+        <ListingBody
+          empty={empty}
+          loading={`Loading ${title.toLowerCase()}…`}
+          rows={everyRow}
+          staleRows="hide"
+          view={view}
+        >
+          {children}
+        </ListingBody>
+      </CardContent>
     </Card>
   );
 }
+
+/** A listing's rows: the read's data itself. */
+const everyRow = <R,>(rows: R[]) => rows;
 
 /** Module-level, so each is one stable function across renders and hook dependencies. */
 const readUserRows = jsonDecoder(decodeUserRows);
@@ -379,8 +389,6 @@ function useDirectory() {
  */
 export function Accounts() {
   const { user } = useAuth();
-  const readUsers = holds(user, VIEW_PERMISSIONS.users);
-  const readGroups = holds(user, VIEW_PERMISSIONS.groups);
   const { error, groups, pending, runAction, users } = useDirectory();
   const onAction: OnAction | null = holds(user, WRITE_PERMISSIONS.users)
     ? (target, action) => void runAction(target, action)
@@ -394,42 +402,36 @@ export function Accounts() {
         </p>
       ) : null}
 
-      {readUsers ? (
-        <ProjectionCard
-          description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
-          empty="No users are provisioned."
-          failed={users.failed}
-          rows={users.data}
-          title="Users"
-        >
+      <ProjectionCard
+        description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
+        empty="No users are provisioned."
+        title="Users"
+        view={users.view}
+      >
+        {(rows) => (
           <UsersTable
             onAction={onAction}
             pending={pending}
             signedIn={user?.username}
-            users={users.data ?? []}
+            users={rows}
           />
-        </ProjectionCard>
-      ) : null}
+        )}
+      </ProjectionCard>
 
-      {readGroups ? (
-        <ProjectionCard
-          description="Groups and their membership come from the directory and are read-only here. A Group mapped to a Role grants that Role's Permissions to its direct members from their next sign-in."
-          empty="No groups are provisioned."
-          failed={groups.failed}
-          rows={groups.data}
-          title="Groups"
-        >
-          <GroupsTable groups={groups.data ?? []} />
-        </ProjectionCard>
-      ) : null}
+      <ProjectionCard
+        description="Groups and their membership come from the directory and are read-only here. A Group mapped to a Role grants that Role's Permissions to its direct members from their next sign-in."
+        empty="No groups are provisioned."
+        title="Groups"
+        view={groups.view}
+      >
+        {(rows) => <GroupsTable groups={rows} />}
+      </ProjectionCard>
 
-      {holds(user, VIEW_PERMISSIONS.connectors) ? (
-        <Connectors
-          canIssueTokens={holds(user, WRITE_PERMISSIONS.tokens)}
-          canManageConnectors={holds(user, WRITE_PERMISSIONS.connectors)}
-          grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
-        />
-      ) : null}
+      <Connectors
+        canIssueTokens={holds(user, WRITE_PERMISSIONS.tokens)}
+        canManageConnectors={holds(user, WRITE_PERMISSIONS.connectors)}
+        grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
+      />
     </div>
   );
 }

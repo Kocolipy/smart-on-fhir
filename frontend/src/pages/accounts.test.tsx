@@ -785,13 +785,13 @@ describe("Accounts by Permission", () => {
   /** Every request the page issued, by path. */
   const requested = () => apiFetchMock.mock.calls.map(([path]) => path);
 
-  it("shows an Account admin the Users and Groups and no connector panel", async () => {
+  // Without connector:read the panel renders nothing of its own; its suite pins that.
+  it("shows an Account admin the Users and Groups", async () => {
     routeApi({ users: { kind: "ok", data: [userRow({ locked: true, userName: "grace" })] } });
     renderAccounts(holding(["group:read", "user:read", "user:write"]));
 
     expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
-    expect(screen.queryByTestId("connectors-panel")).not.toBeInTheDocument();
     // The actions its user:write allows.
     expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
