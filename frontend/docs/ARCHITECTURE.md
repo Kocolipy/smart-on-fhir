@@ -32,11 +32,27 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   outcome (`401` on `/me` is a guest, not an error; `401` on change-password is
   a wrong current password or a lockout, never a reason to end the session by
   itself), and the decoder for the session's `permissions`.
-- `permissions.ts` — the Permission each administrative view requires
-  (`VIEW_PERMISSIONS`), `ADMINISTRATION_PERMISSIONS`, the Permission each write
-  requires (`WRITE_PERMISSIONS`, read both for the control a page offers and on
-  the operation it sends), and the `holds` / `holdsAny` checks every guard and
-  page reads.
+- `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
+  reads. Which Permission a request requires is not here: it is declared on the
+  endpoint (`declarations.ts`, below).
+- `declarations.ts` — the shape of an endpoint as data: a `ReadDeclaration`
+  (Permission, path, decoder) and a `WriteDeclaration` (the same, plus method
+  and optional JSON body; the decoder only for a write answering a body). A path
+  is a function of the call's arguments, so the API module that exports the
+  declaration builds it and no page concatenates one. A page reads
+  `declaration.permission` to decide whether to offer a control and hands the
+  same declaration to the hook to send it, so the two cannot drift apart — each
+  control asks about the declaration it sends, never a neighbour's that happens
+  to share its Permission today; and a
+  declaration is module-level data, so its decoder is one stable reference
+  without a page hoisting it.
+- `page-status.ts` — `usePageStatus`, a page's single error line, and
+  `useStatusReporter`, a source's handle on it. Every gated read and write on
+  the page reports its outcome there (and the Audit page its refused filters),
+  and the module alone decides what shows: **the latest event wins**. A failure
+  becomes the line; a success withdraws only its own source's failure, so one
+  still standing from another source shows again; a write starting withdraws
+  every failure, as the action supersedes them. No hook knows about any other.
 - `session-transitions.ts` — `useSessionTransitions`, the **session
   transitions**: the one place the auth state (status, user, sign-in reason)
   changes, as `signIn(user)` or `end(reason)`, and the only `src/auth` caller of
@@ -103,14 +119,19 @@ connectors and issues, rotates and revokes their tokens through
 `/api/admin/connectors/**`, re-reading the listing after every change because a
 rotation, revocation or delete changes more than one token. A token's plaintext
 lives only in that component's state, shown once in the disclosure panel, so
-dismissing it, navigating away or reloading loses it for good.
-`pages/accounts-api.ts` holds the wire types and paths both files share.
+dismissing it, navigating away or reloading loses it for good. The panel reads
+the session itself and offers each control by its own declaration's Permission,
+and the token Permissions it may grant by the ones the session holds.
+`pages/accounts-api.ts` holds the wire types both files share and declares every
+endpoint they call, each with its Permission.
 
 `pages/audit.tsx` is the audit listing at `/audit`, routed for a session holding
 `audit:read` alone. It reads `GET /api/admin/audit-events` a page of 50 at a
 time, filtered by operation, outcome, actor id, resource id and a time range.
 `pages/audit-api.ts` decodes every field and checks each filter before the
-request is built, so a malformed one is refused on the page and nothing is sent.
+request is built, so a malformed one is refused on the page and nothing is sent;
+its `AUDIT_EVENTS` declaration reads the path the filters parsed into. A refused
+filter and a failed read share the error line, the later of the two showing.
 Ids are shown as ids, never resolved to usernames, which would need `user:read`.
 The page reads on mount, on a filter submit, on paging and on Refresh, and never
 on a timer: every request renews the server session, so a page that polled
@@ -132,28 +153,32 @@ administrator (`409` a refused change, `404` a User that has since gone) is
 copy the page supplies, because only the page knows what was being attempted.
 
 Every listing read — Users, Groups, connectors, the audit trail and the Showcase counter — goes
-one level higher, through `auth/use-gated-read.ts`. A page names the path, the
-decoder, the Permission the read requires and its failure copy; the hook sends
-nothing without the Permission, resets when the Permission or the path changes,
-and drops an answer for a key it has moved off. What it returns is one closed
-`ReadView` — `not-permitted`, `loading`, `failed` (nothing was ever read),
-`ready`, or `stale` (a refresh failed and the last data is kept) — beside the
-refusal's copy for the error line. A page switches on the view rather than
-re-checking the read's Permission or rebuilding the states from loose flags.
+one level higher, through `auth/use-gated-read.ts`. A page names the read's
+declaration (from its API module) with the declaration's arguments, its failure
+copy and the page status; the hook sends nothing without the Permission, resets
+when the Permission or the path changes, and drops an answer for a key it has
+moved off. What it returns is one closed `ReadView` — `not-permitted`,
+`loading`, `failed` (nothing was ever read), `ready`, or `stale` (a refresh
+failed and the last data is kept); the refusal's copy goes to the page status,
+and a read that closes (its path moved, its gate shut) withdraws what it
+reported. A page switches on the view rather than re-checking the read's
+Permission or rebuilding the states from loose flags.
 
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the
-operation as data — path, method, optional JSON body, optional success
-decoder, and the Permission the backend requires — plus what to do on success
-and the copy for the statuses it cares about. The hook sends the operation
+write's declaration — path, method, optional JSON body, optional success
+decoder, and the Permission the backend requires, all declared by its API
+module — with the declaration's arguments, what to do on success, the copy for
+the statuses it cares about and, for Connectors, an `after` step (the listing
+re-read) that runs inside the pending window. The hook sends the write
 through `useSessionRequest` itself, and sends nothing for a session lacking
-the operation's Permission (it settles as `forbidden`, as the backend would
+the declaration's Permission (it settles as `forbidden`, as the backend would
 answer), the way a gated read sends nothing without its own. It owns the
-pending flag, the page's single error line, the mapping of a refusal to copy,
-and withdrawing the error of the read(s) the write supersedes the moment it
-starts (`useGatedWrite({ supersedes: [groups, users] })` in `accounts.tsx`).
-The page keeps only what is its own: the operation, its success handling, its
-copy, and what to render from `holds(...)`. The hook has no branch for ADR
+pending flag and the mapping of a refusal to copy; it withdraws every failure
+on the page status as it starts and reports its own outcome there, so an
+`after` step that fails reports later and shows. The page keeps only what is
+its own: which declaration, its success handling, its copy, and what to render
+from `holds(user, declaration.permission)`. The hook has no branch for ADR
 0006's `400 scimType: mutability`: that refusal belongs to the SCIM surface,
 and none of the endpoints the pages call answers it.
 
@@ -304,17 +329,19 @@ directory that a test run writes into belongs on this list.
 | `/`                | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to `/showcase`                                                                                                            |
 | `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                                                  | every authenticated User; the counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
 | `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                            |
-| `/audit`           | `<ProtectedRoute requiredPermissions={["audit:read"]}><Audit /></ProtectedRoute>`                | `audit:read` alone                                                                                                                                            |
+| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                            |
 | `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                   |
 | `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to login                                                                                                                              |
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
-— there is no role. `src/auth/permissions.ts` holds the one table of what each
-administrative view requires (`VIEW_PERMISSIONS`: Users `user:read`, Groups
-`group:read`, connectors `connector:read`), the one table of what each write
-requires (`WRITE_PERMISSIONS`), and the `holds` / `holdsAny` checks; a
-route states its requirement as `requiredPermissions`, which
+— there is no role. Each API module declares the Permission every endpoint it
+owns requires (Users `user:read`, Groups `group:read`, connectors
+`connector:read`, the audit trail `audit:read`, the counter `counter:read`),
+`accounts-api.ts` derives `ADMINISTRATION_PERMISSIONS` from its three listings,
+and `src/auth/permissions.ts` holds the `holds` / `holdsAny` checks; a
+route states its requirement as `requiredPermissions`, read off those
+declarations in `signed-in-pages.tsx`, which
 `resolveSessionRoute` reads as "any one of these", and a page hides each action
 it lacks the Permission for (Unlock and the forced change `user:write`, connector
 create and delete `connector:write`, token issue, rotate and revoke

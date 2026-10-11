@@ -1,35 +1,35 @@
 /**
  * The one Permission-gated read every page's listing goes through.
  *
- * A page names a path, a decoder, the Permission the backend requires for the
- * read, and the copy for a plain failure; the hook does the rest. Without the
- * Permission no request is sent at all — the read would only be refused — and
- * with it the result lands as data or as a refusal with its message, the
- * message read through the seam's own {@link refusalMessage}.
+ * A page names a {@link ReadDeclaration} — the path, decoder and Permission
+ * its API module declares — with the declaration's arguments, the copy for a
+ * plain failure, and the {@link PageStatus} its error line reads; the hook does
+ * the rest. Without the Permission no request is sent at all — the read would
+ * only be refused — and with it the result lands as data, or as a refusal
+ * whose message, read through the seam's own {@link refusalMessage}, is
+ * reported to the page status.
  *
  * What the page renders is one closed {@link ReadView}: the page switches on
  * it rather than rebuilding "a failure is never shown as empty" from loose
- * flags, and never re-checks the Permission the read already checked.
+ * flags, and never re-checks the Permission the read already checked. The
+ * error line is the page status's, not this hook's: a read reports its outcome
+ * there and knows nothing about what else does.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ApiDecoder } from "@/lib/http";
-
-import type { Permission } from "./api";
 import { useAuth } from "./auth-context-value";
+import type { DeclarationArgs, ReadDeclaration } from "./declarations";
+import { useStatusReporter, type PageStatus, type StatusReporter } from "./page-status";
 import { holds } from "./permissions";
 import { refusalMessage, useSessionRequest, type SessionResult } from "./use-session-request";
 
-export interface GatedReadOptions<T> {
-  path: string;
-  /** Must be a stable reference (module-level): the read reruns when it changes. */
-  decode: ApiDecoder<T>;
-  /** The Permission the read requires; the request is sent only when the session holds it. */
-  permission: Permission;
+export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> & {
   /** The copy for a plain `failed` result, which only the page can describe. */
   failureMessage: string;
-}
+  /** The page's error line, which this read reports its outcome to. */
+  status: PageStatus;
+};
 
 /**
  * What a gated read has to show, as one closed state:
@@ -52,14 +52,10 @@ export type ReadView<T> =
 export interface GatedRead<T> {
   /** What the page renders. */
   view: ReadView<T>;
-  /** The latest read's refusal copy, or `null`; the page's error line, not its view. */
-  error: string | null;
   /** Reads again, keeping the current data — as `stale` — if the re-read is refused. */
   reload: () => Promise<void>;
   /** Replaces the data locally, from a response that already states it. */
   update: (next: (current: T | null) => T) => void;
-  /** Withdraws the refusal copy, when a later action supersedes it on the page. */
-  clearError: () => void;
 }
 
 /**
@@ -67,11 +63,11 @@ export interface GatedRead<T> {
  * answered, `ok` with its data, or `failed` with whatever data was kept.
  */
 type ReadState<T> =
-  | { outcome: "unread"; data: null; error: null }
-  | { outcome: "ok"; data: T; error: null }
-  | { outcome: "failed"; data: T | null; error: string | null };
+  | { outcome: "unread"; data: null }
+  | { outcome: "ok"; data: T }
+  | { outcome: "failed"; data: T | null };
 
-const UNREAD: ReadState<never> = { data: null, error: null, outcome: "unread" };
+const UNREAD: ReadState<never> = { data: null, outcome: "unread" };
 
 /**
  * The read state, tied to what it was read for. When the gate closes or the
@@ -93,12 +89,14 @@ function useKeyedState<T>(key: string | null) {
  * `null` while none is (gated off, or unmounted), and a response lands only
  * while its read is still the open one, so an answer for a path the page has
  * moved off, or for a gate that has since closed, is discarded rather than
- * painted.
+ * painted. Closing a read withdraws whatever it reported: its outcome is no
+ * longer news once its path has moved or its gate has closed.
  */
 function useOpenRead<T>(
   allowed: boolean,
   read: () => Promise<SessionResult<T>>,
   land: (result: SessionResult<T>) => void,
+  report: StatusReporter["report"],
 ): () => Promise<void> {
   const openRead = useRef<object | null>(null);
 
@@ -111,8 +109,9 @@ function useOpenRead<T>(
     });
     return () => {
       openRead.current = null;
+      report(null);
     };
-  }, [allowed, read, land]);
+  }, [allowed, read, land, report]);
 
   return useCallback(async () => {
     const opened = openRead.current;
@@ -135,15 +134,17 @@ function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T> {
   }
 }
 
-export function useGatedRead<T>({
-  decode,
-  failureMessage,
-  path,
-  permission,
-}: GatedReadOptions<T>): GatedRead<T> {
+export function useGatedRead<T, A extends readonly unknown[]>(
+  { decode, path: pathOf, permission }: ReadDeclaration<T, A>,
+  options: GatedReadOptions<A>,
+): GatedRead<T> {
+  const { failureMessage, status } = options;
+  // An endpoint with a fixed path takes no arguments, and is handed none.
+  const path = pathOf(...((options.args ?? []) as A));
   const { user } = useAuth();
   const allowed = holds(user, permission);
   const request = useSessionRequest();
+  const { report } = useStatusReporter(status);
   const [state, setState] = useKeyedState<T>(allowed ? path : null);
 
   const read = useCallback(() => request(path, {}, decode), [decode, path, request]);
@@ -151,31 +152,28 @@ export function useGatedRead<T>({
   const land = useCallback(
     (result: SessionResult<T>) => {
       if (result.kind === "ok") {
-        setState({ data: result.data, error: null, outcome: "ok" });
+        setState({ data: result.data, outcome: "ok" });
+        report(null);
         return;
       }
-      const error = refusalMessage(result, failureMessage);
-      setState((current) => ({ data: current.data, error, outcome: "failed" }));
+      setState((current) => ({ data: current.data, outcome: "failed" }));
+      report(refusalMessage(result, failureMessage));
     },
-    [failureMessage, setState],
+    [failureMessage, report, setState],
   );
 
-  const reload = useOpenRead(allowed, read, land);
+  const reload = useOpenRead(allowed, read, land, report);
 
-  // Neither needs memoising: `setState` is stable, and both are called from
-  // event handlers, never named as a dependency. A response that states the
-  // data makes it read; only a read that failed stays failed, its data kept.
+  // No need to memoise: `setState` is stable, and this is called from event
+  // handlers, never named as a dependency. A response that states the data
+  // makes it read; only a read that failed stays failed, its data kept.
   const update = (next: (current: T | null) => T) => {
     setState((current) =>
       current.outcome === "failed"
         ? { ...current, data: next(current.data) }
-        : { data: next(current.data), error: null, outcome: "ok" },
+        : { data: next(current.data), outcome: "ok" },
     );
   };
 
-  const clearError = () => {
-    setState((current) => ({ ...current, error: null }));
-  };
-
-  return { clearError, error: state.error, reload, update, view: viewOf(allowed, state) };
+  return { reload, update, view: viewOf(allowed, state) };
 }

@@ -3,14 +3,15 @@
  * `GET /api/admin/audit-events`, read-only. `/frontend/AGENTS.md`'s
  * page-owned `api.ts`, named for its page.
  *
- * Nothing here requests anything: the Audit page reads through
- * `useSessionRequest` (in practice `useGatedRead`), so a `401` still ends the
- * session in one place. This file only says what a response looks like, how a
- * page of it is addressed, and how the filters parse into a query or are
- * refused.
+ * Nothing here requests anything: the Audit page sends {@link AUDIT_EVENTS}
+ * through `useGatedRead` (behind `useSessionRequest`), so a `401` still ends
+ * the session in one place. This file says what a response looks like, how a
+ * page of it is addressed, how the filters parse into a query or are refused,
+ * and declares the read — its path, decoder and Permission — once.
  */
 
-import { DecodeError, readObject } from "@/lib/decode";
+import type { ReadDeclaration } from "@/auth/declarations";
+import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 
 /**
  * What an audit event says happened, mirroring the backend's closed set
@@ -258,6 +259,12 @@ export const UNFILTERED_AUDIT_QUERY: AuditQuery = queryAt("", 0);
 export const auditQueryAtPage = (query: AuditQuery, page: number): AuditQuery =>
   queryAt(query.filterSearch, page);
 
-/** Date and minute from an ISO instant, locale-independent like `accounts-api.ts`'s. */
-export const formatInstant = (instant: string): string =>
-  `${instant.slice(0, 10)} ${instant.slice(11, 16)}`;
+/**
+ * One page of the audit trail, `GET /api/admin/audit-events`, at the path its
+ * query was parsed into — so a page names the query, never a path.
+ */
+export const AUDIT_EVENTS: ReadDeclaration<AuditEventPage, [query: AuditQuery]> = {
+  decode: jsonDecoder(decodeAuditEventPage),
+  path: (query) => query.path,
+  permission: "audit:read",
+};

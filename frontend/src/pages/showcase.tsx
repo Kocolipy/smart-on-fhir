@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 
+import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { ADMINISTRATION_PERMISSIONS, holds, holdsAny, WRITE_PERMISSIONS } from "@/auth/permissions";
+import { usePageStatus } from "@/auth/page-status";
+import { holds, holdsAny } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { useGatedWrite } from "@/auth/use-gated-write";
@@ -14,44 +16,39 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { jsonDecoder, readObject } from "@/lib/decode";
 
-/** The counter endpoints' `CountResponse`, read down to its one field. */
-const decodeCount = jsonDecoder((body: unknown): number =>
-  readObject(body, "CountResponse").integer("count"),
-);
+import { ADMINISTRATION_PERMISSIONS } from "./accounts-api";
+import { AUDIT_EVENTS } from "./audit-api";
+import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./showcase-api";
 
 const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
 
 /**
  * The counter's state and the two changes to it. The current count is read
  * once, on mount, and only with `counter:read` — without it the read would
- * only be refused, so it is never asked for. A change's own refusal supersedes
- * the read's on the error line.
+ * only be refused, so it is never asked for. Both report to the page's one
+ * error line, where the latest failure shows: a change starting withdraws the
+ * read's, and its own refusal replaces it.
  */
 function useCounter() {
-  const reading = useGatedRead({
-    decode: decodeCount,
+  const status = usePageStatus();
+  const reading = useGatedRead(COUNTER, {
     failureMessage: "Unable to load the counter. Please try again.",
-    path: "/api/count",
-    permission: "counter:read",
+    status,
   });
-  const write = useGatedWrite({ supersedes: [reading] });
+  const write = useGatedWrite({ status });
 
-  const updateCount = (path: string) =>
-    write.run(
-      { decode: decodeCount, method: "POST", path, permission: WRITE_PERMISSIONS.counter },
-      {
-        messages: { default: "Unable to update the counter. Please try again." },
-        onOk: (data) => reading.update(() => data),
-      },
-    );
+  const updateCount = (change: typeof INCREMENT_COUNTER) =>
+    write.run(change, {
+      messages: { default: "Unable to update the counter. Please try again." },
+      onOk: (data) => reading.update(() => data),
+    });
 
   return {
-    error: write.error,
-    increment: () => void updateCount("/api/count/increment"),
+    error: status.error,
+    increment: () => void updateCount(INCREMENT_COUNTER),
     isUpdating: write.pending,
-    reset: () => void updateCount("/api/count/reset"),
+    reset: () => void updateCount(RESET_COUNTER),
     view: reading.view,
   };
 }
@@ -64,54 +61,56 @@ const NOTE_CLASS = "text-sm text-muted-foreground";
  * is all there is — a count the page has not read is never shown.
  */
 function CounterReading({ view }: { view: ReadView<number> }) {
-  switch (view.kind) {
-    case "not-permitted":
-      return (
-        <p className={NOTE_CLASS}>You are signed in. Your account has no access to the counter.</p>
-      );
-    case "loading":
-      return <p className={NOTE_CLASS}>Loading the counter…</p>;
-    case "failed":
-      return null;
-    case "ready":
-    case "stale":
-      return (
-        <p className={NOTE_CLASS} data-testid="count">
-          Clicked {view.data} {view.data === 1 ? "time" : "times"}
-        </p>
-      );
+  if (view.kind === "not-permitted") {
+    return (
+      <p className={NOTE_CLASS}>You are signed in. Your account has no access to the counter.</p>
+    );
   }
+  if (view.kind === "loading") return <p className={NOTE_CLASS}>Loading the counter…</p>;
+  if (view.kind === "failed") return null;
+  // `ready`, or `stale` — which this page never produces, as it never re-reads.
+  return (
+    <p className={NOTE_CLASS} data-testid="count">
+      Clicked {view.data} {view.data === 1 ? "time" : "times"}
+    </p>
+  );
 }
 
 /**
- * Increment and Reset, offered only with `counter:write` and only against a
+ * Increment and Reset, each offered only with the Permission its own
+ * declaration requires (today `counter:write` for both), and only against a
  * count: disabled while the first read is in flight, and not offered at all
  * when it failed, since the count they would change is unknown.
  */
 function CounterControls({
-  canWrite,
   increment,
   isUpdating,
+  may,
   reset,
   view,
 }: {
-  canWrite: boolean;
   increment: () => void;
   isUpdating: boolean;
+  /** Whether the session may send a declared request, so whether its control is offered. */
+  may: (request: { permission: Permission }) => boolean;
   reset: () => void;
   view: ReadView<number>;
 }) {
-  if (!canWrite || view.kind === "not-permitted" || view.kind === "failed") return null;
+  if (view.kind === "not-permitted" || view.kind === "failed") return null;
   const count = view.kind === "loading" ? null : view.data;
   const disabled = isUpdating || count === null;
   return (
     <>
-      <Button onClick={increment} disabled={disabled}>
-        Increment
-      </Button>
-      <Button variant="outline" onClick={reset} disabled={disabled || count === 0}>
-        Reset
-      </Button>
+      {may(INCREMENT_COUNTER) ? (
+        <Button onClick={increment} disabled={disabled}>
+          Increment
+        </Button>
+      ) : null}
+      {may(RESET_COUNTER) ? (
+        <Button variant="outline" onClick={reset} disabled={disabled || count === 0}>
+          Reset
+        </Button>
+      ) : null}
     </>
   );
 }
@@ -145,9 +144,9 @@ export function Showcase() {
       </CardContent>
       <CardFooter className="gap-2">
         <CounterControls
-          canWrite={holds(user, WRITE_PERMISSIONS.counter)}
           increment={increment}
           isUpdating={isUpdating}
+          may={(request) => holds(user, request.permission)}
           reset={reset}
           view={view}
         />
@@ -157,7 +156,7 @@ export function Showcase() {
               Manage accounts
             </Link>
           ) : null}
-          {holds(user, "audit:read") ? (
+          {holds(user, AUDIT_EVENTS.permission) ? (
             <Link className={LINK_CLASS} to="/audit">
               View audit log
             </Link>

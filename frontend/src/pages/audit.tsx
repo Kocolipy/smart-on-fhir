@@ -1,17 +1,17 @@
 import { useState, type FormEvent } from "react";
 
+import { usePageStatus, useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { jsonDecoder } from "@/lib/decode";
+import { formatInstant } from "@/lib/instant";
 
 import {
+  AUDIT_EVENTS,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
   auditQueryAtPage,
-  decodeAuditEventPage,
   EMPTY_AUDIT_FILTERS,
-  formatInstant,
   parseAuditFilters,
   type AuditEvent,
   type AuditEventPage,
@@ -23,9 +23,6 @@ import { ListingBody } from "./listing-body";
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-/** Module-level, so it is one stable function across renders and hook dependencies. */
-const readAuditPage = jsonDecoder(decodeAuditEventPage);
 
 const eventsOf = (page: AuditEventPage) => page.events;
 
@@ -232,27 +229,30 @@ function FiltersForm({
  * mount, on every filter submit that parses, on a page change and on an
  * explicit Refresh — never on a timer, because every request to this backend
  * renews the session's idle clock.
+ *
+ * A filter refused on the page and a read refused by the backend share the
+ * one error line, where the latest failure shows.
  */
 function useAuditEvents() {
   const [draft, setDraft] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
   const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  const status = usePageStatus();
+  const filters = useStatusReporter(status);
 
-  const reading = useGatedRead({
-    decode: readAuditPage,
+  const reading = useGatedRead(AUDIT_EVENTS, {
+    args: [query],
     failureMessage: "Unable to load the audit trail. Please try again.",
-    path: query.path,
-    permission: "audit:read",
+    status,
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const parsed = parseAuditFilters(draft);
     if (!parsed.ok) {
-      setRefusal(parsed.message);
+      filters.report(parsed.message);
       return;
     }
-    setRefusal(null);
+    filters.report(null);
     // The read is keyed on the path, so an unchanged one opens no read of its
     // own — and a submit always reads, even of the filters already shown.
     if (parsed.query.path === query.path) void reading.reload();
@@ -261,7 +261,7 @@ function useAuditEvents() {
 
   return {
     draft,
-    error: refusal ?? reading.error,
+    error: status.error,
     nextPage: () => setQuery((current) => auditQueryAtPage(current, current.page + 1)),
     page: query.page,
     // No clamp: the Previous button that calls this is disabled at page zero,

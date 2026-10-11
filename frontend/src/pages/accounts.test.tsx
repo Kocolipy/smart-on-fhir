@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import type { Permission } from "@/auth/api";
-import { apiFetch, type ApiDecoder } from "@/lib/http";
+import { apiFetch } from "@/lib/http";
 
 import { Accounts } from "./accounts";
 import type { GroupRow, UserRow } from "./accounts-api";
@@ -15,23 +15,11 @@ vi.mock("@/lib/http", async (importOriginal) => ({
   apiFetch: vi.fn(),
 }));
 
-// The connector panel has its own suite; here it stands in as a marker that says
-// whether it was rendered and with which actions, rather than adding a third
-// listing request to every test.
+// The connector panel has its own suite, which pins what it offers by
+// Permission; here it stands in as a marker that says whether it was rendered,
+// rather than adding a third listing request to every test.
 vi.mock("./connectors", () => ({
-  Connectors: ({
-    canIssueTokens,
-    canManageConnectors,
-    grantablePermissions,
-  }: {
-    canIssueTokens: boolean;
-    canManageConnectors: boolean;
-    grantablePermissions: readonly string[];
-  }) => (
-    <p data-testid="connectors-panel">
-      {`manage=${String(canManageConnectors)} issue=${String(canIssueTokens)} grant=${grantablePermissions.join(",")}`}
-    </p>
-  ),
+  Connectors: () => <p data-testid="connectors-panel" />,
 }));
 
 /** Every Permission, as a Superuser's session holds them. */
@@ -100,7 +88,10 @@ type Result = object | Promise<object>;
 /**
  * Answers the two listing reads by path and every other request from a queue,
  * in order — so a test states what the listings hold and what each action
- * answers, not the order the page happens to issue its reads in.
+ * answers, not the order the page happens to issue its reads in. Each answer is
+ * what `apiFetch` would hand back: which decoder each declaration names is
+ * `accounts-api.test.ts`'s to prove, so an `ok` result's `data` is what that
+ * decoder would return.
  */
 function routeApi({
   actions = [],
@@ -112,38 +103,13 @@ function routeApi({
   users: Result;
 }) {
   const queue = [...actions];
-  apiFetchMock.mockImplementation(((
-    path: string,
-    _init: RequestInit,
-    decode?: ApiDecoder<unknown>,
-  ) => {
-    if (path === "/api/admin/accounts") return answer(users, decode);
-    if (path === "/api/admin/groups") return answer(groups, decode);
+  apiFetchMock.mockImplementation(((path: string) => {
+    if (path === "/api/admin/accounts") return Promise.resolve(users);
+    if (path === "/api/admin/groups") return Promise.resolve(groups);
     const next = queue.shift();
     if (next === undefined) throw new Error(`unexpected request to ${path}`);
-    return answer(next, decode);
+    return Promise.resolve(next);
   }) as never);
-}
-
-/**
- * What `apiFetch` hands the page for a canned result: an `ok` result's `data`
- * is the backend's JSON body, read through the decoder the page passed, and a
- * body that decoder refuses is a plain `failed`, as `apiFetch` makes it — so a
- * request naming the wrong decoder, or none where its answer has a body, fails
- * the test rather than slipping the fixture through undecoded.
- */
-async function answer(pending: Result, decode?: ApiDecoder<unknown>) {
-  const result = await pending;
-  if (!("kind" in result) || result.kind !== "ok") return result;
-  if (decode === undefined) return { kind: "ok", data: undefined };
-  try {
-    return {
-      kind: "ok",
-      data: await decode(Response.json("data" in result ? result.data : undefined)),
-    };
-  } catch {
-    return { kind: "failed" };
-  }
 }
 
 /** Every request the page sent, as path and init — the operation it named. */
@@ -667,19 +633,31 @@ describe("Accounts", () => {
     expect(screen.queryByText("Loading groups…")).not.toBeInTheDocument();
   });
 
-  // Groups is listed first among the page's `supersedes`, so when both reads
-  // fail the Groups error is the one shown.
-  it("shows the Groups error, not the Users one, when both reads fail", async () => {
-    routeApi({
-      groups: { kind: "failed", status: 503 },
-      users: { kind: "failed", status: 503 },
-    });
-    renderAccounts();
+  // The error line shows the latest failure, so when both reads fail the one
+  // that landed last is the one shown, whichever listing it was.
+  it.each([
+    ["Users", "users", "Unable to load the users. Please try again."],
+    ["Groups", "groups", "Unable to load the groups. Please try again."],
+  ] as const)(
+    "shows the %s failure when both reads fail and it lands last",
+    async (_, last, copy) => {
+      let failLast!: () => void;
+      const lastFailure = new Promise<object>((resolve) => {
+        failLast = () => resolve({ kind: "failed", status: 503 });
+      });
+      const failed = { kind: "failed", status: 503 };
+      routeApi({
+        groups: last === "groups" ? lastFailure : failed,
+        users: last === "users" ? lastFailure : failed,
+      });
+      renderAccounts();
+      await screen.findByRole("alert");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load the groups. Please try again.",
-    );
-  });
+      await act(async () => failLast());
+
+      expect(screen.getByRole("alert").textContent).toBe(copy);
+    },
+  );
 
   // Through the real transport and decoders, against a backend whose Users body
   // has drifted from the contract. The Groups listing answers a valid body, so
@@ -814,32 +792,13 @@ describe("Accounts by Permission", () => {
     expect(requested()).toEqual(["/api/admin/groups"]);
   });
 
-  it("shows only the connector panel to a connector reader, with neither action", () => {
+  it("shows only the connector panel to a connector reader", () => {
     routeApi({ users: { kind: "ok", data: [] } });
     renderAccounts(holding(["connector:read"]));
 
-    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=false issue=false");
+    expect(screen.getByTestId("connectors-panel")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
     expect(requested()).toEqual([]);
-  });
-
-  it("passes the connector panel each of its actions by its own Permission", () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    const { unmount } = renderAccounts(holding(["connector:read", "connector:write"]));
-    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=true issue=false");
-    unmount();
-
-    renderAccounts(holding(["connector:read", "connector:token"]));
-    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=false issue=true");
-  });
-
-  it("offers the connector panel to grant only the token Permissions the session holds", () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    renderAccounts(holding(["connector:read", "connector:token", "group:read", "user:write"]));
-
-    expect(screen.getByTestId("connectors-panel")).toHaveTextContent(
-      /grant=group:read,user:write$/,
-    );
   });
 });

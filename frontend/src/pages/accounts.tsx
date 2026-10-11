@@ -1,24 +1,19 @@
 import type { ReactNode } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
-import { holds, VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
+import { usePageStatus } from "@/auth/page-status";
+import { holds } from "@/auth/permissions";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { jsonDecoder } from "@/lib/decode";
+import { formatDate, formatInstant } from "@/lib/instant";
 
 import {
-  decodeGroupRows,
-  decodeUserRow,
-  decodeUserRows,
-  formatDate,
-  formatInstant,
-  GROUPS_PATH,
+  GROUPS,
   namesSameUser,
-  TOKEN_PERMISSIONS,
-  userActionPath,
-  USERS_PATH,
+  USER_ACTION,
+  USERS,
   type GroupRow,
   type UserAction,
   type UserRow,
@@ -316,34 +311,26 @@ function ProjectionCard<R>({
 /** A listing's rows: the read's data itself. */
 const everyRow = <R,>(rows: R[]) => rows;
 
-/** Module-level, so each is one stable function across renders and hook dependencies. */
-const readUserRows = jsonDecoder(decodeUserRows);
-const readGroupRows = jsonDecoder(decodeGroupRows);
-const readUserRow = jsonDecoder(decodeUserRow);
-
 /**
  * The two listing reads and the row actions, as state: what the page shows and
  * the one function that changes it. Each listing is read only when the session
  * holds its Permission.
  *
- * The page has one error line, showing the latest thing to go wrong: an
- * action's refusal while one is showing, otherwise a listing's. Starting an
- * action withdraws whatever was shown, as the action supersedes it.
+ * The page has one error line, which both listings and every action report
+ * to, and it shows the latest failure. Starting an action withdraws whatever
+ * was shown, as the action supersedes it.
  */
 function useDirectory() {
-  const users = useGatedRead({
-    decode: readUserRows,
+  const status = usePageStatus();
+  const users = useGatedRead(USERS, {
     failureMessage: "Unable to load the users. Please try again.",
-    path: USERS_PATH,
-    permission: VIEW_PERMISSIONS.users,
+    status,
   });
-  const groups = useGatedRead({
-    decode: readGroupRows,
+  const groups = useGatedRead(GROUPS, {
     failureMessage: "Unable to load the groups. Please try again.",
-    path: GROUPS_PATH,
-    permission: VIEW_PERMISSIONS.groups,
+    status,
   });
-  const write = useGatedWrite({ supersedes: [groups, users] });
+  const write = useGatedWrite({ status });
 
   /**
    * Runs one action and replaces just that row from the response, rather than
@@ -351,24 +338,17 @@ function useDirectory() {
    * would only add a request that could disagree with it.
    */
   const runAction = (target: UserRow, action: UserAction) =>
-    write.run(
-      {
-        decode: readUserRow,
-        method: "POST",
-        path: userActionPath(target.id, action),
-        permission: WRITE_PERMISSIONS.users,
+    write.run(USER_ACTION, {
+      args: [target.id, action],
+      messages: actionMessages(action, target.userName),
+      onOk: (updated) => {
+        users.update((current) =>
+          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
+        );
       },
-      {
-        messages: actionMessages(action, target.userName),
-        onOk: (updated) => {
-          users.update((current) =>
-            (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
-          );
-        },
-      },
-    );
+    });
 
-  return { error: write.error, groups, pending: write.pending, runAction, users };
+  return { error: status.error, groups, pending: write.pending, runAction, users };
 }
 
 /**
@@ -390,7 +370,7 @@ function useDirectory() {
 export function Accounts() {
   const { user } = useAuth();
   const { error, groups, pending, runAction, users } = useDirectory();
-  const onAction: OnAction | null = holds(user, WRITE_PERMISSIONS.users)
+  const onAction: OnAction | null = holds(user, USER_ACTION.permission)
     ? (target, action) => void runAction(target, action)
     : null;
 
@@ -427,11 +407,7 @@ export function Accounts() {
         {(rows) => <GroupsTable groups={rows} />}
       </ProjectionCard>
 
-      <Connectors
-        canIssueTokens={holds(user, WRITE_PERMISSIONS.tokens)}
-        canManageConnectors={holds(user, WRITE_PERMISSIONS.connectors)}
-        grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
-      />
+      <Connectors />
     </div>
   );
 }

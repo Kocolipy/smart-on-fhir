@@ -1,16 +1,18 @@
 /**
- * The wire shapes and paths of the administration API the Accounts page reads
- * and drives — `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page
- * because `src/pages/` holds more than one.
+ * The wire shapes and the declared endpoints of the administration API the
+ * Accounts page reads and drives — `/frontend/AGENTS.md`'s page-owned
+ * `api.ts`, named for its page because `src/pages/` holds more than one.
  *
  * Nothing here requests anything: every call goes through `useGatedRead` or
  * `useGatedWrite` (both behind `useSessionRequest`) in the component that
- * makes it, so a `401` still ends the session in one place. This file only says what a response looks like and where each
- * operation lives.
+ * makes it, so a `401` still ends the session in one place. This file says
+ * what a response looks like and declares each endpoint — its path, its
+ * decoder and the Permission it requires — once.
  */
 
 import type { Permission } from "@/auth/api";
-import { decodeArray, DecodeError, readObject } from "@/lib/decode";
+import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
+import { decodeArray, DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 
 /** A Group a User belongs to directly, as its row reports it. */
 export interface DirectGroup {
@@ -120,24 +122,23 @@ export interface IssuedToken {
 /** The two operations on a User row, named as the backend's path segments. */
 export type UserAction = "unlock" | "force-password-change";
 
-export const USERS_PATH = "/api/admin/accounts";
-export const GROUPS_PATH = "/api/admin/groups";
-export const CONNECTORS_PATH = "/api/admin/connectors";
+/** What a token is issued with: its Permissions, and a lifetime in days or the default (`null`). */
+export interface TokenRequest {
+  permissions: TokenPermission[];
+  lifetimeDays: number | null;
+}
+
+const USERS_PATH = "/api/admin/accounts";
+const CONNECTORS_PATH = "/api/admin/connectors";
 
 /** `encodeURIComponent` although ids are UUIDs: a path segment is never trusted to be one. */
-export const userActionPath = (id: string, action: UserAction) =>
-  `${USERS_PATH}/${encodeURIComponent(id)}/${action}`;
-
-export const connectorPath = (connectorId: string) =>
+const connectorPath = (connectorId: string) =>
   `${CONNECTORS_PATH}/${encodeURIComponent(connectorId)}`;
 
-export const tokensPath = (connectorId: string) => `${connectorPath(connectorId)}/tokens`;
+const tokensPath = (connectorId: string) => `${connectorPath(connectorId)}/tokens`;
 
-export const tokenActionPath = (
-  connectorId: string,
-  tokenId: string,
-  action: "rotate" | "revoke",
-) => `${tokensPath(connectorId)}/${encodeURIComponent(tokenId)}/${action}`;
+const tokenActionPath = (connectorId: string, tokenId: string, action: "rotate" | "revoke") =>
+  `${tokensPath(connectorId)}/${encodeURIComponent(tokenId)}/${action}`;
 
 // ---- decoders ----------------------------------------------------------------------
 //
@@ -235,16 +236,94 @@ export const decodeGroupRows = (value: unknown): GroupRow[] =>
 export const decodeConnectors = (value: unknown): Connector[] =>
   decodeArray(value, decodeConnector, "Connector[]");
 
-/**
- * Timestamps are rendered from the ISO instant rather than through
- * `toLocaleString`, so what an administrator reads does not depend on the
- * machine's locale and a test can assert an exact string.
- */
-export const formatDate = (instant: string): string => instant.slice(0, 10);
+// ---- declarations ------------------------------------------------------------------
+//
+// Every gated request the Accounts page and its connector panel make, each with the
+// Permission `docs/openapi.yaml` declares for it. A page reads `permission` to decide
+// whether to offer the control, and hands the declaration to `useGatedRead` or
+// `useGatedWrite` to send it.
 
-/** Date and minute, still locale-independent, for the instants where the day is not enough. */
-export const formatInstant = (instant: string): string =>
-  `${instant.slice(0, 10)} ${instant.slice(11, 16)}`;
+/** The Users projection, `GET /api/admin/accounts`. */
+export const USERS: ReadDeclaration<UserRow[]> = {
+  decode: jsonDecoder(decodeUserRows),
+  path: () => USERS_PATH,
+  permission: "user:read",
+};
+
+/** The Groups projection, `GET /api/admin/groups`. */
+export const GROUPS: ReadDeclaration<GroupRow[]> = {
+  decode: jsonDecoder(decodeGroupRows),
+  path: () => "/api/admin/groups",
+  permission: "group:read",
+};
+
+/** The connectors and their tokens' metadata, `GET /api/admin/connectors`. */
+export const CONNECTORS: ReadDeclaration<Connector[]> = {
+  decode: jsonDecoder(decodeConnectors),
+  path: () => CONNECTORS_PATH,
+  permission: "connector:read",
+};
+
+/**
+ * The Accounts page renders for a User who may see at least one of its
+ * listings, and a deep link from anyone else routes away, as the guard routes
+ * any page the User lacks the Permission for.
+ */
+export const ADMINISTRATION_PERMISSIONS: readonly Permission[] = [USERS, GROUPS, CONNECTORS].map(
+  (read) => read.permission,
+);
+
+/** Unlock or the forced change, on a User by its stable id; answers the User's new row. */
+export const USER_ACTION: WriteDeclaration<[id: string, action: UserAction], UserRow> = {
+  decode: jsonDecoder(decodeUserRow),
+  method: "POST",
+  path: (id, action) => `${USERS_PATH}/${encodeURIComponent(id)}/${action}`,
+  permission: "user:write",
+};
+
+/** A new connector by its name; answers the connector. */
+export const CREATE_CONNECTOR: WriteDeclaration<[displayName: string], Connector> = {
+  body: (displayName) => ({ displayName }),
+  decode: jsonDecoder(decodeConnector),
+  method: "POST",
+  path: () => CONNECTORS_PATH,
+  permission: "connector:write",
+};
+
+/** Deletes a connector, revoking every token it held; answers no content. */
+export const DELETE_CONNECTOR: WriteDeclaration<[connectorId: string]> = {
+  method: "DELETE",
+  path: connectorPath,
+  permission: "connector:write",
+};
+
+/** Issues a token to a connector; answers the token, its plaintext shown this once. */
+export const ISSUE_TOKEN: WriteDeclaration<
+  [connectorId: string, request: TokenRequest],
+  IssuedToken
+> = {
+  body: (_connectorId, request) => request,
+  decode: jsonDecoder(decodeIssuedToken),
+  method: "POST",
+  path: (connectorId) => tokensPath(connectorId),
+  permission: "connector:token",
+};
+
+/** Replaces a token, ending it at once; answers the replacement, its plaintext shown this once. */
+export const ROTATE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: string], IssuedToken> = {
+  body: () => ({}),
+  decode: jsonDecoder(decodeIssuedToken),
+  method: "POST",
+  path: (connectorId, tokenId) => tokenActionPath(connectorId, tokenId, "rotate"),
+  permission: "connector:token",
+};
+
+/** Revokes a token; answers no content. */
+export const REVOKE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: string]> = {
+  method: "POST",
+  path: (connectorId, tokenId) => tokenActionPath(connectorId, tokenId, "revoke"),
+  permission: "connector:token",
+};
 
 /**
  * Whether a signed-in username names this row, compared the way the backend

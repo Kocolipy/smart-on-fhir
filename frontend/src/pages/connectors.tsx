@@ -1,21 +1,22 @@
 import { useState, type FormEvent } from "react";
 
-import { VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
+import type { Permission } from "@/auth/api";
+import { useAuth } from "@/auth/auth-context-value";
+import { usePageStatus } from "@/auth/page-status";
+import { holds } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { jsonDecoder } from "@/lib/decode";
+import { formatDate } from "@/lib/instant";
 
 import {
-  connectorPath,
-  CONNECTORS_PATH,
-  decodeConnector,
-  decodeConnectors,
-  decodeIssuedToken,
-  formatDate,
-  tokenActionPath,
-  tokensPath,
+  CONNECTORS,
+  CREATE_CONNECTOR,
+  DELETE_CONNECTOR,
+  ISSUE_TOKEN,
+  REVOKE_TOKEN,
+  ROTATE_TOKEN,
   type Connector,
   type ConnectorToken,
   type IssuedToken,
@@ -24,13 +25,24 @@ import {
 } from "./accounts-api";
 import { ListingBody } from "./listing-body";
 
-/** Module-level, so each is one stable function across renders and hook dependencies. */
-const readConnectors = jsonDecoder(decodeConnectors);
-const readConnector = jsonDecoder(decodeConnector);
-const readIssuedToken = jsonDecoder(decodeIssuedToken);
-
 /** The listing's rows: the connectors themselves. */
 const everyConnector = (connectors: Connector[]) => connectors;
+
+/** What each token Permission lets a connector do, as the issue form explains it. */
+const TOKEN_PERMISSION_HINTS: Record<TokenPermission, string> = {
+  "group:read": "read Groups",
+  "group:write": "create, change and delete Groups",
+  "user:read": "read Users",
+  "user:write": "create, change and delete Users",
+};
+
+/**
+ * Whether the session may send a declared request, and so whether the control
+ * that sends it is offered at all. Each control asks about the declaration it
+ * sends, never a neighbour's, so a Permission that moves on the backend moves
+ * one declaration and every control follows it.
+ */
+type May = (request: { permission: Permission }) => boolean;
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -55,14 +67,6 @@ function tokenStatus(token: ConnectorToken): string {
 function permissionList(permissions: readonly TokenPermission[]): string {
   return permissions.length === 0 ? "No permissions" : permissions.join(", ");
 }
-
-/** What each token Permission lets a connector do, shown beside its checkbox. */
-const PERMISSION_HINTS: Record<TokenPermission, string> = {
-  "group:read": "read Groups",
-  "group:write": "create, change and delete Groups",
-  "user:read": "read Users",
-  "user:write": "create, change and delete Users",
-};
 
 /** Copy for a refused request, keyed on what the backend refused. */
 function failureMessages(what: string): RefusalMessages {
@@ -110,26 +114,22 @@ function TokenDisclosure({
 }
 
 function ConnectorSection({
-  canIssue,
-  canManage,
   connector,
   grantable,
+  may,
   onDelete,
   onIssue,
   onRevoke,
   onRotate,
   pending,
 }: {
-  /** `connector:token`: issue, rotate and revoke are offered. */
-  canIssue: boolean;
-  /** `connector:write`: delete is offered. */
-  canManage: boolean;
   connector: Connector;
   /**
    * The token Permissions this session holds itself — the only ones the backend
    * lets it put on a token. The others are shown but cannot be chosen.
    */
   grantable: readonly TokenPermission[];
+  may: May;
   onDelete: () => void;
   onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
   onRevoke: (token: ConnectorToken) => void;
@@ -146,7 +146,7 @@ function ConnectorSection({
           <h3 className="font-medium">{connector.displayName}</h3>
           <p className="text-sm text-muted-foreground">Created {formatDate(connector.createdAt)}</p>
         </div>
-        {canManage ? (
+        {may(DELETE_CONNECTOR) ? (
           <Button disabled={pending} onClick={onDelete} size="sm" variant="destructive">
             Delete {connector.displayName}
           </Button>
@@ -154,14 +154,14 @@ function ConnectorSection({
       </div>
 
       <TokenTable
-        canIssue={canIssue}
         connector={connector}
+        may={may}
         onRevoke={onRevoke}
         onRotate={onRotate}
         pending={pending}
       />
 
-      {canIssue ? (
+      {may(ISSUE_TOKEN) ? (
         <IssueTokenForm
           connector={connector}
           grantable={grantable}
@@ -174,14 +174,14 @@ function ConnectorSection({
 }
 
 function TokenTable({
-  canIssue,
   connector,
+  may,
   onRevoke,
   onRotate,
   pending,
 }: {
-  canIssue: boolean;
   connector: Connector;
+  may: May;
   onRevoke: (token: ConnectorToken) => void;
   onRotate: (token: ConnectorToken) => void;
   pending: boolean;
@@ -212,25 +212,29 @@ function TokenTable({
             <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
             <td className="py-2 pr-4">{tokenStatus(token)}</td>
             <td className="py-2">
-              {token.active && canIssue ? (
+              {token.active ? (
                 <span className="flex gap-2">
-                  <Button
-                    disabled={pending}
-                    onClick={() => onRotate(token)}
-                    size="sm"
-                    title="Issues a replacement and ends this token immediately"
-                    variant="outline"
-                  >
-                    Rotate token {token.id.slice(0, 8)}
-                  </Button>
-                  <Button
-                    disabled={pending}
-                    onClick={() => onRevoke(token)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Revoke token {token.id.slice(0, 8)}
-                  </Button>
+                  {may(ROTATE_TOKEN) ? (
+                    <Button
+                      disabled={pending}
+                      onClick={() => onRotate(token)}
+                      size="sm"
+                      title="Issues a replacement and ends this token immediately"
+                      variant="outline"
+                    >
+                      Rotate token {token.id.slice(0, 8)}
+                    </Button>
+                  ) : null}
+                  {may(REVOKE_TOKEN) ? (
+                    <Button
+                      disabled={pending}
+                      onClick={() => onRevoke(token)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Revoke token {token.id.slice(0, 8)}
+                    </Button>
+                  ) : null}
                 </span>
               ) : null}
             </td>
@@ -289,8 +293,8 @@ function IssueTokenForm({
               <span className="font-mono">{permission}</span>
               <span className="text-muted-foreground">
                 {allowed
-                  ? PERMISSION_HINTS[permission]
-                  : `${PERMISSION_HINTS[permission]} — you do not hold it`}
+                  ? TOKEN_PERMISSION_HINTS[permission]
+                  : `${TOKEN_PERMISSION_HINTS[permission]} — you do not hold it`}
               </span>
             </label>
           );
@@ -333,83 +337,60 @@ interface ConnectorActions {
  * shortens the old token, a revocation stamps it, a delete revokes everything
  * the connector held — and the listing is the only answer that states all of
  * that at once.
+ *
+ * The listing and every mutation report to the panel's one error line, where
+ * the latest failure shows: a mutation starting withdraws the listing's, its
+ * own refusal replaces it, and the re-read after it — reporting later still —
+ * replaces that in turn when it fails too.
  */
 function useConnectors() {
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
-  const listing = useGatedRead({
-    decode: readConnectors,
+  const status = usePageStatus();
+  const listing = useGatedRead(CONNECTORS, {
     failureMessage: "Unable to load the connectors. Please try again.",
-    path: CONNECTORS_PATH,
-    permission: VIEW_PERMISSIONS.connectors,
+    status,
   });
-  const write = useGatedWrite({ supersedes: [listing] });
+  const write = useGatedWrite({ status });
 
-  /**
-   * What every mutation shares: report a refusal naming `what`, then re-read —
-   * still inside the pending window. The re-read's own refusal, when it has
-   * one, is the latest thing to go wrong, so it is what the error line shows.
-   */
+  /** What every mutation shares: report a refusal naming `what`, then re-read — still inside the pending window. */
   const mutationOptions = (what: string) => ({
     after: () => listing.reload(),
     messages: failureMessages(what),
   });
 
   const create = (displayName: string, onCreated: () => void) =>
-    void write.run(
-      {
-        body: { displayName },
-        decode: readConnector,
-        method: "POST",
-        path: CONNECTORS_PATH,
-        permission: WRITE_PERMISSIONS.connectors,
-      },
-      { ...mutationOptions(`Creating ${displayName}`), onOk: onCreated },
-    );
+    void write.run(CREATE_CONNECTOR, {
+      args: [displayName],
+      ...mutationOptions(`Creating ${displayName}`),
+      onOk: onCreated,
+    });
 
   const actionsFor = (connector: Connector): ConnectorActions => {
     const disclose = (token: IssuedToken) =>
       setDisclosure({ connectorName: connector.displayName, token });
     return {
       onDelete: () =>
-        void write.run(
-          {
-            method: "DELETE",
-            path: connectorPath(connector.id),
-            permission: WRITE_PERMISSIONS.connectors,
-          },
-          mutationOptions(`Deleting ${connector.displayName}`),
-        ),
+        void write.run(DELETE_CONNECTOR, {
+          args: [connector.id],
+          ...mutationOptions(`Deleting ${connector.displayName}`),
+        }),
       onIssue: (permissions, lifetimeDays) =>
-        void write.run(
-          {
-            body: { lifetimeDays, permissions },
-            decode: readIssuedToken,
-            method: "POST",
-            path: tokensPath(connector.id),
-            permission: WRITE_PERMISSIONS.tokens,
-          },
-          { ...mutationOptions(`Issuing a token for ${connector.displayName}`), onOk: disclose },
-        ),
+        void write.run(ISSUE_TOKEN, {
+          args: [connector.id, { lifetimeDays, permissions }],
+          ...mutationOptions(`Issuing a token for ${connector.displayName}`),
+          onOk: disclose,
+        }),
       onRevoke: (token) =>
-        void write.run(
-          {
-            method: "POST",
-            path: tokenActionPath(connector.id, token.id, "revoke"),
-            permission: WRITE_PERMISSIONS.tokens,
-          },
-          mutationOptions("Revoking the token"),
-        ),
+        void write.run(REVOKE_TOKEN, {
+          args: [connector.id, token.id],
+          ...mutationOptions("Revoking the token"),
+        }),
       onRotate: (token) =>
-        void write.run(
-          {
-            body: {},
-            decode: readIssuedToken,
-            method: "POST",
-            path: tokenActionPath(connector.id, token.id, "rotate"),
-            permission: WRITE_PERMISSIONS.tokens,
-          },
-          { ...mutationOptions("Rotating the token"), onOk: disclose },
-        ),
+        void write.run(ROTATE_TOKEN, {
+          args: [connector.id, token.id],
+          ...mutationOptions("Rotating the token"),
+          onOk: disclose,
+        }),
     };
   };
 
@@ -418,7 +399,7 @@ function useConnectors() {
     create,
     disclosure,
     dismiss: () => setDisclosure(null),
-    error: write.error,
+    error: status.error,
     pending: write.pending,
     view: listing.view,
   };
@@ -468,23 +449,18 @@ function CreateConnectorForm({
  * {@link TokenDisclosure}.
  *
  * Renders nothing for a session without `connector:read`, whose listing is
- * never asked for. Creating and deleting
- * a connector is offered only with `connector:write`, and issuing, rotating
- * and revoking a token only with `connector:token` — each its own Permission
- * on the backend, which refuses them independently. A token may carry only
- * Permissions the session holds itself (`grantablePermissions`); the backend
- * refuses anything more, so the form offers nothing more.
+ * never asked for. Every control is offered only to a session holding the
+ * Permission its own declaration requires — today `connector:write` for
+ * creating and deleting a connector, `connector:token` for issuing, rotating
+ * and revoking a token — and the backend refuses each independently. A token
+ * may carry only Permissions the session holds itself; the backend refuses
+ * anything more, so the form offers nothing more.
  */
-export function Connectors({
-  canIssueTokens,
-  canManageConnectors,
-  grantablePermissions,
-}: {
-  canIssueTokens: boolean;
-  canManageConnectors: boolean;
-  grantablePermissions: readonly TokenPermission[];
-}) {
+export function Connectors() {
+  const { user } = useAuth();
   const { actionsFor, create, disclosure, dismiss, error, pending, view } = useConnectors();
+  const may: May = (request) => holds(user, request.permission);
+  const grantable = TOKEN_PERMISSIONS.filter((permission) => holds(user, permission));
 
   if (view.kind === "not-permitted") return null;
   return (
@@ -504,7 +480,7 @@ export function Connectors({
           </p>
         ) : null}
         {disclosure ? <TokenDisclosure disclosure={disclosure} onDismiss={dismiss} /> : null}
-        {canManageConnectors ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
+        {may(CREATE_CONNECTOR) ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
         {/* A failed re-read keeps the connectors last read on screen, under the
             error line: every change re-reads, and a refused re-read says
             nothing new about connectors the page has just shown. */}
@@ -518,11 +494,10 @@ export function Connectors({
           {(connectors) =>
             connectors.map((connector) => (
               <ConnectorSection
-                canIssue={canIssueTokens}
-                canManage={canManageConnectors}
                 connector={connector}
-                grantable={grantablePermissions}
+                grantable={grantable}
                 key={connector.id}
+                may={may}
                 pending={pending}
                 {...actionsFor(connector)}
               />

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { DecodeError } from "@/lib/decode";
+import type { ApiDecoder } from "@/lib/http";
 
 import {
+  ADMINISTRATION_PERMISSIONS,
+  CONNECTORS,
+  CREATE_CONNECTOR,
+  DELETE_CONNECTOR,
+  GROUPS,
+  ISSUE_TOKEN,
+  REVOKE_TOKEN,
+  ROTATE_TOKEN,
+  USER_ACTION,
+  USERS,
   decodeConnector,
   decodeConnectors,
   decodeGroupRow,
@@ -10,6 +21,7 @@ import {
   decodeIssuedToken,
   decodeUserRow,
   decodeUserRows,
+  namesSameUser,
 } from "./accounts-api";
 
 /**
@@ -254,4 +266,191 @@ describe("token permissions", () => {
       );
     },
   );
+});
+
+/** What a declaration's decoder makes of `body`, as `apiFetch` would hand it the response. */
+const decodedBy = async (decode: ApiDecoder<unknown> | undefined, body: unknown) =>
+  decode?.(Response.json(body));
+
+describe("the listing reads", () => {
+  it.each([
+    ["USERS", USERS, "user:read", "/api/admin/accounts"],
+    ["GROUPS", GROUPS, "group:read", "/api/admin/groups"],
+    ["CONNECTORS", CONNECTORS, "connector:read", "/api/admin/connectors"],
+  ] as const)(
+    "%s reads its listing at its own path, under its own Permission",
+    (_, read, permission, path) => {
+      expect({ path: read.path(), permission: read.permission }).toEqual({ path, permission });
+    },
+  );
+
+  it.each([
+    ["USERS", USERS, USER_ROW],
+    ["GROUPS", GROUPS, GROUP_ROW],
+    ["CONNECTORS", CONNECTORS, CONNECTOR],
+  ] as const)("%s reads its answer as a list of its own rows", async (_, read, row) => {
+    await expect(decodedBy(read.decode, [row])).resolves.toStrictEqual([row]);
+  });
+
+  it.each([
+    ["USERS", USERS, GROUP_ROW, "UserRow.locked is not a boolean"],
+    ["GROUPS", GROUPS, USER_ROW, "GroupRow.displayName is not a string"],
+    ["CONNECTORS", CONNECTORS, GROUP_ROW, "Connector.createdAt is not a string"],
+  ] as const)("%s refuses another listing's rows", async (_, read, row, message) => {
+    await expect(decodedBy(read.decode, [row])).rejects.toThrow(new DecodeError(message));
+  });
+
+  it("opens the Accounts page to the Permission of any one of its listings, and nothing else", () => {
+    expect([...ADMINISTRATION_PERMISSIONS].sort()).toEqual([
+      "connector:read",
+      "group:read",
+      "user:read",
+    ]);
+  });
+});
+
+describe("the User actions", () => {
+  it.each(["unlock", "force-password-change"] as const)(
+    "posts %s, with no body, to the User's own path under user:write",
+    (action) => {
+      expect({
+        body: USER_ACTION.body,
+        method: USER_ACTION.method,
+        path: USER_ACTION.path("u-1", action),
+        permission: USER_ACTION.permission,
+      }).toEqual({
+        body: undefined,
+        method: "POST",
+        path: `/api/admin/accounts/u-1/${action}`,
+        permission: "user:write",
+      });
+    },
+  );
+
+  it("encodes the id as one path segment", () => {
+    expect(USER_ACTION.path("a/b?c", "unlock")).toBe("/api/admin/accounts/a%2Fb%3Fc/unlock");
+  });
+
+  it("reads its answer as the User's new row", async () => {
+    await expect(decodedBy(USER_ACTION.decode, USER_ROW)).resolves.toStrictEqual(USER_ROW);
+  });
+
+  it("refuses an answer that is a listing rather than one row", async () => {
+    await expect(decodedBy(USER_ACTION.decode, [USER_ROW])).rejects.toThrow(
+      new DecodeError("UserRow is not an object"),
+    );
+  });
+});
+
+describe("the connector writes", () => {
+  it("creates a connector by posting its name under connector:write", () => {
+    expect({
+      body: CREATE_CONNECTOR.body?.("Okta"),
+      method: CREATE_CONNECTOR.method,
+      path: CREATE_CONNECTOR.path("Okta"),
+      permission: CREATE_CONNECTOR.permission,
+    }).toEqual({
+      body: { displayName: "Okta" },
+      method: "POST",
+      path: "/api/admin/connectors",
+      permission: "connector:write",
+    });
+  });
+
+  it("reads a create's answer as the new connector", async () => {
+    await expect(decodedBy(CREATE_CONNECTOR.decode, CONNECTOR)).resolves.toStrictEqual(CONNECTOR);
+  });
+
+  it("refuses a create answered with an unreadable connector", async () => {
+    await expect(decodedBy(CREATE_CONNECTOR.decode, { displayName: "Okta" })).rejects.toThrow(
+      new DecodeError("Connector.id is not a string"),
+    );
+  });
+
+  it("deletes a connector at its own path under connector:write, answering no content", () => {
+    expect({
+      body: DELETE_CONNECTOR.body,
+      decode: DELETE_CONNECTOR.decode,
+      method: DELETE_CONNECTOR.method,
+      path: DELETE_CONNECTOR.path("c/1"),
+      permission: DELETE_CONNECTOR.permission,
+    }).toEqual({
+      body: undefined,
+      decode: undefined,
+      method: "DELETE",
+      path: "/api/admin/connectors/c%2F1",
+      permission: "connector:write",
+    });
+  });
+
+  it("issues a token by posting its Permissions and lifetime under connector:token", () => {
+    const request = { lifetimeDays: 30, permissions: ["user:read" as const] };
+    expect({
+      body: ISSUE_TOKEN.body?.("c-1", request),
+      method: ISSUE_TOKEN.method,
+      path: ISSUE_TOKEN.path("c/1", request),
+      permission: ISSUE_TOKEN.permission,
+    }).toEqual({
+      body: { lifetimeDays: 30, permissions: ["user:read"] },
+      method: "POST",
+      path: "/api/admin/connectors/c%2F1/tokens",
+      permission: "connector:token",
+    });
+  });
+
+  it("rotates a token by posting an empty body to its own path under connector:token", () => {
+    expect({
+      body: ROTATE_TOKEN.body?.("c-1", "t-1"),
+      method: ROTATE_TOKEN.method,
+      path: ROTATE_TOKEN.path("c/1", "t/1"),
+      permission: ROTATE_TOKEN.permission,
+    }).toEqual({
+      body: {},
+      method: "POST",
+      path: "/api/admin/connectors/c%2F1/tokens/t%2F1/rotate",
+      permission: "connector:token",
+    });
+  });
+
+  it.each([
+    ["ISSUE_TOKEN", ISSUE_TOKEN],
+    ["ROTATE_TOKEN", ROTATE_TOKEN],
+  ] as const)("%s reads its answer as the token just minted", async (_, write) => {
+    await expect(decodedBy(write.decode, ISSUED_TOKEN)).resolves.toStrictEqual(ISSUED_TOKEN);
+  });
+
+  it.each([
+    ["ISSUE_TOKEN", ISSUE_TOKEN],
+    ["ROTATE_TOKEN", ROTATE_TOKEN],
+  ] as const)("%s refuses an answer carrying no plaintext", async (_, write) => {
+    await expect(decodedBy(write.decode, without(ISSUED_TOKEN, "presentedValue"))).rejects.toThrow(
+      new DecodeError("IssuedToken.presentedValue is not a string"),
+    );
+  });
+
+  it("revokes a token at its own path under connector:token, with no body, answering no content", () => {
+    expect({
+      body: REVOKE_TOKEN.body,
+      decode: REVOKE_TOKEN.decode,
+      method: REVOKE_TOKEN.method,
+      path: REVOKE_TOKEN.path("c/1", "t/1"),
+      permission: REVOKE_TOKEN.permission,
+    }).toEqual({
+      body: undefined,
+      decode: undefined,
+      method: "POST",
+      path: "/api/admin/connectors/c%2F1/tokens/t%2F1/revoke",
+      permission: "connector:token",
+    });
+  });
+});
+
+describe("namesSameUser", () => {
+  it("recognises the signed-in User by name, compared as the backend compares names", () => {
+    expect(namesSameUser("Grace", "grace")).toBe(true);
+  });
+
+  it("recognises no row as the signed-in User when the session names no user", () => {
+    expect(namesSameUser("grace", undefined)).toBe(false);
+  });
 });

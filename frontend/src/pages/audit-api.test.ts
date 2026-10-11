@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { DecodeError } from "@/lib/decode";
 
 import {
+  AUDIT_EVENTS,
   AUDIT_EVENTS_PATH,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
   auditQueryAtPage,
   decodeAuditEventPage,
   EMPTY_AUDIT_FILTERS,
-  formatInstant,
   parseAuditFilters,
   UNFILTERED_AUDIT_QUERY,
   type AuditFilters,
@@ -367,8 +367,28 @@ describe("auditQueryAtPage", () => {
   });
 });
 
-describe("formatInstant", () => {
-  it("renders the date and minute, dropping seconds and the zone", () => {
-    expect(formatInstant("2026-03-04T05:06:07Z")).toBe("2026-03-04 05:06");
+describe("AUDIT_EVENTS", () => {
+  it("reads the page its query addresses, under audit:read", () => {
+    const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
+    if (!parsed.ok) throw new Error("the filters should parse");
+    expect({
+      path: AUDIT_EVENTS.path(auditQueryAtPage(parsed.query, 2)),
+      permission: AUDIT_EVENTS.permission,
+    }).toEqual({
+      path: "/api/admin/audit-events?outcome=FAILURE&page=2&size=50",
+      permission: "audit:read",
+    });
+  });
+
+  it("reads its answer as one page of the audit trail", async () => {
+    await expect(AUDIT_EVENTS.decode(Response.json(AUDIT_EVENT_PAGE))).resolves.toStrictEqual(
+      AUDIT_EVENT_PAGE,
+    );
+  });
+
+  it("refuses an answer that is a bare list of events rather than a page", async () => {
+    await expect(AUDIT_EVENTS.decode(Response.json([AUDIT_EVENT]))).rejects.toThrow(
+      new DecodeError("AuditEventPage is not an object"),
+    );
   });
 });

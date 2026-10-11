@@ -334,6 +334,10 @@ with an `ApiResult` (`ok`, `unauthenticated`, `forbidden`, `csrf-expired`, or
 assert only their own response to that meaning. This keeps raw `Response`
 construction and token setup out of feature suites; `src/auth/api.test.ts`,
 `src/pages/showcase.test.tsx` and `src/pages/accounts.test.tsx` are the patterns.
+Which decoder, path and Permission a page's request carries is its endpoint
+declaration's, so it is proved once, in the API module's own test
+(`src/pages/accounts-api.test.ts`): a page suite answers `ok` with data
+already decoded rather than re-proving the decoder.
 A suite that renders the whole app over a stubbed `fetch` (`src/App.test.tsx`)
 wraps its stub in `stubFetchWithCsrf()` from `src/lib/http.testHelpers.ts`, which
 answers the token endpoint so the stub sees only the requests the test is about.
