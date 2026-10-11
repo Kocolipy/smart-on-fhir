@@ -7,11 +7,27 @@ import { FORBIDDEN_MESSAGE } from "@/lib/http";
 
 import type { Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
-import { useGatedRead, type GatedReadOptions } from "./use-gated-read";
+import type { ReadDeclaration } from "./declarations";
+import { usePageStatus, useStatusReporter } from "./page-status";
+import { useGatedRead } from "./use-gated-read";
 
 const decodeCount = jsonDecoder((body: unknown) =>
   readObject(body, "CountResponse").integer("count"),
 );
+
+/** A read whose path is its one argument, so a test can move it. */
+const COUNT_AT: ReadDeclaration<number, [path: string]> = {
+  decode: decodeCount,
+  path: (path) => path,
+  permission: "counter:read",
+};
+
+/** A read naming no argument, as most listings are declared. */
+const COUNT: ReadDeclaration<number> = {
+  decode: decodeCount,
+  path: () => "/api/count",
+  permission: "counter:read",
+};
 
 const FAILURE = "Unable to load the counter. Please try again.";
 
@@ -33,16 +49,17 @@ function authState(permissions: Permission[]): AuthContextState {
   };
 }
 
-interface Props {
-  options: GatedReadOptions<number>;
+interface Options {
+  failureMessage: string;
+  path: string;
 }
 
-const defaults: GatedReadOptions<number> = {
-  decode: decodeCount,
-  failureMessage: FAILURE,
-  path: "/api/count",
-  permission: "counter:read",
-};
+/** The read as a page holds it: the hook, reporting into the page's own status. */
+function useRead({ failureMessage, path }: Options) {
+  const status = usePageStatus();
+  const read = useGatedRead(COUNT_AT, { args: [path], failureMessage, status });
+  return { ...read, error: status.error };
+}
 
 /**
  * Renders the hook under a session holding `permissions`. `withPermissions`
@@ -51,19 +68,19 @@ const defaults: GatedReadOptions<number> = {
 function renderRead({
   options = {},
   permissions = ["counter:read"],
-}: { options?: Partial<GatedReadOptions<number>>; permissions?: Permission[] } = {}) {
+}: { options?: Partial<Options>; permissions?: Permission[] } = {}) {
   let auth = authState(permissions);
-  let current: GatedReadOptions<number> = { ...defaults, ...options };
+  let current: Options = { failureMessage: FAILURE, path: "/api/count", ...options };
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
   );
-  const hook = renderHook(({ options: given }: Props) => useGatedRead(given), {
+  const hook = renderHook(({ options: given }: { options: Options }) => useRead(given), {
     initialProps: { options: current },
     wrapper,
   });
   return {
     result: hook.result,
-    withOptions(change: Partial<GatedReadOptions<number>>) {
+    withOptions(change: Partial<Options>) {
       current = { ...current, ...change };
       hook.rerender({ options: current });
     },
@@ -117,13 +134,30 @@ describe("useGatedRead", () => {
     expect(result.current).toMatchObject({ error: null, view: { kind: "loading" } });
   });
 
-  it("reads the path with a plain GET", () => {
+  it("reads the path its declaration builds from the arguments, with a plain GET", () => {
     renderRead({ options: { path: "/api/elsewhere" } });
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [path, init] = vi.mocked(fetch).mock.calls[0];
     expect(path).toBe("/api/elsewhere");
     expect(init?.method).toBeUndefined();
+  });
+
+  it("reads a declaration that takes no arguments without being handed any", async () => {
+    const { result } = renderHook(
+      () => useGatedRead(COUNT, { failureMessage: FAILURE, status: usePageStatus() }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <AuthContext.Provider value={authState(["counter:read"])}>
+            {children}
+          </AuthContext.Provider>
+        ),
+      },
+    );
+
+    expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
+    await answer(count(4));
+    expect(result.current.view).toEqual({ data: 4, kind: "ready" });
   });
 
   it("shows the decoded data once the read succeeds", async () => {
@@ -222,15 +256,6 @@ describe("useGatedRead", () => {
     act(() => result.current.update((current) => (current ?? 0) + 10));
 
     expect(result.current.view).toEqual({ data: 10, kind: "stale" });
-  });
-
-  it("withdraws the refusal copy on request, still reporting the read failed", async () => {
-    const { result } = renderRead();
-    await answer(new Response(null, { status: 500 }));
-
-    act(() => result.current.clearError());
-
-    expect(result.current).toMatchObject({ error: null, view: { kind: "failed" } });
   });
 
   it("resets and asks nothing when the Permission is withdrawn", async () => {
@@ -339,5 +364,28 @@ describe("useGatedRead", () => {
       error: failureMessage,
       view: { data: 1, kind: "stale" },
     });
+  });
+
+  it("leaves another source's failure on the page status when its own read succeeds", async () => {
+    const { result } = renderHook(
+      () => {
+        const status = usePageStatus();
+        const other = useStatusReporter(status);
+        const read = useGatedRead(COUNT, { failureMessage: FAILURE, status });
+        return { error: status.error, other, read };
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <AuthContext.Provider value={authState(["counter:read"])}>
+            {children}
+          </AuthContext.Provider>
+        ),
+      },
+    );
+
+    act(() => result.current.other.report("Something else failed."));
+    await answer(count(1));
+
+    expect(result.current.error).toBe("Something else failed.");
   });
 });

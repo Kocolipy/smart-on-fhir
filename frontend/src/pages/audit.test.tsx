@@ -662,6 +662,38 @@ describe("Audit", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
+    it("shows a read failure that lands after a refused filter, as the latest", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await screen.findByText("Actor id must be a valid UUID.");
+      resolveWith({ kind: "failed", status: 503 });
+      await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+      expect(
+        await screen.findByText("Unable to load the audit trail. Please try again."),
+      ).toHaveRole("alert");
+    });
+
+    it("keeps a refused filter on the error line when a later read succeeds", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("button", { name: "Refresh" }));
+      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
+    });
+
     it("returns to the first page on a valid submit", async () => {
       resolveWith({
         kind: "ok",

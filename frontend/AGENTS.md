@@ -41,7 +41,8 @@ each page's endpoints and Permissions; this list holds the rules.
   for the in-house component library (see below). It may import `cn` from
   `src/lib/` and its own siblings, nothing else.
 - **`src/lib/`** — framework-agnostic helpers any layer may call, and a leaf:
-  it imports nothing from `src/`. Holds `cn()`, `http.ts` and `decode.ts`;
+  it imports nothing from `src/`. Holds `cn()`, `http.ts`, `decode.ts` and
+  `instant.ts` (the one way an instant from the backend is written on a page);
   `apiFetch` owns credentials, CSRF recovery, status classification, and typed
   success decoding behind one semantic result interface (see "Backend
   contract"). `decode.ts` holds the primitives every response decoder is built
@@ -55,24 +56,33 @@ each page's endpoints and Permissions; this list holds the rules.
   state, the pure routing contract and its guards, the Permission checks
   (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
   read and gated write every page listing and action goes through
-  (`use-gated-read.ts`, `use-gated-write.ts`), the idle sign-out (see
+  (`use-gated-read.ts`, `use-gated-write.ts`), the declaration types they take
+  (`declarations.ts`), a page's single error line (`page-status.ts`), the idle sign-out (see
   "Backend contract"), the session transitions (`session-transitions.ts`), the
   one place the auth state changes and the CSRF token is forgotten with it,
   and the sign-in reason (`sign-in-reason.ts`): why a
-  Guest is at the login page, how that reaches it, and what the page says. A gated read sends nothing for a session lacking its
+  Guest is at the login page, how that reaches it, and what the page says. Both
+  take a **declaration**: the endpoint as data — path (built from the call's
+  arguments), decoder, Permission, and for a write the method and optional JSON
+  body — exported once by the API module that owns it. A gated read sends nothing for a session lacking its
   Permission and returns one closed view state (`not-permitted`, `loading`,
-  `failed`, `ready`, `stale`) that pages switch on; a gated write takes the operation as data (path, method,
-  optional JSON body, optional decoder, optional Permission), sends it
-  through the request seam itself — nothing for a session lacking the
-  operation's Permission — and owns the pending flag, the page's single error
-  line and the refusal copy.
-- **`src/pages/`** — one component per page, plus `accounts-api.ts` for the
-  wire types and paths the Accounts page and its connector panel share, and
-  `audit-api.ts` for the Audit page's, and `listing-body.tsx`, the one body
+  `failed`, `ready`, `stale`) that pages switch on; a gated write sends its
+  declaration through the request seam itself — nothing for a session lacking
+  its Permission — and owns the pending flag and the refusal copy. Neither owns
+  an error: each reports its outcome to the page's `PageStatus`
+  (`usePageStatus`), which decides the error line by one rule, the latest
+  event wins — a failure shows, a success withdraws only its own source's, and
+  a write starting withdraws them all.
+- **`src/pages/`** — one component per page, plus an API module per page —
+  `accounts-api.ts` for the wire types and declared endpoints the Accounts page
+  and its connector panel share, `audit-api.ts` for the Audit page's,
+  `showcase-api.ts` for the counter's — and `listing-body.tsx`, the one body
   every listing renders loading, empty and failed through. A page
   requests through `useGatedRead` / `useGatedWrite`, both behind
-  `useSessionRequest`, naming a read or an operation rather than building a
-  request — never `apiFetch` directly; the
+  `useSessionRequest`, handing them a declaration its API module exports
+  rather than building a request — it neither builds a gated request's path nor
+  names a Permission string, and reads `declaration.permission` — of the
+  declaration that control sends — to decide whether to offer it — never `apiFetch` directly; the
   `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
   in kind is `change-password.tsx`, which submits through the auth context's
   `changePassword`, because its `401` is about the current password and must
@@ -87,7 +97,8 @@ each page's endpoints and Permissions; this list holds the rules.
   wraps everything in `AuthProvider`, and states what each route requires with
   `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and a
   Permission-guarded `ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}`
-  (`/accounts`) and `requiredPermissions={["audit:read"]}` (`/audit`): each
+  (`/accounts`, from `accounts-api.ts`: the Permissions of its three listings) and
+  `requiredPermissions={[AUDIT_EVENTS.permission]}` (`/audit`): each
   renders for a session holding any one of the listed Permissions, and a deep
   link from any other session is redirected to `/showcase`. A session with the
   change-required flag is confined to `/change-password` by the guards' shared

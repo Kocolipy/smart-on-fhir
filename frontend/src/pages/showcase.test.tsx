@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import type { Permission } from "@/auth/api";
-import { apiFetch, type ApiDecoder } from "@/lib/http";
+import { apiFetch } from "@/lib/http";
 
 import { Showcase } from "./showcase";
 
@@ -36,26 +36,11 @@ const auth: AuthContextState = {
 };
 
 /**
- * What `apiFetch` hands the page for a canned result. An `ok` result's `data`
- * is the count the backend's body carries: it is sent through the decoder the
- * page passed as `{ count }`, and a body that decoder refuses is a plain
- * `failed`, as `apiFetch` makes it — so a request naming the wrong decoder, or
- * none, never shows the count.
+ * Answers every request with `result`, as `apiFetch` would classify it. The
+ * decoder the page's declaration names is `showcase-api.test.ts`'s to prove;
+ * here an `ok` result's `data` is the count itself.
  */
-async function answer(result: object, decode?: ApiDecoder<unknown>) {
-  if (!("kind" in result) || result.kind !== "ok") return result;
-  if (decode === undefined) return { kind: "ok", data: undefined };
-  try {
-    const body = { count: "data" in result ? result.data : undefined };
-    return { kind: "ok", data: await decode(Response.json(body)) };
-  } catch {
-    return { kind: "failed" };
-  }
-}
-
-const answering =
-  (result: object) => (_path: string, _init?: RequestInit, decode?: ApiDecoder<unknown>) =>
-    answer(result, decode);
+const answering = (result: object) => () => Promise.resolve(result);
 
 /** Every request the page sent, as path and init — the operation it named. */
 const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
@@ -186,31 +171,6 @@ describe("Showcase", () => {
 
     expect(await screen.findByText("Clicked 3 times")).toBeInTheDocument();
     expect(sent()).toEqual([["/api/count", {}]]);
-  });
-
-  it("decodes the count from the backend's response body", async () => {
-    resolveWith({ kind: "ok", data: 0 });
-    renderShowcase();
-    await screen.findByText("Clicked 0 times");
-
-    // apiFetch is stubbed above, so the decoder it was handed is exercised here.
-    const decode = apiFetchMock.mock.calls[0]?.[2];
-    await expect(decode?.(Response.json({ count: 7 }))).resolves.toBe(7);
-  });
-
-  it.each([
-    ["a missing count", {}, "CountResponse.count is not an integer"],
-    ["a string count", { count: "7" }, "CountResponse.count is not an integer"],
-    ["a fractional count", { count: 1.5 }, "CountResponse.count is not an integer"],
-    ["a non-object body", [7], "CountResponse is not an object"],
-  ])("refuses a counter body with %s", async (_, body, message) => {
-    renderShowcase();
-    await screen.findByText("Clicked 0 times");
-
-    const decode = apiFetchMock.mock.calls[0]?.[2];
-    await expect(decode?.(Response.json(body))).rejects.toThrow(
-      expect.objectContaining({ name: "DecodeError", message }),
-    );
   });
 
   it("disables counter actions while the initial count is loading", async () => {

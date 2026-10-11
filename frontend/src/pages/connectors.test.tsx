@@ -3,14 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { apiFetch, type ApiDecoder } from "@/lib/http";
+import type { Permission } from "@/auth/api";
+import { apiFetch } from "@/lib/http";
 
 import {
   TOKEN_PERMISSIONS,
   type Connector,
   type ConnectorToken,
   type IssuedToken,
-  type TokenPermission,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
 
@@ -29,17 +29,29 @@ const auth: AuthContextState = {
   signInReason: null,
   signOutForInactivity: vi.fn(),
   status: "authenticated",
-  // connector:read is the precondition: the Accounts page renders this panel only with it.
-  // The session also holds what the default props offer (connector:write for
-  // connectors, connector:token for tokens), since each write names its own
-  // Permission and is never sent without it.
   user: {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
-    permissions: ["connector:read", "connector:write", "connector:token"],
+    permissions: [],
     username: "ada",
   },
 };
+
+/**
+ * Everything the panel can offer: its listing (connector:read), connector
+ * management (connector:write), tokens (connector:token), and every token
+ * Permission to grant, since a token may carry only what the session holds.
+ */
+const EVERY_PERMISSION: readonly Permission[] = [
+  "connector:read",
+  "connector:write",
+  "connector:token",
+  ...TOKEN_PERMISSIONS,
+];
+
+/** Every Permission the panel can use, less those named. */
+const without = (...lacking: Permission[]) =>
+  EVERY_PERMISSION.filter((permission) => !lacking.includes(permission));
 
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";
 const TOKEN_ID = "a1b2c3d4-0000-4000-8000-000000000001";
@@ -75,66 +87,31 @@ const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
 
 /**
  * Answers every listing read from `listings` in turn (the last one repeats) and
- * every other request from `actions`, in order.
+ * every other request from `actions`, in order, each as `apiFetch` would
+ * classify it. Which decoder each declaration names is `accounts-api.test.ts`'s
+ * to prove; here an `ok` result's `data` is what that decoder would return.
  */
 function routeApi({ actions = [], listings }: { actions?: object[]; listings: object[] }) {
   const reads = [...listings];
   const queue = [...actions];
-  apiFetchMock.mockImplementation(((
-    path: string,
-    init?: RequestInit,
-    decode?: ApiDecoder<unknown>,
-  ) => {
+  apiFetchMock.mockImplementation(((path: string, init?: RequestInit) => {
     if (path === "/api/admin/connectors" && (init?.method ?? "GET") === "GET") {
-      return answer(reads.length > 1 ? reads.shift() : reads[0], decode);
+      return Promise.resolve(reads.length > 1 ? reads.shift() : reads[0]);
     }
     const next = queue.shift();
     if (next === undefined) throw new Error(`unexpected ${init?.method} ${path}`);
-    return answer(next, decode);
+    return Promise.resolve(next);
   }) as never);
-}
-
-/**
- * What `apiFetch` hands the page for a canned result: an `ok` result's `data`
- * is the backend's JSON body, read through the decoder the page passed, and a
- * body that decoder refuses is a plain `failed`, as `apiFetch` makes it — so a
- * write naming the wrong decoder, or none where its answer has a body, fails
- * the test rather than slipping the fixture through undecoded.
- */
-async function answer(result: object | undefined, decode?: ApiDecoder<unknown>) {
-  if (result === undefined || !("kind" in result) || result.kind !== "ok") return result;
-  if (decode === undefined) return { kind: "ok", data: undefined };
-  try {
-    return {
-      kind: "ok",
-      data: await decode(Response.json("data" in result ? result.data : undefined)),
-    };
-  } catch {
-    return { kind: "failed" };
-  }
 }
 
 /** Every request the page sent, as path and init — the operation it named. */
 const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
 
-function renderConnectors(
-  {
-    canIssueTokens = true,
-    canManageConnectors = true,
-    grantablePermissions = TOKEN_PERMISSIONS,
-  } = {} as {
-    canIssueTokens?: boolean;
-    canManageConnectors?: boolean;
-    grantablePermissions?: readonly TokenPermission[];
-  },
-) {
+/** The panel, for a session holding `permissions` — by default all it can use. */
+function renderConnectors(permissions: readonly Permission[] = EVERY_PERMISSION) {
   return render(
-    <AuthContext.Provider value={auth}>
-      <Connectors
-        canIssueTokens={canIssueTokens}
-        canManageConnectors={canManageConnectors}
-        grantablePermissions={grantablePermissions}
-      />
+    <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions } }}>
+      <Connectors />
     </AuthContext.Provider>,
   );
 }
@@ -151,7 +128,7 @@ describe("Connectors by Permission", () => {
 
   it("offers neither creating nor deleting a connector without connector:write", async () => {
     oneActiveToken();
-    renderConnectors({ canManageConnectors: false });
+    renderConnectors(without("connector:write"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(screen.queryByLabelText("New connector name")).not.toBeInTheDocument();
@@ -163,7 +140,7 @@ describe("Connectors by Permission", () => {
 
   it("offers no token issue, rotation or revocation without connector:token", async () => {
     oneActiveToken();
-    renderConnectors({ canIssueTokens: false });
+    renderConnectors(without("connector:token"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     const okta = section("Okta");
@@ -177,7 +154,7 @@ describe("Connectors by Permission", () => {
 
   it("still lists every connector and its tokens to a reader holding neither", async () => {
     oneActiveToken();
-    renderConnectors({ canIssueTokens: false, canManageConnectors: false });
+    renderConnectors(without("connector:write", "connector:token"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
@@ -186,11 +163,7 @@ describe("Connectors by Permission", () => {
 
   it("requests no listing without connector:read", async () => {
     oneActiveToken();
-    render(
-      <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions: [] } }}>
-        <Connectors canIssueTokens={false} canManageConnectors={false} grantablePermissions={[]} />
-      </AuthContext.Provider>,
-    );
+    renderConnectors([]);
 
     await act(async () => {});
     expect(apiFetchMock).not.toHaveBeenCalled();
@@ -198,11 +171,7 @@ describe("Connectors by Permission", () => {
 
   it("renders no panel at all without connector:read", async () => {
     oneActiveToken();
-    const { container } = render(
-      <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions: [] } }}>
-        <Connectors canIssueTokens={false} canManageConnectors={false} grantablePermissions={[]} />
-      </AuthContext.Provider>,
-    );
+    const { container } = renderConnectors([]);
 
     await act(async () => {});
     expect(container).toBeEmptyDOMElement();
@@ -331,22 +300,6 @@ describe("Connectors", () => {
     expect(screen.getByLabelText("New connector name")).toHaveValue("Okta");
   });
 
-  it("reports a create the backend answers with an unreadable connector as failed", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: { displayName: "Okta" } }],
-      listings: [{ kind: "ok", data: [] }],
-    });
-    const user = userEvent.setup();
-    renderConnectors();
-
-    await user.type(await screen.findByLabelText("New connector name"), "Okta");
-    await user.click(screen.getByRole("button", { name: "Create connector" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Creating Okta failed. Please try again.",
-    );
-  });
-
   it("does not submit a blank connector name", async () => {
     routeApi({ listings: [{ kind: "ok", data: [] }] });
     const user = userEvent.setup();
@@ -470,7 +423,7 @@ describe("Connectors", () => {
   /** A token may carry only what the session holds itself: the rest is shown, not offered. */
   it("offers only the Permissions the session holds", async () => {
     routeApi({ listings: [{ kind: "ok", data: [connector()] }] });
-    renderConnectors({ grantablePermissions: ["group:read", "group:write"] });
+    renderConnectors(without("user:read", "user:write"));
 
     await screen.findByRole("heading", { name: "Okta" });
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));

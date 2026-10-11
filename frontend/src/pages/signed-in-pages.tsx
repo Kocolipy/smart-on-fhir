@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
-import { ADMINISTRATION_PERMISSIONS } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH, DEFAULT_DESTINATION } from "@/auth/session-route";
 import { Accounts } from "@/pages/accounts";
+import { ADMINISTRATION_PERMISSIONS } from "@/pages/accounts-api";
 import { Audit } from "@/pages/audit";
+import { AUDIT_EVENTS } from "@/pages/audit-api";
 import { ChangePassword } from "@/pages/change-password";
 import { Showcase } from "@/pages/showcase";
 
@@ -53,7 +54,7 @@ export const SIGNED_IN_PAGES: readonly SignedInPage[] = [
     back: { label: "Back to showcase", to: DEFAULT_DESTINATION },
     element: <Audit />,
     path: "/audit",
-    permissions: ["audit:read"],
+    permissions: [AUDIT_EVENTS.permission],
     title: "Audit",
     width: "max-w-6xl",
   },
