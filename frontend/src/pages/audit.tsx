@@ -8,14 +8,15 @@ import { jsonDecoder } from "@/lib/decode";
 import {
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
-  buildAuditQuery,
+  auditQueryAtPage,
   decodeAuditEventPage,
-  DEFAULT_PAGE_SIZE,
   EMPTY_AUDIT_FILTERS,
   formatInstant,
-  validateAuditFilters,
+  parseAuditFilters,
   type AuditEvent,
   type AuditFilters,
+  UNFILTERED_AUDIT_QUERY,
+  type AuditQuery,
 } from "./audit-api";
 
 const INPUT_CLASS =
@@ -221,49 +222,51 @@ function FiltersForm({
 }
 
 /**
- * The listing, its committed filters and its page, as state. A read happens
- * only on mount, on a filter submit that validates, on a page change and on
- * an explicit Refresh — never on a timer, because every request to this
- * backend renews the session's idle clock.
+ * The listing and the query it was read for, as state. The query is stored as
+ * {@link parseAuditFilters} returned it — render only reads its path — and a
+ * page turn moves it without parsing the filters again. A read happens only on
+ * mount, on every filter submit that parses, on a page change and on an
+ * explicit Refresh — never on a timer, because every request to this backend
+ * renews the session's idle clock.
  */
 function useAuditEvents() {
   const [draft, setDraft] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
-  const [committed, setCommitted] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
-  const [page, setPage] = useState(0);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
-  const path = buildAuditQuery(committed, page, DEFAULT_PAGE_SIZE);
   const reading = useGatedRead({
     decode: readAuditPage,
     failureMessage: "Unable to load the audit trail. Please try again.",
-    path,
+    path: query.path,
     permission: "audit:read",
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const result = validateAuditFilters(draft);
-    if (!result.ok) {
-      setValidationError(result.message);
+    const parsed = parseAuditFilters(draft);
+    if (!parsed.ok) {
+      setRefusal(parsed.message);
       return;
     }
-    setValidationError(null);
-    setCommitted(draft);
-    setPage(0);
+    setRefusal(null);
+    // The read is keyed on the path, so an unchanged one opens no read of its
+    // own — and a submit always reads, even of the filters already shown.
+    if (parsed.query.path === query.path) void reading.reload();
+    else setQuery(parsed.query);
   };
 
   const totalPages = reading.data?.totalPages ?? 0;
 
   return {
     draft,
-    error: validationError ?? reading.error,
+    error: refusal ?? reading.error,
     events: reading.data?.events ?? null,
     failed: reading.failed,
-    nextPage: () => setPage((current) => current + 1),
-    page,
+    nextPage: () => setQuery((current) => auditQueryAtPage(current, current.page + 1)),
+    page: query.page,
     // No clamp: the Previous button that calls this is disabled at page zero,
-    // so `current` is never zero when this runs.
-    previousPage: () => setPage((current) => current - 1),
+    // so `current.page` is never zero when this runs.
+    previousPage: () => setQuery((current) => auditQueryAtPage(current, current.page - 1)),
     reload: reading.reload,
     setDraft,
     submit,

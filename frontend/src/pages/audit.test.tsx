@@ -157,6 +157,18 @@ const table = () => screen.getByRole("table", { name: "Audit events" });
 /** Waits for the table to render, then returns it. */
 const findTable = () => screen.findByRole("table", { name: "Audit events" });
 
+/**
+ * Enters a year-275760 value into a date filter as a browser delivers it. A
+ * browser's `datetime-local` accepts years up to 275760, but jsdom sanitizes
+ * any year past 9999 to `""`, so the control is read as plain text for this one
+ * change — the value reaching the page is the one a real picker would send.
+ */
+function enterYear275760(label: "From" | "To") {
+  const input = screen.getByLabelText(label);
+  input.setAttribute("type", "text");
+  fireEvent.change(input, { target: { value: "275760-12-31T23:59" } });
+}
+
 describe("Audit", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
@@ -488,6 +500,86 @@ describe("Audit", () => {
         {},
         expect.any(Function),
       );
+    });
+
+    it("refuses a year-275760 date with a message and keeps the listing on screen", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      enterYear275760("To");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /^To date must be a valid date\.$/,
+      );
+      expect(within(table()).getByText("LOGIN_FAILURE")).toBeInTheDocument();
+    });
+
+    it("sends no request for a refused date", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      enterYear275760("From");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      await screen.findByRole("alert");
+      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads again when the same filters are submitted twice", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
+      const apply = screen.getByRole("button", { name: "Apply filters" });
+      await user.click(apply);
+      await user.click(apply);
+
+      await vi.waitFor(() =>
+        expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual([
+          `${AUDIT_EVENTS_PATH}?page=0&size=50`,
+          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
+          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
+        ]),
+      );
+    });
+
+    it("clears a refusal once the filters are submitted valid", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      const actorId = screen.getByLabelText("Actor id");
+      await user.type(actorId, "not-a-uuid");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await screen.findByRole("alert");
+      await user.clear(actorId);
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("returns to the first page on a valid submit", async () => {
+      resolveWith({
+        kind: "ok",
+        data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
+      });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("Page 2 of 2");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
     });
   });
 });

@@ -6,12 +6,12 @@ import {
   AUDIT_EVENTS_PATH,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
-  buildAuditQuery,
+  auditQueryAtPage,
   decodeAuditEventPage,
-  DEFAULT_PAGE_SIZE,
   EMPTY_AUDIT_FILTERS,
   formatInstant,
-  validateAuditFilters,
+  parseAuditFilters,
+  UNFILTERED_AUDIT_QUERY,
   type AuditFilters,
 } from "./audit-api";
 
@@ -245,7 +245,7 @@ describe("decodeAuditEventPage", () => {
   });
 });
 
-describe("validateAuditFilters", () => {
+describe("parseAuditFilters", () => {
   const valid: AuditFilters = {
     ...EMPTY_AUDIT_FILTERS,
     actorId: "00000000-0000-4000-8000-000000000001",
@@ -254,102 +254,116 @@ describe("validateAuditFilters", () => {
     to: "2026-01-02T00:00",
   };
 
-  it("accepts empty filters", () => {
-    expect(validateAuditFilters(EMPTY_AUDIT_FILTERS)).toEqual({ ok: true });
+  /** The path a filter set parses to, or its refusal message — whichever the step returned. */
+  const outcome = (filters: AuditFilters) => {
+    const parsed = parseAuditFilters(filters);
+    return parsed.ok ? parsed.query.path : parsed.message;
+  };
+
+  it("parses empty filters to page zero, carrying only page and size", () => {
+    expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
   });
 
-  it("accepts a fully specified, well-formed filter set", () => {
-    expect(validateAuditFilters(valid)).toEqual({ ok: true });
-  });
-
-  it.each(["actorId", "resourceId"] as const)(
-    "refuses a malformed %s that is not a UUID",
-    (key) => {
-      expect(validateAuditFilters({ ...valid, [key]: "not-a-uuid" })).toEqual({
-        ok: false,
-        message: `${key === "actorId" ? "Actor id" : "Resource id"} must be a valid UUID.`,
-      });
-    },
-  );
-
-  it("accepts an id with surrounding whitespace trimmed", () => {
-    expect(validateAuditFilters({ ...valid, actorId: `  ${valid.actorId}  ` })).toEqual({
+  it("parses empty filters to exactly the unfiltered query", () => {
+    expect(parseAuditFilters(EMPTY_AUDIT_FILTERS)).toEqual({
       ok: true,
+      query: UNFILTERED_AUDIT_QUERY,
     });
   });
 
-  it("refuses an id that merely contains a well-formed UUID as a substring", () => {
-    expect(validateAuditFilters({ ...valid, actorId: `x${valid.actorId}` })).toEqual({
-      ok: false,
-      message: "Actor id must be a valid UUID.",
-    });
-    expect(validateAuditFilters({ ...valid, actorId: `${valid.actorId}x` })).toEqual({
-      ok: false,
-      message: "Actor id must be a valid UUID.",
-    });
+  it("parses a fully specified filter set to a query that starts on page zero", () => {
+    const parsed = parseAuditFilters(valid);
+    expect(parsed.ok ? parsed.query.page : parsed.message).toBe(0);
   });
 
-  it("refuses a from that is not before to", () => {
+  it("parses a non-empty operation and outcome into the query", () => {
     expect(
-      validateAuditFilters({ ...valid, from: "2026-01-02T00:00", to: "2026-01-01T00:00" }),
-    ).toEqual({ ok: false, message: "The from date must be before the to date." });
+      outcome({ ...EMPTY_AUDIT_FILTERS, operation: "LOGIN_FAILURE", outcome: "FAILURE" }),
+    ).toBe(`${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&page=0&size=50`);
   });
 
-  it("refuses a from equal to to", () => {
-    expect(validateAuditFilters({ ...valid, from: valid.to })).toEqual({
-      ok: false,
-      message: "The from date must be before the to date.",
-    });
-  });
-
-  it("accepts one date bound with the other left empty", () => {
-    expect(validateAuditFilters({ ...valid, to: "" })).toEqual({ ok: true });
-    expect(validateAuditFilters({ ...valid, from: "" })).toEqual({ ok: true });
-  });
-});
-
-describe("buildAuditQuery", () => {
-  it("sends only page and size when every filter is empty", () => {
-    expect(buildAuditQuery(EMPTY_AUDIT_FILTERS, 0, DEFAULT_PAGE_SIZE)).toBe(
-      `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-    );
-  });
-
-  it("includes a non-empty operation and outcome", () => {
+  it("parses trimmed actor and resource ids into the query", () => {
     expect(
-      buildAuditQuery(
-        { ...EMPTY_AUDIT_FILTERS, operation: "LOGIN_FAILURE", outcome: "FAILURE" },
-        2,
-        25,
-      ),
-    ).toBe(`${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&page=2&size=25`);
-  });
-
-  it("includes trimmed actor and resource ids", () => {
-    expect(
-      buildAuditQuery(
-        {
-          ...EMPTY_AUDIT_FILTERS,
-          actorId: "  00000000-0000-4000-8000-000000000001  ",
-          resourceId: "  00000000-0000-4000-8000-000000000002  ",
-        },
-        0,
-        50,
-      ),
+      outcome({
+        ...EMPTY_AUDIT_FILTERS,
+        actorId: "  00000000-0000-4000-8000-000000000001  ",
+        resourceId: "  00000000-0000-4000-8000-000000000002  ",
+      }),
     ).toBe(
       `${AUDIT_EVENTS_PATH}?actorId=00000000-0000-4000-8000-000000000001&resourceId=00000000-0000-4000-8000-000000000002&page=0&size=50`,
     );
   });
 
-  it("converts from/to datetime-local values to ISO instants", () => {
-    const query = buildAuditQuery(
-      { ...EMPTY_AUDIT_FILTERS, from: "2026-01-01T00:00", to: "2026-01-02T00:00" },
-      0,
-      50,
+  it("parses from/to datetime-local values into ISO instants", () => {
+    const path = outcome({
+      ...EMPTY_AUDIT_FILTERS,
+      from: "2026-01-01T00:00",
+      to: "2026-01-02T00:00",
+    });
+    const params = new URLSearchParams(path.slice(AUDIT_EVENTS_PATH.length + 1));
+    // A datetime-local value is wall-clock time in the browser's zone, so the
+    // expected instant is that same moment built from its parts here.
+    expect([params.get("from"), params.get("to")]).toEqual([
+      new Date(2026, 0, 1).toISOString(),
+      new Date(2026, 0, 2).toISOString(),
+    ]);
+  });
+
+  it.each([
+    ["actorId", "Actor id must be a valid UUID."],
+    ["resourceId", "Resource id must be a valid UUID."],
+  ] as const)("refuses a malformed %s that is not a UUID", (key, message) => {
+    expect(outcome({ ...valid, [key]: "not-a-uuid" })).toBe(message);
+  });
+
+  it.each([
+    ["a prefix", "x00000000-0000-4000-8000-000000000001"],
+    ["a suffix", "00000000-0000-4000-8000-000000000001x"],
+  ])("refuses an id that wraps a well-formed UUID in %s", (_, actorId) => {
+    expect(outcome({ ...valid, actorId })).toBe("Actor id must be a valid UUID.");
+  });
+
+  it("refuses a from that is not before to", () => {
+    expect(outcome({ ...valid, from: "2026-01-02T00:00", to: "2026-01-01T00:00" })).toBe(
+      "The from date must be before the to date.",
     );
-    const params = new URLSearchParams(query.slice(AUDIT_EVENTS_PATH.length + 1));
-    expect(params.get("from")).toBe(new Date("2026-01-01T00:00").toISOString());
-    expect(params.get("to")).toBe(new Date("2026-01-02T00:00").toISOString());
+  });
+
+  it("refuses a from equal to to", () => {
+    expect(outcome({ ...valid, from: valid.to })).toBe("The from date must be before the to date.");
+  });
+
+  it.each([
+    ["to", { to: "" }],
+    ["from", { from: "" }],
+  ])("parses one date bound with %s left empty", (_, change) => {
+    expect(parseAuditFilters({ ...valid, ...change }).ok).toBe(true);
+  });
+
+  it.each([
+    ["from", "From date must be a valid date."],
+    ["to", "To date must be a valid date."],
+  ] as const)("refuses a %s bound in year 275760, past what a Date can hold", (key, message) => {
+    // `datetime-local` accepts year 275760, but JavaScript cannot represent
+    // this moment of it: the bound is refused, never turned into a query.
+    expect(outcome({ ...EMPTY_AUDIT_FILTERS, [key]: "275760-12-31T23:59" })).toBe(message);
+  });
+
+  it("refuses an unparsable date bound", () => {
+    expect(outcome({ ...EMPTY_AUDIT_FILTERS, to: "not-a-date" })).toBe(
+      "To date must be a valid date.",
+    );
+  });
+});
+
+describe("auditQueryAtPage", () => {
+  it("moves a parsed query to another page, keeping its filters", () => {
+    const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
+    if (!parsed.ok) throw new Error("the filters should parse");
+    expect(auditQueryAtPage(parsed.query, 3)).toMatchObject({
+      page: 3,
+      path: `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=3&size=50`,
+    });
   });
 });
 
