@@ -750,6 +750,8 @@ paths:
             The caller does not hold `user:write` (see `PermissionRequired`), or
             the target is the caller's own account, whatever Permissions it holds:
             recovering from a self-inflicted lockout takes a second administrator.
+            The caller's own account is the one whose stable id its session holds,
+            whatever `userName` either carries now.
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":
@@ -781,7 +783,9 @@ paths:
             The caller does not hold `user:write` (see `PermissionRequired`); or
             the target is the caller's own account, whatever Permissions it holds
             — the Bootstrap Admin's included; or the target is the Bootstrap Admin,
-            whose password change nobody may force.
+            whose password change nobody may force. The caller's own account is the
+            one whose stable id its session holds, whatever `userName` either
+            carries now.
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":

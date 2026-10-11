@@ -179,3 +179,24 @@ session was just ended, which used to be a constant on the filter, is now
 The lifetime filter's own ending is unchanged: it records `session-end`, expires no
 cookie, and is the one stated exception to `SessionEnding`, because it ends a
 session for its age rather than at the caller's request.
+
+## Addendum (2026-10-11): step 1 decides on the User's stable id
+
+Step 1 now reads the User once, when it authenticates. `LoginIdentityService`
+reports the User to Spring Security as a `LoginPrincipal`, which carries the User's
+stable id beside its `userName`, and `logInFromEpic` reads its linked User the same
+way. Everything the decision does after that works from the id, never from the
+name: the cleared failure run and the dormancy basis
+(`LoginAttemptService.recordPasswordSuccess` and `recordEpicSuccess`, which now
+take the id), the fail-closed `LOGIN_SUCCESS`, the One session per User sweep, and
+the `SignedIn` the decision returns, which step 2 indexes the session by and step 4
+records. A User that no longer exists by the time the success is recorded fails the
+Login closed, inside the decision's transaction, so nothing is written and no
+`LOGIN_SUCCESS` is skipped. The order of the steps is unchanged.
+
+A password refusal's reason is now one closed set, `PasswordRefusalReason`, the
+password analogue of `EpicLoginFailureReason`. Each reason names the Spring Security
+refusal it is reported for, the `AuditRefusalReason` its `LOGIN_FAILURE` is recorded
+under, and its `login` counter series. `UNKNOWN_ACCOUNT` is the one reason Spring
+Security never reports: recording the refusal settles it, by looking the name up.
+`PasswordRefused` carries a `PasswordRefusalReason`.
