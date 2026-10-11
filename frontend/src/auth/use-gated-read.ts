@@ -6,6 +6,10 @@
  * Permission no request is sent at all — the read would only be refused — and
  * with it the result lands as data or as a refusal with its message, the
  * message read through the seam's own {@link refusalMessage}.
+ *
+ * What the page renders is one closed {@link ReadView}: the page switches on
+ * it rather than rebuilding "a failure is never shown as empty" from loose
+ * flags, and never re-checks the Permission the read already checked.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,31 +31,47 @@ export interface GatedReadOptions<T> {
   failureMessage: string;
 }
 
+/**
+ * What a gated read has to show, as one closed state:
+ *
+ * - `not-permitted` — the session lacks the read's Permission, so nothing was asked;
+ * - `loading` — the first read for the current path is still in flight;
+ * - `failed` — the latest read was refused or failed, and nothing was ever read;
+ * - `ready` — the latest read succeeded, and `data` is its answer;
+ * - `stale` — a re-read was refused or failed, and `data` is the last answer, kept.
+ *
+ * A re-read in flight is not a first load: the data stays `ready` meanwhile.
+ */
+export type ReadView<T> =
+  | { kind: "not-permitted" }
+  | { kind: "loading" }
+  | { kind: "failed" }
+  | { kind: "ready"; data: T }
+  | { kind: "stale"; data: T };
+
 export interface GatedRead<T> {
-  /** The last successful read, or `null` before one — and while gated off. */
-  data: T | null;
-  /** Whether the latest read was refused or failed. */
-  failed: boolean;
-  /** The latest read's refusal copy, or `null`. */
+  /** What the page renders. */
+  view: ReadView<T>;
+  /** The latest read's refusal copy, or `null`; the page's error line, not its view. */
   error: string | null;
-  /** Whether the first read for the current path is still in flight. */
-  loading: boolean;
-  /** Reads again, keeping the current data if the re-read is refused. */
+  /** Reads again, keeping the current data — as `stale` — if the re-read is refused. */
   reload: () => Promise<void>;
   /** Replaces the data locally, from a response that already states it. */
-  update: (next: (current: T | null) => T | null) => void;
+  update: (next: (current: T | null) => T) => void;
   /** Withdraws the refusal copy, when a later action supersedes it on the page. */
   clearError: () => void;
 }
 
-interface ReadState<T> {
-  data: T | null;
-  error: string | null;
-  failed: boolean;
-  settled: boolean;
-}
+/**
+ * How the latest read for the current key went: `unread` before any has
+ * answered, `ok` with its data, or `failed` with whatever data was kept.
+ */
+type ReadState<T> =
+  | { outcome: "unread"; data: null; error: null }
+  | { outcome: "ok"; data: T; error: null }
+  | { outcome: "failed"; data: T | null; error: string | null };
 
-const UNREAD: ReadState<never> = { data: null, error: null, failed: false, settled: false };
+const UNREAD: ReadState<never> = { data: null, error: null, outcome: "unread" };
 
 /**
  * The read state, tied to what it was read for. When the gate closes or the
@@ -102,6 +122,19 @@ function useOpenRead<T>(
   }, [read, land]);
 }
 
+/** The one view a read state stands for. */
+function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T> {
+  if (!allowed) return { kind: "not-permitted" };
+  switch (state.outcome) {
+    case "unread":
+      return { kind: "loading" };
+    case "ok":
+      return { data: state.data, kind: "ready" };
+    case "failed":
+      return state.data === null ? { kind: "failed" } : { data: state.data, kind: "stale" };
+  }
+}
+
 export function useGatedRead<T>({
   decode,
   failureMessage,
@@ -118,11 +151,11 @@ export function useGatedRead<T>({
   const land = useCallback(
     (result: SessionResult<T>) => {
       if (result.kind === "ok") {
-        setState({ data: result.data, error: null, failed: false, settled: true });
+        setState({ data: result.data, error: null, outcome: "ok" });
         return;
       }
       const error = refusalMessage(result, failureMessage);
-      setState((current) => ({ data: current.data, error, failed: true, settled: true }));
+      setState((current) => ({ data: current.data, error, outcome: "failed" }));
     },
     [failureMessage, setState],
   );
@@ -130,22 +163,19 @@ export function useGatedRead<T>({
   const reload = useOpenRead(allowed, read, land);
 
   // Neither needs memoising: `setState` is stable, and both are called from
-  // event handlers, never named as a dependency.
-  const update = (next: (current: T | null) => T | null) => {
-    setState((current) => ({ ...current, data: next(current.data) }));
+  // event handlers, never named as a dependency. A response that states the
+  // data makes it read; only a read that failed stays failed, its data kept.
+  const update = (next: (current: T | null) => T) => {
+    setState((current) =>
+      current.outcome === "failed"
+        ? { ...current, data: next(current.data) }
+        : { data: next(current.data), error: null, outcome: "ok" },
+    );
   };
 
   const clearError = () => {
     setState((current) => ({ ...current, error: null }));
   };
 
-  return {
-    clearError,
-    data: state.data,
-    error: state.error,
-    failed: state.failed,
-    loading: allowed && !state.settled,
-    reload,
-    update,
-  };
+  return { clearError, error: state.error, reload, update, view: viewOf(allowed, state) };
 }

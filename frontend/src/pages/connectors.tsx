@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 
 import { VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
@@ -22,11 +22,15 @@ import {
   type TokenPermission,
   TOKEN_PERMISSIONS,
 } from "./accounts-api";
+import { ListingBody } from "./listing-body";
 
 /** Module-level, so each is one stable function across renders and hook dependencies. */
 const readConnectors = jsonDecoder(decodeConnectors);
 const readConnector = jsonDecoder(decodeConnector);
 const readIssuedToken = jsonDecoder(decodeIssuedToken);
+
+/** The listing's rows: the connectors themselves. */
+const everyConnector = (connectors: Connector[]) => connectors;
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -332,7 +336,6 @@ interface ConnectorActions {
  */
 function useConnectors() {
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
-  // A failed read is reported as a failure, never as an empty list.
   const listing = useGatedRead({
     decode: readConnectors,
     failureMessage: "Unable to load the connectors. Please try again.",
@@ -412,13 +415,12 @@ function useConnectors() {
 
   return {
     actionsFor,
-    connectors: listing.data,
     create,
     disclosure,
     dismiss: () => setDisclosure(null),
     error: write.error,
     pending: write.pending,
-    unread: listing.failed,
+    view: listing.view,
   };
 }
 
@@ -465,7 +467,8 @@ function CreateConnectorForm({
  * once, in the response to the request that minted it, and is shown in
  * {@link TokenDisclosure}.
  *
- * Rendered only for a session holding `connector:read`. Creating and deleting
+ * Renders nothing for a session without `connector:read`, whose listing is
+ * never asked for. Creating and deleting
  * a connector is offered only with `connector:write`, and issuing, rotating
  * and revoking a token only with `connector:token` — each its own Permission
  * on the backend, which refuses them independently. A token may carry only
@@ -481,29 +484,9 @@ export function Connectors({
   canManageConnectors: boolean;
   grantablePermissions: readonly TokenPermission[];
 }) {
-  const { actionsFor, connectors, create, disclosure, dismiss, error, pending, unread } =
-    useConnectors();
+  const { actionsFor, create, disclosure, dismiss, error, pending, view } = useConnectors();
 
-  // A failed re-read keeps the connectors last read on screen; a failure with
-  // none to keep shows neither the loading line nor a claim that none exist.
-  let listing: ReactNode = null;
-  if (connectors !== null && connectors.length > 0)
-    listing = connectors.map((connector) => (
-      <ConnectorSection
-        canIssue={canIssueTokens}
-        canManage={canManageConnectors}
-        connector={connector}
-        grantable={grantablePermissions}
-        key={connector.id}
-        pending={pending}
-        {...actionsFor(connector)}
-      />
-    ));
-  else if (unread) listing = null;
-  else if (connectors === null)
-    listing = <p className="text-sm text-muted-foreground">Loading connectors…</p>;
-  else listing = <p className="text-sm text-muted-foreground">No connectors exist.</p>;
-
+  if (view.kind === "not-permitted") return null;
   return (
     <Card>
       <CardHeader>
@@ -522,7 +505,30 @@ export function Connectors({
         ) : null}
         {disclosure ? <TokenDisclosure disclosure={disclosure} onDismiss={dismiss} /> : null}
         {canManageConnectors ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
-        {listing}
+        {/* A failed re-read keeps the connectors last read on screen, under the
+            error line: every change re-reads, and a refused re-read says
+            nothing new about connectors the page has just shown. */}
+        <ListingBody
+          empty="No connectors exist."
+          loading="Loading connectors…"
+          rows={everyConnector}
+          staleRows="keep"
+          view={view}
+        >
+          {(connectors) =>
+            connectors.map((connector) => (
+              <ConnectorSection
+                canIssue={canIssueTokens}
+                canManage={canManageConnectors}
+                connector={connector}
+                grantable={grantablePermissions}
+                key={connector.id}
+                pending={pending}
+                {...actionsFor(connector)}
+              />
+            ))
+          }
+        </ListingBody>
       </CardContent>
     </Card>
   );

@@ -195,6 +195,18 @@ describe("Connectors by Permission", () => {
     await act(async () => {});
     expect(apiFetchMock).not.toHaveBeenCalled();
   });
+
+  it("renders no panel at all without connector:read", async () => {
+    oneActiveToken();
+    const { container } = render(
+      <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions: [] } }}>
+        <Connectors canIssueTokens={false} canManageConnectors={false} grantablePermissions={[]} />
+      </AuthContext.Provider>,
+    );
+
+    await act(async () => {});
+    expect(container).toBeEmptyDOMElement();
+  });
 });
 
 describe("Connectors", () => {

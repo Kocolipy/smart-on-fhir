@@ -159,6 +159,15 @@ describe("Showcase", () => {
     expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
   });
 
+  // Without counter:read the count is never read, so nothing offers to change it.
+  it("offers counter:write alone no change to a count it cannot read", async () => {
+    renderShowcase(holding(["counter:write"]));
+    await screen.findByText("You are signed in. Your account has no access to the counter.");
+
+    expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
+  });
+
   it("renders the original home page and signed-in user", async () => {
     renderShowcase();
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
@@ -222,6 +231,14 @@ describe("Showcase", () => {
     expect(reset()).toBeEnabled();
   });
 
+  it("shows no count while the initial count is loading", () => {
+    apiFetchMock.mockReturnValueOnce(new Promise(() => {}) as never);
+    renderShowcase();
+
+    expect(screen.getByText("Loading the counter…")).toBeInTheDocument();
+    expect(screen.queryByTestId("count")).not.toBeInTheDocument();
+  });
+
   it("reports a failed initial counter read", async () => {
     resolveWith({ kind: "failed", status: 503 });
     renderShowcase();
@@ -229,7 +246,17 @@ describe("Showcase", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the counter. Please try again.",
     );
-    expect(increment()).toBeEnabled();
+  });
+
+  // The count was never read, so no count is shown and nothing offers to change it.
+  it("shows no count and offers no change after a failed initial counter read", async () => {
+    resolveWith({ kind: "failed", status: 503 });
+    renderShowcase();
+    await screen.findByRole("alert");
+
+    expect(screen.queryByTestId("count")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
   });
 
   it("reports an expired CSRF token with security-specific copy", async () => {
@@ -273,8 +300,9 @@ describe("Showcase", () => {
 
     // The page never sees this case: the session seam ends the session, and the
     // route guard replaces this page with the login route on the same update.
+    // Meanwhile the count was never read, so none is shown.
     expect(auth.expireSession).toHaveBeenCalledOnce();
-    expect(count()).toHaveTextContent(/^Clicked 0 times$/);
+    expect(screen.queryByTestId("count")).not.toBeInTheDocument();
   });
 
   it("counts each click", async () => {

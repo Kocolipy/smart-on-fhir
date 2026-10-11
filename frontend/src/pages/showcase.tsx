@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/auth/auth-context-value";
 import { ADMINISTRATION_PERMISSIONS, holds, holdsAny, WRITE_PERMISSIONS } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
-import { useGatedRead } from "@/auth/use-gated-read";
+import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,51 +48,68 @@ function useCounter() {
     );
 
   return {
-    count: reading.data ?? 0,
     error: write.error,
     increment: () => void updateCount("/api/count/increment"),
-    isUpdating: reading.loading || write.pending,
+    isUpdating: write.pending,
     reset: () => void updateCount("/api/count/reset"),
+    view: reading.view,
   };
 }
 
-/** The count for `counter:read`; for a session without it, a note that it has none. */
-function CounterReading({ canRead, count }: { canRead: boolean; count: number }) {
-  if (!canRead) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        You are signed in. Your account has no access to the counter.
-      </p>
-    );
+const NOTE_CLASS = "text-sm text-muted-foreground";
+
+/**
+ * The count, once read. Nothing else ever stands in for it: while the first
+ * read is in flight the page says so, and after a failed one the error line
+ * is all there is — a count the page has not read is never shown.
+ */
+function CounterReading({ view }: { view: ReadView<number> }) {
+  switch (view.kind) {
+    case "not-permitted":
+      return (
+        <p className={NOTE_CLASS}>You are signed in. Your account has no access to the counter.</p>
+      );
+    case "loading":
+      return <p className={NOTE_CLASS}>Loading the counter…</p>;
+    case "failed":
+      return null;
+    case "ready":
+    case "stale":
+      return (
+        <p className={NOTE_CLASS} data-testid="count">
+          Clicked {view.data} {view.data === 1 ? "time" : "times"}
+        </p>
+      );
   }
-  return (
-    <p className="text-sm text-muted-foreground" data-testid="count">
-      Clicked {count} {count === 1 ? "time" : "times"}
-    </p>
-  );
 }
 
-/** Increment and Reset, offered only with `counter:write`. */
+/**
+ * Increment and Reset, offered only with `counter:write` and only against a
+ * count: disabled while the first read is in flight, and not offered at all
+ * when it failed, since the count they would change is unknown.
+ */
 function CounterControls({
   canWrite,
-  count,
   increment,
   isUpdating,
   reset,
+  view,
 }: {
   canWrite: boolean;
-  count: number;
   increment: () => void;
   isUpdating: boolean;
   reset: () => void;
+  view: ReadView<number>;
 }) {
-  if (!canWrite) return null;
+  if (!canWrite || view.kind === "not-permitted" || view.kind === "failed") return null;
+  const count = view.kind === "loading" ? null : view.data;
+  const disabled = isUpdating || count === null;
   return (
     <>
-      <Button onClick={increment} disabled={isUpdating}>
+      <Button onClick={increment} disabled={disabled}>
         Increment
       </Button>
-      <Button variant="outline" onClick={reset} disabled={count === 0 || isUpdating}>
+      <Button variant="outline" onClick={reset} disabled={disabled || count === 0}>
         Reset
       </Button>
     </>
@@ -110,8 +127,7 @@ function CounterControls({
  */
 export function Showcase() {
   const { user } = useAuth();
-  const canRead = holds(user, "counter:read");
-  const { count, error, increment, isUpdating, reset } = useCounter();
+  const { error, increment, isUpdating, reset, view } = useCounter();
 
   return (
     <Card className="w-full">
@@ -120,7 +136,7 @@ export function Showcase() {
         <CardDescription>React + Vite + Tailwind, with the tooling gates wired up.</CardDescription>
       </CardHeader>
       <CardContent>
-        <CounterReading canRead={canRead} count={count} />
+        <CounterReading view={view} />
         {error ? (
           <p className="mt-2 text-sm text-destructive" role="alert">
             {error}
@@ -130,10 +146,10 @@ export function Showcase() {
       <CardFooter className="gap-2">
         <CounterControls
           canWrite={holds(user, WRITE_PERMISSIONS.counter)}
-          count={count}
           increment={increment}
           isUpdating={isUpdating}
           reset={reset}
+          view={view}
         />
         <div className="ml-auto flex gap-4">
           {holdsAny(user, ADMINISTRATION_PERMISSIONS) ? (
