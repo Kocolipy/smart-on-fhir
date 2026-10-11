@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
+import { SIGN_OUT_FAILED_MESSAGE } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import { CSRF_EXPIRED_MESSAGE } from "@/auth/use-session-request";
 
@@ -39,7 +40,9 @@ function renderShell(auth: AuthContextState, path = "/showcase") {
   );
 }
 
-const STILL_SIGNED_IN = /^Unable to sign out\. Please try again\. You are still signed in\.$/;
+const stillSignedIn = (message: string) =>
+  new RegExp(`^${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} You are still signed in\\.$`);
+const STILL_SIGNED_IN = stillSignedIn(SIGN_OUT_FAILED_MESSAGE);
 
 const TOP_ALIGNED_WIDE = "mx-auto flex min-h-svh flex-col gap-6 p-8 max-w-6xl";
 
@@ -90,7 +93,7 @@ describe("SignedInShell", () => {
   });
 
   it("says a failed Sign out left the user signed in", async () => {
-    const logout = vi.fn().mockRejectedValue(new Error("Unable to sign out. Please try again."));
+    const logout = vi.fn().mockRejectedValue(new Error(SIGN_OUT_FAILED_MESSAGE));
     renderShell(authWith(logout));
     await userEvent.setup().click(signOut());
     expect(await screen.findByRole("alert")).toHaveTextContent(STILL_SIGNED_IN);
@@ -101,9 +104,7 @@ describe("SignedInShell", () => {
     const logout = vi.fn().mockRejectedValue(new Error(CSRF_EXPIRED_MESSAGE));
     renderShell(authWith(logout));
     await userEvent.setup().click(signOut());
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      new RegExp(`^${CSRF_EXPIRED_MESSAGE} You are still signed in\\.$`),
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(stillSignedIn(CSRF_EXPIRED_MESSAGE));
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
@@ -133,7 +134,7 @@ describe("SignedInShell", () => {
   it("clears the error line when Sign out is tried again", async () => {
     const logout = vi
       .fn()
-      .mockRejectedValueOnce(new Error("Unable to sign out. Please try again."))
+      .mockRejectedValueOnce(new Error(SIGN_OUT_FAILED_MESSAGE))
       .mockReturnValueOnce(new Promise<void>(() => {}));
     renderShell(authWith(logout));
     const user = userEvent.setup();

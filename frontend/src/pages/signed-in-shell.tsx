@@ -5,6 +5,10 @@ import { SIGN_OUT_FAILED_MESSAGE } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { CREDENTIAL_CHANGE_PATH, DEFAULT_DESTINATION } from "@/auth/session-route";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+/** The Tailwind max-width of a page column; the widths the signed-in pages use. */
+type PageWidth = "max-w-md" | "max-w-2xl" | "max-w-6xl";
 
 interface ShellPage {
   /** The back link, offered unless the session is confined to the password change. */
@@ -12,8 +16,7 @@ interface ShellPage {
   /** Centers the page vertically, for the narrow pages. */
   centered?: boolean;
   title: string;
-  /** Tailwind max-width of the page column. */
-  width: string;
+  width: PageWidth;
 }
 
 /** What each signed-in page supplies to the shell, keyed by its path. */
@@ -68,9 +71,11 @@ export function SignedInShell() {
 
   return (
     <main
-      className={`mx-auto flex min-h-svh flex-col gap-6 p-8 ${page.width} ${
-        page.centered ? "items-center justify-center" : ""
-      }`}
+      className={cn(
+        "mx-auto flex min-h-svh flex-col gap-6 p-8",
+        page.width,
+        page.centered && "items-center justify-center",
+      )}
     >
       <div className="flex w-full items-center justify-between gap-4">
         <div>

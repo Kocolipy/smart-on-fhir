@@ -322,7 +322,7 @@ needs no rule of its own for that, since it acts only on what `/me` reports.
 to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
 the login route, an unknown path (which falls back to login first) — redirects
 there, ahead of the Permission check and of any recorded return destination, so a
-flagged Superuser is confined exactly as a flagged User is. The page offers sign-out,
+flagged Superuser is confined exactly as a flagged User is. The signed-in shell offers Sign out,
 so a flagged User is never stuck on it. An unflagged User may open it too, for a
 voluntary change, and the showcase links to it.
 
