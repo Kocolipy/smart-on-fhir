@@ -367,11 +367,17 @@ The four signed-in pages (Showcase, Accounts, Audit, Change password) are
 children of one layout route in `App.tsx`: a `ProtectedRoute` around
 `SignedInShell` (`pages/signed-in-shell.tsx`). The shell owns the header (who is
 signed in and the page title), the back link and Sign out; a page renders none of
-them, only its body. What a page supplies — title, back link, column width — is
-a table in the shell keyed by path, so a new signed-in page adds a row there. The
-back link is withheld from a session confined to `/change-password`. The
-Permission-guarded pages (Accounts, Audit) keep their own `ProtectedRoute`
-inside the shell. Sign out shows a pending state while the logout is in flight.
+them, only its body. Each signed-in page is declared exactly once, as an entry in
+`SIGNED_IN_PAGES` (`pages/signed-in-pages.tsx`): its path, element, optional
+`permissions` guard, and the shell metadata (title, back link, column width,
+centering). `App.tsx` maps the table to `<Route>`s, and the shell finds the
+current entry with `matchPath` (an unknown path falls back to the Showcase
+layout), so **adding a signed-in page means adding one entry to that table** and
+nothing in `App.tsx` or the shell. (The router is `BrowserRouter`, so route
+`handle` / `useMatches` is not available; the table is the single source
+instead.) The back link is withheld from a session confined to
+`/change-password`. An entry with `permissions` (Accounts, Audit) is wrapped in
+its own `ProtectedRoute` inside the shell. Sign out shows a pending state while the logout is in flight.
 When the logout fails or comes back CSRF-expired, the auth context's `logout`
 throws before it ends anything, so the session stands and the CSRF token stays
 with it (ADR-0009: the token is forgotten only through the session transitions);

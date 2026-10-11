@@ -1,15 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "@/auth/auth-context";
-import { ADMINISTRATION_PERMISSIONS } from "@/auth/permissions";
 import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
-import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { Accounts } from "@/pages/accounts";
-import { Audit } from "@/pages/audit";
-import { ChangePassword } from "@/pages/change-password";
 import { Login } from "@/pages/login";
-import { Showcase } from "@/pages/showcase";
+import { SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
 import { SignedInShell } from "@/pages/signed-in-shell";
 
 /**
@@ -23,8 +18,9 @@ import { SignedInShell } from "@/pages/signed-in-shell";
  * `ErrorBoundary` is the outermost element, so a render error anywhere below it
  * (a page, a guard, the router or `AuthProvider`) shows a generic fallback
  * instead of a blank page. The signed-in pages are children of one layout route,
- * `SignedInShell`, which owns their header, back link and Sign out; the
- * Permission-guarded pages keep their own guard inside it.
+ * `SignedInShell`, which owns their header, back link and Sign out. They are
+ * declared once in `SIGNED_IN_PAGES`; a page that lists `permissions` keeps its
+ * own guard inside the shell.
  */
 export function App() {
   return (
@@ -47,24 +43,19 @@ export function App() {
                 </ProtectedRoute>
               }
             >
-              <Route path="/showcase" element={<Showcase />} />
-              <Route
-                path="/accounts"
-                element={
-                  <ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}>
-                    <Accounts />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/audit"
-                element={
-                  <ProtectedRoute requiredPermissions={["audit:read"]}>
-                    <Audit />
-                  </ProtectedRoute>
-                }
-              />
-              <Route path={CREDENTIAL_CHANGE_PATH} element={<ChangePassword />} />
+              {SIGNED_IN_PAGES.map(({ element, path, permissions }) => (
+                <Route
+                  key={path}
+                  path={path}
+                  element={
+                    permissions ? (
+                      <ProtectedRoute requiredPermissions={permissions}>{element}</ProtectedRoute>
+                    ) : (
+                      element
+                    )
+                  }
+                />
+              ))}
             </Route>
             <Route path="*" element={<Navigate replace to="/" />} />
           </Routes>

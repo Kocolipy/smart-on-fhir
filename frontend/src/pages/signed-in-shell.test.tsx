@@ -33,6 +33,7 @@ function renderShell(auth: AuthContextState, path = "/showcase") {
             <Route element={<p>page body</p>} path="/accounts" />
             <Route element={<p>page body</p>} path="/audit" />
             <Route element={<p>page body</p>} path="/change-password" />
+            <Route element={<p>page body</p>} path="*" />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -170,6 +171,11 @@ describe("SignedInShell", () => {
   it("centers the Showcase in a medium column", () => {
     renderShell(authWith(vi.fn()), "/showcase");
     expect(screen.getByRole("main")).toHaveClass("max-w-2xl", "items-center", "justify-center");
+  });
+
+  it("renders the Showcase layout for a path it has no page for", () => {
+    renderShell(authWith(vi.fn()), "/nowhere");
+    expect(screen.getByRole("heading", { level: 1, name: "Front End" })).toBeInTheDocument();
   });
 
   it("renders the Showcase layout for a trailing-slash path", () => {

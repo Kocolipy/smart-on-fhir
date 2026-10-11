@@ -93,7 +93,9 @@ each page's endpoints and Permissions; this list holds the rules.
   decision is a rendering decision only: the backend enforces each operation's
   Permission on its own. The four signed-in pages
   are children of one layout route, `SignedInShell` (`src/pages/signed-in-shell.tsx`),
-  which owns the header, the back link and Sign out; a failed or CSRF-expired
+  which owns the header, the back link and Sign out. Each page is one entry in
+  `SIGNED_IN_PAGES` (`src/pages/signed-in-pages.tsx`: path, element, permissions,
+  title, back link, width), so a new signed-in page is one entry; a failed or CSRF-expired
   Sign out keeps the session and shows an error line. The outermost element is
   `ErrorBoundary`: a render error anywhere
   below shows a generic "Something went wrong" fallback with a reload action,
