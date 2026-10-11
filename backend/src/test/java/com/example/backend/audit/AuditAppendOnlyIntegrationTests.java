@@ -18,6 +18,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -521,9 +522,11 @@ class AuditAppendOnlyIntegrationTests {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);
             users.updateLoginState(user.id(), ScimLoginState.of(user.login().passwordHash()));
-            users.updateActive(user.id(), true, Instant.now());
-            // Reactivation requires a password change; the shared seeded baseline is unflagged.
-            users.completePasswordChange(user.id(), user.login().passwordHash(), Instant.now());
+            // Arranged through the store, which keeps what it is given: active again, and with
+            // the shared seeded baseline's unflagged credential and unmoved dormancy basis.
+            users.replace(ScimIdentities.withActive(user, true, new ScimLoginState(
+                    user.login().passwordHash(), 0, null, null,
+                    user.login().lastAuthenticatedAt(), null)), Instant.now());
         });
     }
 

@@ -11,6 +11,7 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimSeedLock;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
@@ -76,6 +77,7 @@ public class ScimSeedService {
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
     private final RoleMapping roleMapping;
+    private final ScimUserLoginState loginStates;
 
     public ScimSeedService(
             ScimUserRepository users,
@@ -84,7 +86,8 @@ public class ScimSeedService {
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
             Clock clock,
-            RoleMapping roleMapping) {
+            RoleMapping roleMapping,
+            ScimUserLoginState loginStates) {
         this.users = users;
         this.groups = groups;
         this.seedLock = seedLock;
@@ -92,6 +95,7 @@ public class ScimSeedService {
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
         this.roleMapping = roleMapping;
+        this.loginStates = loginStates;
     }
 
     /**
@@ -167,7 +171,8 @@ public class ScimSeedService {
      * <p>Unlike the Role fixtures it is RESET, not merely created: the e2e journey ends with the
      * User unlocked and holding a password it chose, so a fixture that kept that state would be
      * usable once per database. Each startup therefore puts back the fixture password — with no
-     * change required — clears any lock, and backdates the basis. It belongs to no Group, so the
+     * change required — clears any lock, and backdates the basis; that reset is the login-state
+     * module's ({@link ScimUserLoginState#dormantFixtureReset}). It belongs to no Group, so the
      * Role it would lose at the role-revocation window is nobody's concern. Called only when
      * {@code app.dev-fixtures.enabled} is set and a dormant fixture is named.
      *
@@ -186,9 +191,8 @@ public class ScimSeedService {
         seedLock.acquire();
         Instant now = clock.instant();
         ScimUser dormant = findOrCreate(userName, password, now);
-        users.completePasswordChange(dormant.id(), passwordEncoder.encode(password), now);
-        users.updateLoginState(dormant.id(), dormant.login().withFailureRunCleared());
-        users.resetDormancyBasis(dormant.id(), now.minus(dormantFor));
+        loginStates.dormantFixtureReset(
+                dormant, passwordEncoder.encode(password), now, dormantFor);
     }
 
     /**
@@ -254,11 +258,12 @@ public class ScimSeedService {
     private ScimUser seedBootstrapAdmin(SeededIdentity recovery, Instant now) {
         ScimUser seeded = newUser(recovery, now);
         // Built whole rather than by copying the new User's fields: it is a new User — version 1,
-        // created and last modified now — whose credential is already marked for replacement.
+        // created and last modified now — whose credential is already marked for replacement, by
+        // the login-state module's rule for a credential somebody else chose.
         ScimUser flagged = new ScimUser(
                 seeded.id(),
                 seeded.profile(),
-                seeded.login().withPasswordChangeRequired(now),
+                loginStates.created(seeded.login().passwordHash(), now),
                 null,
                 ScimUser.INITIAL_VERSION,
                 now,

@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * A User's authentication state, and the transitions the login path drives it through.
@@ -294,6 +297,20 @@ class ScimLoginStateTests {
         assertThatThrownBy(() -> state.withDormancyBasisReset(null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    /** Replacing the credential — or removing it — moves only the credential; the rest is kept. */
+    @ParameterizedTest(name = "to {0}")
+    @NullSource
+    @ValueSource(strings = "new-hash")
+    void replacing_the_credential_keeps_everything_else(String passwordHash) {
+        Instant required = NOW.minusSeconds(30);
+        ScimLoginState state = new ScimLoginState(
+                "hash", 2, NOW, LockCause.DORMANCY, NOW.minusSeconds(60), required);
+
+        assertThat(state.withCredential(passwordHash)).isEqualTo(new ScimLoginState(
+                passwordHash, 2, NOW, LockCause.DORMANCY, NOW.minusSeconds(60), required));
+    }
+
     /**
      * Two states share a failure run when their count and their lock agree, whatever else differs:
      * the run is exactly what {@link ScimUserRepository#updateLoginState} writes, so a caller can

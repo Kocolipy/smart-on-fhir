@@ -375,10 +375,10 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     /**
      * Advances one User's version without touching anything else.
      *
-     * <p>Done through the store's own map rather than through {@code updateActive}, because this
-     * is not a change to {@code active}: the real adapter advances the resource row directly, and
-     * routing it through a column write would be a different statement from the one production
-     * makes.
+     * <p>Done through the store's own map rather than through a User write, because this is not
+     * a change to any of the User's own columns: the real adapter advances the resource row
+     * directly, and routing it through a column write would be a different statement from the one
+     * production makes.
      */
     private void bumpUser(UUID userId, Instant now) {
         users.findById(userId).ifPresent(user -> users.given(new ScimUser(

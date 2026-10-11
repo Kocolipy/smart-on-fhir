@@ -1,12 +1,12 @@
 package com.example.backend.scim;
 
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
 import java.util.Comparator;
@@ -155,29 +155,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         writes++;
     }
 
-    @Override
-    public Optional<ScimUser> updateActive(UUID id, boolean active, Instant now) {
-        ScimUser current = stored.get(id);
-        if (current == null) {
-            return Optional.empty();
-        }
-        boolean reactivated = active && !current.profile().active();
-        ScimUser updated = new ScimUser(
-                current.id(),
-                withActive(current.profile(), active),
-                // A stored false-to-true transition resets the dormancy basis, as the adapter's
-                // conditional statement does; true over true resets nothing.
-                reactivated ? reactivatedLogin(current.login(), now) : current.login(),
-                current.reservedName(),
-                // `active` IS a SCIM attribute, so the version moves — unlike the login state.
-                current.version() + 1,
-                current.createdAt(),
-                now);
-        stored.put(id, updated);
-        writes++;
-        return Optional.of(updated);
-    }
-
     /** No lock to take in memory; a single-threaded test has no second writer to exclude. */
     @Override
     public Optional<ScimUser> findByIdForUpdate(UUID id) {
@@ -185,8 +162,10 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     /**
-     * Replaces the profile and credential, keeping the STORED failure run — the port's promise
-     * that a replacement never writes those two — and advancing the version once.
+     * Replaces the profile and stores the given credential, flag and dormancy basis, keeping the
+     * STORED failure run and lock — the port's promise that a replacement never writes those —
+     * and advancing the version once. Decides nothing, as the adapter decides nothing: the login
+     * state given is the caller's.
      */
     @Override
     public Optional<ScimUser> replace(ScimUser user, Instant now) {
@@ -199,7 +178,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         .equals(user.profile().normalizedUserName()))) {
             throw new com.example.backend.scim.domain.DuplicateUserNameException(null);
         }
-        boolean reactivated = user.profile().active() && !current.profile().active();
         ScimUser updated = new ScimUser(
                 current.id(),
                 user.profile(),
@@ -207,12 +185,9 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         user.login().passwordHash(),
                         current.login().failedLoginAttempts(),
                         current.login().lockedAt(),
-                        reactivated ? now : current.login().lastAuthenticatedAt(),
-                        reactivated && user.login().passwordHash() != null
-                                ? now
-                                : user.login().isPasswordChangeRequired()
-                                        ? user.login().passwordChangeRequiredSince()
-                                        : current.login().passwordChangeRequiredSince()),
+                        current.login().lockCause(),
+                        user.login().lastAuthenticatedAt(),
+                        user.login().passwordChangeRequiredSince()),
                 current.reservedName(),
                 current.version() + 1,
                 current.createdAt(),
@@ -262,17 +237,27 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 .toList();
     }
 
-    /** The lock and its cause where none stands, as the adapter's conditional statement does. */
+    /**
+     * The given lock and its cause where none stands, as the adapter's conditional statement
+     * stores them; the failure run and everything else are kept as stored.
+     */
     @Override
-    public boolean lockForDormancy(UUID id, Instant now) {
+    public boolean imposeLock(UUID id, Lockout lockout) {
         ScimUser current = stored.get(id);
         if (current == null || current.login().isLocked()) {
             return false;
         }
+        ScimLoginState login = current.login();
         stored.put(id, new ScimUser(
                 current.id(),
                 current.profile(),
-                current.login().withDormancyLock(now),
+                new ScimLoginState(
+                        login.passwordHash(),
+                        login.failedLoginAttempts(),
+                        lockout.at(),
+                        lockout.cause(),
+                        login.lastAuthenticatedAt(),
+                        login.passwordChangeRequiredSince()),
                 current.reservedName(),
                 current.version(),
                 current.createdAt(),
@@ -366,15 +351,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 login.passwordChangeRequiredSince());
     }
 
-    /**
-     * A reactivation, as the adapter's conditional statement writes it: the dormancy basis reset
-     * and, for a credentialed User, a password change required as of the same instant.
-     */
-    private static ScimLoginState reactivatedLogin(ScimLoginState login, Instant now) {
-        ScimLoginState reset = withDormancyBasis(login, now);
-        return login.passwordHash() == null ? reset : reset.withPasswordChangeRequired(now);
-    }
-
     /** The flag alone, as the adapter's narrow statement writes it; the version is untouched. */
     @Override
     public void requirePasswordChange(UUID id, Instant since) {
@@ -409,6 +385,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         passwordHash,
                         login.failedLoginAttempts(),
                         login.lockedAt(),
+                        login.lockCause(),
                         login.lastAuthenticatedAt(),
                         null),
                 current.reservedName(),
@@ -418,22 +395,5 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         stored.put(id, updated);
         writes++;
         return Optional.of(updated);
-    }
-
-    /**
-     * A profile with {@code active} replaced, which the domain has no transition for because
-     * nothing in production needs one: the real adapter writes the column and re-reads the row,
-     * so the flipped value never passes through a domain object.
-     */
-    private static ScimUserProfile withActive(ScimUserProfile current, boolean active) {
-        return new ScimUserProfile(
-                current.userName(),
-                current.name(),
-                current.displayName(),
-                current.preferredLanguage(),
-                current.locale(),
-                current.timezone(),
-                active,
-                current.emails());
     }
 }

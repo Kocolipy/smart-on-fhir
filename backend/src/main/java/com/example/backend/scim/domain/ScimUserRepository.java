@@ -60,24 +60,20 @@ public interface ScimUserRepository {
     Optional<ScimUser> findByIdForUpdate(UUID id);
 
     /**
-     * Replaces the User's profile and credential with the given ones and advances its version
-     * exactly once, reporting the User as it now stands.
+     * Replaces the User's profile with the given one, stores the given credential, change-required
+     * flag and dormancy basis, and advances its version exactly once, reporting the User as it now
+     * stands.
      *
-     * <p>A replacement that takes {@code active} from false to true is a reactivation and resets
-     * the dormancy window, as {@link #updateActive} does: {@code lastAuthenticatedAt} becomes
-     * {@code now}. A replacement restating {@code active=true} over an active User resets
-     * nothing, so a connector re-asserting {@code active} on every sync cannot hold a dormant
-     * User open.
+     * <p>Stores what it is given and decides nothing: the login state in {@code user} — a
+     * Reactivation's reset basis and required change included — is the login-state module's
+     * decision ({@link ScimUserLoginState#afterReplacement}), made by the caller from the User it read under
+     * the resource lock.
      *
-     * <p>A reactivation of a User that holds a credential also requires a password change as of
-     * {@code now}: a credential that sat unused across a deactivation is not trusted on return.
-     * Re-dated even when the flag was already set, so it records the reactivation that imposed it.
-     *
-     * <p>Writes only what differs. The login path writes the failure run on this row on every
-     * rejected attempt without taking the resource lock, so a full-row write carrying the failure
-     * run read at the start of a SCIM write could erase an attempt counted in between; writing only
-     * the changed columns leaves those two to the login path alone. The failure run and the lock
-     * instant in {@code user} are therefore ignored.
+     * <p>Writes only what differs from that read. The login path writes the failure run and the
+     * dormancy basis on this row without taking the resource lock, so a full-row write carrying
+     * the values read at the start of a SCIM write could erase a change made in between; writing
+     * only the changed columns leaves an unchanged component to the login path alone. The failure
+     * run and the lock in {@code user} are never stored here at all.
      *
      * @return empty when no live User has that id
      * @throws DuplicateUserNameException when the new {@code userName} is held by another live
@@ -129,27 +125,6 @@ public interface ScimUserRepository {
     void recordAuthentication(UUID id, Instant authenticatedAt);
 
     /**
-     * Writes only the {@code active} column, advancing the version and
-     * {@code lastModified}.
-     *
-     * <p>Unlike {@link #updateLoginState}, this one DOES advance them, and the difference
-     * is the whole reason the two are separate operations: {@code active} is a SCIM
-     * attribute, so deactivating a User changes what a connector reads and must change
-     * the ETag it reads it behind.
-     *
-     * <p>A stored transition from inactive to active is a reactivation, and it resets the
-     * dormancy window: {@code lastAuthenticatedAt} becomes {@code now}. Without that a
-     * reactivated User would still be dormant by its old basis and the next dormancy run
-     * would deactivate it again. Writing {@code true} over {@code true} resets nothing.
-     *
-     * <p>A reactivation of a User that holds a credential also requires a password change as of
-     * {@code now}, exactly as {@link #replace} does.
-     *
-     * @return the User as it now stands, or empty when no User has that id
-     */
-    Optional<ScimUser> updateActive(UUID id, boolean active, Instant now);
-
-    /**
      * Every live User's stable id, in id order — the Bootstrap Admin's included. Ids only, for a
      * caller that has to visit every User's sessions and nothing else about it.
      */
@@ -169,17 +144,18 @@ public interface ScimUserRepository {
     List<UUID> findDormantUnlockedUserIds(Instant cutoff);
 
     /**
-     * Locks the User for dormancy as of {@code now} — {@code lockedAt} and
-     * {@code lockCause=DORMANCY} — when, and only when, it is not locked already, and writes
-     * nothing else.
+     * Stores {@code lockout} — its instant and its cause — when, and only when, no lock stands,
+     * and writes nothing else. The lock and its cause are the login-state module's decision; this
+     * stores them.
      *
-     * <p>Conditional in the statement itself, so a lock the login path imposed for failures in
-     * the meantime keeps its cause, and the failure run the login path writes without the
-     * resource lock is never overwritten. Not a SCIM attribute: the version does not move.
+     * <p>Conditional in the statement itself, a compare-and-set rather than a rule: the caller
+     * decided from a read the login path does not serialize with, so a lock imposed in between is
+     * kept with its own cause, and the failure run the login path writes without the resource
+     * lock is never written here at all. Not a SCIM attribute: the version does not move.
      *
-     * @return whether this call imposed the lock
+     * @return whether this call stored the lock
      */
-    boolean lockForDormancy(UUID id, Instant now);
+    boolean imposeLock(UUID id, Lockout lockout);
 
     /**
      * Restarts the dormancy window as of {@code at}: writes {@code lastAuthenticatedAt} and

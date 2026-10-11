@@ -805,7 +805,7 @@ public class ArchitectureTest {
             .because("RepresentationChange decides which resources' versions a write advances,"
                     + " so every write path applies one rule (issue #137)");
 
-    /** The login-state module, the one owner of the Login-side login-state writes. */
+    /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =
             "com.example.backend.auth.application.LoginStateService";
 
@@ -834,36 +834,68 @@ public class ArchitectureTest {
                     + " #139, #42)");
 
     /**
-     * On the login surface, the Failure run, the dormancy basis and the completed password change
-     * are written by the login-state module alone: the Login, password-change and Unlock paths
-     * report what happened and the module decides the new state (issue #42). The directory's own
-     * writes — a reactivation, the development seed — are the {@code scim} slice's and outside
-     * this rule.
+     * The Failure run and the lock, the dormancy basis and the completed password change are
+     * written by the login-state module alone, anywhere in the application: the Login,
+     * password-change, Unlock and dormancy paths report what happened and the module decides the
+     * new state (issues #42, #43). The directory reaches the module through the
+     * {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture is
+     * written by the module too — and the persistence adapter, which implements these operations,
+     * calls its JPA repository rather than the port.
+     *
+     * <p>Not guarded here, because a call cannot say where its values came from:
+     * {@code ScimUserRepository.create} and {@code replace}, which store a SCIM write's login state
+     * with its profile in one row write. Their values are the module's decision, and
+     * {@link #the_directory_decides_no_login_state} holds the directory to that.
      *
      * <p>Deliberately left off the guarded writes: {@code requirePasswordChange}, the
      * change-required flag's write. The module owns it for an Unlock, but an Admin forcing a
      * change ({@code IdentityAdministrationService.forcePasswordChange}) also calls it, and a
-     * forced change is not one of the four Login-side events this module decides. So this rule
-     * does NOT stop other code on the login surface from setting the flag; guarding that write
-     * belongs with moving the forced change onto the module, not here.
+     * forced change is not one of the events this module decides. So this rule does NOT stop other
+     * code from setting the flag; guarding that write belongs with moving the forced change onto
+     * the module, not here.
      */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule only_the_login_state_module_writes_the_login_state_on_the_login_surface =
+    static final ArchRule only_the_login_state_module_writes_the_login_state =
         noClasses()
-            .that().resideInAPackage("com.example.backend.auth..")
+            .that().resideInAPackage("com.example.backend..")
             .and().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is a ScimUserRepository login-state write",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
                             Set.of("updateLoginState", "recordAuthentication",
-                                            "resetDormancyBasis", "completePasswordChange")
+                                            "resetDormancyBasis", "completePasswordChange",
+                                            "imposeLock")
                                     .contains(call.getName())
                                     && call.getTargetOwner().isAssignableTo(
                                             "com.example.backend.scim.domain.ScimUserRepository")))
             .allowEmptyShould(true)
-            .because("one module decides the Login-side login state, so no path writes the failure"
-                    + " run, the dormancy basis or the completed password change its own way (issue"
-                    + " #42)");
+            .because("one module decides the login state, so no path writes the failure run, the"
+                    + " lock, the dormancy basis or the completed password change its own way"
+                    + " (issues #42, #43)");
+
+    /**
+     * The directory decides no login state: nothing in {@code scim} outside the value itself
+     * applies one of {@code ScimLoginState}'s transitions. A SCIM create or replacement — PUT and
+     * PATCH alike — asks the login-state module through the {@code ScimUserLoginState} port and
+     * stores what it answers, so a Reactivation's reset basis and required change, and a
+     * connector-set password's required change, are decided once, in the module. A use case, the
+     * persistence adapter or a query that applied a transition of its own would be a second copy
+     * of a rule, which is what issue #43 removed.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_directory_decides_no_login_state =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.scim..")
+            .and().doNotHaveFullyQualifiedName("com.example.backend.scim.domain.ScimLoginState")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is a ScimLoginState transition",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().startsWith("with")
+                                    && call.getTargetOwner().isEquivalentTo(
+                                            com.example.backend.scim.domain.ScimLoginState.class)))
+            .allowEmptyShould(true)
+            .because("the login-state module decides the login state a directory write leaves, so"
+                    + " a Reactivation through PUT and through PATCH is one rule (issue #43)");
 
     /**
      * An audit event is constructed inside the audit slice and nowhere else.

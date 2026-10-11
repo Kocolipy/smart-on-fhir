@@ -71,6 +71,26 @@ public final class ScimIdentities {
                 NOW);
     }
 
+    /**
+     * {@code user} with {@code active} as given and its login state replaced by {@code login} —
+     * the value a test hands {@code ScimUserRepository#replace} to arrange a directory state
+     * directly. The store keeps what it is given, so a test arranging an active User this way
+     * performs no Reactivation: that is the login-state module's, reached through a SCIM write.
+     */
+    public static ScimUser withActive(ScimUser user, boolean active, ScimLoginState login) {
+        ScimUserProfile profile = user.profile();
+        return new ScimUser(
+                user.id(),
+                new ScimUserProfile(profile.userName(), profile.name(), profile.displayName(),
+                        profile.preferredLanguage(), profile.locale(), profile.timezone(), active,
+                        profile.emails()),
+                login,
+                user.reservedName(),
+                user.version(),
+                user.createdAt(),
+                user.lastModifiedAt());
+    }
+
     /** The minimum profile: a userName, an active flag, and nothing else assigned. */
     public static ScimUserProfile profile(String userName, boolean active) {
         return new ScimUserProfile(userName, null, null, null, null, null, active, List.of());

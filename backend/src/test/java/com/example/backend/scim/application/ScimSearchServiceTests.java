@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -66,8 +67,8 @@ class ScimSearchServiceTests {
 
     private final ScimUserService userService = new ScimUserService(
             users, groups, aliases, PASSWORDS_UNUSED,
-            (connectorId, userId, causes) -> { }, new InMemoryScimTombstoneRepository(), audit,
-            clock, defaultQueries);
+            (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
+            new InMemoryScimTombstoneRepository(), audit, clock, defaultQueries);
 
     private final ScimGroupService groupService = new ScimGroupService(
             groups, users, aliases, (connectorId, userId, causes) -> { },
@@ -170,8 +171,8 @@ class ScimSearchServiceTests {
 
         ScimUserService service = new ScimUserService(
                 users, groups, aliases, PASSWORDS_UNUSED,
-                (connectorId, userId, causes) -> { }, new InMemoryScimTombstoneRepository(), audit,
-                clock, scripted);
+                (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
+                new InMemoryScimTombstoneRepository(), audit, clock, scripted);
         ScimUserListing listing = service.query(CONNECTOR, new ScimQuery(
                 usersOnly, ScimFilterParser.parse("userName eq \"bea\"", usersOnly), null, null),
                 "u");
