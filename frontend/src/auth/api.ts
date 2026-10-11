@@ -120,6 +120,9 @@ export async function login(username: string, password: string): Promise<AuthUse
   }
 }
 
+/** The Sign out failure line, shared with the shell's non-Error fallback. */
+export const SIGN_OUT_FAILED_MESSAGE = "Unable to sign out. Please try again.";
+
 /**
  * Ends the session, and treats a session that had already ended as ended.
  *
@@ -139,7 +142,7 @@ export async function logout(): Promise<void> {
     case "csrf-expired":
       throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
-      throw new Error("Unable to sign out. Please try again.");
+      throw new Error(SIGN_OUT_FAILED_MESSAGE);
   }
 }
 

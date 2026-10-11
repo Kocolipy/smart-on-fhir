@@ -91,7 +91,10 @@ each page's endpoints and Permissions; this list holds the rules.
   change-required flag is confined to `/change-password` by the guards' shared
   transition table, whatever path it asks for and whatever it holds. Every such
   decision is a rendering decision only: the backend enforces each operation's
-  Permission on its own. The outermost element is
+  Permission on its own. The four signed-in pages
+  are children of one layout route, `SignedInShell` (`src/pages/signed-in-shell.tsx`),
+  which owns the header, the back link and Sign out; a failed or CSRF-expired
+  Sign out keeps the session and shows an error line. The outermost element is
   `ErrorBoundary`: a render error anywhere
   below shows a generic "Something went wrong" fallback with a reload action,
   logs to `console.error` only, and never puts the error's message or stack in

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { holds, VIEW_PERMISSIONS, WRITE_PERMISSIONS } from "@/auth/permissions";
@@ -379,7 +378,7 @@ function useDirectory() {
  * endpoint that would accept the change.
  */
 export function Accounts() {
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
   const readUsers = holds(user, VIEW_PERMISSIONS.users);
   const readGroups = holds(user, VIEW_PERMISSIONS.groups);
   const { error, groups, pending, runAction, users } = useDirectory();
@@ -388,17 +387,7 @@ export function Accounts() {
     : null;
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-6xl flex-col gap-6 p-8">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Accounts</h1>
-        </div>
-        <Button variant="outline" onClick={() => void logout()}>
-          Sign out
-        </Button>
-      </div>
-
+    <div className="flex flex-col gap-6">
       {error ? (
         <p className="text-sm text-destructive" role="alert">
           {error}
@@ -441,10 +430,6 @@ export function Accounts() {
           grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
         />
       ) : null}
-
-      <Link className="text-sm font-medium underline underline-offset-4" to="/showcase">
-        Back to counter
-      </Link>
-    </main>
+    </div>
   );
 }

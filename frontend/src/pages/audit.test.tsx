@@ -354,13 +354,6 @@ describe("Audit", () => {
     expect(within(rows[1]).getAllByText("—")).toHaveLength(4);
   });
 
-  it("renders safely while the signed-in user's details are unavailable", async () => {
-    resolveWith({ kind: "ok", data: pageOf([]) });
-    renderAudit({ ...auth, user: null });
-
-    expect(await screen.findByText("Signed in as")).toBeInTheDocument();
-  });
-
   describe("paging", () => {
     it("disables Previous on the first page and Next with no further page", async () => {
       resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1, totalPages: 1 }) });
@@ -496,24 +489,5 @@ describe("Audit", () => {
         expect.any(Function),
       );
     });
-  });
-
-  it("signs out", async () => {
-    resolveWith({ kind: "ok", data: pageOf([]) });
-    const user = userEvent.setup();
-    renderAudit();
-
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(auth.logout).toHaveBeenCalledOnce();
-  });
-
-  it("links back to the showcase", async () => {
-    resolveWith({ kind: "ok", data: pageOf([]) });
-    renderAudit();
-
-    expect(await screen.findByRole("link", { name: /showcase/i })).toHaveAttribute(
-      "href",
-      "/showcase",
-    );
   });
 });

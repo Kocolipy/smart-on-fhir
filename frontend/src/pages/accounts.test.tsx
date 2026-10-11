@@ -767,15 +767,6 @@ describe("Accounts", () => {
     // the route guard replaces this page on the same update.
     expect(auth.expireSession).toHaveBeenCalledOnce();
   });
-
-  it("signs out", async () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    const user = userEvent.setup();
-    renderAccounts();
-
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(auth.logout).toHaveBeenCalledOnce();
-  });
 });
 
 describe("Accounts by Permission", () => {

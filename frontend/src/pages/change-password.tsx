@@ -1,21 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
-import { DEFAULT_DESTINATION } from "@/auth/session-route";
 import { sessionEndReasonFor } from "@/auth/sign-in-reason";
 import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const MISMATCH_MESSAGE = "The new password and its confirmation do not match.";
 
@@ -65,7 +56,7 @@ const inputClass =
  * once from the form on submit, it lives only in the input and the request.
  */
 export function ChangePassword() {
-  const { changePassword, logout, user } = useAuth();
+  const { changePassword, user } = useAuth();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const confined = user?.passwordChangeRequired === true;
@@ -100,99 +91,83 @@ export function ChangePassword() {
   }
 
   return (
-    <main className="mx-auto grid min-h-svh max-w-md place-items-center p-8">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Change your password</CardTitle>
-          <CardDescription>
-            {confined
-              ? "Your password must be replaced before you can continue."
-              : "Choose a new password for your account."}{" "}
-            Every session you hold ends when it changes, so you will sign in again.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-4 text-sm text-muted-foreground">Signed in as {user?.username}</p>
-          <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="currentPassword">
-                Current password
-              </label>
-              <input
-                autoComplete="current-password"
-                className={inputClass}
-                id="currentPassword"
-                name="currentPassword"
-                required
-                type="password"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="newPassword">
-                New password
-              </label>
-              <input
-                aria-describedby="newPasswordRequirements"
-                autoComplete="new-password"
-                className={inputClass}
-                id="newPassword"
-                maxLength={PASSWORD_LENGTH.max}
-                minLength={PASSWORD_LENGTH.min}
-                name="newPassword"
-                required
-                type="password"
-              />
-              {/* The backend's rules, stated up front; it remains the authority. */}
-              <ul
-                className="list-disc space-y-1 pl-5 text-sm text-muted-foreground"
-                id="newPasswordRequirements"
-              >
-                <li>
-                  {PASSWORD_LENGTH.min} to {PASSWORD_LENGTH.max} characters long
-                </li>
-                <li>Must not contain your user name</li>
-                <li>Must not reuse your current or recent passwords</li>
-              </ul>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="confirmPassword">
-                Confirm new password
-              </label>
-              <input
-                autoComplete="new-password"
-                className={inputClass}
-                id="confirmPassword"
-                maxLength={PASSWORD_LENGTH.max}
-                minLength={PASSWORD_LENGTH.min}
-                name="confirmPassword"
-                required
-                type="password"
-              />
-            </div>
-            {error ? (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            ) : null}
-            <Button className="w-full" disabled={submitting} type="submit">
-              {submitting ? "Changing password…" : "Change password"}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="justify-between gap-2">
-          <Button variant="outline" onClick={() => void logout()}>
-            Sign out
-          </Button>
-          {confined ? null : (
-            <Link
-              className="text-sm font-medium underline underline-offset-4"
-              to={DEFAULT_DESTINATION}
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Change your password</CardTitle>
+        <CardDescription>
+          {confined
+            ? "Your password must be replaced before you can continue."
+            : "Choose a new password for your account."}{" "}
+          Every session you hold ends when it changes, so you will sign in again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="currentPassword">
+              Current password
+            </label>
+            <input
+              autoComplete="current-password"
+              className={inputClass}
+              id="currentPassword"
+              name="currentPassword"
+              required
+              type="password"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="newPassword">
+              New password
+            </label>
+            <input
+              aria-describedby="newPasswordRequirements"
+              autoComplete="new-password"
+              className={inputClass}
+              id="newPassword"
+              maxLength={PASSWORD_LENGTH.max}
+              minLength={PASSWORD_LENGTH.min}
+              name="newPassword"
+              required
+              type="password"
+            />
+            {/* The backend's rules, stated up front; it remains the authority. */}
+            <ul
+              className="list-disc space-y-1 pl-5 text-sm text-muted-foreground"
+              id="newPasswordRequirements"
             >
-              Back
-            </Link>
-          )}
-        </CardFooter>
-      </Card>
-    </main>
+              <li>
+                {PASSWORD_LENGTH.min} to {PASSWORD_LENGTH.max} characters long
+              </li>
+              <li>Must not contain your user name</li>
+              <li>Must not reuse your current or recent passwords</li>
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="confirmPassword">
+              Confirm new password
+            </label>
+            <input
+              autoComplete="new-password"
+              className={inputClass}
+              id="confirmPassword"
+              maxLength={PASSWORD_LENGTH.max}
+              minLength={PASSWORD_LENGTH.min}
+              name="confirmPassword"
+              required
+              type="password"
+            />
+          </div>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button className="w-full" disabled={submitting} type="submit">
+            {submitting ? "Changing password…" : "Change password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

@@ -10,6 +10,7 @@ import { Audit } from "@/pages/audit";
 import { ChangePassword } from "@/pages/change-password";
 import { Login } from "@/pages/login";
 import { Showcase } from "@/pages/showcase";
+import { SignedInShell } from "@/pages/signed-in-shell";
 
 /**
  * The application root owns routing and the session-backed authentication state.
@@ -21,8 +22,9 @@ import { Showcase } from "@/pages/showcase";
  *
  * `ErrorBoundary` is the outermost element, so a render error anywhere below it
  * (a page, a guard, the router or `AuthProvider`) shows a generic fallback
- * instead of a blank page. There is no app shell to keep alive around a failed
- * page, because each page renders its own sign-out.
+ * instead of a blank page. The signed-in pages are children of one layout route,
+ * `SignedInShell`, which owns their header, back link and Sign out; the
+ * Permission-guarded pages keep their own guard inside it.
  */
 export function App() {
   return (
@@ -39,37 +41,31 @@ export function App() {
               }
             />
             <Route
-              path="/showcase"
               element={
                 <ProtectedRoute>
-                  <Showcase />
+                  <SignedInShell />
                 </ProtectedRoute>
               }
-            />
-            <Route
-              path="/accounts"
-              element={
-                <ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}>
-                  <Accounts />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/audit"
-              element={
-                <ProtectedRoute requiredPermissions={["audit:read"]}>
-                  <Audit />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path={CREDENTIAL_CHANGE_PATH}
-              element={
-                <ProtectedRoute>
-                  <ChangePassword />
-                </ProtectedRoute>
-              }
-            />
+            >
+              <Route path="/showcase" element={<Showcase />} />
+              <Route
+                path="/accounts"
+                element={
+                  <ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}>
+                    <Accounts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/audit"
+                element={
+                  <ProtectedRoute requiredPermissions={["audit:read"]}>
+                    <Audit />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path={CREDENTIAL_CHANGE_PATH} element={<ChangePassword />} />
+            </Route>
             <Route path="*" element={<Navigate replace to="/" />} />
           </Routes>
         </AuthProvider>
