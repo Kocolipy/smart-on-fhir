@@ -6,8 +6,8 @@
  * Nothing here requests anything: the Audit page reads through
  * `useSessionRequest` (in practice `useGatedRead`), so a `401` still ends the
  * session in one place. This file only says what a response looks like, how a
- * page of it is addressed, and how a filter is validated before it becomes a
- * query.
+ * page of it is addressed, and how the filters parse into a query or are
+ * refused.
  */
 
 import { DecodeError, readObject } from "@/lib/decode";
@@ -106,7 +106,7 @@ export interface AuditEventPage {
 export const AUDIT_EVENTS_PATH = "/api/admin/audit-events";
 
 /** The page size the Audit page asks for; the backend's own default. */
-export const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 50;
 
 // ---- decoders ----------------------------------------------------------------------
 
@@ -151,7 +151,7 @@ export const decodeAuditEventPage = (value: unknown): AuditEventPage => {
   };
 };
 
-// ---- filters, validation and the query they build ----------------------------------
+// ---- filters, and the query they parse into ---------------------------------------
 
 /**
  * The filters the Audit page offers, each as the raw control value: the two
@@ -177,7 +177,21 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
   to: "",
 };
 
-export type FilterValidation = { ok: true } | { ok: false; message: string };
+/**
+ * One page of the listing, as a filter set parsed into it. `path` is the whole
+ * request — every non-empty filter, then `page` and `size` — and is built once,
+ * when the filters parse, so rendering never touches a filter again.
+ * `filterSearch` is the same request without its paging, so a page turn moves
+ * the query without parsing anything twice.
+ */
+export interface AuditQuery {
+  readonly filterSearch: string;
+  readonly page: number;
+  readonly path: string;
+}
+
+/** A filter set either refused with a message, or parsed into the query it asks for. */
+export type ParsedAuditFilters = { ok: true; query: AuditQuery } | { ok: false; message: string };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -186,48 +200,63 @@ const ID_FIELDS = [
   { key: "resourceId", label: "Resource id" },
 ] as const satisfies readonly { key: keyof AuditFilters; label: string }[];
 
-/**
- * Checks a filter set is well-formed before it becomes a request: an id that
- * is not a UUID, or a `from` not strictly before `to`, is refused locally so
- * the backend's own `400` is never spent on it.
- */
-export function validateAuditFilters(filters: AuditFilters): FilterValidation {
-  for (const { key, label } of ID_FIELDS) {
-    const value = filters[key].trim();
-    if (value !== "" && !UUID_PATTERN.test(value)) {
-      return { ok: false, message: `${label} must be a valid UUID.` };
-    }
-  }
-  // `Date.parse` on an empty or malformed bound is `NaN`, and a comparison
-  // against `NaN` is always `false` either side, so an unset or unparsable
-  // bound never triggers a refusal on its own — only two bounds that both
-  // parse, with `from` not strictly before `to`, do.
-  if (Date.parse(filters.from) >= Date.parse(filters.to)) {
-    return { ok: false, message: "The from date must be before the to date." };
-  }
-  return { ok: true };
-}
+const DATE_FIELDS = [
+  { key: "from", label: "From" },
+  { key: "to", label: "To" },
+] as const satisfies readonly { key: keyof AuditFilters; label: string }[];
+
+const refuse = (message: string): ParsedAuditFilters => ({ ok: false, message });
+
+const queryAt = (filterSearch: string, page: number): AuditQuery => {
+  const paging = new URLSearchParams({ page: String(page), size: String(DEFAULT_PAGE_SIZE) });
+  const search = filterSearch === "" ? paging.toString() : `${filterSearch}&${paging.toString()}`;
+  return { filterSearch, page, path: `${AUDIT_EVENTS_PATH}?${search}` };
+};
 
 /**
- * The path and query for one page of the listing: every non-empty filter,
- * plus `page` and `size` always. Assumes `filters` already passed
- * {@link validateAuditFilters} — this never refuses, it only omits what was
- * left empty.
+ * The one step from the filters as typed to a request: either a refusal the
+ * page shows instead of reading, or the query for page zero. An id that is not
+ * a UUID, a date bound no `Date` can hold — unparsable, or past year 275760's
+ * last representable instant, which `datetime-local` still accepts — and a
+ * `from` not strictly before `to` are each refused here, so the backend's own
+ * `400` is never spent on them and nothing downstream can throw on them. Every
+ * non-empty filter goes into the query, an id trimmed and a date as an ISO
+ * instant; an empty one is left out.
  */
-export function buildAuditQuery(filters: AuditFilters, page: number, size: number): string {
+export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   const params = new URLSearchParams();
   if (filters.operation !== "") params.set("operation", filters.operation);
   if (filters.outcome !== "") params.set("outcome", filters.outcome);
-  const actorId = filters.actorId.trim();
-  if (actorId !== "") params.set("actorId", actorId);
-  const resourceId = filters.resourceId.trim();
-  if (resourceId !== "") params.set("resourceId", resourceId);
-  if (filters.from !== "") params.set("from", new Date(filters.from).toISOString());
-  if (filters.to !== "") params.set("to", new Date(filters.to).toISOString());
-  params.set("page", String(page));
-  params.set("size", String(size));
-  return `${AUDIT_EVENTS_PATH}?${params.toString()}`;
+  for (const { key, label } of ID_FIELDS) {
+    const value = filters[key].trim();
+    if (value === "") continue;
+    if (!UUID_PATTERN.test(value)) return refuse(`${label} must be a valid UUID.`);
+    params.set(key, value);
+  }
+  // An unset bound leaves the range open on its side, so it never refuses.
+  const bounds = { from: -Infinity, to: Infinity };
+  for (const { key, label } of DATE_FIELDS) {
+    if (filters[key] === "") continue;
+    const instant = new Date(filters[key]);
+    if (Number.isNaN(instant.getTime())) return refuse(`${label} date must be a valid date.`);
+    params.set(key, instant.toISOString());
+    bounds[key] = instant.getTime();
+  }
+  // Asked as "is from strictly before to?" rather than "from >= to": a bound
+  // missing from `bounds` then refuses everything instead of silently passing.
+  if (!(bounds.from < bounds.to)) return refuse("The from date must be before the to date.");
+  return { ok: true, query: queryAt(params.toString(), 0) };
 }
+
+/**
+ * What {@link parseAuditFilters} makes of {@link EMPTY_AUDIT_FILTERS}: every
+ * event, from page zero. The listing's query before any filter is submitted.
+ */
+export const UNFILTERED_AUDIT_QUERY: AuditQuery = queryAt("", 0);
+
+/** The same parsed filters, addressed at another page. */
+export const auditQueryAtPage = (query: AuditQuery, page: number): AuditQuery =>
+  queryAt(query.filterSearch, page);
 
 /** Date and minute from an ISO instant, locale-independent like `accounts-api.ts`'s. */
 export const formatInstant = (instant: string): string =>
