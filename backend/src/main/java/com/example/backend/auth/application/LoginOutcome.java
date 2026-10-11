@@ -2,13 +2,11 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.domain.EpicInputField;
 import com.example.backend.auth.domain.EpicInputRule;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.observability.LogEvent.ErrorCategory;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -67,20 +65,13 @@ public sealed interface LoginOutcome {
      *
      * @param reason the refusal as Spring Security reported it — never {@code UNKNOWN_ACCOUNT},
      *     which Spring Security hides behind a wrong password, and which recording the refusal
-     *     settles by looking the name up
+     *     settles by looking the name up ({@link PasswordRefusalReason#reported})
      */
-    record PasswordRefused(String username, AuditRefusalReason reason) implements Refused {
-
-        /** Every reason Spring Security reports a password Login's refusal under. */
-        private static final Set<AuditRefusalReason> REPORTED = Set.of(
-                AuditRefusalReason.BAD_CREDENTIALS,
-                AuditRefusalReason.ACCOUNT_LOCKED,
-                AuditRefusalReason.ACCOUNT_DISABLED,
-                AuditRefusalReason.OTHER);
+    record PasswordRefused(String username, PasswordRefusalReason reason) implements Refused {
 
         public PasswordRefused {
             Objects.requireNonNull(reason, "a refusal has a reason");
-            if (!REPORTED.contains(reason)) {
+            if (!reason.reported()) {
                 throw new IllegalArgumentException("not a password Login's refusal: " + reason);
             }
         }

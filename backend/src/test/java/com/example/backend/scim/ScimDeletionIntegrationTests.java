@@ -123,11 +123,11 @@ class ScimDeletionIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorA = connectors.create("Deleting Okta", "test-admin").id();
+        connectorA = connectors.create("Deleting Okta", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

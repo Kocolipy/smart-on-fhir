@@ -129,12 +129,12 @@ class ScimExternalIdReadWriteIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorA = connectors.create("Entra-extid", "test-admin").id();
+        connectorA = connectors.create("Entra-extid", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
-        connectorB = connectors.create("Okta-extid", "test-admin").id();
+                null, TokenPermissions.ALL).presentedValue();
+        connectorB = connectors.create("Okta-extid", null).id();
         tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
     }
 
     /**

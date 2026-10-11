@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -68,7 +69,7 @@ class LoginAttemptServiceTests {
 
     @Test
     void aRefusedAttemptIsCountedAgainstTheIdentity() {
-        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
         assertThat(users.require("ada").login().isLocked()).isFalse();
@@ -78,7 +79,7 @@ class LoginAttemptServiceTests {
     void anAcceptedLoginResetsTheFailureCount() {
         failTimes(2);
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
         assertThat(users.require("ada").login().lockedAt()).isNull();
@@ -87,7 +88,7 @@ class LoginAttemptServiceTests {
     /** A password Login's {@code LOGIN_SUCCESS} names method {@code password} and no factor. */
     @Test
     void aPasswordSuccessIsRecordedUnderPasswordWithNoFactor() {
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(audit.of(AuditOperation.LOGIN_SUCCESS))
                 .extracting(Recorded::subjectId)
@@ -108,7 +109,7 @@ class LoginAttemptServiceTests {
         sessions.open(ada, "ada-elsewhere");
         audit.reset();
 
-        attempts.recordEpicSuccess("ada", "ada-current", AuditMfaFactor.OTP);
+        attempts.recordEpicSuccess(idOf("ada"), "ada-current", AuditMfaFactor.OTP);
         transaction.commit();
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
@@ -126,7 +127,7 @@ class LoginAttemptServiceTests {
         failTimes(2);
 
         assertThatNullPointerException()
-                .isThrownBy(() -> attempts.recordEpicSuccess("ada", null, null));
+                .isThrownBy(() -> attempts.recordEpicSuccess(idOf("ada"), null, null));
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
         assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
     }
@@ -138,7 +139,7 @@ class LoginAttemptServiceTests {
      */
     @Test
     void aRefusalForAnUnknownUsernameIsNotRecordedAnywhere() {
-        attempts.recordFailure("nobody", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("nobody", PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
@@ -148,37 +149,53 @@ class LoginAttemptServiceTests {
     @Test
     void aRefusalReportsTheReasonItWasRecordedUnder() {
         assertThat(List.of(
-                        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS),
-                        attempts.recordFailure("nobody", AuditRefusalReason.BAD_CREDENTIALS)))
+                        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS),
+                        attempts.recordFailure("nobody", PasswordRefusalReason.BAD_CREDENTIALS)))
                 .containsExactly(
-                        AuditRefusalReason.BAD_CREDENTIALS, AuditRefusalReason.UNKNOWN_ACCOUNT);
+                        PasswordRefusalReason.BAD_CREDENTIALS, PasswordRefusalReason.UNKNOWN_ACCOUNT);
+    }
+
+    /**
+     * A success names the User by the stable id its authentication carries. One whose User is
+     * gone by then fails closed: the Login is not accepted, rather than accepted with no
+     * {@code LOGIN_SUCCESS}.
+     */
+    @Test
+    void anAcceptedLoginForAUserNoLongerThereFailsClosed() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> attempts.recordPasswordSuccess(UUID.randomUUID(), null));
     }
 
     @Test
-    void anAcceptedLoginForAnUnknownUsernameIsANoOp() {
-        attempts.recordPasswordSuccess("nobody", null);
+    void anAcceptedLoginForAUserNoLongerThereSchedulesNoRevocation() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> attempts.recordPasswordSuccess(UUID.randomUUID(), null));
 
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
         assertThat(transaction.pending()).as("nothing to revoke for nobody").isZero();
+    }
+
+    @Test
+    void anEpicLoginForAUserNoLongerThereFailsClosed() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> attempts.recordEpicSuccess(
+                        UUID.randomUUID(), null, AuditMfaFactor.OTP));
     }
 
     // ---- one concurrent session per User ----------------------------------------------------
 
     /**
      * A blank name reaches here only if the web adapter's validation was bypassed; it is nobody,
-     * exactly as an unknown name is — a subject-less failure, and a success that touches no one.
+     * exactly as an unknown name is — a subject-less failure that touches no one.
      */
     @Test
     void aBlankUsernameIsTreatedAsNobody() {
-        attempts.recordFailure("   ", AuditRefusalReason.BAD_CREDENTIALS);
-        attempts.recordPasswordSuccess("   ", null);
-        attempts.recordFailure(null, AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("   ", PasswordRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(null, PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
                 .extracting(Recorded::subjectId)
                 .containsExactly(null, null);
-        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
         assertThat(transaction.pending()).isZero();
     }
 
@@ -195,7 +212,7 @@ class LoginAttemptServiceTests {
         sessions.open(ada, "ada-current");
         sessions.open(bob, "bob-only");
 
-        attempts.recordPasswordSuccess("ada", "ada-current");
+        attempts.recordPasswordSuccess(idOf("ada"), "ada-current");
         transaction.commit();
 
         assertThat(sessions.sessionsOf(ada)).containsExactly("ada-current");
@@ -210,7 +227,7 @@ class LoginAttemptServiceTests {
         sessions.open(ada, "ada-earlier");
         sessions.open(ada, "ada-current");
 
-        attempts.recordPasswordSuccess("ada", "ada-current");
+        attempts.recordPasswordSuccess(idOf("ada"), "ada-current");
         transaction.commit();
 
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
@@ -223,7 +240,7 @@ class LoginAttemptServiceTests {
         java.util.UUID ada = users.require("ada").id();
         sessions.open(ada, "ada-current");
 
-        attempts.recordPasswordSuccess("ada", "ada-current");
+        attempts.recordPasswordSuccess(idOf("ada"), "ada-current");
         transaction.commit();
 
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).isEmpty();
@@ -235,7 +252,7 @@ class LoginAttemptServiceTests {
         java.util.UUID ada = users.require("ada").id();
         sessions.open(ada, "ada-earlier");
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
         transaction.commit();
 
         assertThat(sessions.sessionsOf(ada)).isEmpty();
@@ -250,7 +267,7 @@ class LoginAttemptServiceTests {
         java.util.UUID ada = users.require("ada").id();
         sessions.open(ada, "ada-earlier");
 
-        attempts.recordPasswordSuccess("ada", "ada-current");
+        attempts.recordPasswordSuccess(idOf("ada"), "ada-current");
         assertThat(sessions.sessionsOf(ada)).as("before the commit").containsExactly("ada-earlier");
 
         transaction.rollback();
@@ -268,7 +285,7 @@ class LoginAttemptServiceTests {
         sessions.open(bob, "bob-earlier");
         sessions.open(bob, "bob-current");
 
-        attempts.recordPasswordSuccess("bob", "bob-current");
+        attempts.recordPasswordSuccess(idOf("bob"), "bob-current");
         transaction.commit();
 
         assertThat(sessions.sessionsOf(bob)).containsExactly("bob-current");
@@ -284,7 +301,7 @@ class LoginAttemptServiceTests {
     void anAcceptedLoginOnAnUntouchedIdentityRewritesNoFailureRun() {
         int writesBefore = users.writes();
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(users.writes()).isEqualTo(writesBefore);
     }
@@ -297,11 +314,11 @@ class LoginAttemptServiceTests {
     void everyAcceptedLoginRecordsWhenItHappened() {
         assertThat(users.require("ada").login().lastAuthenticatedAt()).isNull();
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
         assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(NOW);
 
         clock.advanceBy(Duration.ofDays(3));
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
         assertThat(users.require("ada").login().lastAuthenticatedAt())
                 .isEqualTo(NOW.plus(Duration.ofDays(3)));
     }
@@ -315,7 +332,7 @@ class LoginAttemptServiceTests {
         ScimUser before = users.require("ada");
         clock.advanceBy(Duration.ofHours(1));
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         ScimUser after = users.require("ada");
         assertThat(after.version()).isEqualTo(before.version());
@@ -334,7 +351,7 @@ class LoginAttemptServiceTests {
         users.given(ScimIdentities.userWithLoginState(
                 "bob", new ScimLoginState("hash", 2, null, earlier, earlier)));
 
-        attempts.recordPasswordSuccess("bob", null);
+        attempts.recordPasswordSuccess(idOf("bob"), null);
 
         ScimUser bob = users.require("bob");
         assertThat(bob.login().lastAuthenticatedAt()).isEqualTo(earlier);
@@ -355,7 +372,7 @@ class LoginAttemptServiceTests {
         users.given(ScimIdentities.userWithLoginState(
                 "bob", new ScimLoginState("hash", 0, null, earlier, earlier)));
 
-        attempts.recordEpicSuccess("bob", null, AuditMfaFactor.IDP_ATTESTED);
+        attempts.recordEpicSuccess(idOf("bob"), null, AuditMfaFactor.IDP_ATTESTED);
 
         assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(NOW);
     }
@@ -367,7 +384,7 @@ class LoginAttemptServiceTests {
         users.given(ScimIdentities.userWithLoginState(
                 "bob", new ScimLoginState("hash", 2, null, earlier, earlier)));
 
-        attempts.recordEpicSuccess("bob", null, AuditMfaFactor.IDP_ATTESTED);
+        attempts.recordEpicSuccess(idOf("bob"), null, AuditMfaFactor.IDP_ATTESTED);
 
         assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(earlier);
     }
@@ -375,20 +392,20 @@ class LoginAttemptServiceTests {
     /** A refused attempt is not an authentication, so it leaves the dormancy basis alone. */
     @Test
     void aRefusedAttemptDoesNotRecordAnAuthentication() {
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
         clock.advanceBy(Duration.ofDays(1));
 
-        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(NOW);
     }
 
     @Test
     void anAcceptedLoginAfterAFailureDoesWrite() {
-        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
         int writesBefore = users.writes();
 
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(users.writes()).isEqualTo(writesBefore + 1);
     }
@@ -407,7 +424,7 @@ class LoginAttemptServiceTests {
         failTimes(2);
         audit.reset();
 
-        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
 
         java.util.UUID ada = users.require("ada").id();
         assertThat(users.require("ada").login().isLocked()).isTrue();
@@ -436,7 +453,7 @@ class LoginAttemptServiceTests {
 
     @Test
     void aRefusedAttemptIsRecordedAgainstTheIdentitysStableIdWithItsReason() {
-        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.LOGIN_FAILURE,
@@ -453,7 +470,7 @@ class LoginAttemptServiceTests {
      */
     @Test
     void aRefusalForAnUnknownUsernameIsRecordedWithNoSubjectAndItsOwnReason() {
-        attempts.recordFailure("nobody", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure("nobody", PasswordRefusalReason.BAD_CREDENTIALS);
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.LOGIN_FAILURE,
@@ -468,7 +485,7 @@ class LoginAttemptServiceTests {
         failTimes(3);
         audit.reset();
 
-        attempts.recordFailure("ada", AuditRefusalReason.ACCOUNT_LOCKED);
+        attempts.recordFailure("ada", PasswordRefusalReason.ACCOUNT_LOCKED);
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.LOGIN_FAILURE,
@@ -487,15 +504,15 @@ class LoginAttemptServiceTests {
         failTimes(3);
         clock.advanceBy(A_LONG_TIME);
 
-        attempts.recordFailure("ada", AuditRefusalReason.ACCOUNT_LOCKED);
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordFailure("ada", PasswordRefusalReason.ACCOUNT_LOCKED);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).isEmpty();
     }
 
     @Test
     void anAcceptedLoginIsRecordedAgainstTheIdentitysStableId() {
-        attempts.recordPasswordSuccess("ada", null);
+        attempts.recordPasswordSuccess(idOf("ada"), null);
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.LOGIN_SUCCESS,
@@ -505,8 +522,9 @@ class LoginAttemptServiceTests {
     }
 
     @Test
-    void anAcceptedLoginForAnUnknownUsernameRecordsNothing() {
-        attempts.recordPasswordSuccess("nobody", null);
+    void anAcceptedLoginForAUserNoLongerThereRecordsNothing() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> attempts.recordPasswordSuccess(UUID.randomUUID(), null));
 
         assertThat(audit.recorded()).isEmpty();
     }
@@ -563,13 +581,17 @@ class LoginAttemptServiceTests {
                 ScimIdentities.user(userName), ReservedResourceName.BOOTSTRAP_ADMIN);
     }
 
+    private UUID idOf(String userName) {
+        return users.require(userName).id();
+    }
+
     private void failTimes(int times) {
         failTimes(times, "ada");
     }
 
     private void failTimes(int times, String userName) {
         for (int attempt = 0; attempt < times; attempt++) {
-            attempts.recordFailure(userName, AuditRefusalReason.BAD_CREDENTIALS);
+            attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
         }
     }
 }

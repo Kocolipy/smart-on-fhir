@@ -22,6 +22,7 @@ import com.example.backend.auth.epic.EpicBrowser.Launched;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
+import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUserRepository;
 import io.micrometer.core.instrument.Counter;
@@ -390,7 +391,8 @@ class EpicLoginIntegrationTests {
         Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
 
         administration.forcePasswordChange(
-                EPIC.practitioners().idOf(practitioner), BOOTSTRAP_ADMIN);
+                EPIC.practitioners().idOf(practitioner),
+                users.findByNormalizedUserName(NormalizedUserName.of(BOOTSTRAP_ADMIN)).orElseThrow().id());
 
         assertThat(status(get("/api/auth/me"), byEpic)).isEqualTo(401);
     }

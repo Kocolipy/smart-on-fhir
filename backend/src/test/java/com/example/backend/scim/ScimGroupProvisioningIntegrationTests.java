@@ -111,9 +111,9 @@ class ScimGroupProvisioningIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("Okta", "test-admin").id();
+        UUID connectorId = connectors.create("Okta", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
     }
 

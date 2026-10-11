@@ -136,9 +136,9 @@ class RolePropagationIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Role propagation", "test-admin").id();
+        connectorId = connectors.create("Role propagation", null).id();
         token = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
     }
 

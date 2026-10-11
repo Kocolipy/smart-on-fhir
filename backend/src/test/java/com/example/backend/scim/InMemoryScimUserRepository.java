@@ -46,6 +46,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private List<UUID> staleDormancyCandidates;
 
+    private Runnable afterNextNameLookup;
+
     /**
      * Makes the dormancy candidate query answer with these ids, whatever the stored state says.
      *
@@ -90,9 +92,31 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     @Override
     public Optional<ScimUser> findByNormalizedUserName(NormalizedUserName normalizedUserName) {
-        return stored.values().stream()
+        Optional<ScimUser> found = stored.values().stream()
                 .filter(user -> user.profile().normalizedUserName().equals(normalizedUserName))
                 .findFirst();
+        Runnable hook = afterNextNameLookup;
+        afterNextNameLookup = null;
+        if (hook != null) {
+            hook.run();
+        }
+        return found;
+    }
+
+    /**
+     * Runs {@code write} once, right after the next lookup by name has answered — the window a
+     * concurrent directory write, such as a rename, lands in for a caller that read by name.
+     */
+    public void afterNextNameLookup(Runnable write) {
+        afterNextNameLookup = write;
+    }
+
+    /** Renames the User {@code id} to {@code userName}, as a connector's replace would. */
+    public void rename(UUID id, String userName) {
+        ScimUser current = stored.get(id);
+        replace(new ScimUser(current.id(), ScimIdentities.profile(userName, current.profile().active()),
+                current.login(), current.reservedName(), current.version(),
+                current.createdAt(), current.lastModifiedAt()), current.lastModifiedAt());
     }
 
     @Override

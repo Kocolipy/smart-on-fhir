@@ -5,7 +5,7 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownIdentityException;
 import com.example.backend.auth.application.UnsafeIdentityChangeException;
-import java.security.Principal;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -69,8 +69,8 @@ public class AdminAccountController {
      */
     @PostMapping("/{id}/unlock")
     @PreAuthorize("hasAuthority('user:write')")
-    public IdentitySummary unlock(@PathVariable UUID id, Principal principal) {
-        return identities.unlock(id, principal.getName());
+    public IdentitySummary unlock(@PathVariable UUID id, HttpServletRequest request) {
+        return identities.unlock(id, HttpSessionAttributes.ownerOf(request));
     }
 
     /**
@@ -79,8 +79,8 @@ public class AdminAccountController {
      */
     @PostMapping("/{id}/force-password-change")
     @PreAuthorize("hasAuthority('user:write')")
-    public IdentitySummary forcePasswordChange(@PathVariable UUID id, Principal principal) {
-        return identities.forcePasswordChange(id, principal.getName());
+    public IdentitySummary forcePasswordChange(@PathVariable UUID id, HttpServletRequest request) {
+        return identities.forcePasswordChange(id, HttpSessionAttributes.ownerOf(request));
     }
 
     /**

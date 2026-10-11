@@ -1,22 +1,16 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditMfaFactor;
-import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.DisabledException;
-import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -107,15 +101,19 @@ public class LoginService {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
         } catch (AuthenticationException refused) {
-            PasswordRefused refusal = new PasswordRefused(username, refusalReason(refused));
+            PasswordRefused refusal =
+                    new PasswordRefused(username, PasswordRefusalReason.reportedFor(refused));
             outcomes.record(refusal, retainedSessionId);
             return new LoginDecision(refusal, Optional.empty());
         }
 
-        // Outside the catch above on purpose: a failure recording the success is
-        // not a refusal, and must not be reported to the caller as one.
-        attempts.recordPasswordSuccess(authentication.getName(), retainedSessionId);
-        return LoginDecision.signedIn(accepted(authentication, SignedIn::password));
+        // The User was read once, to authenticate; everything after works from the stable id
+        // that read put on the principal, never from the name, which a directory rename can
+        // move to another User in between. Outside the catch above on purpose: a failure
+        // recording the success is not a refusal, and must not be reported to the caller as one.
+        UUID userId = LoginPrincipal.userIdOf(authentication);
+        attempts.recordPasswordSuccess(userId, retainedSessionId);
+        return LoginDecision.signedIn(accepted(authentication, SignedIn.password(userId)));
     }
 
     /**
@@ -158,15 +156,16 @@ public class LoginService {
     @Transactional
     public LoginDecision logInFromEpic(
             String practitionerId, String retainedSessionId, AuditMfaFactor mfaFactor) {
-        Optional<UserDetails> linked = identities.loadEpicLinkedUser(practitionerId);
+        Optional<LoginPrincipal> linked = identities.loadEpicLinkedUser(practitionerId);
         if (linked.isEmpty()) {
             // No subject: the ID named nobody acceptable, and is itself never recorded.
             return refused(EpicRefused.account(null, EpicLoginFailureReason.UNKNOWN_ACCOUNT),
                     retainedSessionId);
         }
-        UserDetails user = linked.get();
+        // Read once; from here on the User is its stable id, as a password Login's is.
+        LoginPrincipal user = linked.get();
         if (!user.isEnabled() || !user.isAccountNonLocked()) {
-            return refused(EpicRefused.account(identities.resolveUserId(user.getUsername()),
+            return refused(EpicRefused.account(user.userId(),
                     user.isEnabled()
                             ? EpicLoginFailureReason.ACCOUNT_LOCKED
                             : EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
@@ -176,9 +175,9 @@ public class LoginService {
                         user, null, user.getAuthorities());
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
-        attempts.recordEpicSuccess(authentication.getName(), retainedSessionId, mfaFactor);
+        attempts.recordEpicSuccess(user.userId(), retainedSessionId, mfaFactor);
         return LoginDecision.signedIn(
-                accepted(authentication, userId -> SignedIn.epic(userId, mfaFactor)));
+                accepted(authentication, SignedIn.epic(user.userId(), mfaFactor)));
     }
 
     private LoginDecision refused(EpicRefused refusal, String retainedSessionId) {
@@ -187,38 +186,12 @@ public class LoginService {
     }
 
     /**
-     * What the caller establishes the session from, once the success is recorded: signed in as
-     * {@code signedIn} makes the outcome of the User {@code authentication} names.
+     * What the caller establishes the session from, once the success is recorded: the
+     * authentication, and {@code signedIn}, naming the User by the stable id its principal
+     * carries.
      */
-    private AcceptedLogin accepted(
-            Authentication authentication, Function<UUID, SignedIn> signedIn) {
-        return new AcceptedLogin(authentication,
-                signedIn.apply(identities.resolveUserId(authentication.getName())),
-                identities.roleMappingHash());
-    }
-
-    /**
-     * The refusal as the audit trail's own vocabulary.
-     *
-     * <p>Translated here, at the one place a Spring Security
-     * {@code AuthenticationException} is caught, so no other layer has to know the
-     * library's exception hierarchy and no exception object — whose message may
-     * name the submitted username — travels further than this method.
-     *
-     * <p>{@link AuditRefusalReason#UNKNOWN_ACCOUNT} is deliberately not produced
-     * here. Spring Security hides a missing account behind
-     * {@code BadCredentialsException} so that the two are indistinguishable to the
-     * caller, which is the behaviour this service wants; whether the username named
-     * an account is settled by {@link LoginAttemptService}, which has to look the
-     * account up anyway and can tell without guessing from an exception type.
-     */
-    private static AuditRefusalReason refusalReason(AuthenticationException refused) {
-        return switch (refused) {
-            case LockedException locked -> AuditRefusalReason.ACCOUNT_LOCKED;
-            case DisabledException disabled -> AuditRefusalReason.ACCOUNT_DISABLED;
-            case BadCredentialsException wrong -> AuditRefusalReason.BAD_CREDENTIALS;
-            default -> AuditRefusalReason.OTHER;
-        };
+    private AcceptedLogin accepted(Authentication authentication, SignedIn signedIn) {
+        return new AcceptedLogin(authentication, signedIn, identities.roleMappingHash());
     }
 
     /**

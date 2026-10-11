@@ -3,7 +3,7 @@ package com.example.backend.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -69,13 +69,13 @@ class LockoutDefaultThresholdIntegrationTests {
 
         String userName = create("lockout-default-threshold").profile().userName();
 
-        attempts.recordFailure(userName, AuditRefusalReason.BAD_CREDENTIALS);
-        attempts.recordFailure(userName, AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 2nd consecutive failure")
                 .isFalse();
 
-        attempts.recordFailure(userName, AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 3rd consecutive failure")
                 .isTrue();

@@ -140,9 +140,9 @@ class ScimReleaseGateIntegrationTests {
     /** A real write credential does not open it, and nothing is created. */
     @Test
     void a_valid_write_token_creates_nothing_while_the_gate_is_closed() throws Exception {
-        UUID connectorId = connectors.create("Okta", "test-admin").id();
+        UUID connectorId = connectors.create("Okta", null).id();
         String token = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
         long before = users();
 

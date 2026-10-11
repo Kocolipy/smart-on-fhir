@@ -408,6 +408,51 @@ class EpicLoginDecisionTests {
         return users.findById(user.id()).orElseThrow().login().failedLoginAttempts();
     }
 
+    // ---- the User is read once, and named by its stable id afterwards -------------------------
+
+    /**
+     * A directory rename landing after the decision read the linked User moves nothing: the
+     * accepted Login is still the linked User's, not that of whoever takes the name.
+     */
+    @Test
+    void anAcceptedEpicLoginNamesTheLinkedUserWhenAnotherUserTakesItsName() {
+        ScimUser linked = users.given(ScimIdentities.user("eACTIVE"));
+        users.afterNextNameLookup(() -> giveTheNameToAnother(linked, "eACTIVE"));
+
+        assertThat(attested("eACTIVE").userId()).isEqualTo(linked.id());
+    }
+
+    @Test
+    void anAcceptedEpicLoginRecordsItsSuccessForTheLinkedUserWhenAnotherUserTakesItsName() {
+        ScimUser linked = users.given(ScimIdentities.user("eACTIVE"));
+        users.afterNextNameLookup(() -> giveTheNameToAnother(linked, "eACTIVE"));
+
+        attested("eACTIVE");
+
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS))
+                .extracting(RecordingAuditTrail.Recorded::subjectId)
+                .containsExactly(linked.id());
+    }
+
+    @Test
+    void aRefusedLockedUserIsAuditedByItsOwnIdWhenAnotherUserTakesItsName() {
+        ScimUser locked = users.given(ScimIdentities.userWithLoginState(
+                "eLOCKED", new ScimLoginState("hash", 5, NOW)));
+        users.afterNextNameLookup(() -> giveTheNameToAnother(locked, "eLOCKED"));
+
+        refusalOf("eLOCKED");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(RecordingAuditTrail.Recorded::subjectId)
+                .containsExactly(locked.id());
+    }
+
+    /** {@code user} leaves {@code userName}, and another User is provisioned under it. */
+    private void giveTheNameToAnother(ScimUser user, String userName) {
+        users.rename(user.id(), userName + "-moved");
+        users.given(ScimIdentities.user(userName));
+    }
+
     /** The reason {@code practitionerId}'s Epic Login was refused for. */
     private EpicLoginFailureReason refusalOf(String practitionerId) {
         LoginDecision decision =

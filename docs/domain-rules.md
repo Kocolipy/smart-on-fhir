@@ -868,12 +868,15 @@ Group**, together with startup's validation that the Superuser Role holds every
 Permission, is what guarantees a User holding every Permission, so a
 connector may remove every other member of the Superuser Group.
 
-The self-target check compares NORMALIZED `userName`s: a session names its
-principal by whatever spelling it logged in with, and a raw comparison would let
-an Admin whose session carried a differently-cased spelling of their own name act
-on themselves past the guard. The Accounts page hides both controls on the
-signed-in Admin's own row, comparing the same way, so the refusal is visible before
-the click.
+The self-target check compares stable ids: the acting Admin is the User whose
+stable id its signed-in session holds, never the `userName` the session's
+principal carries. A connector may rename a User between its Login and its next
+request, so a name comparison would let an Admin whose own name had moved act on
+themselves past the guard, and refuse an Admin acting on whichever User took its
+former name. Connector administration records its acting Admin the same way. A
+session that identifies nobody cannot Unlock or force a change (`401`). The
+Accounts page hides both controls on the signed-in Admin's own row, comparing the
+normalized `userName`, so the refusal is visible before the click.
 
 The Bootstrap Admin's protections are recognised by the **reservation marker** on the User's own resource
 row, not by comparing its name to the configured one. A name comparison could be

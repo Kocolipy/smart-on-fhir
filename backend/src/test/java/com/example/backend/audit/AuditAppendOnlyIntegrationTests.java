@@ -198,7 +198,7 @@ class AuditAppendOnlyIntegrationTests {
         try {
             forceAppendFailure();
 
-            assertThatThrownBy(() -> administration.forcePasswordChange(target.id(), ADMIN))
+            assertThatThrownBy(() -> administration.forcePasswordChange(target.id(), idOf(ADMIN)))
                     .isInstanceOf(RuntimeException.class);
 
             // Read back from the database, not from the object the call returned: the
@@ -223,7 +223,7 @@ class AuditAppendOnlyIntegrationTests {
     void theSameWriteCommitsWhenTheAppendSucceeds() {
         ScimUser target = throwaway("append-commit-target");
         try {
-            administration.forcePasswordChange(target.id(), ADMIN);
+            administration.forcePasswordChange(target.id(), idOf(ADMIN));
 
             assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, Timestamp.class,
                     target.id())).isNotNull();

@@ -1,20 +1,24 @@
 package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.scim.domain.LockCause;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
-import java.security.Principal;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,7 +32,8 @@ class AdminAccountControllerTests {
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
     private static final UUID ENG = UUID.fromString("00000000-0000-0000-0000-000000000e00");
 
-    private final Principal principal = () -> "ada";
+    /** A request in Ada's signed-in session, whose principal index holds her stable id. */
+    private final MockHttpServletRequest signedInAsAda = requestInSessionOf(ADA);
 
     @Test
     void listsEveryAccountTheServiceReports() {
@@ -51,21 +56,64 @@ class AdminAccountControllerTests {
     }
 
     /**
-     * The target reaches the service by its stable id, and the caller's own name from the
-     * authenticated principal rather than from the request — which is what lets the service refuse
-     * an administrator acting on themselves, and what the body cannot spoof.
+     * The target reaches the service by its stable id, and so does the acting administrator: the
+     * one its signed-in session holds, not the request's and not the principal's {@code userName}
+     * — which is what lets the service refuse an administrator acting on themselves whatever the
+     * directory has renamed since, and what the body cannot spoof.
      */
     @Test
     void unlockingAndForcingAChangeReachTheirOperationsByStableId() {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        assertThat(controller.unlock(BOB, principal)).isEqualTo(summary(BOB, "bob", false, false));
-        assertThat(controller.forcePasswordChange(BOB, principal))
+        assertThat(controller.unlock(BOB, signedInAsAda))
+                .isEqualTo(summary(BOB, "bob", false, false));
+        assertThat(controller.forcePasswordChange(BOB, signedInAsAda))
                 .isEqualTo(flagged(BOB, "bob"));
 
         assertThat(service.calls).containsExactly(
-                "unlock:" + BOB + ":ada", "force-password-change:" + BOB + ":ada");
+                "unlock:" + BOB + ":" + ADA, "force-password-change:" + BOB + ":" + ADA);
+    }
+
+    /** A session that identifies nobody cannot act: the operation never reaches the service. */
+    @Test
+    void anUnlockFromASessionIdentifyingNobodyIsRefused() {
+        RecordingService service = new RecordingService(List.of());
+        AdminAccountController controller = new AdminAccountController(service);
+        MockHttpServletRequest unindexed = new MockHttpServletRequest();
+        unindexed.setSession(new MockHttpSession());
+
+        assertThatExceptionOfType(UnknownSessionIdentityException.class)
+                .isThrownBy(() -> controller.unlock(BOB, unindexed));
+    }
+
+    @Test
+    void aForcedChangeWithoutASessionIsRefused() {
+        RecordingService service = new RecordingService(List.of());
+        AdminAccountController controller = new AdminAccountController(service);
+
+        assertThatExceptionOfType(UnknownSessionIdentityException.class)
+                .isThrownBy(() -> controller.forcePasswordChange(BOB, new MockHttpServletRequest()));
+    }
+
+    @Test
+    void aRefusedSessionNeverReachesTheService() {
+        RecordingService service = new RecordingService(List.of());
+        AdminAccountController controller = new AdminAccountController(service);
+
+        assertThatExceptionOfType(UnknownSessionIdentityException.class)
+                .isThrownBy(() -> controller.unlock(BOB, new MockHttpServletRequest()));
+
+        assertThat(service.calls).isEmpty();
+    }
+
+    private static MockHttpServletRequest requestInSessionOf(UUID owner) {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(
+                FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, owner.toString());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(session);
+        return request;
     }
 
     @Test
@@ -169,14 +217,14 @@ class AdminAccountControllerTests {
         }
 
         @Override
-        public IdentitySummary unlock(UUID userId, String requestedBy) {
-            calls.add("unlock:" + userId + ":" + requestedBy);
+        public IdentitySummary unlock(UUID userId, UUID actorId) {
+            calls.add("unlock:" + userId + ":" + actorId);
             return summary(userId, "bob", false, false);
         }
 
         @Override
-        public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
-            calls.add("force-password-change:" + userId + ":" + requestedBy);
+        public IdentitySummary forcePasswordChange(UUID userId, UUID actorId) {
+            calls.add("force-password-change:" + userId + ":" + actorId);
             return flagged(userId, "bob");
         }
     }

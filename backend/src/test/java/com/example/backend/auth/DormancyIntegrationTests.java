@@ -9,7 +9,7 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.scheduling.domain.ScheduledJob;
@@ -24,6 +24,7 @@ import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.DormancyVerdict;
+import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -130,7 +131,7 @@ class DormancyIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("Dormancy Okta", "test-admin").id();
+        UUID connectorId = connectors.create("Dormancy Okta", null).id();
         connector = new AuthenticatedConnector(
                 connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
     }
@@ -198,7 +199,7 @@ class DormancyIntegrationTests {
                         .containsEntry("outcome", "SUCCESS")
                         .containsEntry("actor_id", null));
         assertThat(logins.logIn("dormancy-lockout", PASSWORD).outcome())
-                .isEqualTo(new PasswordRefused("dormancy-lockout", AuditRefusalReason.ACCOUNT_LOCKED));
+                .isEqualTo(new PasswordRefused("dormancy-lockout", PasswordRefusalReason.ACCOUNT_LOCKED));
     }
 
     @Test
@@ -429,7 +430,8 @@ class DormancyIntegrationTests {
         backdateBasis(ada, PAST_LOCKOUT);
         assertThat(dormancy.run().locked()).contains(ada);
 
-        administration.unlock(ada, "test-admin");
+        administration.unlock(ada, users.findByNormalizedUserName(NormalizedUserName.of("test-admin"))
+                .orElseThrow().id());
 
         assertThat(lockedAt(ada)).isNull();
         assertThat(lockCause(ada)).isNull();

@@ -377,8 +377,8 @@ class AuthorizationContractTests {
 
     @Test
     void a_connector_token_cannot_reach_the_application_chain() throws Exception {
-        UUID connector = connectors.create("authorization-contract", ADMIN).id();
-        String token = connectors.issueToken(connector, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL)
+        UUID connector = connectors.create("authorization-contract", null).id();
+        String token = connectors.issueToken(connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
                 .presentedValue();
         for (Operation operation : applicationOperations()) {
             if (operation.requirement().access() == Access.PUBLIC) {
@@ -521,11 +521,11 @@ class AuthorizationContractTests {
     private String token(Set<Permission> permissions) {
         return tokensByPermissions.computeIfAbsent(Set.copyOf(permissions), wanted -> {
             if (scimConnector == null) {
-                scimConnector = connectors.create("authorization-contract-scim", ADMIN).id();
+                scimConnector = connectors.create("authorization-contract-scim", null).id();
             }
             if (!wanted.isEmpty()) {
                 return connectors.issueToken(
-                        scimConnector, wanted, null, ADMIN, TokenPermissions.ALL).presentedValue();
+                        scimConnector, wanted, null, null, TokenPermissions.ALL).presentedValue();
             }
             ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(new SecureRandom());
             Instant now = Instant.now();

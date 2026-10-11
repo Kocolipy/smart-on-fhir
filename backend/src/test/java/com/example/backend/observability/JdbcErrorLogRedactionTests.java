@@ -105,9 +105,9 @@ class JdbcErrorLogRedactionTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("Log redaction", "test-admin").id();
+        UUID connectorId = connectors.create("Log redaction", null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
-                "test-admin", TokenPermissions.ALL).presentedValue();
+                null, TokenPermissions.ALL).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 
