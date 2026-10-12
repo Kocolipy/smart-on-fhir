@@ -380,19 +380,19 @@ public class ArchitectureTest {
             "com.example.backend.auth.epic.controller.EpicLaunchController");
 
     /**
-     * The SCIM protocol's handlers, which sit on the bearer chain: it authorizes connector tokens
-     * itself, so they declare no Permission. Named one by one rather than by a {@code Scim} prefix,
-     * so that a new controller in the SCIM namespace is held to a Permission until someone lists
-     * it here; {@code AdminConnectorController} is the application chain's and is not listed.
+     * The bearer-chain (SCIM) adapters whose handlers need a valid connector token and NO
+     * Permission: discovery ({@code ServiceProviderConfig}, {@code Schemas}, {@code ResourceTypes})
+     * and {@code /Me}. Every other SCIM handler — Users, Groups and the root {@code .search} —
+     * declares its Permission as an application-chain handler does. Named one by one, so that a
+     * new controller in the SCIM namespace is held to a Permission until someone lists it here.
      */
-    private static final Set<String> BEARER_CHAIN_CONTROLLERS = Set.of(
+    private static final Set<String> TOKEN_ONLY_SCIM_CONTROLLERS = Set.of(
             "com.example.backend.scim.controller.ScimDiscoveryController",
-            "com.example.backend.scim.controller.ScimGroupController",
-            "com.example.backend.scim.controller.ScimMeController",
-            "com.example.backend.scim.controller.ScimSearchController",
-            "com.example.backend.scim.controller.ScimUserController");
+            "com.example.backend.scim.controller.ScimMeController");
 
-    // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain
+    // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain. Both
+    // chains: on the SCIM one the bearer filter's request-line rule is the backstop, and it reads
+    // the path as sent rather than as the dispatcher matched it.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule every_protected_handler_declares_a_permission =
         methods()
@@ -403,12 +403,13 @@ public class ArchitectureTest {
             .or().areAnnotatedWith(org.springframework.web.bind.annotation.DeleteMapping.class)
             .or().areAnnotatedWith(org.springframework.web.bind.annotation.RequestMapping.class)
             .and().areDeclaredInClassesThat(new DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass>(
-                    "are application-chain adapters that are neither self-service nor public") {
+                    "are adapters of either chain that are neither self-service, public nor"
+                            + " token-only") {
                 @Override
                 public boolean test(com.tngtech.archunit.core.domain.JavaClass owner) {
                     return owner.isAnnotatedWith(RestController.class)
                             && !SELF_SERVICE_OR_PUBLIC_CONTROLLERS.contains(owner.getName())
-                            && !BEARER_CHAIN_CONTROLLERS.contains(owner.getName());
+                            && !TOKEN_ONLY_SCIM_CONTROLLERS.contains(owner.getName());
                 }
             })
             .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")

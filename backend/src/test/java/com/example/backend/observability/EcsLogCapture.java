@@ -30,6 +30,9 @@ public final class EcsLogCapture implements AutoCloseable {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /** The message of the record written once per request as its dispatch unwinds. */
+    private static final String REQUEST_RECORD = "HTTP request completed";
+
     private final LoggerContext loggerContext;
     private final OutputStreamAppender<ILoggingEvent> appender;
     private final ByteArrayOutputStream encoded;
@@ -90,6 +93,24 @@ public final class EcsLogCapture implements AutoCloseable {
                 .filter(line -> !line.isBlank())
                 .map(EcsLogCapture::parse)
                 .toList();
+    }
+
+    /**
+     * Waits until {@code count} request records have been captured, then lets anything still in
+     * flight land. The request record is written as the request dispatch unwinds, which can be
+     * after the client has its response; an error dispatch, if any, has finished by the time the
+     * response was sent. Gives up after five seconds and leaves the caller's assertions to say
+     * what is missing.
+     */
+    public void awaitRequestRecords(int count) throws InterruptedException {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (records().stream()
+                .filter(record -> REQUEST_RECORD.equals(record.at("/message").asText()))
+                .count() < count
+                && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        Thread.sleep(250);
     }
 
     /** Discards what was captured, so one test's records cannot bleed into the next. */

@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,11 +34,12 @@ import tools.jackson.databind.JsonNode;
  * The SCIM User endpoints a connector calls: create, retrieve one, retrieve a page, replace,
  * patch.
  *
- * <p>Authentication and write scope are already decided when a request reaches here — the
- * namespace's filter chain authenticated the bearer token and turned a read-only token's
- * mutation away before any handler ran — so there is no credential check in this class and
- * there must not be one: a per-handler check would cover the handlers whose author
- * remembered it.
+ * <p>Each handler declares the Permission it needs with method security, as the application
+ * chain's handlers do (ADR 0010): {@code user:read} to read or search, {@code user:write} to
+ * create, replace, patch or delete. The declaration is the authority, because it sits on the
+ * operation the dispatcher actually selected; the namespace's bearer filter, which judges the
+ * request line before dispatch, is the backstop. A handler added without a declaration fails
+ * {@code ArchitectureTest.every_protected_handler_declares_a_permission}.
  *
  * <p>The connector arrives as the authenticated principal and is passed on to the use case
  * rather than read from a static context there, because an {@code externalId} is
@@ -64,6 +66,7 @@ class ScimUserController {
      * {@code ETag} — the three things RFC 7644 §3.3 requires of a create — and no password,
      * whatever was sent, because the projection this renders has no field for one.
      */
+    @PreAuthorize("hasAuthority('user:write')")
     @PostMapping(
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
@@ -90,6 +93,7 @@ class ScimUserController {
      * provisioning traffic, and recording it would bury the collection reads that indicate
      * an enumeration. The absence of an audit call is in the use case, where the read is.
      */
+    @PreAuthorize("hasAuthority('user:read')")
     @GetMapping(
             path = "/{id}",
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
@@ -116,6 +120,7 @@ class ScimUserController {
      * {@code 400 invalidFilter} and an unsortable {@code sortBy} a {@code 400 invalidValue}, both
      * refused before anything is read.
      */
+    @PreAuthorize("hasAuthority('user:read')")
     @GetMapping(produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> page(
             @AuthenticationPrincipal AuthenticatedConnector connector,
@@ -135,9 +140,10 @@ class ScimUserController {
      * The same query, written as a {@code SearchRequest} body — RFC 7644 §3.4.3.
      *
      * <p>The path a connector should prefer when its filter carries personal values, since a body
-     * stays out of URLs and access logs. A {@code POST} that reads: the namespace's scope rule lets
-     * a read-only token call it, and it is audited as the same bulk read the {@code GET} is.
+     * stays out of URLs and access logs. A {@code POST} that reads: it needs {@code user:read},
+     * not {@code user:write}, and it is audited as the same bulk read the {@code GET} is.
      */
+    @PreAuthorize("hasAuthority('user:read')")
     @PostMapping(
             path = "/.search",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -171,6 +177,7 @@ class ScimUserController {
      *
      * <p>{@code 200} with the canonical resource, its {@code Location} and its new {@code ETag}.
      */
+    @PreAuthorize("hasAuthority('user:write')")
     @PutMapping(
             path = "/{id}",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -199,6 +206,7 @@ class ScimUserController {
      * permits either of: a client that received no body would have to re-read the resource to
      * learn the new {@code ETag} before its next conditional write.
      */
+    @PreAuthorize("hasAuthority('user:write')")
     @PatchMapping(
             path = "/{id}",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -227,6 +235,7 @@ class ScimUserController {
      * as PUT and PATCH. Every later operation on the id is a {@code 404}, and the former
      * {@code userName} is free for the next create.
      */
+    @PreAuthorize("hasAuthority('user:write')")
     @DeleteMapping(path = "/{id}")
     ResponseEntity<Void> delete(
             @AuthenticationPrincipal AuthenticatedConnector connector,

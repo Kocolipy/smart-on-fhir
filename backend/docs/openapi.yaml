@@ -1410,7 +1410,7 @@ paths:
       summary: Create a User
       description: |
         Requires `user:write`; a token without it is refused with `403` and
-        `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
+        `WWW-Authenticate: Bearer error="insufficient_scope"`, and nothing is created.
 
         `password` is optional — a credentialless User is a supported state and
         cannot authenticate until a password is set. A supplied password is hashed
@@ -1853,7 +1853,7 @@ paths:
       summary: Create a Group
       description: |
         Requires `group:write`; a token without it is refused with `403` and
-        `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
+        `WWW-Authenticate: Bearer error="insufficient_scope"`, and nothing is created.
 
         **A Group's membership is what confers application authority**, which is why
         two rules here are stricter than RFC 7643 requires.
@@ -2644,8 +2644,9 @@ components:
         A valid token lacking the Permission the request needs — the one its
         operation declares in `security` (for the base `/.search`, either read
         Permission). `WWW-Authenticate: Bearer error="insufficient_scope"`
-        and no body. Decided from the method and path before any handler runs,
-        logged at `WARN` with the reason `insufficient-permissions` and audited
+        and no body. Decided by the handler's own Permission declaration, with
+        the SCIM chain's filter repeating the rule from the method and path as a
+        backstop; the answer is the same whichever refuses it. Logged at `WARN` with the reason `insufficient-permissions` and audited
         (`ACCESS_DENIED`, the connector as actor) — never naming the Permission.
     ScimUnauthenticated:
       description: |
@@ -3504,8 +3505,9 @@ components:
         is `400`. On issue and rotation each one must also be held by the calling
         administrator — a token can never be more powerful than whoever minted it;
         asking for more is `403`, audited with the Permissions requested. Returned
-        sorted by name. Enforced in the SCIM chain's filter from the method and
-        path alone, before any handler runs.
+        sorted by name. Enforced by each SCIM handler's own Permission
+        declaration, with the SCIM chain's filter repeating the rule from the
+        method and path as a backstop.
     CreateConnectorRequest:
       type: object
       required: [displayName]

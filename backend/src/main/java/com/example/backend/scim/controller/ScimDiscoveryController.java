@@ -14,9 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Readable with any valid connector token and no Permission (ADR 0010): a connector reads
  * them before it knows which Permissions it was given. They disclose capabilities and schemas
- * and no directory content, and they are GET-only. The access rule itself lives in
- * {@code ScimPermissionRule}, applied by the chain's bearer filter, beside every other rule for
- * this namespace.
+ * and no directory content, and they are GET-only. So no handler here declares a Permission —
+ * deliberately, and listed as token-only in
+ * {@code ArchitectureTest.every_protected_handler_declares_a_permission} — while the Users and
+ * Groups handlers declare theirs.
  *
  * <p>Every handler refuses a {@code filter} parameter. RFC 7644 has a provider IGNORE
  * filtering on discovery endpoints, and ignoring it is the one answer a client cannot tell

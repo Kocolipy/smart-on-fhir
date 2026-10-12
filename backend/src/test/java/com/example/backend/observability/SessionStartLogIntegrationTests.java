@@ -76,7 +76,7 @@ class SessionStartLogIntegrationTests {
     void aLoginWritesOneSessionStartAndTheCsrfGrantWritesNone() throws Exception {
         JsonNode csrf = json.readTree(send(request("/api/auth/csrf").GET()).body());
         String anonymousCookie = sessionCookie();
-        awaitRequestRecords(1);
+        logs.awaitRequestRecords(1);
         assertThat(sessionStarts()).as("the CSRF grant's anonymous session").isEmpty();
 
         HttpResponse<String> login = send(request("/api/auth/login")
@@ -86,7 +86,7 @@ class SessionStartLogIntegrationTests {
                         Map.of("username", "test-user", "password", "test-password")))));
         assertThat(login.statusCode()).isEqualTo(200);
         String signedInCookie = sessionCookie();
-        awaitRequestRecords(2);
+        logs.awaitRequestRecords(2);
 
         List<JsonNode> starts = sessionStarts();
         assertThat(starts).hasSize(1);
@@ -132,7 +132,7 @@ class SessionStartLogIntegrationTests {
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
                         Map.of("username", "test-user", "password", "wrong-password")))));
         assertThat(login.statusCode()).isEqualTo(401);
-        awaitRequestRecords(2);
+        logs.awaitRequestRecords(2);
 
         assertThat(logs.records()).as("the flow wrote records").isNotEmpty();
         assertThat(sessionStarts()).isEmpty();
@@ -162,22 +162,6 @@ class SessionStartLogIntegrationTests {
     /** The session id the cookie carries: Spring Session Base64-encodes it. */
     private static String decoded(String cookieValue) {
         return new String(Base64.getDecoder().decode(cookieValue), StandardCharsets.UTF_8);
-    }
-
-    /**
-     * The request record is written as the request dispatch unwinds, which can be after the
-     * client has its response; wait for the flow's {@code count}th so every record of the
-     * requests sent so far has landed.
-     */
-    private void awaitRequestRecords(int count) throws InterruptedException {
-        long deadline = System.nanoTime() + 5_000_000_000L;
-        while (logs.records().stream()
-                .filter(record -> "HTTP request completed".equals(record.at("/message").asText()))
-                .count() < count
-                && System.nanoTime() < deadline) {
-            Thread.sleep(20);
-        }
-        Thread.sleep(250);
     }
 
     private HttpRequest.Builder request(String path) {

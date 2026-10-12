@@ -211,7 +211,7 @@ class RefusalLogIntegrationTests {
             throws Exception {
         logs.reset();
         assertThat(send(client, request).statusCode()).isEqualTo(status);
-        awaitRequestRecord();
+        logs.awaitRequestRecords(1);
 
         List<JsonNode> warnOrAbove = logs.records().stream()
                 .filter(record -> !REQUEST_RECORD.equals(record.at("/message").asText()))
@@ -226,21 +226,6 @@ class RefusalLogIntegrationTests {
         assertThat(refusal.at("/event/outcome").asText()).isEqualTo("failure");
         assertThat(refusal.at("/http/request/id").asText()).isNotBlank();
         return refusal;
-    }
-
-    /**
-     * The request record is written as the request dispatch unwinds, which can be after the
-     * client has its response; the error dispatch, if any, has finished by the time the
-     * response was sent. So: wait for the record, then let anything still in flight land.
-     */
-    private void awaitRequestRecord() throws InterruptedException {
-        long deadline = System.nanoTime() + 5_000_000_000L;
-        while (logs.records().stream()
-                .noneMatch(record -> REQUEST_RECORD.equals(record.at("/message").asText()))
-                && System.nanoTime() < deadline) {
-            Thread.sleep(20);
-        }
-        Thread.sleep(250);
     }
 
     private HttpClient login(String username, String password) throws Exception {

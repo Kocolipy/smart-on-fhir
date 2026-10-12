@@ -4,8 +4,18 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Whether a connector token may make a SCIM request, decided from the method and the path alone
- * (ADR 0010).
+ * The SCIM chain's backstop: whether a connector token may make a SCIM request, judged from the
+ * method and the path alone, before dispatch (ADR 0010).
+ *
+ * <p><strong>The authority is the handler, not this rule.</strong> Every Users and Groups handler,
+ * and the base {@code .search}, declares the same Permission with method security, and that
+ * declaration is what decides: it sits on the operation the dispatcher actually selected. This
+ * rule repeats it as the session chain's URL rules repeat a session handler's, so a request it can
+ * already see lacks the Permission is turned away before it reaches the dispatcher. It reads the
+ * path as the request line carries it, and the dispatcher matches a decoded one, so the two can
+ * disagree about which resource a path names; where they do, the path is one this rule does not
+ * recognise, its answer below is "a valid token is enough", and the handler's declaration is what
+ * holds it.
  *
  * <ul>
  *   <li>{@code /Users…}: {@code user:read} to read, {@code user:write} to create, replace, patch
@@ -14,21 +24,18 @@ import java.util.Set;
  *       the types the token may read, by the search itself;
  *   <li>discovery ({@code ServiceProviderConfig}, {@code Schemas}, {@code ResourceTypes}) and
  *       {@code /Me}: a valid token and no Permission;
- *   <li>any other path in the namespace: a valid token and no Permission. No handler serves such a
- *       path, so the answer is the dispatcher's {@code 404} — which a SCIM client reads as "not
- *       offered" — rather than a {@code 403} that would claim the endpoint exists. A future
- *       resource type cannot slip through this way unnoticed: every mapped route must be
- *       documented, every documented SCIM operation must declare its Permission, and the
- *       authorization contract test sends each one a token lacking it.
+ *   <li>any other path in the namespace: a valid token and no Permission, here. When nothing serves
+ *       the path the answer is the dispatcher's {@code 404} — which a SCIM client reads as "not
+ *       offered" — rather than a {@code 403} that would claim the endpoint exists; when the
+ *       dispatcher does resolve it to a handler, that handler's declaration decides. A handler
+ *       cannot be added without one: {@code ArchitectureTest} fails the build, and the
+ *       authorization contract test sends each documented operation a token lacking its
+ *       Permission.
  * </ul>
  *
  * <p>Method alone does not decide read from write. SCIM's {@code .search} endpoints are
  * {@code POST} requests that read — RFC 7644 puts a filter carrying personal values in a body
  * rather than a URL — so a {@code POST} whose LAST segment is {@code .search} is a read.
- *
- * <p>Decided from the request line rather than per handler, because the refusal happens in the
- * filter, before any handler runs: a handler cannot forget to check, and a new endpoint under a
- * named type is covered the day it is added.
  */
 public final class ScimPermissionRule {
 
@@ -72,7 +79,8 @@ public final class ScimPermissionRule {
                 return held.permits(read ? type.readPermission() : type.writePermission());
             }
         }
-        // Discovery, /Me, or a path nothing serves: a valid token is all any of them needs.
+        // Discovery, /Me, a path nothing serves, or one this rule does not recognise: nothing for
+        // the backstop to refuse. Whatever handler the dispatcher selects decides for itself.
         return true;
     }
 
