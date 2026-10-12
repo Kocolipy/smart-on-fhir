@@ -16,6 +16,7 @@ import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.observability.LogEvent;
@@ -289,8 +290,8 @@ class AuditAppendOnlyIntegrationTests {
         UUID subjectId = idOf(USER);
 
         transactions.executeWithoutResult(status -> {
-            auditTrail.recordLoginFailure(
-                    subjectId, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
+            auditTrail.append(new Audited.LoginFailure(
+                    subjectId, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
             status.setRollbackOnly();
         });
 

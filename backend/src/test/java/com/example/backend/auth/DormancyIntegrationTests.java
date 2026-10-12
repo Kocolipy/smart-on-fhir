@@ -441,7 +441,9 @@ class DormancyIntegrationTests {
         assertThat(auditRows("LOCKOUT_LIFT", ada)).singleElement()
                 .satisfies(row -> assertThat(row)
                         .containsEntry("actor_id", testAdmin())
-                        .containsEntry("error_code", "DORMANCY"));
+                        .containsEntry("error_code", "DORMANCY")
+                        // A dormancy lock held no failure run: the lock and the basis moved.
+                        .containsEntry("changed_paths", "lockedAt,lockCause,lastAuthenticatedAt"));
 
         assertThat(dormancy.run().locked()).as("the next run does not lock again")
                 .doesNotContain(ada);

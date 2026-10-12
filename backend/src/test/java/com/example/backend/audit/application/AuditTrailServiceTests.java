@@ -2,6 +2,7 @@ package com.example.backend.audit.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditEvent;
@@ -18,22 +19,30 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditScimRefusal;
+import com.example.backend.audit.domain.AuditSeededResource;
 import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.Role;
+import java.lang.reflect.RecordComponent;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -86,13 +95,13 @@ class AuditTrailServiceTests {
                         new AuditFilterShape.Not(new AuditFilterShape.Presence(
                                 AuditFilterShape.Attribute.EMAILS_TYPE, true))));
 
-        trail.recordScimUsersQueried(ACTOR, 7, shape);
-        trail.recordScimGroupsQueried(ACTOR, 0, null);
-        trail.recordScimResourcesQueried(ACTOR, 2, new AuditFilterShape.Or(
+        trail.append(new Audited.ScimUsersQueried(ACTOR, 7, shape));
+        trail.append(new Audited.ScimGroupsQueried(ACTOR, 0, null));
+        trail.append(new Audited.ScimResourcesQueried(ACTOR, 2, new AuditFilterShape.Or(
                 new AuditFilterShape.Presence(AuditFilterShape.Attribute.MEMBERS, false),
                 new AuditFilterShape.Comparison(
-                        AuditFilterShape.Attribute.META_CREATED, AuditFilterShape.Operator.GT, false)));
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
+                        AuditFilterShape.Attribute.META_CREATED, AuditFilterShape.Operator.GT, false))));
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
                 AuditOperation.SCIM_USER_LIST, AuditOperation.SCIM_GROUP_LIST,
@@ -139,7 +148,7 @@ class AuditTrailServiceTests {
     }
     @Test
     void anAcceptedLoginIsRecordedAgainstTheAccountsStableId() {
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGIN_SUCCESS);
@@ -161,8 +170,8 @@ class AuditTrailServiceTests {
     /** D15: each login event carries how it was attempted, in the recorded spelling. */
     @Test
     void anAcceptedLoginRecordsItsLoginMethod() {
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.SSO);
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.SSO));
 
         assertThat(events.appended).extracting(AuditEvent::loginMethod)
                 .containsExactly("password", "sso");
@@ -170,9 +179,10 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusedLoginRecordsItsLoginMethod() {
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
-                AuditLoginMethod.PASSWORD);
-        trail.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.SSO);
+        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginFailure(
+                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.SSO));
 
         assertThat(events.appended).extracting(AuditEvent::loginMethod)
                 .containsExactly("password", "sso");
@@ -181,14 +191,14 @@ class AuditTrailServiceTests {
     /** Only a login names a method; a logout, like every other event, carries none. */
     @Test
     void anEventOtherThanALoginCarriesNoLoginMethod() {
-        trail.recordLogout(SUBJECT);
+        trail.append(new Audited.Logout(SUBJECT));
 
         assertThat(events.only().loginMethod()).isNull();
     }
 
     @Test
     void aLogoutIsRecordedWithTheRequestThatEndedTheSession() {
-        trail.recordLogout(SUBJECT);
+        trail.append(new Audited.Logout(SUBJECT));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGOUT);
@@ -204,8 +214,8 @@ class AuditTrailServiceTests {
     /** Two events recorded in one turn get distinct identities. */
     @Test
     void everyEventCarriesItsOwnIdentity() {
-        trail.recordLogout(SUBJECT);
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
+        trail.append(new Audited.Logout(SUBJECT));
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
 
         assertThat(events.appended).extracting(AuditEvent::id).doesNotContainNull();
         assertThat(events.appended.get(0).id()).isNotEqualTo(events.appended.get(1).id());
@@ -213,7 +223,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusedLoginNamesTheReasonAndNoActor() {
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
+        trail.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGIN_FAILURE);
@@ -231,7 +242,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusalThatCountsTowardNoFailureRunNamesNoChangedPath() {
-        trail.recordLoginRefusal(SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO);
+        trail.append(new Audited.LoginRefusal(
+                SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO));
 
         AuditEvent event = events.only();
         assertThat(event.changedPaths()).isEmpty();
@@ -239,7 +251,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusalThatCountsTowardNoFailureRunIsALoginFailureNamingItsReasonAndMethod() {
-        trail.recordLoginRefusal(SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO);
+        trail.append(new Audited.LoginRefusal(
+                SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO));
 
         AuditEvent event = events.only();
         assertThat(List.<Object>of(event.operation(), event.outcome(), event.subjectId(),
@@ -254,7 +267,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedLoginAgainstAnUnknownNameRecordsNoSubjectAtAll() {
-        trail.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD);
+        trail.append(new Audited.LoginFailure(
+                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD));
 
         AuditEvent event = events.only();
         assertThat(event.subjectId()).isNull();
@@ -269,18 +283,43 @@ class AuditTrailServiceTests {
      */
     @Test
     void theOnlyLockoutLiftNamesItsAdministratorAndTheCauseItLifted() {
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.DORMANCY);
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, null);
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.DORMANCY, false));
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, true));
 
         assertThat(events.appended).extracting(AuditEvent::errorCode)
                 .containsExactly("DORMANCY", "FAILURES", null);
         AuditEvent event = events.appended.getFirst();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(event.statusClass()).isEqualTo(AuditEvent.STATUS_OK);
         assertThat(event.actorId()).isEqualTo(ACTOR);
         assertThat(event.subjectId()).isEqualTo(SUBJECT);
-        assertThat(event.changedPaths())
-                .containsExactly("failedLoginAttempts", "lockedAt", "lockCause");
+        assertThat(event.resourceId()).isEqualTo(SUBJECT);
+        assertThat(event.resourceType()).isEqualTo(AuditEvent.USER_RESOURCE_TYPE);
+    }
+
+    /**
+     * An Unlock's paths are what it changed: the failure run when it held attempts, and — when a
+     * lock stood — the lock, its cause and the dormancy basis the lift restarts. A User serving no
+     * lockout and holding no run had nothing changed at all.
+     */
+    @Test
+    void aLockoutLiftRecordsWhatTheUnlockChanged() {
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.DORMANCY, false));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, true));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, false));
+
+        assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
+                List.of("failedLoginAttempts", "lockedAt", "lockCause", "lastAuthenticatedAt"),
+                List.of("lockedAt", "lockCause", "lastAuthenticatedAt"),
+                List.of("failedLoginAttempts"),
+                List.of());
     }
 
     /**
@@ -292,14 +331,15 @@ class AuditTrailServiceTests {
      */
     @Test
     void everyEventAboutTheLoginIdentityNamesTheScimUserResourceType() {
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD);
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
-        trail.recordLogout(SUBJECT);
-        trail.recordLockoutSet(SUBJECT);
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
-        trail.recordPasswordChangeRequired(ACTOR, SUBJECT);
-        trail.recordScimUserCreated(ACTOR, SUBJECT);
-        trail.recordScimUsersQueried(ACTOR, 3, null);
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.Logout(SUBJECT));
+        trail.append(new Audited.LockoutSet(SUBJECT));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
+        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT));
+        trail.append(new Audited.ScimUserCreated(ACTOR, SUBJECT));
+        trail.append(new Audited.ScimUsersQueried(ACTOR, 3, null));
 
         assertThat(events.appended)
                 .extracting(AuditEvent::resourceType)
@@ -314,7 +354,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void theRequestIsRecordedAsItsRouteTemplate() {
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
 
         AuditEvent event = events.only();
         assertThat(event.httpMethod()).isEqualTo("POST");
@@ -332,7 +372,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aGroupEventNamesTheGroupAndTheActingConnector() {
-        trail.recordScimGroupCreated(ACTOR, GROUP);
+        trail.append(new Audited.ScimGroupCreated(ACTOR, GROUP));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_GROUP_CREATE);
@@ -351,7 +391,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedUserCreateNamesTheReasonAndNoSubject() {
-        trail.recordScimUserCreateRejected(ACTOR, AuditScimRefusal.INVALID_VALUE);
+        trail.append(new Audited.ScimUserCreateRejected(ACTOR, AuditScimRefusal.INVALID_VALUE));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_CREATE);
@@ -368,7 +408,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedGroupCreateNamesTheReasonAndNoSubject() {
-        trail.recordScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
+        trail.append(new Audited.ScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
 
         AuditEvent event = events.only();
         assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
@@ -385,7 +425,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedGroupWriteNamesTheGroupItWasAimedAt() {
-        trail.recordScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY);
+        trail.append(new Audited.ScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_GROUP_REPLACE);
@@ -400,10 +440,10 @@ class AuditTrailServiceTests {
      */
     @Test
     void aGroupReplacementRecordsWhichAttributesMovedAsThisSlicesOwnPaths() {
-        trail.recordScimGroupReplaced(
+        trail.append(new Audited.ScimGroupReplaced(
                 ACTOR,
                 GROUP,
-                Set.of(AuditGroupAttribute.MEMBERS, AuditGroupAttribute.DISPLAY_NAME));
+                Set.of(AuditGroupAttribute.MEMBERS, AuditGroupAttribute.DISPLAY_NAME)));
 
         assertThat(events.only().changedPaths()).containsExactly("displayName", "members");
     }
@@ -414,17 +454,37 @@ class AuditTrailServiceTests {
      */
     @Test
     void aGroupAliasChangeIsRecordedAsTheExternalIdPath() {
-        trail.recordScimGroupReplaced(ACTOR, GROUP,
-                Set.of(AuditGroupAttribute.EXTERNAL_ID, AuditGroupAttribute.DISPLAY_NAME));
+        trail.append(new Audited.ScimGroupReplaced(ACTOR, GROUP,
+                Set.of(AuditGroupAttribute.EXTERNAL_ID, AuditGroupAttribute.DISPLAY_NAME)));
 
         assertThat(events.only().changedPaths()).containsExactly("displayName", "externalId");
+    }
+
+    /**
+     * A Group replacement, like every Group write, names the acting connector and the Group as
+     * subject and resource; a User replacement names the connector and the User.
+     */
+    @Test
+    void aReplacementNamesTheConnectorAndTheResourceItReplaced() {
+        trail.append(new Audited.ScimGroupReplaced(ACTOR, GROUP, Set.of()));
+        trail.append(new Audited.ScimUserReplaced(ACTOR, SUBJECT, Set.of()));
+
+        assertThat(events.appended)
+                .extracting(AuditEvent::operation, AuditEvent::outcome, AuditEvent::actorId,
+                        AuditEvent::subjectId, AuditEvent::resourceId, AuditEvent::resourceType,
+                        AuditEvent::statusClass, AuditEvent::errorCode)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(AuditOperation.SCIM_GROUP_REPLACE,
+                                AuditOutcome.SUCCESS, ACTOR, GROUP, GROUP, "Group", "ok", null),
+                        org.assertj.core.groups.Tuple.tuple(AuditOperation.SCIM_USER_REPLACE,
+                                AuditOutcome.SUCCESS, ACTOR, SUBJECT, SUBJECT, "User", "ok", null));
     }
 
     /** The User counterpart of {@link #aGroupAliasChangeIsRecordedAsTheExternalIdPath}. */
     @Test
     void aUserAliasChangeIsRecordedAsTheExternalIdPath() {
-        trail.recordScimUserReplaced(ACTOR, GROUP,
-                Set.of(AuditUserAttribute.EXTERNAL_ID, AuditUserAttribute.EMAILS));
+        trail.append(new Audited.ScimUserReplaced(ACTOR, GROUP,
+                Set.of(AuditUserAttribute.EXTERNAL_ID, AuditUserAttribute.EMAILS)));
 
         assertThat(events.only().changedPaths()).containsExactly("emails", "externalId");
     }
@@ -435,7 +495,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aUserDeletionNamesTheDeletedUserAndRecordsNoPaths() {
-        trail.recordScimUserDeleted(ACTOR, SUBJECT);
+        trail.append(new Audited.ScimUserDeleted(ACTOR, SUBJECT));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_DELETE);
@@ -450,7 +510,8 @@ class AuditTrailServiceTests {
     /** A refused deletion names the User it was aimed at and why it was refused. */
     @Test
     void aRefusedUserDeletionNamesTheUserAndTheRefusal() {
-        trail.recordScimUserDeleteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+        trail.append(new Audited.ScimUserDeleteRejected(
+                ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_DELETE);
@@ -469,16 +530,17 @@ class AuditTrailServiceTests {
     void aUserDeletionFailsClosedAndItsRefusalFailsOpen() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        assertThatThrownBy(() -> trail.recordScimUserDeleted(ACTOR, SUBJECT))
+        assertThatThrownBy(() -> trail.append(new Audited.ScimUserDeleted(ACTOR, SUBJECT)))
                 .isInstanceOf(IllegalStateException.class);
-        trail.recordScimUserDeleteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+        trail.append(new Audited.ScimUserDeleteRejected(
+                ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY));
 
         assertThat(alerts.raised).containsExactly(AuditOperation.SCIM_USER_DELETE);
     }
 
     @Test
     void aGroupReplacementThatMovedNothingRecordsNoChangedPath() {
-        trail.recordScimGroupReplaced(ACTOR, GROUP, Set.of());
+        trail.append(new Audited.ScimGroupReplaced(ACTOR, GROUP, Set.of()));
 
         assertThat(events.only().changedPaths()).isEmpty();
     }
@@ -491,8 +553,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void aSeededReservedResourceNamesNoActorAndTypesItselfByWhatWasSeeded() {
-        trail.recordReservedResourceSeeded(SUBJECT, false);
-        trail.recordReservedResourceSeeded(GROUP, true);
+        trail.append(new Audited.ReservedResourceSeeded(SUBJECT, AuditSeededResource.USER));
+        trail.append(new Audited.ReservedResourceSeeded(GROUP, AuditSeededResource.GROUP));
 
         assertThat(events.appended).allSatisfy(event -> {
             assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_RESOURCE_SEED);
@@ -513,7 +575,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRestoredReservedMembershipIsASeedEventOnTheGroupNamingTheMembersPath() {
-        trail.recordReservedMembershipRestored(GROUP, SUBJECT);
+        trail.append(new Audited.ReservedMembershipRestored(GROUP, SUBJECT));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_RESOURCE_SEED);
@@ -530,7 +592,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedAdministrativeChangeNamesBothPartiesAndTheReason() {
-        trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
+        trail.append(new Audited.UnlockRefused(
+                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
@@ -549,8 +612,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void anAuthorizationRefusalNamesTheCallerTheOperationAndTheGenericReason() {
-        trail.recordAccessDenied(
-                ACTOR, new AuditRequest("GET", "/api/admin/audit-events", "req-refused"));
+        trail.append(new Audited.AccessDenied(
+                ACTOR, new AuditRequest("GET", "/api/admin/audit-events", "req-refused")));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.ACCESS_DENIED);
@@ -576,7 +639,7 @@ class AuditTrailServiceTests {
     void anAuthorizationRefusalFailsOpenWithAnAlert() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.recordAccessDenied(ACTOR, new AuditRequest("GET", "/api/count", null));
+        trail.append(new Audited.AccessDenied(ACTOR, new AuditRequest("GET", "/api/count", null)));
 
         assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
     }
@@ -584,8 +647,8 @@ class AuditTrailServiceTests {
     /** On the SCIM chain the refused caller is a connector, named as actor, subject and resource. */
     @Test
     void aScimAuthorizationRefusalNamesTheConnectorTheOperationAndTheGenericReason() {
-        trail.recordConnectorAccessDenied(
-                GROUP, new AuditRequest("POST", "/scim/v2/Users", "req-scim-refused"));
+        trail.append(new Audited.ConnectorAccessDenied(
+                GROUP, new AuditRequest("POST", "/scim/v2/Users", "req-scim-refused")));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.ACCESS_DENIED);
@@ -609,7 +672,8 @@ class AuditTrailServiceTests {
     void aScimAuthorizationRefusalFailsOpenWithAnAlert() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.recordConnectorAccessDenied(GROUP, new AuditRequest("GET", "/scim/v2/Users", null));
+        trail.append(new Audited.ConnectorAccessDenied(
+                GROUP, new AuditRequest("GET", "/scim/v2/Users", null)));
 
         assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
     }
@@ -618,9 +682,10 @@ class AuditTrailServiceTests {
     @Test
     void aTokenIssueAndRotationRecordThePermissionsGranted() {
         // An EnumSet iterates in declaration order (user:write first), not name order.
-        trail.recordConnectorTokenIssued(ACTOR, GROUP,
-                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ));
-        trail.recordConnectorTokenRotated(ACTOR, GROUP, Set.of(Permission.GROUP_WRITE));
+        trail.append(new Audited.ConnectorTokenIssued(ACTOR, GROUP,
+                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ)));
+        trail.append(new Audited.ConnectorTokenRotated(
+                ACTOR, GROUP, Set.of(Permission.GROUP_WRITE)));
 
         assertThat(events.appended).hasSize(2);
         AuditEvent issued = events.appended.get(0);
@@ -641,6 +706,9 @@ class AuditTrailServiceTests {
         assertThat(issued.requestId()).isEqualTo("req-1");
         AuditEvent rotated = events.appended.get(1);
         assertThat(rotated.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
+        assertThat(List.of(rotated.actorId(), rotated.subjectId(), rotated.resourceId()))
+                .as("the administrator, and the connector by its id")
+                .containsExactly(ACTOR, GROUP, GROUP);
         assertThat(rotated.permissions()).containsExactly("group:write");
         assertThat(rotated.changedPaths()).containsExactly("expiresAt", "replacedByTokenId");
     }
@@ -648,9 +716,10 @@ class AuditTrailServiceTests {
     /** A refused escalation names the connector and the Permissions requested, and changes nothing. */
     @Test
     void aRefusedEscalationRecordsThePermissionsRequested() {
-        trail.recordConnectorTokenIssueRefused(ACTOR, GROUP,
-                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ));
-        trail.recordConnectorTokenRotateRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
+        trail.append(new Audited.ConnectorTokenIssueRefused(ACTOR, GROUP,
+                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ)));
+        trail.append(new Audited.ConnectorTokenRotateRefused(
+                ACTOR, GROUP, Set.of(Permission.USER_READ)));
 
         assertThat(events.appended).hasSize(2);
         for (AuditEvent refused : events.appended) {
@@ -677,10 +746,12 @@ class AuditTrailServiceTests {
     void aRefusedEscalationFailsOpenAndAGrantFailsClosed() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.recordConnectorTokenIssueRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
-        trail.recordConnectorTokenRotateRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
-        assertThatThrownBy(() -> trail.recordConnectorTokenIssued(
-                ACTOR, GROUP, Set.of(Permission.USER_READ)))
+        trail.append(new Audited.ConnectorTokenIssueRefused(
+                ACTOR, GROUP, Set.of(Permission.USER_READ)));
+        trail.append(new Audited.ConnectorTokenRotateRefused(
+                ACTOR, GROUP, Set.of(Permission.USER_READ)));
+        assertThatThrownBy(() -> trail.append(new Audited.ConnectorTokenIssued(
+                ACTOR, GROUP, Set.of(Permission.USER_READ))))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(alerts.raised).containsExactly(
@@ -692,9 +763,9 @@ class AuditTrailServiceTests {
     /** The connector lifecycle events name the connector, the actor and what changed. */
     @Test
     void theConnectorLifecycleEventsNameTheConnectorAndWhatChanged() {
-        trail.recordConnectorCreated(ACTOR, GROUP);
-        trail.recordConnectorDeleted(ACTOR, GROUP);
-        trail.recordConnectorTokenRevoked(null, GROUP);
+        trail.append(new Audited.ConnectorCreated(ACTOR, GROUP));
+        trail.append(new Audited.ConnectorDeleted(ACTOR, GROUP));
+        trail.append(new Audited.ConnectorTokenRevoked(null, GROUP));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
                 AuditOperation.CONNECTOR_CREATE, AuditOperation.CONNECTOR_DELETE,
@@ -715,8 +786,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aCreatedUserAndADeletedGroupAreEachOneSuccess() {
-        trail.recordScimUserCreated(ACTOR, SUBJECT);
-        trail.recordScimGroupDeleted(ACTOR, GROUP);
+        trail.append(new Audited.ScimUserCreated(ACTOR, SUBJECT));
+        trail.append(new Audited.ScimGroupDeleted(ACTOR, GROUP));
 
         assertThat(events.appended).hasSize(2);
         AuditEvent created = events.appended.get(0);
@@ -735,7 +806,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusedUserWriteNamesTheUserAndTheRefusal() {
-        trail.recordScimUserWriteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+        trail.append(new Audited.ScimUserWriteRejected(
+                ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_REPLACE);
@@ -754,10 +826,11 @@ class AuditTrailServiceTests {
     void aSessionRevocationNamesItsCausesInOrderAndClassifiesItsOutcome() {
         Set<AuditUserAttribute> causes = new LinkedHashSet<>(List.of(
                 AuditUserAttribute.PASSWORD, AuditUserAttribute.ACTIVE, AuditUserAttribute.USER_NAME));
-        trail.recordUserSessionsRevoked(ACTOR, SUBJECT, causes,
-                Set.of(AuditSessionRevocationCause.PASSWORD_CHANGED), true);
-        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(AuditUserAttribute.GROUPS),
-                Set.of(AuditSessionRevocationCause.ROLE_REVOKED), false);
+        trail.append(new Audited.UserSessionsRevoked(ACTOR, SUBJECT, causes,
+                Set.of(AuditSessionRevocationCause.PASSWORD_CHANGED), true));
+        trail.append(new Audited.UserSessionsRevoked(
+                null, SUBJECT, Set.of(AuditUserAttribute.GROUPS),
+                Set.of(AuditSessionRevocationCause.ROLE_REVOKED), false));
 
         AuditEvent revoked = events.appended.get(0);
         assertThat(revoked.operation()).isEqualTo(AuditOperation.USER_SESSIONS_REVOKE);
@@ -779,13 +852,13 @@ class AuditTrailServiceTests {
      */
     @Test
     void aSessionRevocationRecordsItsCausesAsItsReason() {
-        trail.recordUserSessionsRevoked(ACTOR, SUBJECT,
+        trail.append(new Audited.UserSessionsRevoked(ACTOR, SUBJECT,
                 Set.of(AuditUserAttribute.USER_NAME, AuditUserAttribute.ACTIVE),
                 new LinkedHashSet<>(List.of(AuditSessionRevocationCause.USER_NAME_CHANGED,
                         AuditSessionRevocationCause.DEACTIVATED)),
-                true);
-        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(),
-                Set.of(AuditSessionRevocationCause.FAILURE_RUN_LOCKOUT), false);
+                true));
+        trail.append(new Audited.UserSessionsRevoked(null, SUBJECT, Set.of(),
+                Set.of(AuditSessionRevocationCause.FAILURE_RUN_LOCKOUT), false));
 
         assertThat(events.appended).extracting(AuditEvent::errorCode)
                 .containsExactly("DEACTIVATED,USER_NAME_CHANGED", "FAILURE_RUN_LOCKOUT");
@@ -794,7 +867,7 @@ class AuditTrailServiceTests {
     /** D17: an Epic success records its MFA factor by its own spelling. */
     @Test
     void anEpicLoginSuccessRecordsItsMfaFactor() {
-        trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.SSO, AuditMfaFactor.OTP);
+        trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.SSO, AuditMfaFactor.OTP));
 
         assertThat(events.only().mfaFactor()).isEqualTo("otp");
     }
@@ -806,7 +879,7 @@ class AuditTrailServiceTests {
                 AuditGroupAttribute.EXTERNAL_ID, AuditGroupAttribute.MEMBERS,
                 AuditGroupAttribute.DISPLAY_NAME));
 
-        trail.recordScimGroupReplaced(ACTOR, GROUP, changed);
+        trail.append(new Audited.ScimGroupReplaced(ACTOR, GROUP, changed));
 
         assertThat(events.only().changedPaths())
                 .containsExactly("displayName", "members", "externalId");
@@ -818,10 +891,10 @@ class AuditTrailServiceTests {
      */
     @Test
     void theDormancyJobRecordsNoActor() {
-        trail.recordDormancyLockout(SUBJECT);
-        trail.recordDormancyRoleRevocation(SUBJECT, List.of(
+        trail.append(new Audited.DormancyLockout(SUBJECT));
+        trail.append(new Audited.DormancyRoleRevocation(SUBJECT, List.of(
                 new Role("Superuser", Set.of()), new Role("Account admin", Set.of()),
-                new Role("Superuser", Set.of())));
+                new Role("Superuser", Set.of()))));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
                 AuditOperation.DORMANCY_LOCKOUT, AuditOperation.DORMANCY_ROLE_REVOCATION);
@@ -851,7 +924,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aDormancyRoleRevocationNamingNoRoleIsRefused() {
-        assertThatThrownBy(() -> trail.recordDormancyRoleRevocation(SUBJECT, List.of()))
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyRoleRevocation(
+                SUBJECT, List.of())))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(events.appended).isEmpty();
     }
@@ -861,19 +935,20 @@ class AuditTrailServiceTests {
     void theDormancyEventsAreFailClosed() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        assertThatThrownBy(() -> trail.recordDormancyLockout(SUBJECT))
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyLockout(SUBJECT)))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordDormancyRoleRevocation(
-                        SUBJECT, List.of(new Role("Superuser", Set.of()))))
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyRoleRevocation(
+                        SUBJECT, List.of(new Role("Superuser", Set.of())))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void passwordEventsNameTheCredentialPathsOrTheRefusal() {
-        trail.recordPasswordChanged(SUBJECT);
-        trail.recordPasswordChangeRefused(SUBJECT, AuditPasswordChangeRefusal.TOO_SHORT);
-        trail.recordPasswordChangeRequirementRefused(
-                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
+        trail.append(new Audited.PasswordChanged(SUBJECT));
+        trail.append(new Audited.PasswordChangeRefused(
+                SUBJECT, AuditPasswordChangeRefusal.TOO_SHORT));
+        trail.append(new Audited.PasswordChangeRequirementRefused(
+                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
 
         AuditEvent changed = events.appended.get(0);
         assertThat(changed.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE);
@@ -900,8 +975,8 @@ class AuditTrailServiceTests {
     @Test
     void aRoleChangeNamesTheUserTheGroupAndTheRole() {
         Role role = new Role("Account admin", Set.of(Permission.USER_READ));
-        trail.recordRoleGranted(ACTOR, SUBJECT, GROUP, role);
-        trail.recordRoleRevoked(ACTOR, SUBJECT, GROUP, role);
+        trail.append(new Audited.RoleGranted(ACTOR, SUBJECT, GROUP, role));
+        trail.append(new Audited.RoleRevoked(ACTOR, SUBJECT, GROUP, role));
 
         assertThat(events.appended).extracting(AuditEvent::operation)
                 .containsExactly(AuditOperation.ROLE_GRANT, AuditOperation.ROLE_REVOKE);
@@ -921,49 +996,171 @@ class AuditTrailServiceTests {
         });
     }
 
-    // The two failure semantics
+    // The two failure semantics, kind by kind
 
-    @Test
-    void aFailClosedAppendPropagatesSoTheMutationRollsBack() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        assertThatThrownBy(() -> trail.recordPasswordChangeRequired(ACTOR, SUBJECT))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordLoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordLogout(SUBJECT))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimGroupCreated(ACTOR, GROUP))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimGroupReplaced(
-                        ACTOR, GROUP, Set.of(AuditGroupAttribute.MEMBERS)))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimGroupDeleted(ACTOR, GROUP))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimGroupsQueried(ACTOR, 0, null))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimUsersQueried(ACTOR, 0, null))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimResourcesQueried(ACTOR, 0, null))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordReservedResourceSeeded(SUBJECT, false))
-                .isInstanceOf(IllegalStateException.class);
-
-        assertThat(alerts.raised).isEmpty();
+    /** How an append behaved against the forced failure: whether it propagated, and the alerts. */
+    private enum Semantics {
+        /** The failure propagated, so the caller's change rolls back; no alert. */
+        FAIL_CLOSED,
+        /** The failure was swallowed, and one alert raised naming the event's operation. */
+        FAIL_OPEN
     }
 
+    /**
+     * ADR 0004, written out kind by kind: fail-closed where the triggering request would otherwise
+     * succeed — a bulk read included — and fail-open where it is already refused, or has already
+     * committed. Written as a table rather than read off the event, so the test states the decision
+     * independently of the code that applies it; a kind missing from it fails
+     * {@link #everyKindOfEventFailsAsAdr0004Decides}.
+     */
+    private static final Map<Class<? extends Audited>, Semantics> ADR_0004 = Map.ofEntries(
+            Map.entry(Audited.LoginSuccess.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.LoginFailure.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.LoginRefusal.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.Logout.class, Semantics.FAIL_CLOSED),
+            // A success, but riding a refused Login: fail-open.
+            Map.entry(Audited.LockoutSet.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.LockoutLiftedByUnlock.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.UnlockRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorCreated.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ConnectorDeleted.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ConnectorTokenIssued.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ConnectorTokenRotated.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ConnectorTokenIssueRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorTokenRotateRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorTokenRevoked.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimUserCreated.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimUserCreateRejected.class, Semantics.FAIL_OPEN),
+            // A read, but a bulk one: fail-closed.
+            Map.entry(Audited.ScimUsersQueried.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimUserReplaced.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimUserWriteRejected.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ScimUserDeleted.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimUserDeleteRejected.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ScimGroupCreated.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimGroupCreateRejected.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ScimGroupReplaced.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimGroupWriteRejected.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ScimGroupDeleted.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimGroupsQueried.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ScimResourcesQueried.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ReservedResourceSeeded.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.ReservedMembershipRestored.class, Semantics.FAIL_CLOSED),
+            // After the commit, even on success: fail-open (the 2026-10-10 addendum).
+            Map.entry(Audited.UserSessionsRevoked.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.DormancyLockout.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.DormancyRoleRevocation.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.RoleGranted.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.RoleRevoked.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.PasswordChangeRequired.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.PasswordChangeRequirementRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.PasswordChanged.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.PasswordChangeRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.AccessDenied.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorAccessDenied.class, Semantics.FAIL_OPEN));
+
+    /** Every kind of event there is: the leaves of the sealed hierarchy, found rather than listed. */
+    static Stream<Class<?>> everyKindOfEvent() {
+        return leaves(Audited.class);
+    }
+
+    private static Stream<Class<?>> leaves(Class<?> type) {
+        return type.isSealed()
+                ? Arrays.stream(type.getPermittedSubclasses()).flatMap(AuditTrailServiceTests::leaves)
+                : Stream.of(type);
+    }
+
+    /**
+     * Every kind of event, against the same forced failure, behaves as ADR 0004 decides — so the
+     * difference between the two cannot be an accident of which exception was thrown, and a kind
+     * added without a decision in {@link #ADR_0004} fails here rather than shipping with whichever
+     * semantics its declaration happened to give it.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("everyKindOfEvent")
+    void everyKindOfEventFailsAsAdr0004Decides(Class<?> kind) throws ReflectiveOperationException {
+        Audited event = sampleOf(kind);
+        events.failWith(new IllegalStateException("insert refused"));
+
+        Throwable thrown = catchThrowable(() -> trail.append(event));
+
+        Semantics observed;
+        if (thrown instanceof IllegalStateException && alerts.raised.isEmpty()) {
+            observed = Semantics.FAIL_CLOSED;
+        } else if (thrown == null && alerts.raised.size() == 1) {
+            observed = Semantics.FAIL_OPEN;
+        } else {
+            observed = null;
+        }
+        assertThat(observed)
+                .as("%s against a failing append (thrown: %s, alerts: %s)",
+                        kind.getSimpleName(), thrown, alerts.raised)
+                .isNotNull()
+                .isEqualTo(ADR_0004.get(kind));
+    }
+
+    /**
+     * An event of {@code kind} built from one sample value per component type. A component of a
+     * type with no sample here fails the test, naming it, so a new kind of value is a sample added
+     * rather than a kind left out.
+     */
+    private static Audited sampleOf(Class<?> kind) throws ReflectiveOperationException {
+        RecordComponent[] components = kind.getRecordComponents();
+        Class<?>[] types = new Class<?>[components.length];
+        Object[] values = new Object[components.length];
+        for (int i = 0; i < components.length; i++) {
+            types[i] = components[i].getType();
+            values[i] = sampleOfType(kind, components[i]);
+        }
+        return (Audited) kind.getDeclaredConstructor(types).newInstance(values);
+    }
+
+    private static Object sampleOfType(Class<?> kind, RecordComponent component) {
+        Class<?> type = component.getType();
+        if (type == UUID.class) {
+            return SUBJECT;
+        }
+        if (type.isEnum()) {
+            return type.getEnumConstants()[0];
+        }
+        if (type == int.class) {
+            return 1;
+        }
+        if (type == boolean.class) {
+            return true;
+        }
+        if (type == Set.class) {
+            return Set.of();
+        }
+        if (type == List.class) {
+            return List.of(new Role("Superuser", Set.of()));
+        }
+        if (type == Role.class) {
+            return new Role("Superuser", Set.of());
+        }
+        if (type == AuditRequest.class) {
+            return new AuditRequest("GET", "/api/count", "req-sample");
+        }
+        if (type == AuditFilterShape.class) {
+            return new AuditFilterShape.Presence(AuditFilterShape.Attribute.USER_NAME, false);
+        }
+        throw new AssertionError("no sample for " + kind.getSimpleName() + "." + component.getName()
+                + " of type " + type.getName());
+    }
+
+    /** A fail-open append's alert names the operation the unrecorded event would have said. */
     @Test
     void aFailOpenAppendRaisesAnAlertAndDoesNotPropagate() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
-        trail.recordLockoutSet(SUBJECT);
-        trail.recordScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
-        trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
-        trail.recordScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
-        trail.recordScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY);
+        trail.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LockoutSet(SUBJECT));
+        trail.append(new Audited.ScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
+        trail.append(new Audited.UnlockRefused(
+                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
+        trail.append(new Audited.ScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
+        trail.append(new Audited.ScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY));
 
         assertThat(alerts.raised).containsExactly(
                 AuditOperation.LOGIN_FAILURE,
@@ -978,7 +1175,8 @@ class AuditTrailServiceTests {
     void anAlertNamesTheFailuresOwnTypeAndNothingElse() {
         events.failWith(new IllegalArgumentException("would name the submitted value"));
 
-        trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
+        trail.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
 
         assertThat(alerts.failures).containsExactly(IllegalArgumentException.class);
     }
@@ -1049,7 +1247,8 @@ class AuditTrailServiceTests {
         AuditTrail isolated = new AuditTrailService(
                 events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
 
-        isolated.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD);
+        isolated.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
 
         assertThat(transactions.definitions)
                 .as("the fail-open append's transaction definitions")
@@ -1058,6 +1257,27 @@ class AuditTrailServiceTests {
                         .as("PROPAGATION_REQUIRES_NEW, so the caller's rollback cannot "
                                 + "take the audit row with it")
                         .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+    }
+
+    /**
+     * A fail-closed append joins the caller's transaction — or opens one where there is none —
+     * rather than one of its own, so a failure marks the caller's change for rollback. What the
+     * {@code @Transactional} each fail-closed recorder used to carry asked for, asked for here once.
+     */
+    @Test
+    void aFailClosedAppendJoinsTheCallersTransaction() {
+        RecordingTransactionManager transactions = new RecordingTransactionManager();
+        AuditTrail joined = new AuditTrailService(
+                events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+
+        joined.append(new Audited.Logout(SUBJECT));
+
+        assertThat(transactions.definitions)
+                .as("the fail-closed append's transaction definitions")
+                .singleElement()
+                .satisfies(definition -> assertThat(definition.getPropagationBehavior())
+                        .as("PROPAGATION_REQUIRED, so the append rolls back with the caller's change")
+                        .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRED));
     }
 
     /** Records the transaction definitions it is asked for, and does nothing else. */

@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
@@ -127,8 +128,8 @@ public class LoginOutcomeService {
         }
         // Counted toward no failure run (D12): Epic checked the credential, not us, so the User's
         // login state is neither read nor written. Fail-open, as every refusal's append is.
-        audit.recordLoginRefusal(
-                refused.subjectId(), refused.reason().audited(), refused.method());
+        audit.append(new Audited.LoginRefusal(
+                refused.subjectId(), refused.reason().audited(), refused.method()));
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             LoggingEventBuilder warning =
                     refusedWarning(Operation.EPIC_LOGIN, refused, sessionHash);
@@ -149,8 +150,8 @@ public class LoginOutcomeService {
             logFailedCall(call, sessionHash);
         }
         epicCalls.failedCall(call.call(), call.category());
-        audit.recordLoginRefusal(
-                null, EpicLoginFailureReason.EPIC_UNAVAILABLE.audited(), AuditLoginMethod.SSO);
+        audit.append(new Audited.LoginRefusal(
+                null, EpicLoginFailureReason.EPIC_UNAVAILABLE.audited(), AuditLoginMethod.SSO));
         counts.unavailable();
     }
 

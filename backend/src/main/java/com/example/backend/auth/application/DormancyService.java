@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
@@ -190,7 +191,7 @@ public class DormancyService {
                     || !loginState.dormancyLocked(user.get(), now)) {
                 continue;
             }
-            audit.recordDormancyLockout(candidate);
+            audit.append(new Audited.DormancyLockout(candidate));
             logLockout(candidate);
             sessions.revokeAllAfterCommit(candidate, SessionRevocationCause.DORMANCY_LOCKOUT, null);
             locked.add(candidate);

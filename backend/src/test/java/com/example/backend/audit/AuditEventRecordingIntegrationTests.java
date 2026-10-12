@@ -300,10 +300,51 @@ class AuditEventRecordingIntegrationTests {
 
         Map<String, Object> event = only(AuditOperation.LOCKOUT_LIFT);
         assertThat(event).containsEntry("error_code", null);
+        assertThat(event).as("no lock stood and no run was held, so nothing changed")
+                .containsEntry("changed_paths", null);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
         // The route template, which names the stable id's slot and never the value.
         assertThat(event).containsEntry("http_path", "/api/admin/accounts/{id}/unlock");
+    }
+
+    /**
+     * An Unlock records what it changed. Of a User serving no lockout, that is the failure run it
+     * cleared and nothing else: no lock stood, so none was lifted and the dormancy basis did not
+     * move.
+     */
+    @Test
+    void anUnlockOfAUserServingNoLockoutRecordsOnlyTheRunItCleared() throws Exception {
+        ScimUser user = require(USER);
+        transactions.executeWithoutResult(status -> users.updateLoginState(
+                user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+                        .session(sessionOf(ADMIN)))
+                .andExpect(status().isOk());
+
+        assertThat(only(AuditOperation.LOCKOUT_LIFT))
+                .containsEntry("changed_paths", "failedLoginAttempts");
+    }
+
+    /**
+     * Of a locked User, an Unlock clears the run and the lock, and restarts the dormancy basis
+     * ({@code lastAuthenticatedAt}) — all four are what its event says changed. The change it
+     * requires is the separate {@code PASSWORD_CHANGE_REQUIRE}.
+     */
+    @Test
+    void anUnlockOfALockedUserRecordsTheRunTheLockAndTheDormancyBasis() throws Exception {
+        ScimUser user = require(USER);
+        transactions.executeWithoutResult(status -> users.updateLoginState(
+                user.id(), new ScimLoginState(
+                        user.login().passwordHash(), 5, Instant.now().minusSeconds(60))));
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+                        .session(sessionOf(ADMIN)))
+                .andExpect(status().isOk());
+
+        assertThat(only(AuditOperation.LOCKOUT_LIFT)).containsEntry("changed_paths",
+                "failedLoginAttempts,lockedAt,lockCause,lastAuthenticatedAt");
     }
 
     // Redaction

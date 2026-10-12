@@ -402,12 +402,13 @@ rules:
   # so a readable identifier written into an event body outlives every other copy
   # of it. Two rules, for the two ways that could happen.
   #
-  # The structural half of this is a signature: no method on
-  # com.example.backend.audit.domain.AuditTrail declares a String parameter, so a
-  # username, password or bearer value cannot be handed to it at all, and
+  # The structural half of this is a shape: AuditTrail's one append takes an
+  # Audited event, and no event has a String component, so a username, password or
+  # bearer value cannot be handed to it at all, and
   # ArchitectureTest.the_audit_trail_boundary_admits_no_free_text holds that. These
-  # rules cover what a signature cannot — a value reaching the boundary through a
-  # method someone adds, and the retention role being assumed somewhere new.
+  # rules cover what a shape cannot — a credential-named value reaching an event
+  # through a component of some other type, and the retention role being assumed
+  # somewhere new.
   # ---------------------------------------------------------------------------
 
   - id: be-audit-sensitive-value
@@ -419,34 +420,36 @@ rules:
       account's stable id and nothing else — no userName, no password, no bearer
       value, no hash, not even in a reason or a detail field. Resolve the stable id
       and pass that; if the id cannot be resolved, record no subject rather than
-      the name, which is what AuditTrail.recordLoginFailure(null, ...) is for.
+      the name, which is what new Audited.LoginFailure(null, ...) is for.
     patterns:
+      # Every event is a value constructed and appended: each argument of a
+      # `new Audited.<Kind>(...)`, wherever it is built, and whatever else an append is
+      # handed directly. One shape for every kind, so a kind added later is covered
+      # without an edit here. An append handed a construction is left to the first
+      # pattern, which reads its arguments — the kind's own name (`PasswordChanged`,
+      # `ConnectorTokenIssued`) is this slice's vocabulary, not a caller's value.
       - pattern-either:
-          - pattern: $AUDIT.recordLoginSuccess(..., $VALUE, ...)
-          - pattern: $AUDIT.recordLoginFailure(..., $VALUE, ...)
-          - pattern: $AUDIT.recordLogout(..., $VALUE, ...)
-          - pattern: $AUDIT.recordLockoutSet(..., $VALUE, ...)
-          - pattern: $AUDIT.recordLockoutLiftedByExpiry(..., $VALUE, ...)
-          - pattern: $AUDIT.recordLockoutLiftedByUnlock(..., $VALUE, ...)
-          - pattern: $AUDIT.recordAccountDisabled(..., $VALUE, ...)
-          - pattern: $AUDIT.recordAccountEnabled(..., $VALUE, ...)
-          - pattern: $AUDIT.recordConnectorCreated(..., $VALUE, ...)
-          - pattern: $AUDIT.recordConnectorDeleted(..., $VALUE, ...)
-          - pattern: $AUDIT.recordConnectorTokenIssued(..., $VALUE, ...)
-          - pattern: $AUDIT.recordConnectorTokenRotated(..., $VALUE, ...)
-          - pattern: $AUDIT.recordConnectorTokenRevoked(..., $VALUE, ...)
+          - pattern: new Audited.$KIND(..., $VALUE, ...)
           - pattern: new AuditEvent(..., $VALUE, ...)
+          - patterns:
+              - pattern: $AUDIT.append(..., $VALUE, ...)
+              - pattern-not: $AUDIT.append(new Audited.$KIND(...))
+              - metavariable-regex:
+                  metavariable: $AUDIT
+                  regex: (?i).*audit.*
       - metavariable-regex:
           metavariable: $VALUE
           regex: (?i).*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie).*
       # The audit slice's own closed sets are not values a caller supplied, and some
-      # of their members read as credential words — AuditRefusalReason.BAD_CREDENTIALS
-      # and AuditLoginMethod.PASSWORD most of all. Excluding references to those types
+      # of their members, or their names, read as credential words —
+      # AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD,
+      # AuditUserAttribute.USER_NAME, AuditSessionRevocationCause.PASSWORD_CHANGED and
+      # AuditPasswordChangeRefusal most of all. Excluding references to those types
       # by name keeps the rule pointed at what it is for: an identifier or a secret
       # from outside the slice.
       - metavariable-regex:
           metavariable: $VALUE
-          regex: ^(?!.*\b(AuditRefusalReason|AuditOperation|AuditOutcome|AuditLoginMethod)\b).*$
+          regex: ^(?!.*\b(AuditRefusalReason|AuditOperation|AuditOutcome|AuditLoginMethod|AuditPasswordChangeRefusal|AuditAdministrativeRefusal|AuditUserAttribute|AuditSessionRevocationCause)\b).*$
 
   - id: be-audit-retention-role-outside-its-adapter
     languages: [java]

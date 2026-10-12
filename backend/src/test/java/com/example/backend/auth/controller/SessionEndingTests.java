@@ -10,6 +10,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.controller.SessionEnding.Reason;
 import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
@@ -245,10 +246,12 @@ class SessionEndingTests {
                 AuditTrail.class.getClassLoader(),
                 new Class<?>[] {AuditTrail.class},
                 (proxy, method, arguments) -> {
-                    if (method.getName().equals("recordLogout")) {
+                    if (method.getName().equals("append")
+                            && arguments[0] instanceof Audited.Logout) {
                         throw new IllegalStateException("the audit store is unavailable");
                     }
-                    throw new AssertionError("unexpected audit call: " + method.getName());
+                    throw new AssertionError("unexpected audit call: " + method.getName()
+                            + " " + java.util.Arrays.toString(arguments));
                 });
     }
 }

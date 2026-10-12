@@ -2,6 +2,7 @@ package com.example.backend.scim.config;
 
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.LogContext;
@@ -68,10 +69,10 @@ final class ScimInsufficientPermissions implements AccessDeniedHandler {
     void refuse(HttpServletRequest request, HttpServletResponse response, UUID connectorId) {
         if (refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)) {
             // Only when the log took it, so one exchange is one record of each kind.
-            audit.recordConnectorAccessDenied(
+            audit.append(new Audited.ConnectorAccessDenied(
                     connectorId,
                     new AuditRequest(RequestIdFilter.method(request), routes.of(request),
-                            RequestIdFilter.requestId(request)));
+                            RequestIdFilter.requestId(request))));
         }
         ScimBearerChallenge.insufficientPermissions(response);
     }

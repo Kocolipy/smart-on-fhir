@@ -1,6 +1,7 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -90,7 +91,7 @@ public class ConnectorAdministrationService {
         Instant now = clock.instant();
         ScimConnector connector = ScimConnector.create(UUID.randomUUID(), displayName, now);
         connectors.save(connector);
-        audit.recordConnectorCreated(actorId, connector.id());
+        audit.append(new Audited.ConnectorCreated(actorId, connector.id()));
         succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
         return summarize(connector, now);
     }
@@ -126,9 +127,9 @@ public class ConnectorAdministrationService {
         // so the trail reads as one administrative act with the credentials it took
         // down rather than as several independent revocations.
         for (int token = 0; token < revoked; token++) {
-            audit.recordConnectorTokenRevoked(null, connectorId);
+            audit.append(new Audited.ConnectorTokenRevoked(null, connectorId));
         }
-        audit.recordConnectorDeleted(actorId, connectorId);
+        audit.append(new Audited.ConnectorDeleted(actorId, connectorId));
         succeeded(Operation.CONNECTOR_DELETE, Type.DELETION);
     }
 
@@ -159,7 +160,8 @@ public class ConnectorAdministrationService {
         Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
         requireLive(connectorId);
         if (!permissions.heldWithin(held)) {
-            audit.recordConnectorTokenIssueRefused(actorId, connectorId, permissions.values());
+            audit.append(new Audited.ConnectorTokenIssueRefused(
+                    actorId, connectorId, permissions.values()));
             escalationRefused(Operation.CONNECTOR_TOKEN_ISSUE);
             throw new ConnectorTokenEscalationException();
         }
@@ -174,7 +176,7 @@ public class ConnectorAdministrationService {
                 now,
                 now.plus(validLifetime));
         tokens.save(issued);
-        audit.recordConnectorTokenIssued(actorId, connectorId, permissions.values());
+        audit.append(new Audited.ConnectorTokenIssued(actorId, connectorId, permissions.values()));
         succeeded(Operation.CONNECTOR_TOKEN_ISSUE, Type.CREATION);
         return disclose(issued, minted.presentedValue());
     }
@@ -216,7 +218,8 @@ public class ConnectorAdministrationService {
                 requested == null ? existing.permissions().values() : requested);
         ScimConnector connector = requireLive(existing.connectorId());
         if (!permissions.heldWithin(held)) {
-            audit.recordConnectorTokenRotateRefused(actorId, connector.id(), permissions.values());
+            audit.append(new Audited.ConnectorTokenRotateRefused(
+                    actorId, connector.id(), permissions.values()));
             escalationRefused(Operation.CONNECTOR_TOKEN_ROTATE);
             throw new ConnectorTokenEscalationException();
         }
@@ -236,7 +239,8 @@ public class ConnectorAdministrationService {
                 ConnectorTokenPolicy.overlapEnd(now, overlap, existing.expiresAt()),
                 replacement.id()));
 
-        audit.recordConnectorTokenRotated(actorId, connector.id(), permissions.values());
+        audit.append(new Audited.ConnectorTokenRotated(
+                actorId, connector.id(), permissions.values()));
         succeeded(Operation.CONNECTOR_TOKEN_ROTATE, Type.CHANGE);
         return disclose(replacement, minted.presentedValue());
     }
@@ -255,7 +259,7 @@ public class ConnectorAdministrationService {
         if (revoked != existing) {
             tokens.save(revoked);
         }
-        audit.recordConnectorTokenRevoked(actorId, existing.connectorId());
+        audit.append(new Audited.ConnectorTokenRevoked(actorId, existing.connectorId()));
         succeeded(Operation.CONNECTOR_TOKEN_REVOKE, Type.DELETION);
     }
 

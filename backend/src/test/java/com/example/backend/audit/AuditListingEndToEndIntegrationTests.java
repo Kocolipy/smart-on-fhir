@@ -281,7 +281,8 @@ class AuditListingEndToEndIntegrationTests {
         expect(single(lockedEvents, "LOCKOUT_SET", "SUCCESS"),
                 null, "User", locked, "failedLoginAttempts", "lockedAt", "lockCause");
         JsonNode lift = single(lockedEvents, "LOCKOUT_LIFT", "SUCCESS");
-        expect(lift, adminId, "User", locked, "failedLoginAttempts", "lockedAt", "lockCause");
+        expect(lift, adminId, "User", locked,
+                "failedLoginAttempts", "lockedAt", "lockCause", "lastAuthenticatedAt");
         assertThat(lift.get("errorCode").asText()).as("the cause of the lock lifted")
                 .isEqualTo("FAILURES");
 

@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
@@ -484,6 +485,29 @@ class LoginStateServiceTests {
                 EARLIER, null)));
 
         assertThat(loginState.unlocked(ada).changeRequired()).isEqualTo(changeRequired);
+    }
+
+    /**
+     * What the Unlock changed, which its {@code LOCKOUT_LIFT} records: the lock it lifted, if one
+     * stood, and whether the failure run held attempts to clear — one attempt being enough.
+     */
+    @ParameterizedTest(name = "attempts={0}, lock={1}, password={2} -> lifted {3}, cleared {4}")
+    @CsvSource({
+            "5, FAILURES, true, FAILURES, true",
+            "0, DORMANCY, true, DORMANCY, false",
+            "5, FAILURES, false, FAILURES, true",
+            "1, , true, , true",
+            "0, , true, , false"})
+    void anUnlockReportsTheLockItLiftedAndWhetherItClearedAttempts(int attempts,
+            LockCause lockBefore, boolean withPassword, LockCause lifted, boolean cleared) {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
+                withPassword ? "hash" : null, attempts, lockBefore == null ? null : EARLIER,
+                lockBefore, EARLIER, null)));
+
+        LoginStateService.Unlock decided = loginState.unlocked(ada);
+
+        assertThat(List.of(Optional.ofNullable(decided.lifted()), decided.attemptsCleared()))
+                .containsExactly(Optional.ofNullable(lifted), cleared);
     }
 
     /** The forced change's response is built from the decision, so the decision is the state written. */

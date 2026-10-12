@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -115,7 +116,7 @@ public class PasswordChangeService {
         Instant changedAt = loginState.passwordChanged(user, accepted.passwordHash())
                 .orElseThrow(CurrentPasswordRejectedException::new);
         passwordAcceptance.remember(userId, accepted, changedAt);
-        audit.recordPasswordChanged(userId);
+        audit.append(new Audited.PasswordChanged(userId));
         sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
         LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
                 .log();
@@ -124,12 +125,14 @@ public class PasswordChangeService {
     /** Refuses an inactive or locked User before anything is compared. */
     private void refuseStanding(ScimUser user) {
         if (!user.profile().active()) {
-            audit.recordPasswordChangeRefused(user.id(), AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
+            audit.append(new Audited.PasswordChangeRefused(
+                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_DISABLED));
             refused(AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
             throw new CurrentPasswordRejectedException();
         }
         if (user.login().isLocked()) {
-            audit.recordPasswordChangeRefused(user.id(), AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
+            audit.append(new Audited.PasswordChangeRefused(
+                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_LOCKED));
             refused(AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
             throw new CurrentPasswordRejectedException();
         }
@@ -143,7 +146,7 @@ public class PasswordChangeService {
             case CONTAINS_USER_NAME -> AuditPasswordChangeRefusal.CONTAINS_USER_NAME;
             case REUSED -> AuditPasswordChangeRefusal.REUSED;
         };
-        audit.recordPasswordChangeRefused(user.id(), reason);
+        audit.append(new Audited.PasswordChangeRefused(user.id(), reason));
         refused(reason);
         return new PasswordPolicyViolationException(rule);
     }

@@ -12,17 +12,28 @@ package com.example.backend.audit.domain;
  * {@code String} parameter at all: a path list assembled by a caller is a place a submitted
  * value could be written.
  */
-public enum AuditGroupAttribute {
+public enum AuditGroupAttribute implements AuditAttribute {
 
     /** The Group's label changed. */
-    DISPLAY_NAME,
+    DISPLAY_NAME("displayName"),
 
     /** Its membership changed — somebody was added, removed, or both. */
-    MEMBERS,
+    MEMBERS("members"),
 
     /**
      * The calling connector's own {@code externalId} alias changed. The path is recorded; the
      * alias value never is.
      */
-    EXTERNAL_ID
+    EXTERNAL_ID("externalId");
+
+    private final String path;
+
+    AuditGroupAttribute(String path) {
+        this.path = path;
+    }
+
+    @Override
+    public String path() {
+        return path;
+    }
 }
