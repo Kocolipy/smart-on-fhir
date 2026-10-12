@@ -119,8 +119,7 @@ class LoginLockoutTests {
                 groups,
                 loginState,
                 revocation,
-                audit,
-                clock);
+                audit);
     }
 
     @Test

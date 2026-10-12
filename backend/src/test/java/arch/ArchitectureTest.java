@@ -835,25 +835,19 @@ public class ArchitectureTest {
                     + " #139, #42)");
 
     /**
-     * The Failure run and the lock, the dormancy basis and the completed password change are
-     * written by the login-state module alone, anywhere in the application: the Login,
-     * password-change, Unlock and dormancy paths report what happened and the module decides the
-     * new state (issues #42, #43). The directory reaches the module through the
-     * {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture is
-     * written by the module too — and the persistence adapter, which implements these operations,
-     * calls its JPA repository rather than the port.
+     * The Failure run and the lock, the dormancy basis, the change-required flag and the completed
+     * password change are written by the login-state module alone, anywhere in the application:
+     * the Login, password-change, Unlock, forced-change and dormancy paths report what happened and
+     * the module decides the new state (issues #42, #43). The directory reaches the module through
+     * the {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture
+     * is written by the module too — and the persistence adapter, which implements these
+     * operations, calls its JPA repository rather than the port. Every narrow login-state write
+     * the port has is guarded, so the rule holds the whole boundary.
      *
      * <p>Not guarded here, because a call cannot say where its values came from:
      * {@code ScimUserRepository.create} and {@code replace}, which store a SCIM write's login state
      * with its profile in one row write. Their values are the module's decision, and
      * {@link #the_directory_decides_no_login_state} holds the directory to that.
-     *
-     * <p>Deliberately left off the guarded writes: {@code requirePasswordChange}, the
-     * change-required flag's write. The module owns it for an Unlock, but an Admin forcing a
-     * change ({@code IdentityAdministrationService.forcePasswordChange}) also calls it, and a
-     * forced change is not one of the events this module decides. So this rule does NOT stop other
-     * code from setting the flag; guarding that write belongs with moving the forced change onto
-     * the module, not here.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_login_state_module_writes_the_login_state =
@@ -864,15 +858,15 @@ public class ArchitectureTest {
                     "target is a ScimUserRepository login-state write",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
                             Set.of("updateLoginState", "recordAuthentication",
-                                            "resetDormancyBasis", "completePasswordChange",
-                                            "imposeLock")
+                                            "resetDormancyBasis", "requirePasswordChange",
+                                            "completePasswordChange", "imposeLock")
                                     .contains(call.getName())
                                     && call.getTargetOwner().isAssignableTo(
                                             "com.example.backend.scim.domain.ScimUserRepository")))
             .allowEmptyShould(true)
             .because("one module decides the login state, so no path writes the failure run, the"
-                    + " lock, the dormancy basis or the completed password change its own way"
-                    + " (issues #42, #43)");
+                    + " lock, the dormancy basis, the change-required flag or the completed"
+                    + " password change its own way (issues #42, #43)");
 
     /**
      * The directory decides no login state: nothing in {@code scim} outside the value itself

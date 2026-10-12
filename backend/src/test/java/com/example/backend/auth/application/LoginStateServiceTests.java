@@ -33,10 +33,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The login-state module: what each event — a counted failure, a verified credential, a completed
- * password change, an Unlock, a dormancy lock — leaves stored as the User's login state; what each
- * directory event — a create, a SCIM replacement with its Reactivation, the dormant fixture's
- * reset — leaves; and what a newly imposed Lockout implies: one {@code LOCKOUT_SET} and one
- * revocation of every Session, after the commit.
+ * password change, an Unlock, an Admin's forced password change, a dormancy lock — leaves stored
+ * as the User's login state; what each directory event — a create, a SCIM replacement with its
+ * Reactivation, the dormant fixture's reset — leaves; and what a newly imposed Lockout implies:
+ * one {@code LOCKOUT_SET} and one revocation of every Session, after the commit.
  *
  * <p>The paths that report the events are tested for what is theirs alone (their refusal event,
  * their response, the order their refusal lands in) in {@link LoginAttemptServiceTests},
@@ -69,6 +69,7 @@ class LoginStateServiceTests {
         EPIC_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.EPIC)),
         PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
         UNLOCKED((module, user) -> module.unlocked(user)),
+        PASSWORD_CHANGE_FORCED((module, user) -> module.passwordChangeForced(user)),
         DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
 
         private final BiConsumer<LoginStateService, ScimUser> report;
@@ -136,6 +137,15 @@ class LoginStateServiceTests {
                 row("an Unlock of an unlocked User clears its run and nothing else",
                         Event.UNLOCKED, false, run(2),
                         new ScimLoginState("hash", 0, null, null, EARLIER, null)),
+                row("a forced change requires a change as of now",
+                        Event.PASSWORD_CHANGE_FORCED, false, run(0),
+                        new ScimLoginState("hash", 0, null, null, EARLIER, NOW)),
+                row("a forced change of a User already owing one keeps when it was first owed",
+                        Event.PASSWORD_CHANGE_FORCED, false, flaggedWithRun(0),
+                        flaggedWithRun(0)),
+                row("a forced change leaves the run and a standing lock as they are",
+                        Event.PASSWORD_CHANGE_FORCED, false, locked(LockCause.FAILURES),
+                        new ScimLoginState("hash", LIMIT, EARLIER, LockCause.FAILURES, EARLIER, NOW)),
                 row("the dormancy job locks for dormancy as of now and leaves the run as it is",
                         Event.DORMANCY_LOCKED, false, flaggedWithRun(2),
                         new ScimLoginState("hash", 2, NOW, LockCause.DORMANCY, EARLIER, EARLIER)),
@@ -474,6 +484,49 @@ class LoginStateServiceTests {
                 EARLIER, null)));
 
         assertThat(loginState.unlocked(ada).changeRequired()).isEqualTo(changeRequired);
+    }
+
+    /** The forced change's response is built from the decision, so the decision is the state written. */
+    @ParameterizedTest(name = "flag set before={0}")
+    @CsvSource({"false", "true"})
+    void aForcedChangeAnswersWithTheStateItLeftStored(boolean flagged) {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState(
+                "ada", flagged ? flaggedWithRun(0) : run(0)));
+
+        LoginStateService.ForcedChange decided = loginState.passwordChangeForced(ada);
+
+        assertThat(decided.state()).isEqualTo(users.require("ada").login());
+    }
+
+    /** Whether the forced change imposed one, which decides the path's audit and revocation. */
+    @ParameterizedTest(name = "flag set before={0} -> imposed {1}")
+    @CsvSource({"false, true", "true, false"})
+    void aForcedChangeSaysWhetherItImposedAChange(boolean flagged, boolean imposed) {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState(
+                "ada", flagged ? flaggedWithRun(0) : run(0)));
+
+        assertThat(loginState.passwordChangeForced(ada).imposed()).isEqualTo(imposed);
+    }
+
+    /** A User already owing the change is not written again. */
+    @Test
+    void aForcedChangeOfAUserAlreadyOwingOneWritesNothing() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", flaggedWithRun(0)));
+        int writesBefore = users.writes();
+
+        loginState.passwordChangeForced(ada);
+
+        assertThat(users.writes()).isEqualTo(writesBefore);
+    }
+
+    /** The flag is not a SCIM attribute, so requiring a change does not move the resource's ETag. */
+    @Test
+    void aForcedChangeDoesNotAdvanceTheResourceVersion() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+
+        loginState.passwordChangeForced(ada);
+
+        assertThat(users.require("ada").version()).isEqualTo(ada.version());
     }
 
     /** The one instant the change was completed at, which the caller records the history under. */
