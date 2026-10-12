@@ -31,9 +31,10 @@ loudly instead of reading as "someone else is running it" forever. The port is
 `ScheduledJobLock` (`scheduling.domain`), the adapter `ScheduledJobLockAdapter`
 (`scheduling.infrastructure.persistence`).
 
-Inside a run, each candidate User is re-read under its resource lock
-(`findByIdForUpdate`) and decided again, so a User is never processed twice even across the
-window between the candidate query and the write.
+Inside a run, each candidate User is re-read under its resource lock (taken, with every
+other row the run may change, through the SCIM write lock module `ScimWriteLocks`) and
+decided again, so a User is never processed twice even across the window between the
+candidate query and the write.
 
 ## Consequences
 

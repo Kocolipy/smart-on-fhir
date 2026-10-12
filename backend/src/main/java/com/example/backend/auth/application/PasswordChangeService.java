@@ -12,7 +12,9 @@ import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,8 +48,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The refusals must NOT roll back: a wrong current password's count has to commit for the
  * lockout to mean anything. So the use case is one transaction that the two refusal exceptions do
- * not roll back, and the User is read under its resource lock first, so a concurrent change or
- * lockout is decided against the state it left rather than a stale read.
+ * not roll back, and the User is read under its resource lock first — taken through the SCIM
+ * write lock module ({@link ScimWriteLocks}), the change advancing that User's version alone — so a
+ * concurrent change or lockout is decided against the state it left rather than a stale read.
  */
 @Service
 public class PasswordChangeService {
@@ -55,6 +58,7 @@ public class PasswordChangeService {
     private static final Logger log = LoggerFactory.getLogger(PasswordChangeService.class);
 
     private final ScimUserRepository users;
+    private final ScimWriteLocks writeLocks;
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
@@ -70,6 +74,7 @@ public class PasswordChangeService {
      */
     public PasswordChangeService(
             ScimUserRepository users,
+            ScimWriteLocks writeLocks,
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginAttemptService attempts,
@@ -77,6 +82,7 @@ public class PasswordChangeService {
             SessionRevocationService sessions,
             AuditTrail audit) {
         this.users = users;
+        this.writeLocks = writeLocks;
         this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
         this.attempts = attempts;
@@ -96,7 +102,8 @@ public class PasswordChangeService {
     @Transactional(noRollbackFor = {
             CurrentPasswordRejectedException.class, PasswordPolicyViolationException.class})
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
-        ScimUser user = users.findByIdForUpdate(userId)
+        writeLocks.lock(List.of(userId));
+        ScimUser user = users.findById(userId)
                 .orElseThrow(CurrentPasswordRejectedException::new);
         refuseStanding(user);
         if (!user.login().hasPassword()

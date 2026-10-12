@@ -17,6 +17,7 @@ import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.LockoutPolicy;
@@ -27,6 +28,7 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -61,6 +63,8 @@ class PasswordChangeServiceTests {
     private final LoginAttemptService attempts =
             new LoginAttemptService(users, loginState, revocation, audit);
 
+    private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
+
     private PasswordChangeService service;
     private ScimUser ada;
 
@@ -68,6 +72,7 @@ class PasswordChangeServiceTests {
     void setUp() {
         service = new PasswordChangeService(
                 users,
+                writeLocks,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 encoder,
                 attempts,
@@ -79,6 +84,14 @@ class PasswordChangeServiceTests {
         accountSessions.open(ada.id(), "submitting-session");
         accountSessions.open(ada.id(), "other-session");
         clock.advanceBy(Duration.ofDays(1));
+    }
+
+    /** The change advances the User's version alone, so the User is the one lock it asks for. */
+    @Test
+    void aChangeLocksTheUserAloneThroughTheLockModule() {
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(writeLocks.requests()).containsExactly(Set.of(ada.id()));
     }
 
     @Test
@@ -254,6 +267,7 @@ class PasswordChangeServiceTests {
         };
         PasswordChangeService permissive = new PasswordChangeService(
                 users,
+                new InMemoryScimWriteLocks(),
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 verifiesAnything,
                 attempts,

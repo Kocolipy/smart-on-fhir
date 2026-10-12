@@ -33,8 +33,13 @@ import java.util.UUID;
  * </ul>
  *
  * <p>Pure: it decides from the sets it is given and touches nothing until {@link #advanceIn},
- * which issues at most one statement. Locking is not its concern — the caller has already locked
- * the resource row it is writing, and the bulk update locks the rest in the order it always did.
+ * which issues at most one statement. Locking is not its concern, but it relies on the lock
+ * module ({@link ScimWriteLockAdapter}): every resource it names is one the write already holds,
+ * locked in the canonical order before the write began, so the bulk update takes no new lock and
+ * the order it updates rows in cannot matter. The module locks a superset of what is decided
+ * here — a User's Groups whether or not its label moved, a Group's members before and after
+ * whether or not each one's rendering moved — so this rule can change without the locks having
+ * to follow.
  */
 final class RepresentationChange {
 

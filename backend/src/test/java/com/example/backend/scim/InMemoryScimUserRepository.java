@@ -155,12 +155,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         writes++;
     }
 
-    /** No lock to take in memory; a single-threaded test has no second writer to exclude. */
-    @Override
-    public Optional<ScimUser> findByIdForUpdate(UUID id) {
-        return findById(id);
-    }
-
     /**
      * Replaces the profile and stores the given credential, flag and dormancy basis, keeping the
      * STORED failure run and lock — the port's promise that a replacement never writes those —

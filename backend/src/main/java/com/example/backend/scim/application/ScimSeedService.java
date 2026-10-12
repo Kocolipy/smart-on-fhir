@@ -16,6 +16,7 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -74,6 +75,7 @@ public class ScimSeedService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
+    private final ScimWriteLocks writeLocks;
     private final ScimSeedLock seedLock;
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
@@ -84,6 +86,7 @@ public class ScimSeedService {
     public ScimSeedService(
             ScimUserRepository users,
             ScimGroupRepository groups,
+            ScimWriteLocks writeLocks,
             ScimSeedLock seedLock,
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
@@ -92,6 +95,7 @@ public class ScimSeedService {
             ScimUserLoginState loginStates) {
         this.users = users;
         this.groups = groups;
+        this.writeLocks = writeLocks;
         this.seedLock = seedLock;
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
@@ -307,6 +311,12 @@ public class ScimSeedService {
         }
         List<ScimGroupMember> restored = new ArrayList<>(adminGroup.members());
         restored.add(ScimGroupMember.reference(bootstrapAdmin.id()));
+        // The restore advances the Admin group, its members and the Bootstrap Admin, so it locks
+        // them as any Group write does: through the lock module, in its one order. This
+        // transaction holds no resource lock before this call, so the order cannot be broken here.
+        // The membership it restores is the one read above, before the lock: a startup repair
+        // under the seed lock, not a connector's conditional write.
+        writeLocks.lockGroupWrite(adminGroup.id(), List.of(bootstrapAdmin.id()));
         groups.replace(adminGroup.replacedWith(adminGroup.displayName(), restored, now));
         // Audited because this is a WRITE that changes who holds Admin authority. It had been
         // silent, which meant a deployment whose administrative membership had been removed

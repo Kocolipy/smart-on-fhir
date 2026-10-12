@@ -22,8 +22,9 @@ public interface ScimRoleRevocation {
      * Sessions end once the calling transaction commits. A Group whose membership is already gone
      * is skipped, and a User that lost no Role records nothing.
      *
-     * <p>The caller holds every one of these Groups' resource locks, and then the User's, and has
-     * decided on that locked read that the User is due.
+     * <p>The caller holds the resource locks of the User and of every one of these Groups — taken
+     * together through {@link ScimWriteLocks}, in its one order — and has decided on a read under
+     * them that the User is due.
      *
      * @param groupIds mapped Groups the User was a candidate member of
      * @return whether the User lost a Role

@@ -13,6 +13,7 @@ import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -125,8 +126,10 @@ class ScimUserServiceTests {
     private final InMemoryScimTombstoneRepository tombstones =
             new InMemoryScimTombstoneRepository();
 
+    private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
+
     private final ScimUserService service = new ScimUserService(
-            users, groups, aliases,
+            users, writeLocks, groups, aliases,
             new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
             sessions, LoginStateModules.over(users, clock), tombstones, audit, clock,
             new InMemoryScimQueryRepository(users, groups));
@@ -173,6 +176,22 @@ class ScimUserServiceTests {
 
     private static ScimUserProfile minimal(String userName, boolean active) {
         return ScimIdentities.profile(userName, active);
+    }
+
+    // ---- the locks a write asks for -------------------------------------------------------
+
+    /**
+     * Each write asks the lock module for the User's write locks — the User and its Groups — once,
+     * before it reads: a PUT, a PATCH and a DELETE alike. A create has nothing yet to lock.
+     */
+    @Test
+    void every_user_write_asks_for_the_users_write_locks_once() {
+        put(minimal("ada", true), null, "ext-ada");
+        patch(new ScimUserPatchOperation.SetExternalId("ext-ada-2"));
+        service.delete(CONNECTOR, ada.id(), current());
+
+        assertThat(writeLocks.requests())
+                .containsExactly(Set.of(ada.id()), Set.of(ada.id()), Set.of(ada.id()));
     }
 
     // ---- creation starts the history ------------------------------------------------------
@@ -1213,7 +1232,7 @@ class ScimUserServiceTests {
     void a_query_runs_for_the_calling_connector_and_returns_the_requested_page() {
         List<UUID> askedFor = new ArrayList<>();
         ScimUserService querying = new ScimUserService(
-                users, groups, aliases,
+                users, new InMemoryScimWriteLocks(), groups, aliases,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 sessions, LoginStateModules.over(users, clock), tombstones, audit, clock,
                 (query, connectorId, baseUri) -> {

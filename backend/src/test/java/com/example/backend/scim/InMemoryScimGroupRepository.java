@@ -47,8 +47,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     private List<ScimGroupMembership> staleDormantMemberCandidates;
 
-    private final List<UUID> lockedReads = new java.util.ArrayList<>();
-
     public InMemoryScimGroupRepository(InMemoryScimUserRepository users) {
         this.users = users;
     }
@@ -79,21 +77,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     @Override
     public Optional<ScimGroup> findById(UUID id) {
         return Optional.ofNullable(stored.get(id));
-    }
-
-    /**
-     * No lock to take in memory; a single-threaded test has no second writer to exclude. The id
-     * is recorded, so a test can assert the caller took the serialization point it promises.
-     */
-    @Override
-    public Optional<ScimGroup> findByIdForUpdate(UUID id) {
-        lockedReads.add(id);
-        return findById(id);
-    }
-
-    /** Every id read through {@link #findByIdForUpdate}, in call order. */
-    public List<UUID> lockedReads() {
-        return List.copyOf(lockedReads);
     }
 
     @Override

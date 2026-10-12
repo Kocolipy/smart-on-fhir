@@ -16,6 +16,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
@@ -113,8 +114,11 @@ class ScimGroupServiceTests {
                 : storedQueries.query(query, connectorId, baseUri);
     };
 
+    private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
+
     private final ScimGroupService service = new ScimGroupService(
             groups,
+            writeLocks,
             users,
             aliases,
             sessions,
@@ -142,6 +146,55 @@ class ScimGroupServiceTests {
     private ScimVersionPrecondition current(UUID id) {
         long version = groups.findById(id).map(ScimGroup::version).orElse(ScimUser.INITIAL_VERSION);
         return ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\""));
+    }
+
+    // ---- the locks a write asks for -----------------------------------------------------------
+
+    @Test
+    void a_create_locks_every_member_it_names() {
+        service.create(CONNECTOR,
+                new NewScimGroup("Engineering", List.of(alice.id(), bob.id()), null));
+
+        assertThat(writeLocks.requests()).containsExactly(Set.of(alice.id(), bob.id()));
+    }
+
+    @Test
+    void a_put_locks_the_group_and_every_member_the_replacement_names() {
+        ScimGroup group = groups.create(ScimIdentities.group("Engineering", alice));
+
+        service.replace(CONNECTOR, group.id(), current(group.id()),
+                new ScimGroupReplacement("Engineering", List.of(bob.id()), null));
+
+        assertThat(writeLocks.requests()).containsExactly(Set.of(group.id(), bob.id()));
+    }
+
+    /** Every User an add, a remove or a replace names; a rename and an alias name none. */
+    @Test
+    void a_patch_locks_the_group_and_every_user_its_operations_name() {
+        ScimUser carol = users.create(ScimIdentities.user("carol"));
+        ScimUser dave = users.create(ScimIdentities.user("dave"));
+        ScimGroup group = groups.create(ScimIdentities.group("Engineering", alice, bob));
+
+        service.patch(CONNECTOR, group.id(), current(group.id()), List.of(
+                new ScimGroupPatchOperation.SetDisplayName("Platform"),
+                new ScimGroupPatchOperation.SetExternalId("eng"),
+                new ScimGroupPatchOperation.RemoveExternalId(),
+                new ScimGroupPatchOperation.AddMembers(List.of(carol.id())),
+                new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id())),
+                new ScimGroupPatchOperation.RemoveAllMembers(),
+                new ScimGroupPatchOperation.ReplaceMembers(List.of(dave.id()))));
+
+        assertThat(writeLocks.requests())
+                .containsExactly(Set.of(group.id(), carol.id(), alice.id(), dave.id()));
+    }
+
+    @Test
+    void a_delete_locks_the_group() {
+        ScimGroup group = groups.create(ScimIdentities.group("Engineering", alice));
+
+        service.delete(CONNECTOR, group.id(), current(group.id()));
+
+        assertThat(writeLocks.requests()).containsExactly(Set.of(group.id()));
     }
 
     // ---- create -------------------------------------------------------------------------------
