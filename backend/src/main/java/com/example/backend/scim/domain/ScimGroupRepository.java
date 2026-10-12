@@ -49,13 +49,6 @@ public interface ScimGroupRepository {
     Optional<ScimGroup> findById(UUID id);
 
     /**
-     * The live Group with this id, read under an exclusive lock on its resource row held until
-     * the calling transaction ends — the conditional-write path's read, for the reason
-     * {@link ScimUserRepository#findByIdForUpdate} gives.
-     */
-    Optional<ScimGroup> findByIdForUpdate(UUID id);
-
-    /**
      * The Group the deployment reserves under this name, or empty before seeding has run.
      *
      * <p>How authority is derived: the Admin group is resolved through its reservation and

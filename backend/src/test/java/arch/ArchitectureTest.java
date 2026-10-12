@@ -822,6 +822,29 @@ public class ArchitectureTest {
             .because("RepresentationChange decides which resources' versions a write advances,"
                     + " so every write path applies one rule (issue #137)");
 
+    /**
+     * A SCIM write's resource locks have one owner:
+     * {@code scim.infrastructure.persistence.ScimWriteLockAdapter}, which takes every row a write
+     * needs in one canonical order before the write changes anything. A second place that locked
+     * resource rows would pick its own order, which is how a User DELETE and a Group PUT on a
+     * shared membership deadlocked: each locked its own subject first and the other's later.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_write_lock_module_locks_scim_resources =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is ScimResourceJpaRepository.lockInIdOrder",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("lockInIdOrder")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scim.infrastructure.persistence"
+                                                    + ".ScimResourceJpaRepository")))
+            .allowEmptyShould(true)
+            .because("one module locks a SCIM write's rows, in one order, so no two writers can"
+                    + " each hold a row the other waits for");
+
     /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =
             "com.example.backend.auth.application.LoginStateService";

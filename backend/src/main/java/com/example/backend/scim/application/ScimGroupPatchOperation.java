@@ -25,11 +25,24 @@ import java.util.UUID;
 public sealed interface ScimGroupPatchOperation {
 
     /**
+     * Every User this operation names — added, removed or replacing the membership — so a write
+     * can lock them before it reads the Group. With the Group's current members, a superset of
+     * every User whose membership the operation can move. Abstract, so a new variant has to say
+     * which Users it names rather than inherit "none".
+     */
+    List<UUID> namedUserIds();
+
+    /**
      * Set the Group's label. {@code add} and {@code replace} on {@code displayName} are the
      * same operation — the attribute is single-valued, so adding to it is replacing it, as
      * RFC 7644 §3.5.2.1 says of a single-valued attribute.
      */
     record SetDisplayName(String displayName) implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return List.of();
+        }
     }
 
     /**
@@ -37,10 +50,20 @@ public sealed interface ScimGroupPatchOperation {
      * reason they are on {@code displayName}: the attribute is single-valued.
      */
     record SetExternalId(String externalId) implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return List.of();
+        }
     }
 
     /** Remove the calling connector's alias; another connector's alias is not reachable. */
     record RemoveExternalId() implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return List.of();
+        }
     }
 
     /**
@@ -50,6 +73,11 @@ public sealed interface ScimGroupPatchOperation {
      * re-sending its desired state needs.
      */
     record AddMembers(List<UUID> userIds) implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return userIds;
+        }
     }
 
     /**
@@ -58,6 +86,11 @@ public sealed interface ScimGroupPatchOperation {
      * to know what the current one is.
      */
     record RemoveMembers(List<UUID> userIds) implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return userIds;
+        }
     }
 
     /**
@@ -66,6 +99,11 @@ public sealed interface ScimGroupPatchOperation {
      * into it.
      */
     record ReplaceMembers(List<UUID> userIds) implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return userIds;
+        }
     }
 
     /**
@@ -77,5 +115,10 @@ public sealed interface ScimGroupPatchOperation {
      * state belongs to the use case that holds the transaction.
      */
     record RemoveAllMembers() implements ScimGroupPatchOperation {
+
+        @Override
+        public List<UUID> namedUserIds() {
+            return List.of();
+        }
     }
 }

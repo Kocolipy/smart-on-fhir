@@ -31,6 +31,7 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -61,8 +62,11 @@ import org.springframework.transaction.annotation.Transactional;
  * desired state is the same and must not be able to differ between the two verbs:
  *
  * <ol>
- *   <li>read the User under its resource lock — absent is a {@code 404}, decided before the
- *       precondition so a malformed or stale header cannot disclose which ids exist;
+ *   <li>lock the User and every Group it is in, through the one lock module
+ *       ({@link ScimWriteLocks}) and in its one order — a label change advances those Groups too,
+ *       so they are locked whether or not this write turns out to move it — then read the User
+ *       — absent is a {@code 404}, decided before the precondition so a malformed or stale header
+ *       cannot disclose which ids exist;
  *   <li>check the {@code If-Match} precondition, when one was sent, against the locked version,
  *       so two writers racing with the same one produce one success and one {@code 412}. A write
  *       without one is applied unconditionally, still under the lock and in one transaction with
@@ -100,9 +104,11 @@ public class ScimUserService {
     private final Clock clock;
     private final ScimQueryRepository queries;
     private final ScimWriteEffectsApplier effects;
+    private final ScimWriteLocks writeLocks;
 
     public ScimUserService(
             ScimUserRepository users,
+            ScimWriteLocks writeLocks,
             ScimGroupRepository groups,
             ScimExternalIdRepository aliases,
             PasswordAcceptance passwordAcceptance,
@@ -114,6 +120,7 @@ public class ScimUserService {
             ScimQueryRepository queries) {
         this.queries = queries;
         this.users = users;
+        this.writeLocks = writeLocks;
         this.groups = groups;
         this.aliases = aliases;
         this.passwordAcceptance = passwordAcceptance;
@@ -281,9 +288,10 @@ public class ScimUserService {
     /**
      * Deletes a User — a DELETE.
      *
-     * <p>The same order as a write, for the same reasons: read under the resource lock (absent is
-     * a {@code 404}, decided before the precondition), check {@code If-Match} against the locked
-     * version, then refuse the Bootstrap Admin, which no SCIM operation may delete.
+     * <p>The same order as a write, for the same reasons: lock the User and every Group it leaves,
+     * then read it (absent is a {@code 404}, decided before the precondition), check
+     * {@code If-Match} against the locked version, then refuse the Bootstrap Admin, which no SCIM
+     * operation may delete.
      *
      * <p>The live rows go — profile, emails, credential, password history, memberships, connector
      * aliases — and a tombstone holding only the id, the type and the time is written in the same
@@ -296,7 +304,7 @@ public class ScimUserService {
     @Transactional
     public boolean delete(
             AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
-        Optional<ScimUser> stored = users.findByIdForUpdate(id);
+        Optional<ScimUser> stored = lockedForWrite(id);
         if (stored.isEmpty()) {
             return false;
         }
@@ -317,13 +325,24 @@ public class ScimUserService {
         return true;
     }
 
+    /**
+     * The User a write or deletion acts on, read only once the lock module holds it and every
+     * Group it is in, so the read is the committed state and the version it carries is the one
+     * {@code If-Match} is checked against. The one way into a User write: the lock must come
+     * before the read, and naming the pair keeps the two from being separated.
+     */
+    private Optional<ScimUser> lockedForWrite(UUID id) {
+        writeLocks.lockUserWrite(id);
+        return users.findById(id);
+    }
+
     /** The shared shape of a User write; see the class documentation for its order. */
     private Optional<ScimUserResource> write(
             AuthenticatedConnector connector,
             UUID id,
             ScimVersionPrecondition precondition,
             UnaryOperator<ScimUserEdit> change) {
-        Optional<ScimUser> stored = users.findByIdForUpdate(id);
+        Optional<ScimUser> stored = lockedForWrite(id);
         if (stored.isEmpty()) {
             return Optional.empty();
         }

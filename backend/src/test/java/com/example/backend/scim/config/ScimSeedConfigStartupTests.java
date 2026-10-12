@@ -12,6 +12,7 @@ import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
 import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -57,7 +58,8 @@ class ScimSeedConfigStartupTests {
 
     private final ApplicationContextRunner contexts = new ApplicationContextRunner()
             .withBean(ScimSeedService.class, () -> new ScimSeedService(
-                    users, groups, () -> { }, new RecordingAuditTrail(),
+                    users, groups, new InMemoryScimWriteLocks(), () -> { },
+                    new RecordingAuditTrail(),
                     new MarkingPasswordEncoder(),
                     Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping,
                     LoginStateModules.over(

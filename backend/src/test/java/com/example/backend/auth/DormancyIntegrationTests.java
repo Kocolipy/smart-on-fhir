@@ -516,6 +516,46 @@ class DormancyIntegrationTests {
     }
 
     /**
+     * A run removing a dormant User's mapped membership and a connector deleting that User both
+     * lock the User and the Group. Released together they complete, every round, in whichever
+     * order the locks put them: the run revokes the Role of a User still there, or finds it gone.
+     */
+    @Test
+    void aRunRacingAUserDeleteOnAMappedMembershipBothComplete() throws Exception {
+        List<String> failures = new ArrayList<>();
+        ScimVersionPrecondition unconditional = ScimVersionPrecondition.ofIfMatch(List.of());
+        for (int round = 0; round < 10; round++) {
+            UUID user = createUser("dormancy-delete-race-" + round, null);
+            addToAdminGroup(user);
+            backdateCreation(user, PAST_ROLE_REVOCATION);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                CountDownLatch start = new CountDownLatch(1);
+                List<Future<?>> writes = List.of(
+                        pool.submit(() -> {
+                            start.await();
+                            return dormancy.run();
+                        }),
+                        pool.submit(() -> {
+                            start.await();
+                            return userService.delete(connector, user, unconditional);
+                        }));
+                start.countDown();
+                for (Future<?> write : writes) {
+                    try {
+                        write.get(60, TimeUnit.SECONDS);
+                    } catch (java.util.concurrent.ExecutionException failed) {
+                        failures.add("round " + round + ": " + failed.getCause());
+                    }
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+        assertThat(failures).isEmpty();
+    }
+
+    /**
      * While another transaction holds the dormancy job's lock row, a run skips and changes
      * nothing; once the holder commits, the job runs again. The retention job's row is a
      * different one and does not block it.

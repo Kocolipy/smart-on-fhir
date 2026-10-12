@@ -29,6 +29,10 @@ import org.springframework.stereotype.Repository;
  * Maps the SCIM Group port onto the normalized JPA model. Each write describes itself to
  * {@link RepresentationChange}, which decides whose versions the port's promise advances.
  *
+ * <p>Stores only. Every row a write here touches — the Group, its members before and after, the
+ * Users whose versions advance — is locked before the write reaches this adapter, in one order,
+ * by {@link ScimWriteLockAdapter}; so this adapter takes no lock and decides no order.
+ *
  * <h2>Why every write flushes twice</h2>
  *
  * <p>A Group write can violate two different constraints — the unique
@@ -103,19 +107,6 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     @Override
     public Optional<ScimGroup> findById(UUID id) {
         return groups.findById(id).map(entity -> toDomain(entity, membersOf(List.of(id))));
-    }
-
-    /**
-     * Locks the resource row first and reads the Group after, so the Group read sees what the
-     * previous lock holder committed. An id whose resource row is a User's locks nothing worth
-     * keeping and returns empty, as {@link #findById} does.
-     */
-    @Override
-    public Optional<ScimGroup> findByIdForUpdate(UUID id) {
-        if (resources.lockById(id).isEmpty()) {
-            return Optional.empty();
-        }
-        return findById(id);
     }
 
     @Override

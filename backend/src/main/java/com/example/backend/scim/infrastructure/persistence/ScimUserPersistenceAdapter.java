@@ -27,7 +27,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
-/** Maps the SCIM User port onto the normalized JPA model. */
+/**
+ * Maps the SCIM User port onto the normalized JPA model. Stores only: the locks a write needs are
+ * taken before it reaches here, in one order, by {@link ScimWriteLockAdapter}.
+ */
 @Repository
 class ScimUserPersistenceAdapter implements ScimUserRepository {
 
@@ -98,34 +101,25 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
     }
 
     /**
-     * Locks the resource row, then reads the User. The lock query is the transaction's first read
-     * of the resource, so the version it returns is the one the previous lock holder committed.
-     */
-    @Override
-    public Optional<ScimUser> findByIdForUpdate(UUID id) {
-        if (resources.lockById(id).isEmpty()) {
-            return Optional.empty();
-        }
-        return findById(id);
-    }
-
-    /**
      * Writes the changed profile columns and the given credential, change-required flag and
      * dormancy basis, then advances the version once. Stores what it is given: which login state a
      * write leaves is decided before it reaches here (see the port).
      *
      * <p>The entity is {@code @DynamicUpdate}, so the UPDATE names only the columns that differ
-     * from what was loaded — by the caller's locked read, earlier in the same transaction. That is
-     * what keeps this write from touching what the login path writes without the resource lock:
-     * the failure run and the lock are not assigned here at all, and a flag or basis given as it
-     * was read is not dirty, so it is not written.
+     * from what was loaded — by the caller's read under the write's locks, earlier in the same
+     * transaction. That is what keeps this write from touching what the login path writes without
+     * the resource lock: the failure run and the lock are not assigned here at all, and a flag or
+     * basis given as it was read is not dirty, so it is not written.
      *
-     * <p>That comparison is against the locked read only because the entity loaded here IS the
-     * one that read loaded: {@link #findByIdForUpdate} locks the resource row, not this one, so a
-     * Login can commit a newer basis to this row in between, and an entity reloaded from the
-     * database would see it and treat the caller's older value as a change. Nothing between the
-     * two may therefore clear the persistence context — no {@code clearAutomatically} statement
-     * may run in the SCIM write path before this call.
+     * <p>That comparison is against the caller's read only because the entity loaded here IS the
+     * one that read loaded: the write's locks ({@code ScimWriteLocks}) are on the resource row, not
+     * this one, so a Login can commit a newer basis to this row in between, and an entity reloaded
+     * from the database would see it and treat the caller's older value as a change. Nothing
+     * between the two may therefore clear the persistence context — no {@code clearAutomatically}
+     * statement may run in the SCIM write path before this call.
+     *
+     * <p>Takes no lock: every row the version advance below touches — the User, and each of its
+     * Groups — the caller already holds.
      *
      * <p>{@code saveAndFlush} so a taken {@code userName} surfaces here, attributable, rather than
      * at commit after the response is decided.
@@ -270,7 +264,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      *
      * <p>Advanced before the delete, while the membership rows that name those Groups still
      * exist; the cascade from the resource row then removes the memberships with everything else.
-     * A User in no Group advances nothing.
+     * A User in no Group advances nothing. Takes no lock: the caller holds the User and its Groups.
      */
     @Override
     public void deleteById(UUID id, Instant now) {
