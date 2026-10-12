@@ -81,11 +81,12 @@ class ScimBearerAuthenticationFilterTests {
 
     @BeforeEach
     void setUp() {
+        RouteTemplates routes = new RouteTemplates(() -> null);
+        AccessRefusalLog refusals = new AccessRefusalLog(routes);
         filter = new ScimBearerAuthenticationFilter(
                 new ConnectorAuthenticationService(connectors, tokens, clock),
-                new AccessRefusalLog(new RouteTemplates(() -> null)),
-                audit,
-                new RouteTemplates(() -> null));
+                refusals,
+                new ScimInsufficientPermissions(refusals, audit, routes));
         connector = connectors.seed("Okta", NOW);
         response = new MockHttpServletResponse();
         chain = new MockFilterChain();

@@ -55,6 +55,17 @@ public final class RequestActor {
     }
 
     /**
+     * The id of the connector whose bearer token authenticated the request, or {@code null}.
+     *
+     * <p>How the SCIM chain names the connector in a refusal it answers after the dispatch has
+     * unwound — a handler's own Permission declaration refusing it — by which time the security
+     * context the bearer filter set has already been cleared.
+     */
+    public static UUID connectorOf(HttpServletRequest request) {
+        return attribute(request, CONNECTOR_ATTRIBUTE);
+    }
+
+    /**
      * Puts the request's actor back in the logging context: {@code user.id} and
      * {@code scim.connector.id} as marked, and each removed where it was not, so the record
      * written inside the scope names whoever the request was authenticated as and nobody else.

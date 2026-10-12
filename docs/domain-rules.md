@@ -320,10 +320,12 @@ not imply read. A base `/.search` needs at least one read Permission and returns
 only the resource types the token may read — a `user:read`-only token gets Users
 and no Groups, as if the directory held none. Discovery (`ServiceProviderConfig`,
 `Schemas`, `ResourceTypes`) needs a valid token and no Permission, and `/Me` is
-`501` to any valid token. All of it is decided in the SCIM chain's filter from
-the request's method and path, before any handler runs, so no handler carries a
-check of its own; a path no endpoint serves needs only a valid token and is a
-`404`. A refusal is `403` with `insufficient_scope` and no body, logged at `WARN`
+`501` to any valid token. Each Users and Groups handler, and the base
+`/.search`, declares its Permission with method security, as an application
+handler does (ADR 0010); the SCIM chain's filter repeats the rule from the
+request's method and path as a backstop, so a request line it misreads cannot
+open an operation the handler holds. A path no endpoint serves needs only a
+valid token and is a `404`. A refusal is `403` with `insufficient_scope` and no body, logged at `WARN`
 and audited as `ACCESS_DENIED` naming the connector, the operation and the
 generic reason — never the missing Permission. Issuing requires at least one
 Permission; a stored token holding none still authenticates and reaches

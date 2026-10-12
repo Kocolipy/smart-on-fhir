@@ -13,8 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code 404}, because a {@code 404} would tell a client the path does not exist when what is true
  * is that this provider does not offer the operation — which is what {@code 501} says.
  *
- * <p>Behind authentication like every non-discovery path: an unauthenticated caller learns no more
- * here than anywhere else in the namespace.
+ * <p>Behind authentication like every path in the namespace: an unauthenticated caller learns no
+ * more here than anywhere else. A valid token and no Permission (ADR 0010), so the handler declares
+ * none — deliberately, and listed as token-only in
+ * {@code ArchitectureTest.every_protected_handler_declares_a_permission}.
  */
 @RestController
 class ScimMeController {

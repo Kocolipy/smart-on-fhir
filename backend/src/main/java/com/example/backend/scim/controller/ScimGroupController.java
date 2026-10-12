@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,10 +35,12 @@ import tools.jackson.databind.JsonNode;
  * The SCIM Group endpoints a connector calls: create, retrieve one, retrieve a page, replace, patch,
  * delete.
  *
- * <p>Authentication and write scope are already decided when a request reaches here — the namespace's
- * filter chain authenticated the bearer token and turned a read-only token's mutation away before any
- * handler ran — so there is no credential check in this class and there must not be one: a
- * per-handler check would cover the handlers whose author remembered it.
+ * <p>Each handler declares the Permission it needs with method security, as the application chain's
+ * handlers do (ADR 0010): {@code group:read} to read or search, {@code group:write} to create,
+ * replace, patch or delete. The declaration is the authority, because it sits on the operation the
+ * dispatcher actually selected; the namespace's bearer filter, which judges the request line before
+ * dispatch, is the backstop. A handler added without a declaration fails
+ * {@code ArchitectureTest.every_protected_handler_declares_a_permission}.
  *
  * <p>Nor is there a protected-resource check here. Whether the Admin group may be renamed is a rule
  * about the directory, not about HTTP, so it lives in {@link ScimGroupService} where every write path
@@ -66,6 +69,7 @@ class ScimGroupController {
      * <p>{@code 201} with the canonical resource, its {@code Location} and a strong {@code ETag} —
      * the three things RFC 7644 §3.3 requires of a create.
      */
+    @PreAuthorize("hasAuthority('group:write')")
     @PostMapping(
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
@@ -91,6 +95,7 @@ class ScimGroupController {
      * traffic, and recording it would bury the collection reads that indicate an enumeration. The
      * absence of an audit call is in the use case, where the read is.
      */
+    @PreAuthorize("hasAuthority('group:read')")
     @GetMapping(
             path = "/{id}",
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
@@ -117,6 +122,7 @@ class ScimGroupController {
      * {@code 400 invalidFilter} and an unsortable {@code sortBy} a {@code 400 invalidValue}, both
      * refused before anything is read.
      */
+    @PreAuthorize("hasAuthority('group:read')")
     @GetMapping(produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> page(
             @AuthenticationPrincipal AuthenticatedConnector connector,
@@ -135,9 +141,10 @@ class ScimGroupController {
     /**
      * The same query, written as a {@code SearchRequest} body — RFC 7644 §3.4.3.
      *
-     * <p>A {@code POST} that reads: the namespace's scope rule lets a read-only token call it,
-     * and it is audited as the same bulk read the {@code GET} is.
+     * <p>A {@code POST} that reads: it needs {@code group:read}, not {@code group:write}, and it is
+     * audited as the same bulk read the {@code GET} is.
      */
+    @PreAuthorize("hasAuthority('group:read')")
     @PostMapping(
             path = "/.search",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -168,6 +175,7 @@ class ScimGroupController {
      * write against an existing resource. The use case evaluates it once the Group is found, so an unknown id is a
      * {@code 404} whatever the header says.
      */
+    @PreAuthorize("hasAuthority('group:write')")
     @PutMapping(
             path = "/{id}",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -197,6 +205,7 @@ class ScimGroupController {
      * body would have to re-read the resource to learn its new ETag before it could make a
      * conditional write.
      */
+    @PreAuthorize("hasAuthority('group:write')")
     @PatchMapping(
             path = "/{id}",
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
@@ -225,6 +234,7 @@ class ScimGroupController {
      * {@code 404} rather than a silent success: a connector converging on a desired state needs to
      * know whether the id it holds was ever real.
      */
+    @PreAuthorize("hasAuthority('group:write')")
     @DeleteMapping(path = "/{id}")
     ResponseEntity<Void> delete(
             @AuthenticationPrincipal AuthenticatedConnector connector,

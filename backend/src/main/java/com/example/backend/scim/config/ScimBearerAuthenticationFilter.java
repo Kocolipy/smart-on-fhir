@@ -1,14 +1,10 @@
 package com.example.backend.scim.config;
 
-import com.example.backend.audit.domain.AuditRequest;
-import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.observability.RequestActor;
-import com.example.backend.observability.RequestIdFilter;
-import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimPermissionRule;
@@ -27,8 +23,8 @@ import org.springframework.security.web.authentication.preauth.PreAuthenticatedA
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Authenticates a SCIM request by its bearer token, and refuses a mutating request
- * made with a read-only one.
+ * Authenticates a SCIM request by its bearer token, puts the token's Permissions on the principal,
+ * and — as the backstop — refuses a request the token's Permissions plainly do not cover.
  *
  * <p><strong>The header, and nothing but the header.</strong> The presented value is
  * read from {@code Authorization} alone. This filter never calls
@@ -42,12 +38,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code semgrep/rules/service-security.yml} holds the property against future code
  * in this package.
  *
- * <p><strong>Permissions are enforced here rather than in a handler.</strong> A token lacking
- * the Permission a request needs is turned away before any handler runs, from the method and the
- * path alone ({@link ScimPermissionRule}). A per-handler check would cover the handlers whose
- * author remembered it; this covers every SCIM path that exists, and refuses every one the rule
- * does not name. The refusal is logged and audited with the connector, the operation and the one
- * generic reason, never the Permission that was missing.
+ * <p><strong>The handler decides; this filter is the backstop (ADR 0010).</strong> Each SCIM
+ * handler declares the Permission it needs with method security, against the authorities this
+ * filter puts on the principal — the one authorization mechanism both chains share, and the one
+ * that judges the operation the dispatcher actually selected. Before dispatch this filter also
+ * judges the request line ({@link ScimPermissionRule}) and turns away a token the rule can already
+ * see lacks the Permission, so a request it refuses never reaches the dispatcher. It cannot be the
+ * authority: it reads the path as sent, and the dispatcher matches it decoded, so the two can name
+ * different resources — which is why a path the rule does not recognise is left for the handler
+ * to decide rather than opened by it. Either refusal is {@link ScimInsufficientPermissions}: logged
+ * and audited with the connector, the operation and the one generic reason, never the Permission
+ * that was missing.
  *
  * <p><strong>Three outcomes, and the missing-credential one is not this filter's.</strong>
  * A request with no {@code Authorization} header is passed along unauthenticated, so
@@ -66,19 +67,15 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
 
     private final AccessRefusalLog refusals;
 
-    private final AuditTrail audit;
-
-    private final RouteTemplates routes;
+    private final ScimInsufficientPermissions insufficientPermissions;
 
     ScimBearerAuthenticationFilter(
             ConnectorAuthenticationService connectors,
             AccessRefusalLog refusals,
-            AuditTrail audit,
-            RouteTemplates routes) {
+            ScimInsufficientPermissions insufficientPermissions) {
         this.connectors = connectors;
         this.refusals = refusals;
-        this.audit = audit;
-        this.routes = routes;
+        this.insufficientPermissions = insufficientPermissions;
     }
 
     @Override
@@ -110,14 +107,7 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
                 LogContext.connectorId(connector.get().connectorId().toString())) {
             if (!ScimPermissionRule.permits(
                     request.getMethod(), path(request), connector.get().permissions())) {
-                if (refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)) {
-                    // Only when the log took it, so one exchange is one record of each kind.
-                    audit.recordConnectorAccessDenied(
-                            connector.get().connectorId(),
-                            new AuditRequest(RequestIdFilter.method(request), routes.of(request),
-                                    RequestIdFilter.requestId(request)));
-                }
-                ScimBearerChallenge.insufficientPermissions(response);
+                insufficientPermissions.refuse(request, response, connector.get().connectorId());
                 return;
             }
             proceedAs(connector.get(), request, response, chain);
@@ -185,9 +175,9 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private static List<SimpleGrantedAuthority> authorities(AuthenticatedConnector connector) {
-        // The token's Permissions, spelled as a session's are. Nothing on this chain decides on
-        // them — the rule above already has — but a principal whose authorities said otherwise
-        // would be a second, disagreeing account of what the request may do.
+        // The token's Permissions, spelled as a session's are: what each handler's own
+        // @PreAuthorize declaration decides on, exactly as a session's authorities are on the
+        // application chain.
         return connector.permissions().sortedValues().stream()
                 .map(SimpleGrantedAuthority::new)
                 .toList();

@@ -505,6 +505,48 @@ class AuthorizationContractTests {
         assertThat(failures).isEmpty();
     }
 
+    /**
+     * The same, for the SCIM chain: each documented SCIM operation's handler, invoked through its
+     * Spring proxy with no filter in front of it, holds the Permission the document declares — so
+     * the bearer filter's request-line rule is a backstop, not the only line. A token-only
+     * operation (discovery, {@code /Me}) admits a caller holding no Permission at all, and the
+     * base {@code .search} admits either read Permission alone and refuses every other one.
+     */
+    @Test
+    void each_scim_handler_holds_its_declared_permission_itself() {
+        List<Operation> scim = scimOperations();
+        assertThat(scim).hasSizeGreaterThan(20);
+        List<String> failures = new ArrayList<>();
+        for (Operation operation : scim) {
+            HandlerMethod handler = handlerOf(operation);
+            Object bean = handler.getBean() instanceof String name
+                    ? context.getBean(name) : handler.getBean();
+            Method method = handler.getMethod();
+            OpenApiContract.Requirement requirement = operation.requirement();
+            List<String> admitting = requirement.access() == Access.BEARER_ANY_OF
+                    ? requirement.anyOf()
+                    : requirement.permission() == null ? List.of() : List.of(requirement.permission());
+
+            if (admitting.isEmpty()) {
+                if (invoke(bean, method, List.of()) instanceof AccessDeniedException) {
+                    failures.add(operation + " handler refused a token holding no Permission");
+                }
+                continue;
+            }
+            List<String> otherwise = new ArrayList<>(DIRECTORY);
+            otherwise.removeAll(admitting);
+            if (!(invoke(bean, method, otherwise) instanceof AccessDeniedException)) {
+                failures.add(operation + " handler admitted a token holding only " + otherwise);
+            }
+            for (String permission : admitting) {
+                if (invoke(bean, method, List.of(permission)) instanceof AccessDeniedException) {
+                    failures.add(operation + " handler refused a token holding " + permission);
+                }
+            }
+        }
+        assertThat(failures).isEmpty();
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static List<Operation> scimOperations() {

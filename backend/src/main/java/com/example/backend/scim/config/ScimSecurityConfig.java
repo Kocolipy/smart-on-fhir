@@ -104,6 +104,10 @@ public class ScimSecurityConfig {
             AuditTrail audit,
             RouteTemplates routeTemplates) {
         AuthenticationEntryPoint challenge = new ScimBearerEntryPoint(accessRefusalLog);
+        // One answer to a token lacking a Permission, whichever layer refused it: the bearer
+        // filter's backstop and the chain's access-denied handler share this instance.
+        ScimInsufficientPermissions insufficientPermissions =
+                new ScimInsufficientPermissions(accessRefusalLog, audit, routeTemplates);
 
         // A stateless bearer API has no CSRF exposure to protect, because the
         // credential is not ambient. A browser cannot make an authenticated SCIM
@@ -152,13 +156,17 @@ public class ScimSecurityConfig {
                 .addFilterBefore(new ScimDispatcherErrorFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(
                         new ScimBearerAuthenticationFilter(
-                                connectors, accessRefusalLog, audit, routeTemplates),
+                                connectors, accessRefusalLog, insufficientPermissions),
                         AuthorizationFilter.class)
+                // A handler's own Permission declaration refusing a token propagates out of the
+                // dispatcher to here, and is answered exactly as the bearer filter's backstop
+                // refusal is: the same 403 challenge, refusal record and audit row.
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(challenge))
-                // Every request needs a valid token, discovery included (ADR 0010): what a
-                // request needs BEYOND a token is the bearer filter's decision, made from the
-                // token's Permissions before this rule is reached. No route is public here.
+                        .authenticationEntryPoint(challenge)
+                        .accessDeniedHandler(insufficientPermissions))
+                // Every request needs a valid token, discovery included (ADR 0010). What a
+                // request needs BEYOND a token is declared by the handler that serves it, with
+                // method security; the bearer filter's rule is the backstop. No route is public.
                 .authorizeHttpRequests(authorize -> authorize
                         .anyRequest().authenticated())
                 .build();
