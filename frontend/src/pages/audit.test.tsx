@@ -646,6 +646,22 @@ describe("Audit", () => {
       );
     });
 
+    it("reads once, for the new filters only, when a submit changes them", async () => {
+      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const user = userEvent.setup();
+      renderAudit();
+
+      await findTable();
+      await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await findTable();
+
+      expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual([
+        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
+      ]);
+    });
+
     it("clears a refusal once the filters are submitted valid", async () => {
       resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
       const user = userEvent.setup();

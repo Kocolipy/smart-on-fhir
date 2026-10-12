@@ -133,9 +133,11 @@ request is built, so a malformed one is refused on the page and nothing is sent;
 its `AUDIT_EVENTS` declaration reads the path the filters parsed into. A refused
 filter and a failed read share the error line, the later of the two showing.
 Ids are shown as ids, never resolved to usernames, which would need `user:read`.
-The page reads on mount, on a filter submit, on paging and on Refresh, and never
-on a timer: every request renews the server session, so a page that polled
-would never reach the idle timeout. The pager names a total only once a read of
+The page reads on mount, on a filter submit (every valid one, the filters
+already shown included), on paging and on Refresh — a second Refresh
+supersedes the first, so only the newest answer shows — and never on a timer:
+every request renews the server session, so a page that polled would never
+reach the idle timeout. The pager names a total only once a read of
 the current query has stated one, and never fewer pages than the one shown, so
 a page still loading or one that failed reads "Page 3", not "Page 3 of 1".
 
@@ -157,12 +159,19 @@ one level higher, through `auth/use-gated-read.ts`. A page names the read's
 declaration (from its API module) with the declaration's arguments, its failure
 copy and the page status; the hook sends nothing without the Permission, resets
 when the Permission or the path changes, and drops an answer for a key it has
-moved off. What it returns is one closed `ReadView` — `not-permitted`,
-`loading`, `failed` (nothing was ever read), `ready`, or `stale` (a refresh
-failed and the last data is kept); the refusal's copy goes to the page status,
-and a read that closes (its path moved, its gate shut) withdraws what it
-reported. A page switches on the view rather than re-checking the read's
-Permission or rebuilding the states from loose flags.
+moved off. Its `reload()` is "read for these arguments now": while the gate is
+open it always sends, for the arguments the next render names, and **the
+newest read wins** — every read the hook sends (on opening, on a key change,
+on `reload()`, or from a write's `after`) supersedes the one in flight, so an
+older answer arriving last is discarded from the view and the page status
+alike. A `reload()` asked for in the same event as a change of arguments is
+that change's one read, never a second, so Audit's submit sets its query and
+reloads without asking whether the path moved. What it returns is one closed
+`ReadView` — `not-permitted`, `loading`, `failed` (nothing was ever read),
+`ready`, or `stale` (a refresh failed and the last data is kept); the refusal's
+copy goes to the page status, and a read that closes (its path moved, its gate
+shut) withdraws what it reported. A page switches on the view rather than
+re-checking the read's Permission or rebuilding the states from loose flags.
 
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the

@@ -510,7 +510,10 @@ describe("Connectors", () => {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
     finish?.({ kind: "ok", data: undefined });
-    expect(await screen.findByRole("button", { name: "Delete Okta" })).toBeEnabled();
+    // Enabled again once the re-read after the change has answered.
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete Okta" })).toBeEnabled(),
+    );
   });
 
   it("reports an out-of-range request as a refusal", async () => {
