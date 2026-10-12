@@ -18,9 +18,10 @@ import org.springframework.stereotype.Service;
 /**
  * The login-state module: the one owner of a User's Failure run and lock, its dormancy basis and
  * its change-required flag. A caller reports what happened — a failure counted, a credential
- * verified, a password changed, an Unlock, a dormancy lock, a directory write — and this decides
- * the resulting state and carries out the narrow writes it implies, or hands the state back to be
- * stored with the write it belongs to. No caller decides those fields itself.
+ * verified, a password changed, an Unlock, an Admin's forced change, a dormancy lock, a directory
+ * write — and this decides the resulting state and carries out the narrow writes it implies, or
+ * hands the state back to be stored with the write it belongs to. No caller decides those fields
+ * itself.
  *
  * <p>The rules, event by event:
  *
@@ -37,6 +38,10 @@ import org.springframework.stereotype.Service;
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, and when a lock
  *       stood the dormancy basis restarts (ADR 0011) and, for a User with a password, a change is
  *       required. Idempotent on a User serving no lockout: only its run is cleared.
+ *   <li><b>Password change forced</b> — an Admin's forced password change: a change is required
+ *       as of now, the run and any lock untouched. Idempotent on a User already owing one: it
+ *       keeps the instant the change was first required, and nothing is written. Who may force a
+ *       change, and on whom, is the administration path's to refuse before it reports the event.
  *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
  *       run untouched; an existing lock and its cause are never overwritten (ADR 0011).
  * </ul>
@@ -114,6 +119,15 @@ public class LoginStateService implements ScimUserLoginState {
      * @param changeRequired whether the Unlock required a password change
      */
     public record Unlock(ScimLoginState state, boolean changeRequired) {
+    }
+
+    /**
+     * What an Admin's forced password change decided.
+     *
+     * @param state   the User's login state as the forced change left it
+     * @param imposed whether the forced change required a change the User did not already owe
+     */
+    public record ForcedChange(ScimLoginState state, boolean imposed) {
     }
 
     private final ScimUserRepository users;
@@ -219,6 +233,25 @@ public class LoginStateService implements ScimUserLoginState {
         after = after.withPasswordChangeRequired(now);
         users.requirePasswordChange(user.id(), now);
         return new Unlock(after, true);
+    }
+
+    /**
+     * An Admin forced a password change on {@code user}: requires a change as of now, leaving the
+     * run and any lock as they stand — the credential's standing is withdrawn, not its use
+     * counted. A User already owing a change keeps the instant it was first required, so a second
+     * forced change re-imposes nothing; the administration path's audit and Session revocation
+     * follow only a change this imposed.
+     *
+     * @return the state the forced change left, and whether it imposed a change
+     */
+    public ForcedChange passwordChangeForced(ScimUser user) {
+        ScimLoginState before = user.login();
+        if (before.isPasswordChangeRequired()) {
+            return new ForcedChange(before, false);
+        }
+        ScimLoginState after = before.withPasswordChangeRequired(clock.instant());
+        users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
+        return new ForcedChange(after, true);
     }
 
     /**

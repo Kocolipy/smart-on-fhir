@@ -86,8 +86,7 @@ class IdentityAdministrationServiceTests {
             groups,
             new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock),
             revocation,
-            audit,
-            clock);
+            audit);
 
     // Reviewing who has access
 
@@ -711,8 +710,6 @@ class IdentityAdministrationServiceTests {
         IdentitySummary forced = service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
 
         assertThat(forced.passwordChangeRequired()).isTrue();
-        assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
-        assertThat(users.require("bob").version()).isEqualTo(bob.version());
         assertThat(sessions.sessionsOf(bob.id())).as("revocation waits for the commit").hasSize(1);
         transaction.commit();
         assertThat(sessions.sessionsOf(bob.id())).isEmpty();
@@ -735,20 +732,35 @@ class IdentityAdministrationServiceTests {
                 "SUCCESS::FORCED_PASSWORD_CHANGE"));
     }
 
-    /** A User already flagged keeps when its change was first required; nothing is re-imposed. */
+    /**
+     * A User already flagged has nothing re-imposed — what that leaves stored is the login-state
+     * module's rule — so the path audits nothing and revokes nothing, and still answers that a
+     * change is required.
+     */
     @Test
-    void forcingAChangeOnAFlaggedUserIsANoOp() {
+    void forcingAChangeOnAFlaggedUserAuditsAndRevokesNothing() {
         users.given(ScimIdentities.userWithLoginState(
                 "bob", new ScimLoginState("hash", 0, null, null, NOW)));
-        clock.advanceBy(Duration.ofDays(3));
-        int before = users.writes();
 
         assertThat(service.forcePasswordChange(id("bob"), actor(BOOTSTRAP)).passwordChangeRequired()).isTrue();
 
-        assertThat(users.writes()).isEqualTo(before);
-        assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
         assertThat(transaction.pending()).isZero();
         assertThat(audit.recorded()).isEmpty();
+    }
+
+    /** A forced change that imposed nothing is no administrative write to report as a success. */
+    @Test
+    void forcingAChangeOnAFlaggedUserReportsNoSuccessToTheLogStream() {
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 0, null, null, NOW)));
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
+
+            assertThat(captured.withAction(
+                            Level.INFO, LogEvent.ACTION, "password-change-enforcement"))
+                    .isEmpty();
+        }
     }
 
     /** The returned summary is the stored User's, the Admin flag and creation time included. */

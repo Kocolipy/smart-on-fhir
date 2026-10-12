@@ -16,7 +16,6 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -67,21 +66,18 @@ public class IdentityAdministrationService {
     private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
-    private final Clock clock;
 
     public IdentityAdministrationService(
             ScimUserRepository users,
             ScimGroupRepository groups,
             LoginStateService loginState,
             SessionRevocationService sessions,
-            AuditTrail audit,
-            Clock clock) {
+            AuditTrail audit) {
         this.users = users;
         this.groups = groups;
         this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
-        this.clock = clock;
     }
 
     /**
@@ -209,8 +205,10 @@ public class IdentityAdministrationService {
      *   <li>on a credentialless User, which already cannot log in and has nothing to replace.
      * </ul>
      *
-     * <p>Idempotent: a User already required to change is returned unchanged, and the instant
-     * the change was first required is kept.
+     * <p>What the forced change does to the login state is decided and written by
+     * {@link LoginStateService#passwordChangeForced}, and the response is built from that
+     * decision. It is idempotent there: a User already required to change is returned unchanged,
+     * with the instant the change was first required kept, and nothing is audited or revoked.
      *
      * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
@@ -236,16 +234,15 @@ public class IdentityAdministrationService {
                     new UnsafeIdentityChangeException(
                             "A User with no password has no credential to replace"));
         }
-        if (user.login().isPasswordChangeRequired()) {
-            return summarize(user, user.login());
+        LoginStateService.ForcedChange forced = loginState.passwordChangeForced(user);
+        if (!forced.imposed()) {
+            return summarize(user, forced.state());
         }
-        ScimLoginState flagged = user.login().withPasswordChangeRequired(clock.instant());
-        users.requirePasswordChange(user.id(), flagged.passwordChangeRequiredSince());
         audit.recordPasswordChangeRequired(actorId, user.id());
         sessions.revokeAllAfterCommit(
                 user.id(), SessionRevocationCause.FORCED_PASSWORD_CHANGE, actorId);
         succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
-        return summarize(user, flagged);
+        return summarize(user, forced.state());
     }
 
     private RuntimeException refuseForcedChange(
