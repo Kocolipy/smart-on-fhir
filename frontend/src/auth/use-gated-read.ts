@@ -14,6 +14,10 @@
  * flags, and never re-checks the Permission the read already checked. The
  * error line is the page status's, not this hook's: a read reports its outcome
  * there and knows nothing about what else does.
+ *
+ * Reads on one key follow the page status's own rule, the latest event wins:
+ * every read sent supersedes the one in flight, so however the answers arrive,
+ * only the newest lands.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,7 +56,14 @@ export type ReadView<T> =
 export interface GatedRead<T> {
   /** What the page renders. */
   view: ReadView<T>;
-  /** Reads again, keeping the current data — as `stale` — if the re-read is refused. */
+  /**
+   * Reads now, for the arguments the next render names, keeping the current
+   * data — as `stale` — if the re-read is refused. It always sends while the
+   * gate is open (nothing while it is shut), and supersedes any read in
+   * flight, so only the newest answer lands. Asked for in the same event as a
+   * change of arguments, it is that change's one read, not a second. Settles
+   * once its read has answered.
+   */
   reload: () => Promise<void>;
   /** Replaces the data locally, from a response that already states it. */
   update: (next: (current: T | null) => T) => void;
@@ -85,12 +96,22 @@ function useKeyedState<T>(key: string | null) {
 }
 
 /**
- * Opens a read whenever `allowed`, and returns the re-read. The open read is
- * `null` while none is (gated off, or unmounted), and a response lands only
- * while its read is still the open one, so an answer for a path the page has
- * moved off, or for a gate that has since closed, is discarded rather than
- * painted. Closing a read withdraws whatever it reported: its outcome is no
- * longer news once its path has moved or its gate has closed.
+ * Sends a read whenever `allowed` — on opening, and again for every re-read —
+ * and returns the re-read. **The newest read wins**: each read sent supersedes
+ * the one in flight, and a response lands only while its read is still the
+ * open one, so an older answer arriving after a newer one is discarded. The
+ * open read is `null` while none is (gated off, or unmounted), so an answer
+ * for a path the page has moved off, or for a gate that has since closed, is
+ * discarded the same way.
+ *
+ * Every read is sent from the one effect: a re-read bumps the read generation
+ * rather than sending, so a re-read asked for in the same event as a change
+ * of path is the new path's one read, never a second. Its promise settles once
+ * that read has answered, landed or discarded.
+ *
+ * Closing a read — its path moved, its gate shut, the page gone — withdraws
+ * whatever it reported: its outcome is no longer news. A re-read only
+ * supersedes, so what the last read reported stands until the next one lands.
  */
 function useOpenRead<T>(
   allowed: boolean,
@@ -99,26 +120,39 @@ function useOpenRead<T>(
   report: StatusReporter["report"],
 ): () => Promise<void> {
   const openRead = useRef<object | null>(null);
+  // A fresh token per re-read: only its identity matters, as an effect dependency.
+  const [generation, setGeneration] = useState<object>({});
+  // The re-reads asked for since the last read was sent; the next one answers them.
+  const waiting = useRef<(() => void)[]>([]);
 
   useEffect(() => {
-    if (!allowed) return;
+    const settles = waiting.current.splice(0);
+    if (!allowed) {
+      settles.forEach((settle) => settle());
+      return;
+    }
     const opened = {};
     openRead.current = opened;
     void read().then((result) => {
       if (opened === openRead.current) land(result);
+      settles.forEach((settle) => settle());
     });
     return () => {
       openRead.current = null;
-      report(null);
     };
-  }, [allowed, read, land, report]);
+  }, [allowed, read, land, generation]);
 
-  return useCallback(async () => {
-    const opened = openRead.current;
-    if (opened === null) return;
-    const result = await read();
-    if (opened === openRead.current) land(result);
-  }, [read, land]);
+  useEffect(() => () => report(null), [allowed, read, land, report]);
+
+  // Made once: it reads only refs and the stable `setGeneration`.
+  const [reload] = useState(() => (): Promise<void> => {
+    if (openRead.current === null) return Promise.resolve();
+    return new Promise<void>((settle) => {
+      waiting.current.push(settle);
+      setGeneration({});
+    });
+  });
+  return reload;
 }
 
 /** The one view a read state stands for. */

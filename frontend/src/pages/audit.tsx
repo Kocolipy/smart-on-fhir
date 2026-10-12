@@ -253,10 +253,10 @@ function useAuditEvents() {
       return;
     }
     filters.report(null);
-    // The read is keyed on the path, so an unchanged one opens no read of its
-    // own — and a submit always reads, even of the filters already shown.
-    if (parsed.query.path === query.path) void reading.reload();
-    else setQuery(parsed.query);
+    // A submit always reads, even of the filters already shown: the re-read
+    // is for the query set beside it, and is its one read either way.
+    void reading.reload();
+    setQuery(parsed.query);
   };
 
   return {

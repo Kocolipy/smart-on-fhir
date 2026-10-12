@@ -98,6 +98,13 @@ async function answer(response: Response) {
   await act(async () => next.answer(response));
 }
 
+/** Answers the newest open request, ahead of any older one still open. */
+async function answerNewest(response: Response) {
+  const next = sent.pop();
+  if (next === undefined) throw new Error("no request is open");
+  await act(async () => next.answer(response));
+}
+
 const count = (value: number) => Response.json({ count: value });
 
 describe("useGatedRead", () => {
@@ -221,6 +228,82 @@ describe("useGatedRead", () => {
     await answer(count(4));
     await act(() => reloaded);
     expect(result.current).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
+  });
+
+  describe("when an older read answers after a newer one", () => {
+    it("discards the mount read's answer once a re-read has superseded it", async () => {
+      const { result } = renderRead();
+      act(() => void result.current.reload());
+
+      await answerNewest(count(2));
+      await answer(count(1)); // the mount read, answering last
+
+      expect(result.current.view).toEqual({ data: 2, kind: "ready" });
+    });
+
+    it("discards a superseded read's failure from the error line", async () => {
+      const { result } = renderRead();
+      act(() => void result.current.reload());
+
+      await answerNewest(count(2));
+      await answer(new Response(null, { status: 500 })); // the mount read, answering last
+
+      expect(result.current.error).toBeNull();
+    });
+
+    it("lands only the newest of two re-reads", async () => {
+      const { result } = renderRead();
+      await answer(count(1));
+      act(() => void result.current.reload());
+      act(() => void result.current.reload());
+
+      await answerNewest(count(3));
+      await answer(count(2)); // the first re-read, answering last
+
+      expect(result.current.view).toEqual({ data: 3, kind: "ready" });
+    });
+
+    it("sends every re-read rather than joining the one in flight", async () => {
+      const { result } = renderRead();
+      act(() => void result.current.reload());
+
+      expect(sent.map((request) => request.path)).toEqual(["/api/count", "/api/count"]);
+    });
+  });
+
+  it("settles a re-read's promise once its own answer is in", async () => {
+    const { result } = renderRead();
+    await answer(count(1));
+    let settled = false;
+    act(() => {
+      void result.current.reload().then(() => {
+        settled = true;
+      });
+    });
+    await act(async () => {});
+    expect(settled).toBe(false);
+
+    await answer(count(2));
+
+    expect(settled).toBe(true);
+  });
+
+  it("settles, sending nothing, a re-read asked for as the Permission is withdrawn", async () => {
+    const hook = renderRead();
+    await answer(count(1));
+    let settled = false;
+    act(() => {
+      void hook.result.current.reload().then(() => {
+        settled = true;
+      });
+      hook.withPermissions([]);
+    });
+    await act(async () => {});
+
+    expect({ sent: vi.mocked(fetch).mock.calls.length, settled }).toEqual({
+      sent: 1,
+      settled: true,
+    });
   });
 
   it("does not re-read while gated off", async () => {
