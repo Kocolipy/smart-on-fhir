@@ -45,7 +45,10 @@ describe("auth API", () => {
     const [username, password] = TEST_LOGIN;
     resolveWith({ kind: "ok", data: { permissions: [], username } });
 
-    await expect(login(username, password)).resolves.toEqual({ permissions: [], username });
+    await expect(login(username, password)).resolves.toEqual({
+      kind: "signed-in",
+      user: { permissions: [], username },
+    });
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/auth/login",
       {
@@ -57,52 +60,46 @@ describe("auth API", () => {
     );
   });
 
-  it("reads refused credentials as no user, a verdict rather than an error", async () => {
+  it("reads refused credentials as a refusal, a verdict rather than an error", async () => {
     resolveWith({ kind: "unauthenticated" });
-    await expect(login("ada", "wrong")).resolves.toBeNull();
+    await expect(login("ada", "wrong")).resolves.toEqual({ kind: "refused" });
   });
 
-  it("reports a persistent CSRF rejection as a token problem", async () => {
-    resolveWith({ kind: "csrf-expired" });
-    await expect(login("ada", "secret")).rejects.toThrow(
-      "Your security token expired. Please try again.",
-    );
-  });
-
-  it("reports other login failures", async () => {
-    resolveWith({ kind: "failed", status: 500 });
-    await expect(login("ada", "secret")).rejects.toThrow("Unable to sign in. Please try again.");
+  it.each([
+    ["a persistent CSRF rejection", { kind: "csrf-expired" }, { kind: "csrf-expired" }],
+    ["an authorization refusal", { kind: "forbidden" }, { kind: "forbidden" }],
+    ["a server failure", { kind: "failed", status: 500 }, { kind: "failed" }],
+    ["a transport failure", { kind: "failed" }, { kind: "failed" }],
+  ])("resolves %s on login as its own outcome", async (_name, result, outcome) => {
+    resolveWith(result);
+    await expect(login("ada", "secret")).resolves.toEqual(outcome);
   });
 
   it("logs out without decoding a response body", async () => {
     resolveWith({ kind: "ok", data: undefined });
 
-    await expect(logout()).resolves.toBeUndefined();
+    await expect(logout()).resolves.toEqual({ kind: "signed-out" });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/logout", { method: "DELETE" });
   });
 
   it("treats an already-expired session as logged out", async () => {
     resolveWith({ kind: "unauthenticated" });
-    await expect(logout()).resolves.toBeUndefined();
+    await expect(logout()).resolves.toEqual({ kind: "signed-out" });
   });
 
-  it("reports a persistent CSRF rejection on logout", async () => {
-    resolveWith({ kind: "csrf-expired" });
-    await expect(logout()).rejects.toThrow("Your security token expired. Please try again.");
+  it.each([
+    ["a persistent CSRF rejection", { kind: "csrf-expired" }, { kind: "csrf-expired" }],
+    ["a server failure", { kind: "failed", status: 500 }, { kind: "failed" }],
+    ["a transport failure", { kind: "failed" }, { kind: "failed" }],
+  ])("resolves %s on logout as its own outcome", async (_name, result, outcome) => {
+    resolveWith(result);
+    await expect(logout()).resolves.toEqual(outcome);
   });
 
-  it("reports other logout failures", async () => {
-    resolveWith({ kind: "failed", status: 500 });
-    await expect(logout()).rejects.toThrow("Unable to sign out. Please try again.");
-  });
-
-  const PERMISSION_DENIED = /^You don't have permission to do this\.$/;
-
-  it("reports an authorization refusal on the session check and login as permission denied", async () => {
+  it("reports an authorization refusal on the session check as permission denied", async () => {
     resolveWith({ kind: "forbidden" });
 
-    await expect(getCurrentUser()).rejects.toThrow(PERMISSION_DENIED);
-    await expect(login("ada", "secret")).rejects.toThrow(PERMISSION_DENIED);
+    await expect(getCurrentUser()).rejects.toThrow(/^You don't have permission to do this\.$/);
   });
 
   // A 403 that survived the transport's re-fetch-and-retry: the session the
@@ -110,7 +107,7 @@ describe("auth API", () => {
   // so the User is signed out — which is what they asked for.
   it("treats a logout refused 403 after the retry as logged out", async () => {
     resolveWith({ kind: "forbidden" });
-    await expect(logout()).resolves.toBeUndefined();
+    await expect(logout()).resolves.toEqual({ kind: "signed-out" });
   });
 });
 
@@ -384,15 +381,23 @@ describe("changePassword", () => {
     expect(apiFetchMock).toHaveBeenLastCalledWith("/api/auth/me");
   });
 
-  it("does not claim a lockout when the session check itself fails", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
-      .mockResolvedValueOnce({ kind: "failed" } as never);
+  // A probe that did not answer cannot tell a wrong password from a lockout,
+  // so it claims neither: the change could not be confirmed.
+  it.each([
+    ["fails", { kind: "failed", status: 503 }],
+    ["fails in transport", { kind: "failed" }],
+    ["is refused", { kind: "forbidden" }],
+    ["loses its token", { kind: "csrf-expired" }],
+  ])(
+    "reports a 401 whose session check %s as unconfirmed, not a wrong password",
+    async (_name, probe) => {
+      apiFetchMock
+        .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+        .mockResolvedValueOnce(probe as never);
 
-    await expect(changePassword(current, next)).resolves.toEqual({
-      kind: "current-password-rejected",
-    });
-  });
+      await expect(changePassword(current, next)).resolves.toEqual({ kind: "failed" });
+    },
+  );
 
   it("reads the rule's statement out of a PasswordRuleViolation body, and nothing else", async () => {
     resolveWith({ kind: "ok", data: undefined });

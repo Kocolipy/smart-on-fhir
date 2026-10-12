@@ -149,7 +149,7 @@ describe("IdleSignOut", () => {
     vi.useFakeTimers();
     FakeBroadcastChannel.open = [];
     vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
-    api.logout.mockResolvedValue(undefined);
+    api.logout.mockResolvedValue({ kind: "signed-out" });
     stayAnswers({ data: undefined, kind: "ok" });
   });
 
@@ -172,7 +172,7 @@ describe("IdleSignOut", () => {
 
     it("times the clock by the login response's figure too", async () => {
       api.getCurrentUser.mockResolvedValue(null);
-      api.login.mockResolvedValue(user(120));
+      api.login.mockResolvedValue({ kind: "signed-in", user: user(120) });
       render(
         <MemoryRouter>
           <AuthProvider>
@@ -521,7 +521,7 @@ describe("IdleSignOut", () => {
     it("keeps the session when a requested sign-out fails", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      api.logout.mockRejectedValue(new Error("Unable to sign out. Please try again."));
+      api.logout.mockResolvedValue({ kind: "failed" });
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Sign out" }));

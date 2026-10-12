@@ -31,7 +31,16 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
 - `api.ts` — the `/api/auth/*` calls, each mapping a status code to a domain
   outcome (`401` on `/me` is a guest, not an error; `401` on change-password is
   a wrong current password or a lockout, never a reason to end the session by
-  itself), and the decoder for the session's `permissions`.
+  itself), and the decoder for the session's `permissions`. The three **session
+  actions** — `login`, `logout`, `changePassword` — each resolve to a closed
+  outcome (`LoginOutcome`, `LogoutOutcome`, `PasswordChangeOutcome`) for every
+  request outcome, and none of them throws.
+- `session-action-copy.ts` — the copy for every session-action outcome, and the
+  only place it lives: `loginMessage`, `logoutMessage` and
+  `passwordChangeMessage`, each an exhaustive switch over the outcomes that
+  leave the visitor on the page, with the two transport outcomes read through
+  the seam's `refusalMessage`. The Login page, the shell and the Change
+  password page render what these return; none of them catches.
 - `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
   reads. Which Permission a request requires is not here: it is declared on the
   endpoint (`declarations.ts`, below).
@@ -389,8 +398,12 @@ them apart by asking `GET /api/auth/me` whether the session survived: a wrong
 password leaves it standing; reaching the lockout threshold revokes every
 session of the User, so the context ends the session as for a change, recording
 the sign-in reason `locked`, and the guard returns the visitor to login — no
-return destination — which says an Admin must Unlock the account. Every
-refusal that leaves the session standing clears all three fields. The inputs are
+return destination — which says an Admin must Unlock the account. Only an
+answer decides: a check that fails, or is refused, cannot tell the two apart,
+so it claims neither — reading it as a wrong password could hide a lockout —
+and the change resolves `failed`, leaving the session standing. Every
+refusal that leaves the session standing clears all three fields and shows the
+line `session-action-copy.ts` gives for it. The inputs are
 uncontrolled, because React mirrors a controlled input's value into the DOM
 `value` attribute, and no message the page shows contains either value.
 
@@ -427,11 +440,11 @@ instead.) The back link is withheld from a session confined to
 `/change-password`. An entry with `permissions` (Accounts, Audit) is wrapped in
 its own `ProtectedRoute` inside the shell. Sign out shows a pending state while the logout is in flight.
 When the logout fails or comes back CSRF-expired, the auth context's `logout`
-throws before it ends anything, so the session stands and the CSRF token stays
-with it (ADR-0009: the token is forgotten only through the session transitions);
-the shell catches that and shows an error line saying the User is still signed
-in. The Idle sign-out is a separate path and keeps its rule: a logout that fails
-still ends the session there.
+resolves that outcome without ending anything, so the session stands and the
+CSRF token stays with it (ADR-0009: the token is forgotten only through the
+session transitions); the shell shows the outcome's copy (`logoutMessage`, which
+says the User is still signed in) in an error line. The Idle sign-out is a separate path and keeps its
+rule: a logout that fails still ends the session there.
 
 A new protected area is a new `<Route>` under that layout, wrapped in its own
 `ProtectedRoute` when it needs a Permission. Lazy route chunks are unused; add

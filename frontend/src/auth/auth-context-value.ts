@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { AuthUser, PasswordChangeOutcome } from "./api";
+import type { AuthUser, LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
 import type { SessionEndReason } from "./sign-in-reason";
 
 /** The session status: what the SPA currently knows about the visitor's session. */
@@ -15,16 +15,30 @@ export type AuthStatus = "checking" | "authenticated" | "guest";
  * to remember to relay it. `changePassword` ends one only on a success or a
  * lockout, which is the backend's doing — either revokes every session of the
  * User, this one included.
+ *
+ * The three **session actions** — `login`, `logout`, `changePassword` — never
+ * reject for a request outcome: each resolves to a closed outcome with the
+ * session already updated for it, and the page renders the line
+ * `session-action-copy.ts` gives for it.
  */
 export interface AuthContextValue {
   /**
    * Submits the session's own password change. On `changed` or `locked` the
    * auth state is already cleared, so the route guard returns the visitor to
-   * login, which says which.
+   * login, which says which; every other outcome leaves the session standing.
    */
   changePassword: (currentPassword: string, newPassword: string) => Promise<PasswordChangeOutcome>;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  /**
+   * Signs in. On `signed-in` the session is the new User's; on `refused` the
+   * browser's session is ended, its CSRF token with it; every other outcome
+   * leaves the session as it was.
+   */
+  login: (username: string, password: string) => Promise<LoginOutcome>;
+  /**
+   * Signs out. On `signed-out` the session is ended with no sign-in reason;
+   * `csrf-expired` and `failed` leave it standing, its CSRF token with it.
+   */
+  logout: () => Promise<LogoutOutcome>;
   status: AuthStatus;
   user: AuthUser | null;
 }

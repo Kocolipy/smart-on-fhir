@@ -3,8 +3,8 @@ import { useState, type FormEvent } from "react";
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
+import { passwordChangeMessage } from "@/auth/session-action-copy";
 import { sessionEndReasonFor } from "@/auth/sign-in-reason";
-import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,26 +18,6 @@ type SessionEnding = Extract<PasswordChangeOutcome, { kind: "changed" | "locked"
 
 const endsSession = (outcome: PasswordChangeOutcome): outcome is SessionEnding =>
   sessionEndReasonFor(outcome) !== null;
-
-/**
- * What a refused change means to the User, while the session stands. None of
- * these contain either submitted value: a policy refusal shows the backend's
- * statement of the rule, which names the rule and never the password.
- */
-function refusalMessage(outcome: Exclude<PasswordChangeOutcome, SessionEnding>): string {
-  switch (outcome.kind) {
-    case "policy-violation":
-      return outcome.message;
-    case "current-password-rejected":
-      return "The current password is incorrect.";
-    case "forbidden":
-      return FORBIDDEN_MESSAGE;
-    case "csrf-expired":
-      return CSRF_EXPIRED_MESSAGE;
-    case "failed":
-      return "Unable to change the password. Please try again.";
-  }
-}
 
 const inputClass =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -78,16 +58,14 @@ export function ChangePassword() {
     }
 
     setSubmitting(true);
-    try {
-      const outcome = await changePassword(currentPassword, newPassword);
-      // A change or a lockout ended the session, and the guard has already
-      // moved on to login, which says which; there is nothing to show here.
-      if (endsSession(outcome)) return;
-      form.reset();
-      setError(refusalMessage(outcome));
-    } finally {
-      setSubmitting(false);
-    }
+    const outcome = await changePassword(currentPassword, newPassword);
+    setSubmitting(false);
+    // A change or a lockout ended the session, and the guard has already
+    // moved on to login, which says which; there is nothing to show here.
+    if (endsSession(outcome)) return;
+    form.reset();
+    // The outcome's own copy, which never contains either submitted value.
+    setError(passwordChangeMessage(outcome));
   }
 
   return (
