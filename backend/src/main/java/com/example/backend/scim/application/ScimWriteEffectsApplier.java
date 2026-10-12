@@ -2,6 +2,7 @@ package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.authorization.domain.Role;
+import com.example.backend.authorization.domain.RoleLogFields;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -180,7 +181,7 @@ final class ScimWriteEffectsApplier {
     private static void logDormancyRoleRevocation(UUID userId, List<Role> lost) {
         LogEvent.success(log, Operation.DORMANCY_ROLE_REVOCATION, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
-                .addKeyValue(LogEvent.ROLE_NAME, lost.stream().map(Role::name).distinct()
+                .addKeyValue(RoleLogFields.ROLE_NAME, lost.stream().map(Role::name).distinct()
                         .sorted().collect(Collectors.joining(",")))
                 .log();
     }
@@ -194,7 +195,7 @@ final class ScimWriteEffectsApplier {
         LogEvent.success(log, operation, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, change.userId().toString())
                 .addKeyValue(LogEvent.GROUP_ID, change.groupId().toString())
-                .addKeyValue(LogEvent.ROLE_NAME, change.role().name())
+                .addKeyValue(RoleLogFields.ROLE_NAME, change.role().name())
                 .log();
     }
 }

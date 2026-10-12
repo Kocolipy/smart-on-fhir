@@ -19,3 +19,7 @@ target/
 
 # Local secrets — real credentials, and not ours to print in a finding
 .env
+
+# Rule-test fixtures: every `ruleid:` line in them is a finding by design. scripts/semgrep.sh
+# runs them through `semgrep --test` instead, which names its targets explicitly.
+semgrep/tests/

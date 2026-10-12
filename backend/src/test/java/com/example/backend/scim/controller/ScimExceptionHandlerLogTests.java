@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.application.ScimLogFields;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.InvalidPreconditionException;
@@ -236,7 +237,7 @@ class ScimExceptionHandlerLogTests {
                 () -> handler.handle(ScimErrorException.notFound("none")),
                 Level.WARN, "notFound", 404);
 
-        assertThat(CapturedLog.fields(record)).doesNotContainKey(LogEvent.SCIM_RESOURCE_TYPE);
+        assertThat(CapturedLog.fields(record)).doesNotContainKey(ScimLogFields.SCIM_RESOURCE_TYPE);
         assertThat(record.getMDCPropertyMap()).doesNotContainKey(LogContext.RESOURCE_ID);
     }
 
@@ -273,7 +274,7 @@ class ScimExceptionHandlerLogTests {
         }
 
         assertThat(CapturedLog.fields(record))
-                .containsEntry(LogEvent.SCIM_RESOURCE_TYPE, "User")
+                .containsEntry(ScimLogFields.SCIM_RESOURCE_TYPE, "User")
                 .doesNotContainValue("The resource has changed since that ETag was issued; GET"
                         + " it and retry.");
         assertThat(record.getMDCPropertyMap())
@@ -290,7 +291,8 @@ class ScimExceptionHandlerLogTests {
                 () -> handler.handle(new DuplicateDisplayNameException(null)),
                 Level.WARN, "uniqueness", 409);
 
-        assertThat(CapturedLog.fields(record)).containsEntry(LogEvent.SCIM_RESOURCE_TYPE, "Group");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(ScimLogFields.SCIM_RESOURCE_TYPE, "Group");
         assertThat(record.getMDCPropertyMap()).doesNotContainKey(LogContext.RESOURCE_ID);
     }
 
@@ -313,13 +315,14 @@ class ScimExceptionHandlerLogTests {
         assertThat(CapturedLog.fields(assertRefusal(
                         () -> handler.handle(ScimErrorException.notFound("none")),
                         Level.WARN, "notFound", 404)))
-                .doesNotContainKey(LogEvent.SCIM_RESOURCE_TYPE);
+                .doesNotContainKey(ScimLogFields.SCIM_RESOURCE_TYPE);
 
         inRequest("/scim/v2/UsersX", Map.of());
         assertThat(CapturedLog.fields(assertRefusal(
                         () -> handler.handle(ScimErrorException.notFound("none")),
                         Level.WARN, "notFound", 404)))
-                .as("a prefix that is not the collection").doesNotContainKey(LogEvent.SCIM_RESOURCE_TYPE);
+                .as("a prefix that is not the collection")
+                .doesNotContainKey(ScimLogFields.SCIM_RESOURCE_TYPE);
     }
 
     @Test
@@ -332,7 +335,7 @@ class ScimExceptionHandlerLogTests {
 
         assertThat(records).singleElement().satisfies(record -> {
             assertThat(CapturedLog.fields(record))
-                    .containsEntry(LogEvent.SCIM_RESOURCE_TYPE, "Group");
+                    .containsEntry(ScimLogFields.SCIM_RESOURCE_TYPE, "Group");
             assertThat(record.getMDCPropertyMap())
                     .containsEntry(LogContext.RESOURCE_ID, id.toString());
         });

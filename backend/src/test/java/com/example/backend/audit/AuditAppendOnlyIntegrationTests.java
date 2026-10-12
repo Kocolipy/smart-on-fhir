@@ -10,6 +10,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
@@ -257,7 +258,7 @@ class AuditAppendOnlyIntegrationTests {
             Map<String, Object> fields = CapturedLog.fields(alerts.get(0));
             assertThat(fields).containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE);
             assertThat(fields).containsEntry(
-                    LogEvent.AUDIT_OPERATION, AuditOperation.LOGIN_FAILURE.name());
+                    AuditLogFields.AUDIT_OPERATION, AuditOperation.LOGIN_FAILURE.name());
             // The alert says which record is missing and names the failure's own
             // type; it carries no value the unwritten event withheld.
             assertThat(fields.get(LogEvent.REASON)).isNotNull();

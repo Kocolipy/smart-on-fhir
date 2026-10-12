@@ -15,6 +15,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.auth.application.EpicLoginLogFields;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
@@ -467,7 +468,7 @@ class EpicLoginIntegrationTests {
         assertThat(signedIn).hasSize(1);
         assertThat(accepted)
                 .containsEntry(LogEvent.SESSION_HASH, SessionHash.of(signedIn.iterator().next()))
-                .containsEntry(LogEvent.MFA_FACTOR, "idp-attested");
+                .containsEntry(EpicLoginLogFields.MFA_FACTOR, "idp-attested");
     }
 
     /**

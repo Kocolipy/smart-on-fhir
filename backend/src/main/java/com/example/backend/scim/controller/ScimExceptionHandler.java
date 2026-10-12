@@ -9,6 +9,7 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.RequestFault;
+import com.example.backend.scim.application.ScimLogFields;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.InvalidPreconditionException;
@@ -309,7 +310,7 @@ class ScimExceptionHandler {
             LoggingEventBuilder record, String resourceType) {
         return resourceType == null
                 ? record
-                : record.addKeyValue(LogEvent.SCIM_RESOURCE_TYPE, resourceType);
+                : record.addKeyValue(ScimLogFields.SCIM_RESOURCE_TYPE, resourceType);
     }
 
     private static HttpServletRequest currentRequest() {
