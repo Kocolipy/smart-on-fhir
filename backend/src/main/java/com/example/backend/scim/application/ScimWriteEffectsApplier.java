@@ -1,6 +1,7 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.Role;
 import com.example.backend.authorization.domain.RoleLogFields;
 import com.example.backend.observability.LogEvent;
@@ -106,13 +107,13 @@ final class ScimWriteEffectsApplier {
             for (ScimWriteEffects.RoleChange change : changes) {
                 switch (change.kind()) {
                     case GRANTED -> {
-                        audit.recordRoleGranted(
-                                connectorId, change.userId(), change.groupId(), change.role());
+                        audit.append(new Audited.RoleGranted(
+                                connectorId, change.userId(), change.groupId(), change.role()));
                         logRoleChange(Operation.ROLE_GRANT, change);
                     }
                     case REVOKED -> {
-                        audit.recordRoleRevoked(
-                                connectorId, change.userId(), change.groupId(), change.role());
+                        audit.append(new Audited.RoleRevoked(
+                                connectorId, change.userId(), change.groupId(), change.role()));
                         logRoleChange(Operation.ROLE_REVOKE, change);
                     }
                 }
@@ -146,7 +147,7 @@ final class ScimWriteEffectsApplier {
                         .add(change.role());
             }
             lostByUser.forEach((userId, lost) -> {
-                audit.recordDormancyRoleRevocation(userId, lost);
+                audit.append(new Audited.DormancyRoleRevocation(userId, lost));
                 logDormancyRoleRevocation(userId, lost);
             });
         }

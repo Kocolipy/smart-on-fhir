@@ -4,6 +4,13 @@
 // `ok:` line is a call site the rules must leave alone.
 package com.example.backend.fixture;
 
+import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
+import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditSessionRevocationCause;
+import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.AuditUserAttribute;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.ErrorCategory;
@@ -84,5 +91,42 @@ class PlantedRecords {
         LogEvent.withError(LogEvent.refused(log, Operation.HTTP_REQUEST_REFUSAL,
                         Category.PROCESS, Type.DENIED), 400, ErrorCategory.DATA, false)
                 .log();
+    }
+}
+
+class PlantedAuditEvents {
+
+    private AuditTrail audit;
+
+    void credentialNamedValuesReachAnEvent(String userName, String password, Object token) {
+        // ruleid: be-audit-sensitive-value
+        audit.append(new Audited.LoginFailure(userName, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD));
+        // ruleid: be-audit-sensitive-value
+        Audited built = new Audited.ConnectorTokenRevoked(actor, token.connectorId());
+        // ruleid: be-audit-sensitive-value
+        audit.append(passwordChangedEvent);
+    }
+
+    void stableIdsAndClosedSetsDoNot(java.util.UUID subjectId, java.util.UUID actor,
+            String password) {
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.LoginFailure(subjectId, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD));
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.PasswordChangeRefused(subjectId,
+                AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD));
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.Logout(actor));
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.PasswordChanged(subjectId));
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.ConnectorTokenRevoked(actor, subjectId));
+        // ok: be-audit-sensitive-value
+        audit.append(new Audited.UserSessionsRevoked(actor, subjectId,
+                Set.of(AuditUserAttribute.USER_NAME, AuditUserAttribute.PASSWORD),
+                Set.of(AuditSessionRevocationCause.PASSWORD_CHANGED), true));
+        // ok: be-audit-sensitive-value
+        new StringBuilder().append(password);
     }
 }

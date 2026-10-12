@@ -11,7 +11,9 @@ became the directory's. The rule is unchanged and is the decision, not the list:
 an event an otherwise-successful request records joins its transaction; refusal
 events run fail-open, and so does the record of a post-commit session revocation,
 whose transaction has already committed (`AuditTrailService`). How a failing
-session store answers, on every revocation trigger, is the 2026-10-10 addendum below.
+session store answers, on every revocation trigger, is the 2026-10-10 addendum below;
+where the rule is expressed — once, from each event's kind — is the 2026-10-12
+addendum.
 
 To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
 PostgreSQL), in the database enforcement these appends write into: the audit trail
@@ -138,3 +140,42 @@ A revocation that ended no session and did not fail records nothing — there is
 nothing to account for — which matches the `session-end` log record, already
 skipped at zero. This deliberately changes the SCIM revocation's earlier
 always-audit behaviour.
+
+## Addendum (2026-10-12): The rule is applied once, from the event's kind
+
+Until now each of the trail's 42 `record*` methods chose its semantics by the
+annotation it carried — `@Transactional` for fail-closed, a call to the alerting
+append for fail-open — so the rule above held only as long as every new method was
+annotated correctly, and nothing tested that it was.
+
+`AuditTrail` now has one method, `append(Audited)`. Every kind of event is a value in
+`audit.domain.Audited`, and each declares which of three kinds it is, named for what
+the triggering request was going to return:
+
+- `Audited.Accepted` — the request would otherwise succeed: **fail-closed**. The
+  append joins the caller's transaction (`PROPAGATION_REQUIRED`, opening one where
+  there is none), as the per-method `@Transactional` did. A SCIM bulk read is one,
+  though it is a read: an unrecorded enumeration of the directory is the gap the
+  trail exists to close.
+- `Audited.Refused` — the request is already refused: **fail-open with an alert**,
+  in a transaction of its own (`PROPAGATION_REQUIRES_NEW`). `LOCKOUT_SET` is one,
+  though its outcome is a success: it rides the rejected Login or password change
+  that imposed it.
+- `Audited.Committed` — recorded after its change committed: **fail-open with an
+  alert**, whatever its outcome. `USER_SESSIONS_REVOKE` is the one such event (the
+  2026-10-10 addendum).
+
+`AuditTrailService.append` reads the kind and applies the rule; it is the only place
+either semantics is expressed. `AuditTrailServiceTests` asserts every kind of event
+against the same forced failure, the kinds found from the sealed hierarchy and the
+expected semantics written out kind by kind, so an event added without a decision
+fails there. The semantics of every event are unchanged.
+
+Each event also carries the changed paths it records. Writing them beside the events
+corrected one that had drifted: an Unlock's `LOCKOUT_LIFT` reported the three lockout
+paths whatever the Unlock did, and never the dormancy basis it restarts. It now
+records the failure run when the run held attempts, and — when a lock stood —
+`lockedAt`, `lockCause` and `lastAuthenticatedAt`.
+
+ADRs 0013 and 0014 name `AuditTrail.recordLoginRefusal`, the method of the time; it
+is now the `Audited.LoginRefusal` event, recorded under the same terms.

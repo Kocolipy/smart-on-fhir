@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -141,7 +142,8 @@ public class IdentityAdministrationService {
      * {@link LoginStateService#unlocked}, and the response is built from that decision. Lifting a
      * lock also restarts the dormancy window, so the next dormancy run does not lock again a User
      * that has not yet had the chance to sign in. The audit event records the cause of the lock it
-     * lifted.
+     * lifted and the paths the decision actually changed: the failure run when it held attempts,
+     * and the lock with the dormancy basis when one stood.
      *
      * <p>Lifting a lock always requires a change of password, because the credential that reached
      * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
@@ -166,13 +168,15 @@ public class IdentityAdministrationService {
         ScimUser user = require(userId);
         if (isSelf(user, actorId)) {
             refused(Operation.UNLOCK, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
-            audit.recordUnlockRefused(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
+            audit.append(new Audited.UnlockRefused(
+                    actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET));
             throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
         }
         LoginStateService.Unlock unlocked = loginState.unlocked(user);
-        audit.recordLockoutLiftedByUnlock(actorId, user.id(), auditCause(user.login().lockCause()));
+        audit.append(new Audited.LockoutLiftedByUnlock(actorId, user.id(),
+                auditCause(unlocked.lifted()), unlocked.attemptsCleared()));
         if (unlocked.changeRequired()) {
-            audit.recordPasswordChangeRequired(actorId, user.id());
+            audit.append(new Audited.PasswordChangeRequired(actorId, user.id()));
         }
         succeeded(Operation.UNLOCK, user.id());
         return summarize(user, unlocked.state());
@@ -238,7 +242,7 @@ public class IdentityAdministrationService {
         if (!forced.imposed()) {
             return summarize(user, forced.state());
         }
-        audit.recordPasswordChangeRequired(actorId, user.id());
+        audit.append(new Audited.PasswordChangeRequired(actorId, user.id()));
         sessions.revokeAllAfterCommit(
                 user.id(), SessionRevocationCause.FORCED_PASSWORD_CHANGE, actorId);
         succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
@@ -248,7 +252,7 @@ public class IdentityAdministrationService {
     private RuntimeException refuseForcedChange(
             UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason, RuntimeException refusal) {
         refused(Operation.FORCE_PASSWORD_CHANGE, subjectId, reason);
-        audit.recordPasswordChangeRequirementRefused(actorId, subjectId, reason);
+        audit.append(new Audited.PasswordChangeRequirementRefused(actorId, subjectId, reason));
         return refusal;
     }
 

@@ -1,6 +1,8 @@
 package com.example.backend.scim.application;
 
+import com.example.backend.audit.domain.AuditSeededResource;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.InvalidRoleMappingException;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.DuplicateUserNameException;
@@ -269,7 +271,7 @@ public class ScimSeedService {
                 now,
                 now);
         ScimUser created = users.createReserved(flagged, ReservedResourceName.BOOTSTRAP_ADMIN);
-        audit.recordReservedResourceSeeded(created.id(), false);
+        audit.append(new Audited.ReservedResourceSeeded(created.id(), AuditSeededResource.USER));
         return created;
     }
 
@@ -296,7 +298,7 @@ public class ScimSeedService {
                             List.of(ScimGroupMember.reference(bootstrapAdmin.id())),
                             now),
                     ReservedResourceName.ADMIN_GROUP);
-            audit.recordReservedResourceSeeded(created.id(), true);
+            audit.append(new Audited.ReservedResourceSeeded(created.id(), AuditSeededResource.GROUP));
             return;
         }
         ScimGroup adminGroup = existing.get();
@@ -310,7 +312,7 @@ public class ScimSeedService {
         // silent, which meant a deployment whose administrative membership had been removed
         // outside SCIM restored it at startup leaving nothing in the trail to say either the
         // removal or the restore had happened.
-        audit.recordReservedMembershipRestored(adminGroup.id(), bootstrapAdmin.id());
+        audit.append(new Audited.ReservedMembershipRestored(adminGroup.id(), bootstrapAdmin.id()));
     }
 
     private ScimUser newUser(SeededIdentity identity, Instant now) {

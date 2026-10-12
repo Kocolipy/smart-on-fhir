@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -86,8 +87,8 @@ public class LoginAttemptService {
         Optional<ScimUser> found = find(username);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
         found.ifPresent(loginState::failureCounted);
-        audit.recordLoginFailure(
-                found.map(ScimUser::id).orElse(null), recorded.audited(), AuditLoginMethod.PASSWORD);
+        audit.append(new Audited.LoginFailure(found.map(ScimUser::id).orElse(null),
+                recorded.audited(), AuditLoginMethod.PASSWORD));
         return recorded;
     }
 
@@ -119,7 +120,8 @@ public class LoginAttemptService {
     @Transactional
     public void recordPasswordSuccess(UUID userId, String retainedSessionId) {
         recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.PASSWORD,
-                user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.PASSWORD));
+                user -> audit.append(new Audited.LoginSuccess(
+                        user.id(), AuditLoginMethod.PASSWORD)));
     }
 
     /**
@@ -138,7 +140,8 @@ public class LoginAttemptService {
             UUID userId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
         recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.EPIC,
-                user -> audit.recordLoginSuccess(user.id(), AuditLoginMethod.SSO, mfaFactor));
+                user -> audit.append(new Audited.LoginSuccess(
+                        user.id(), AuditLoginMethod.SSO, mfaFactor)));
     }
 
     /**
@@ -173,8 +176,8 @@ public class LoginAttemptService {
         }
         ScimUser user = found.get();
         loginState.failureCounted(user);
-        audit.recordPasswordChangeRefused(
-                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
+        audit.append(new Audited.PasswordChangeRefused(
+                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD));
     }
 
     /**
