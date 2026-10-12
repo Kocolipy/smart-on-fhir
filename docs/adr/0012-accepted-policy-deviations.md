@@ -47,6 +47,17 @@ not confined by the flag (ADR 0008's 2026-10-09 addendum).
   learning or transporting the credential, and with no reset token to issue,
   display, log or replay. The cost: a User who has forgotten their password cannot
   self-recover and needs a connector to set a new one. There is no email recovery.
+- **`userName` is not restricted to alphanumerics.** The standard's §5 Input says:
+  "User-supplied input exceeding maximum length or with invalid format (e.g.,
+  invalid email, non-alphanumeric username) is rejected with `400 Bad Request`."
+  SCIM `userName` instead follows RFC 7643, which leaves its format to the service
+  provider, and the identity provider's own format: directories provision emails
+  and UPNs (`alice@example.org`), and Epic Login matches `userName` exactly to the
+  Practitioner ID Epic proved (ADR 0013). An alphanumeric-only rule would refuse
+  the identifiers the directory owns. The length limit and the refusals of control
+  characters still apply. This is pre-existing behaviour, recorded on 2026-10-12
+  when the move to SQL Server (ADR 0015) was reviewed against the standard, and
+  unchanged by that move.
 - **`userName` is mutable.** SCIM's core schema makes `userName` read-write and
   directory renames are routine, so rejecting them would break interoperability.
   The standard's concern — renames orphaning state — is answered structurally: the

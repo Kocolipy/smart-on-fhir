@@ -6,6 +6,14 @@ Date: 2026-09-30
 
 Accepted.
 
+To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
+PostgreSQL): the row is taken with `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of
+`FOR UPDATE SKIP LOCKED`, or, if spike V3 finds `READPAST` does not skip a held row,
+with `sp_getapplock` per job name. The retention job also takes the lock as the app
+login rather than before assuming a role. One serialization point per job name, held
+for the run's transaction, is unchanged. The superseding note lands with the ticket
+that changes the mechanism.
+
 ## Context
 
 Every scheduled job — today the dormancy job (ADR 0011) and the audit retention job — must

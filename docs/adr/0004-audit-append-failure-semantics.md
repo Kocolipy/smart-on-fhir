@@ -13,6 +13,13 @@ events run fail-open, and so does the record of a post-commit session revocation
 whose transaction has already committed (`AuditTrailService`). How a failing
 session store answers, on every revocation trigger, is the 2026-10-10 addendum below.
 
+To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
+PostgreSQL), in the database enforcement these appends write into: the audit trail
+stays append-only through a retention login and a T-SQL trigger instead of a
+retention role assumed with `SET LOCAL ROLE` and a PL/pgSQL trigger. The
+fail-closed/fail-open axis this ADR decides is unchanged. The superseding note
+lands with the ticket that changes the mechanism.
+
 ## Context
 
 The audit trail records what the application already does: accepted and refused
