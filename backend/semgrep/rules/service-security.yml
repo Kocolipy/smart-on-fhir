@@ -331,47 +331,58 @@ rules:
       - pattern: (org.slf4j.Logger $LOG).error(...)
       - pattern: (org.slf4j.Logger $LOG).atLevel(...)
 
-  # A record's outcome, its duration and its message are the record shape's, not the call
-  # site's: LogEvent.success / refused / error, the scheduled-run shapes and requestEnd each
-  # open the record at its level, set event.outcome and event.duration_ms where the shape has
-  # them, and set the operation's fixed message. A caller adds only the ids and counts it alone
-  # can supply and calls log(). So outside LogEvent no production code opens a record on a
-  # logger at any level (ERROR is be-log-error-without-error-fields'), writes either key, sets
-  # a message, or passes one to log(...) — which is what lets one standard field be added to
-  # every record of a shape in one file (#128, ADR 0003). The match on log(...) and setMessage
-  # is by name, as be-log-sensitive-value's is: nothing else in the service has a log method
-  # taking arguments.
+  # A record's level, outcome, duration and message are the record shape's, not the call
+  # site's: each public LogEvent shape opens the record at its level, sets event.outcome and
+  # event.duration_ms where the shape has them, and sets the operation's fixed message. A caller
+  # adds only the ids and counts it alone can supply and calls log(). So outside LogEvent no
+  # production code opens a record on a logger at any level, ERROR included, writes either key,
+  # sets a message, or passes one to log(...) — which is what lets one standard field be added
+  # to every record of a shape in one file (#128, ADR 0003). An ERROR opener is also
+  # be-log-error-without-error-fields', which says what such a record would lack; both report it.
+  # The match on log(...) and setMessage is by name, as be-log-sensitive-value's is: nothing else
+  # in the service has a log method taking arguments. The message's list of shapes is LogEvent's
+  # public shapes exactly, and the openers below are one per slf4j level:
+  # LogRecordGuardTests fails when either drifts from the code.
   - id: be-log-record-outside-log-event
     languages: [java]
     severity: ERROR
     message: >-
-      Build the record with a LogEvent shape — success, refused, error, jobScheduled, jobStart,
-      jobEnd, jobFailed, jobSummary or requestEnd — and end it with log(). The shape sets the
-      level, event.outcome, event.duration_ms and the operation's fixed message; a call site
-      setting any of them by hand is the drift this rule exists to stop. If no shape fits, add
-      one to LogEvent and record it in docs/adr/0003.
+      Build the record with one of LogEvent's shapes: success, successAtWarn, refused, error,
+      withError, jobScheduled, jobStart, jobEnd, jobFailed, jobSummary, requestEnd,
+      outboundStart, outboundEnd, outboundFailed, jwksRefetchWarning. End it with log(). The
+      shape sets the level, event.outcome, event.duration_ms and the operation's fixed message;
+      a call site setting any of them by hand is the drift this rule exists to stop. If no shape
+      fits, add one to LogEvent and record it in docs/adr/0003.
     paths:
       exclude:
         - "**/LogEvent.java"
         - "**/src/test/**"
     patterns:
       - pattern-either:
-          - pattern: (Logger $LOG).atInfo()
+          - pattern: (Logger $LOG).atError()
           - pattern: (Logger $LOG).atWarn()
+          - pattern: (Logger $LOG).atInfo()
           - pattern: (Logger $LOG).atDebug()
           - pattern: (Logger $LOG).atTrace()
-          - pattern: (Logger $LOG).info(...)
+          - pattern: (Logger $LOG).error(...)
           - pattern: (Logger $LOG).warn(...)
+          - pattern: (Logger $LOG).info(...)
           - pattern: (Logger $LOG).debug(...)
           - pattern: (Logger $LOG).trace(...)
-          - pattern: (org.slf4j.Logger $LOG).atInfo()
+          - pattern: (Logger $LOG).atLevel(...)
+          - pattern: (Logger $LOG).makeLoggingEventBuilder(...)
+          - pattern: (org.slf4j.Logger $LOG).atError()
           - pattern: (org.slf4j.Logger $LOG).atWarn()
+          - pattern: (org.slf4j.Logger $LOG).atInfo()
           - pattern: (org.slf4j.Logger $LOG).atDebug()
           - pattern: (org.slf4j.Logger $LOG).atTrace()
-          - pattern: (org.slf4j.Logger $LOG).info(...)
+          - pattern: (org.slf4j.Logger $LOG).error(...)
           - pattern: (org.slf4j.Logger $LOG).warn(...)
+          - pattern: (org.slf4j.Logger $LOG).info(...)
           - pattern: (org.slf4j.Logger $LOG).debug(...)
           - pattern: (org.slf4j.Logger $LOG).trace(...)
+          - pattern: (org.slf4j.Logger $LOG).atLevel(...)
+          - pattern: (org.slf4j.Logger $LOG).makeLoggingEventBuilder(...)
           - pattern: $RECORD.addKeyValue(LogEvent.OUTCOME, ...)
           - pattern: $RECORD.addKeyValue(LogEvent.DURATION_MS, ...)
           - pattern: $RECORD.addKeyValue(com.example.backend.observability.LogEvent.OUTCOME, ...)

@@ -1,5 +1,6 @@
 package com.example.backend.audit.infrastructure.alert;
 
+import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.observability.LogEvent;
@@ -51,7 +52,7 @@ class LoggingOperationalAlertsAdapter implements OperationalAlerts {
                         Category.DATABASE, Type.ERROR)
                 .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
                 .addKeyValue(LogEvent.REASON, failure.getSimpleName())
-                .addKeyValue(LogEvent.AUDIT_OPERATION, operation.name())
+                .addKeyValue(AuditLogFields.AUDIT_OPERATION, operation.name())
                 .addKeyValue(LogEvent.ERROR_CAUSE_OMITTED, CAUSE_OMITTED)
                 .log();
     }

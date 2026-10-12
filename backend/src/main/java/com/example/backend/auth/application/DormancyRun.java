@@ -1,6 +1,5 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SkippableJobRun;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,8 +37,8 @@ public record DormancyRun(boolean skipped, List<UUID> locked, List<UUID> rolesRe
     @Override
     public Map<String, Long> counts() {
         Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put(LogEvent.DORMANCY_LOCKED_COUNT, (long) locked.size());
-        counts.put(LogEvent.DORMANCY_ROLES_REVOKED_COUNT, (long) rolesRevoked.size());
+        counts.put(DormancyLogFields.DORMANCY_LOCKED_COUNT, (long) locked.size());
+        counts.put(DormancyLogFields.DORMANCY_ROLES_REVOKED_COUNT, (long) rolesRevoked.size());
         return counts;
     }
 }

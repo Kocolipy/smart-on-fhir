@@ -1,8 +1,8 @@
 package com.example.backend.audit.config;
 
+import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
-import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ScheduledJobSpec;
 import com.example.backend.observability.ServiceTimeZone;
@@ -58,6 +58,6 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
         jobs.schedule(registrar, ScheduledJobSpec
                 .of(RETENTION_JOB, AuditRetentionService.OPERATION, policy.schedule(),
                         RETENTION_DESCRIPTION, retention::deleteAgedOutEvents)
-                .startupField(LogEvent.RETENTION_PERIOD, policy.period().toString()));
+                .startupField(AuditLogFields.RETENTION_PERIOD, policy.period().toString()));
     }
 }

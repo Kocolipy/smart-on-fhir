@@ -77,8 +77,8 @@ public class AuditRetentionService {
         Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
         LogEvent.jobSummary(log, OPERATION)
-                .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
-                .addKeyValue(LogEvent.RETENTION_DELETED_ROWS, deleted)
+                .addKeyValue(AuditLogFields.RETENTION_PERIOD, policy.period().toString())
+                .addKeyValue(AuditLogFields.RETENTION_DELETED_ROWS, deleted)
                 .log();
         return new AuditRetentionRun(false, deleted);
     }

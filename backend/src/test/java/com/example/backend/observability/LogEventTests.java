@@ -1,6 +1,7 @@
 package com.example.backend.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -537,7 +538,7 @@ class LogEventTests {
             "HTTP_REQUEST_REFUSAL | Request refused",
             "LOGOUT | Operation refused"})
     void eachOperationsRefusalMessage(Operation operation, String message) {
-        assertThat(LogEvent.refusedMessage(operation)).isEqualTo(message);
+        assertThat(LogEvent.message(operation, LogEvent.MessageSlot.REFUSED)).isEqualTo(message);
     }
 
     @ParameterizedTest
@@ -550,7 +551,7 @@ class LogEventTests {
             "EPIC_JWKS_REFETCH | Epic JWKS still lacks the id_token's key after its refetches",
             "LOGIN | Operation failed"})
     void eachOperationsErrorMessage(Operation operation, String message) {
-        assertThat(LogEvent.errorMessage(operation)).isEqualTo(message);
+        assertThat(LogEvent.message(operation, LogEvent.MessageSlot.ERROR)).isEqualTo(message);
     }
 
     @ParameterizedTest
@@ -559,7 +560,7 @@ class LogEventTests {
             "AUDIT_RETENTION | Audit retention job scheduled",
             "LOGIN | Scheduled job registered"})
     void eachJobsScheduleMessage(Operation operation, String message) {
-        assertThat(LogEvent.scheduledMessage(operation)).isEqualTo(message);
+        assertThat(LogEvent.message(operation, LogEvent.MessageSlot.SCHEDULED)).isEqualTo(message);
     }
 
     @ParameterizedTest
@@ -567,7 +568,37 @@ class LogEventTests {
             "AUDIT_RETENTION | Audit retention run complete",
             "DORMANCY | Scheduled job run summary"})
     void eachJobsSummaryMessage(Operation operation, String message) {
-        assertThat(LogEvent.summaryMessage(operation)).isEqualTo(message);
+        assertThat(LogEvent.message(operation, LogEvent.MessageSlot.SUMMARY)).isEqualTo(message);
+    }
+
+    /** An operation's line keeps each message it declares under the slot it declares it for. */
+    @Test
+    void anOperationsMessagesAreKeptBySlot() {
+        assertThat(LogEvent.Message.bySlot(
+                        new LogEvent.Message(LogEvent.MessageSlot.REFUSED, "Refused here"),
+                        new LogEvent.Message(LogEvent.MessageSlot.ERROR, "Failed here")))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        LogEvent.MessageSlot.REFUSED, "Refused here",
+                        LogEvent.MessageSlot.ERROR, "Failed here"));
+    }
+
+    /** Two messages for one slot is a mistake in the operation's line, not a silent choice. */
+    @Test
+    void anOperationDeclaresEachMessageOnce() {
+        assertThatThrownBy(() -> LogEvent.Message.bySlot(
+                        new LogEvent.Message(LogEvent.MessageSlot.SUCCESS, "Done"),
+                        new LogEvent.Message(LogEvent.MessageSlot.SUCCESS, "Done again")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("two SUCCESS messages for one operation");
+    }
+
+    /** A declared message is fixed text: none, or only blanks, is refused. */
+    @ParameterizedTest
+    @CsvSource(value = {"NULL", "''", "'   '"}, nullValues = "NULL")
+    void aDeclaredMessageHasText(String text) {
+        assertThatThrownBy(() -> new LogEvent.Message(LogEvent.MessageSlot.SUCCESS, text))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("a declared message has text");
     }
 
     /** The call-site spellings the encoder's customizer moves into {@code error}. */

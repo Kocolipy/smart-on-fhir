@@ -104,7 +104,7 @@ public class LoginOutcomeService {
                             log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
                     .addKeyValue(LogEvent.LOGIN_METHOD, signedIn.method().value()), sessionHash);
             if (signedIn.mfaFactor() != null) {
-                record.addKeyValue(LogEvent.MFA_FACTOR, signedIn.mfaFactor().value());
+                record.addKeyValue(EpicLoginLogFields.MFA_FACTOR, signedIn.mfaFactor().value());
             }
             record.log();
         }
@@ -133,10 +133,10 @@ public class LoginOutcomeService {
             LoggingEventBuilder warning =
                     refusedWarning(Operation.EPIC_LOGIN, refused, sessionHash);
             if (refused.field() != null) {
-                warning.addKeyValue(LogEvent.EPIC_INPUT_FIELD, refused.field().value());
+                warning.addKeyValue(EpicLoginLogFields.EPIC_INPUT_FIELD, refused.field().value());
             }
             if (refused.rule() != null) {
-                warning.addKeyValue(LogEvent.EPIC_INPUT_RULE, refused.rule().value());
+                warning.addKeyValue(EpicLoginLogFields.EPIC_INPUT_RULE, refused.rule().value());
             }
             warning.log();
         }

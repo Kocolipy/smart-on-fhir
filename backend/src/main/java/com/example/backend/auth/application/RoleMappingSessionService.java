@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.auth.domain.RoleMappingSessions;
+import com.example.backend.authorization.domain.RoleLogFields;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -54,12 +55,12 @@ public class RoleMappingSessionService {
         // one -- and ADR 0003 ("Role changes and the role mapping") puts it on both startup
         // records, so an operator can tell which mapping a deploy validated. Suppressed on exactly these two records and nowhere else.
         LogEvent.success(log, OPERATION, Category.CONFIGURATION, Type.INFO) // nosemgrep: be-log-sensitive-value
-                .addKeyValue(LogEvent.ROLE_MAPPING_HASH, mapping.hash())
+                .addKeyValue(RoleLogFields.ROLE_MAPPING_HASH, mapping.hash())
                 .log();
         int revoked = sessions.revokeIssuedUnderAnotherMapping(users.findAllIds(), mapping.hash());
         if (revoked > 0) {
             LogEvent.success(log, OPERATION, Category.CONFIGURATION, Type.CHANGE) // nosemgrep: be-log-sensitive-value
-                    .addKeyValue(LogEvent.ROLE_MAPPING_HASH, mapping.hash())
+                    .addKeyValue(RoleLogFields.ROLE_MAPPING_HASH, mapping.hash())
                     .addKeyValue(LogEvent.SESSIONS_ENDED, revoked)
                     .log();
         }

@@ -1,7 +1,7 @@
 package com.example.backend.auth.config;
 
+import com.example.backend.auth.application.DormancyLogFields;
 import com.example.backend.auth.application.DormancyService;
-import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ScheduledJobSpec;
 import com.example.backend.observability.ServiceTimeZone;
@@ -66,12 +66,13 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         jobs.schedule(registrar, ScheduledJobSpec
                 .of(JOB, DormancyService.OPERATION, SCHEDULE, DESCRIPTION, dormancy::run)
-                .startupField(LogEvent.DORMANCY_LOCKOUT_WINDOW, policy.lockoutWindow().toString())
-                .startupField(LogEvent.DORMANCY_ROLE_REVOCATION_WINDOW,
+                .startupField(DormancyLogFields.DORMANCY_LOCKOUT_WINDOW,
+                        policy.lockoutWindow().toString())
+                .startupField(DormancyLogFields.DORMANCY_ROLE_REVOCATION_WINDOW,
                         policy.roleRevocationWindow().toString())
-                .countedAs(LogEvent.DORMANCY_LOCKED_COUNT, LOCKED_USERS,
+                .countedAs(DormancyLogFields.DORMANCY_LOCKED_COUNT, LOCKED_USERS,
                         "Users the dormancy job locked")
-                .countedAs(LogEvent.DORMANCY_ROLES_REVOKED_COUNT, ROLES_REVOKED_USERS,
+                .countedAs(DormancyLogFields.DORMANCY_ROLES_REVOKED_COUNT, ROLES_REVOKED_USERS,
                         "Users whose mapped Group memberships the dormancy job removed"));
     }
 }

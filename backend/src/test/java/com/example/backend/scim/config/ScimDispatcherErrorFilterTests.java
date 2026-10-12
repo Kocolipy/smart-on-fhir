@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.application.ScimLogFields;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -96,7 +97,7 @@ class ScimDispatcherErrorFilterTests {
                     .containsEntry(LogEvent.OUTCOME, "failure")
                     .containsEntry(LogEvent.REASON, reason)
                     .containsEntry(LogEvent.HTTP_STATUS_CODE, status)
-                    .doesNotContainKey(LogEvent.SCIM_RESOURCE_TYPE);
+                    .doesNotContainKey(ScimLogFields.SCIM_RESOURCE_TYPE);
             assertThat(record.toString()).doesNotContain("script");
         }
     }

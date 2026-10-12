@@ -93,7 +93,7 @@ class LoginOutcomeServiceTests {
             assertThat(record.getMDCPropertyMap()).containsEntry(LogContext.USER_ID, user.toString());
             assertThat(CapturedLog.fields(record))
                     .containsEntry(LogEvent.LOGIN_METHOD, "sso")
-                    .containsEntry(LogEvent.MFA_FACTOR, "hwk")
+                    .containsEntry(EpicLoginLogFields.MFA_FACTOR, "hwk")
                     .containsEntry(LogEvent.SESSION_HASH, SessionHash.of(SESSION));
         });
         assertThat(counts.moved()).containsExactly("sso:success");
@@ -119,7 +119,7 @@ class LoginOutcomeServiceTests {
             assertThat(record.getMDCPropertyMap()).containsEntry(LogContext.USER_ID, user.toString());
             assertThat(CapturedLog.fields(record))
                     .containsEntry(LogEvent.LOGIN_METHOD, "password")
-                    .doesNotContainKeys(LogEvent.MFA_FACTOR, LogEvent.SESSION_HASH);
+                    .doesNotContainKeys(EpicLoginLogFields.MFA_FACTOR, LogEvent.SESSION_HASH);
         });
         assertThat(counts.moved()).containsExactly("password:success");
         assertThat(audit.recorded()).isEmpty();
@@ -297,8 +297,8 @@ class LoginOutcomeServiceTests {
                 EpicInputField.LAUNCH, EpicInputRule.LENGTH), SESSION);
 
         assertThat(CapturedLog.fields(records.getFirst()))
-                .containsEntry(LogEvent.EPIC_INPUT_FIELD, "launch")
-                .containsEntry(LogEvent.EPIC_INPUT_RULE, "length");
+                .containsEntry(EpicLoginLogFields.EPIC_INPUT_FIELD, "launch")
+                .containsEntry(EpicLoginLogFields.EPIC_INPUT_RULE, "length");
     }
 
     /** A refusal of nothing in particular names no input. */
@@ -308,7 +308,8 @@ class LoginOutcomeServiceTests {
                 recording(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE), SESSION);
 
         assertThat(CapturedLog.fields(records.getFirst()))
-                .doesNotContainKeys(LogEvent.EPIC_INPUT_FIELD, LogEvent.EPIC_INPUT_RULE);
+                .doesNotContainKeys(
+                        EpicLoginLogFields.EPIC_INPUT_FIELD, EpicLoginLogFields.EPIC_INPUT_RULE);
     }
 
     /** A browser with no session is named by nothing, not by a hash of nothing. */

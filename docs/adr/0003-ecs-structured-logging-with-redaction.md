@@ -234,19 +234,47 @@ one-file change.
 | `jwksRefetchWarning`                               | `WARN`                    | `app.retry.attempt`, no outcome                                             |
 
 `withError` is public for the one `WARN` that carries a `data` error
-classification (`http.request.refusal`). Each shape has one message per operation.
-An operation a shape has no entry for gets the shape's generic message ("Operation
-completed") rather than an exception, because a record is never worth failing the
-path that writes it.
+classification (`http.request.refusal`).
+
+**Messages live on the operation.** Each `LogEvent.Operation` member declares, on
+its own line, the fixed message of every shape it is written in (`onSuccess`,
+`onRefusal`, `onError`, `onSchedule`, `onSummary`, and `onChange` for the one
+operation whose `change` record needs its own). The shapes with one message for
+every operation (`jobStart`, `jobEnd`, `jobFailed`, `requestEnd`, the outbound
+records and `jwksRefetchWarning`) need none. `OperationMessagesTests` reads the
+compiled production call sites that hand an operation to a shape, and fails for a
+message an operation needs and does not declare, or declares and no call site
+needs. A shape given an operation with no message for it still writes the shape's
+generic message ("Operation completed") rather than throwing, because a record is
+never worth failing the path that writes it.
+
+**Field names live beside their feature.** `LogEvent` keeps the ECS and
+`Log_Schema.md` fields, the ones its own shapes write (`app.epic.call`, the cron
+and job fields), and the session, login and host fields several modules share. A
+key only one feature adds to its records is declared in that feature:
+`DormancyLogFields` and `EpicLoginLogFields` in `auth.application`,
+`AuditLogFields` in `audit.application`, `ScimLogFields` in `scim.application`, and
+`RoleLogFields` in `authorization.domain`. Each is a list of names only, so the
+dependency still runs from the feature to `observability`, and the records are
+still built by the shapes above.
 
 Semgrep `be-log-record-outside-log-event` refuses, in production code outside
 `LogEvent`:
 
-- a record opened on a logger below `ERROR`;
-- the classic `info(...)`, `warn(...)`, `debug(...)` and `trace(...)` calls;
+- a record opened on a logger at any level, `ERROR` included, or through
+  `atLevel(...)` or `makeLoggingEventBuilder(...)`;
+- the classic `error(...)`, `warn(...)`, `info(...)`, `debug(...)` and `trace(...)`
+  calls;
 - a write of `event.outcome` or `event.duration_ms`;
 - `setMessage(...)`;
 - a `log(...)` that passes a message.
+
+An `ERROR` opener is also reported by `be-log-error-without-error-fields`, which
+says what such a record would lack. `LogRecordGuardTests` holds the rule to the
+code: its message names exactly `LogEvent`'s public shapes, and its patterns cover
+every slf4j level. The rule-test fixture `semgrep/tests/service-security.java`
+plants records the rule must report, at every level, and `scripts/semgrep.sh` runs
+it through `semgrep --test` before the scan.
 
 ### Error classification
 
@@ -520,7 +548,9 @@ path or a `scimType`, is emitted as a sanitized field, never concatenated.
   what.
 - Adding an operation means a `LogEvent.Operation` member with its action, or an
   entry under "Operations with no event.action", and `LogEventTests` fails until one
-  exists.
+  exists. The same line declares its messages, which `OperationMessagesTests` holds
+  to its call sites. Its feature's own field names go in that feature, not in
+  `LogEvent`.
 - A new value that must never be logged needs its name in `be-log-sensitive-value`
   if the name does not already match, and a redaction test that drives the path
   handling it.

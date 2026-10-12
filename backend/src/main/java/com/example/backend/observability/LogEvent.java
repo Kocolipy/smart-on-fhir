@@ -1,7 +1,10 @@
 package com.example.backend.observability;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.spi.LoggingEventBuilder;
 
@@ -97,46 +100,9 @@ public final class LogEvent {
      */
     public static final String GROUP_ID = "group.id";
 
-    /**
-     * The Role a mapped Group's membership change granted or revoked, by its name in the role
-     * mapping. The schema has no field for it, so it is namespaced under {@code app.}, as
-     * {@link #LOCAL_ACTION} is. Written only on a change of power — never on an authorization
-     * refusal, which must not name a Role.
-     */
-    public static final String ROLE_NAME = "app.authorization.role";
-
-    /** The SHA-256 of the role mapping, on the record that reports it validated at startup. */
-    public static final String ROLE_MAPPING_HASH = "app.authorization.mapping_hash";
-
     public static final String SUCCESS = "success";
 
     public static final String FAILURE = "failure";
-
-    /**
-     * Which audit operation a record is about, as an
-     * {@link com.example.backend.audit.domain.AuditOperation} name. Carried by the
-     * operational alert raised when an event could not be appended, so the alert
-     * says which record is missing from the trail.
-     */
-    public static final String AUDIT_OPERATION = "audit.operation";
-
-    /** The configured audit retention window, as an ISO-8601 duration. */
-    public static final String RETENTION_PERIOD = "audit.retention.period";
-
-    /** How many aged-out events one retention run removed. */
-    public static final String RETENTION_DELETED_ROWS = "audit.retention.deleted_rows";
-
-    /** The dormancy lockout window, as an ISO-8601 duration, on the job's startup record. */
-    public static final String DORMANCY_LOCKOUT_WINDOW = "dormancy.lockout.window";
-
-    /** The dormancy role-revocation window, as an ISO-8601 duration, on the job's startup record. */
-    public static final String DORMANCY_ROLE_REVOCATION_WINDOW = "dormancy.role_revocation.window";
-
-    /** How many Users one dormancy run locked, on its {@code job-end} record. */
-    public static final String DORMANCY_LOCKED_COUNT = "dormancy.locked_count";
-
-    /** How many Users one dormancy run revoked the Roles of, on its {@code job-end} record. */
-    public static final String DORMANCY_ROLES_REVOKED_COUNT = "dormancy.roles_revoked_count";
 
     /**
      * The cron expression a scheduled job runs on, on its startup record.
@@ -216,29 +182,10 @@ public final class LogEvent {
     public static final String EPIC_CALL = "app.epic.call";
 
     /**
-     * Which input an Epic Login refused for its bounds — {@code iss}, {@code launch} or
-     * {@code code} (ADR 0013, D10, D18) — on the "Epic sign-in refused" record. The field's name only,
-     * never its value (D22). Under this service's own {@code app} namespace.
-     */
-    public static final String EPIC_INPUT_FIELD = "app.epic.input.field";
-
-    /**
-     * The bound that input broke: {@code missing}, {@code length}, {@code charset} or
-     * {@code mismatch}. Under this service's own {@code app} namespace.
-     */
-    public static final String EPIC_INPUT_RULE = "app.epic.input.rule";
-
-    /**
      * Which retry of an operation a record reports, from 1. Under this service's own {@code app}
      * namespace: ECS names no such field.
      */
     public static final String RETRY_ATTEMPT = "app.retry.attempt";
-
-    /**
-     * The SCIM resource type a refused request addressed ({@code User}, {@code Group}), read
-     * from the route it matched. Never anything from the request body.
-     */
-    public static final String SCIM_RESOURCE_TYPE = "scim.resource.type";
 
     /** How many sessions one revocation ended. */
     public static final String SESSIONS_ENDED = "session.ended_count";
@@ -257,13 +204,6 @@ public final class LogEvent {
      * ECS names no such field, so it is under this service's own {@code app} namespace.
      */
     public static final String LOGIN_METHOD = "app.login.method";
-
-    /**
-     * The MFA factor an accepted Epic Login was made with (ADR 0013, D17), on its
-     * {@code user-authentication} record — the same spelling its {@code LOGIN_SUCCESS} carries.
-     * Under this service's own {@code app} namespace.
-     */
-    public static final String MFA_FACTOR = "app.login.mfa_factor";
 
     /**
      * The session a record concerns, as {@link SessionHash} names it — never by its id. On the
@@ -292,6 +232,17 @@ public final class LogEvent {
     /** {@link #jwksRefetchWarning}'s message: fixed text, naming the key's role and no value. */
     private static final String JWKS_REFETCH_MESSAGE =
             "Epic JWKS refetched: it lacked the id_token's key";
+
+    /* The messages several operations share, so each is spelled once. */
+    private static final String ADMINISTRATIVE_CHANGE_APPLIED =
+            "Administrative identity change applied";
+    private static final String ADMINISTRATIVE_CHANGE_REFUSED =
+            "Administrative identity change refused";
+    private static final String CONNECTOR_CHANGE_APPLIED =
+            "SCIM connector lifecycle change applied";
+    private static final String CONNECTOR_ESCALATION_REFUSED =
+            "SCIM connector issue refused: it would exceed the requester's Permissions";
+    private static final String SCIM_REQUEST_REFUSED = "SCIM request refused";
 
     private LogEvent() {
     }
@@ -335,7 +286,7 @@ public final class LogEvent {
             Logger log, Operation operation, Category category, Type... types) {
         return classify(log.atWarn(), operation, category, types)
                 .addKeyValue(OUTCOME, FAILURE)
-                .setMessage(refusedMessage(operation));
+                .setMessage(message(operation, MessageSlot.REFUSED));
     }
 
     /**
@@ -368,7 +319,7 @@ public final class LogEvent {
         return classify(withError(log.atError(), code, errorCategory, followUp),
                         operation, category, types)
                 .addKeyValue(OUTCOME, FAILURE)
-                .setMessage(errorMessage(operation));
+                .setMessage(message(operation, MessageSlot.ERROR));
     }
 
     /**
@@ -446,7 +397,7 @@ public final class LogEvent {
                 .addKeyValue(JOB_DESCRIPTION, description)
                 .addKeyValue(TRIGGER_CRON_EXPRESSION, cron)
                 .addKeyValue(TRIGGER_CRON_TIMEZONE, ServiceTimeZone.ZONE.getId())
-                .setMessage(scheduledMessage(operation));
+                .setMessage(message(operation, MessageSlot.SCHEDULED));
     }
 
     /** The {@code job-start} record of a scheduled run. */
@@ -494,7 +445,7 @@ public final class LogEvent {
      */
     public static LoggingEventBuilder jobSummary(Logger log, Operation operation) {
         return classify(log.atInfo(), operation, Category.BATCH, Type.INFO)
-                .setMessage(summaryMessage(operation));
+                .setMessage(message(operation, MessageSlot.SUMMARY));
     }
 
     /**
@@ -539,88 +490,27 @@ public final class LogEvent {
      * an operator must not confuse: the role-mapping startup pass reports the validated hash
      * ({@code info}) and, when the hash changed, the sessions it ended ({@code change}). Both
      * share the operation's fields, as ADR 0003's "Role changes and the role mapping" records, so
-     * the
-     * {@code change} record is told apart by its message as well as its type.
+     * the {@code change} record is told apart by its message as well as its type: an operation
+     * that declares a {@link MessageSlot#SUCCESS_ON_CHANGE} message writes it on its
+     * {@code change} records, and every other operation writes its success message on all of them.
      */
     static String successMessage(Operation operation, Type... types) {
-        if (operation == Operation.ROLE_MAPPING_STARTUP
+        if (operation.declares(MessageSlot.SUCCESS_ON_CHANGE)
                 && Arrays.asList(types).contains(Type.CHANGE)) {
-            return "Sessions issued under another role mapping ended";
+            return message(operation, MessageSlot.SUCCESS_ON_CHANGE);
         }
-        return successMessage(operation);
+        return message(operation, MessageSlot.SUCCESS);
     }
 
-    /*
-     * The fixed message of each operation's record, one table per record shape. An operation a
-     * shape has no entry for gets that shape's generic message rather than a failure: a record
-     * is never worth an exception on the path that writes it.
+    /**
+     * The operation's fixed message for one record shape: the one it declares, or the shape's
+     * generic message where it declares none. The fallback is kept rather than a failure, because
+     * a record is never worth an exception on the path that writes it; {@code
+     * OperationMessagesTests} is what holds every operation to the messages its call sites need.
      */
-
-    static String successMessage(Operation operation) {
-        return switch (operation) {
-            case LOGIN -> "Login accepted";
-            case UNLOCK, FORCE_PASSWORD_CHANGE -> "Administrative identity change applied";
-            case PASSWORD_CHANGE -> "Self-service change completed";
-            case DORMANCY -> "Dormancy job run at startup for the development fixtures";
-            case DORMANCY_LOCKOUT -> "User locked for dormancy";
-            case DORMANCY_ROLE_REVOCATION -> "Roles revoked for dormancy";
-            case CONNECTOR_CREATE, CONNECTOR_DELETE, CONNECTOR_TOKEN_ISSUE,
-                    CONNECTOR_TOKEN_ROTATE, CONNECTOR_TOKEN_REVOKE ->
-                    "SCIM connector lifecycle change applied";
-            case LOGOUT -> "Logout completed";
-            case ROLE_GRANT -> "Role granted by a mapped Group's membership";
-            case ROLE_REVOKE -> "Role revoked by a mapped Group's membership";
-            case ROLE_MAPPING_STARTUP -> "Role mapping validated";
-            case SESSION_START -> "Session started";
-            case SESSION_END -> "Session ended";
-            case APPLICATION_STARTUP -> "Application started";
-            case APPLICATION_SHUTDOWN -> "Application shutting down";
-            default -> "Operation completed";
-        };
-    }
-
-    static String refusedMessage(Operation operation) {
-        return switch (operation) {
-            case LOGIN -> "Login refused";
-            case EPIC_LOGIN -> "Epic sign-in refused";
-            case UNLOCK, FORCE_PASSWORD_CHANGE -> "Administrative identity change refused";
-            case PASSWORD_CHANGE -> "Self-service change refused";
-            case CONNECTOR_TOKEN_ISSUE, CONNECTOR_TOKEN_ROTATE ->
-                    "SCIM connector issue refused: it would exceed the requester's Permissions";
-            case SCIM_REFUSAL -> "SCIM request refused";
-            case ACCESS_DENIED -> "Request refused: access denied";
-            case UNAUTHENTICATED -> "Request refused: authentication required";
-            case HTTP_REQUEST_REFUSAL -> "Request refused";
-            default -> "Operation refused";
-        };
-    }
-
-    static String errorMessage(Operation operation) {
-        return switch (operation) {
-            case SCIM_WRITE -> "SCIM write refused by an unmapped integrity violation";
-            case SCIM_REFUSAL -> "SCIM request refused";
-            case AUDIT_APPEND -> "Audit event could not be appended; the request was not altered";
-            case SESSION_END -> "Sessions could not be ended; they may still be live";
-            case HTTP_REQUEST_FAULT -> "Request failed with an unexpected exception";
-            case EPIC_LOGIN -> "Epic sign-in failed";
-            case EPIC_JWKS_REFETCH -> "Epic JWKS still lacks the id_token's key after its refetches";
-            default -> "Operation failed";
-        };
-    }
-
-    static String scheduledMessage(Operation operation) {
-        return switch (operation) {
-            case DORMANCY -> "Dormancy job scheduled";
-            case AUDIT_RETENTION -> "Audit retention job scheduled";
-            default -> "Scheduled job registered";
-        };
-    }
-
-    static String summaryMessage(Operation operation) {
-        return switch (operation) {
-            case AUDIT_RETENTION -> "Audit retention run complete";
-            default -> "Scheduled job run summary";
-        };
+    static String message(Operation operation, MessageSlot slot) {
+        String declared = operation.messages.get(slot);
+        return declared != null ? declared : slot.generic;
     }
 
     /**
@@ -682,48 +572,93 @@ public final class LogEvent {
      * fits, in ADR 0003's "Operations with no event.action", beside "The full mapping",
      * which carries this whole table. {@code LogEventTests} holds the two together: an operation
      * added with no action and no ADR entry fails it.
+     *
+     * <p>Each operation also declares, on its own line, the fixed message of every record shape
+     * it is written in: {@link #onSuccess}, {@link #onChange}, {@link #onRefusal},
+     * {@link #onError}, {@link #onSchedule} and {@link #onSummary}, one per
+     * {@link MessageSlot}. {@code OperationMessagesTests} reads the production call sites that
+     * hand an operation to a shape and fails for a message the operation does not declare. The
+     * shapes whose message is the same whatever the operation — {@link LogEvent#jobStart},
+     * {@link LogEvent#jobEnd}, {@link LogEvent#jobFailed}, {@link LogEvent#requestEnd}, the
+     * outbound records and {@link LogEvent#jwksRefetchWarning} — need none.
      */
     public enum Operation {
-        LOGIN(Action.USER_AUTHENTICATION, null),
-        EPIC_LOGIN(Action.USER_AUTHENTICATION, "epic.login"),
+        LOGIN(Action.USER_AUTHENTICATION, null,
+                onSuccess("Login accepted"), onRefusal("Login refused")),
+        EPIC_LOGIN(Action.USER_AUTHENTICATION, "epic.login",
+                onRefusal("Epic sign-in refused"), onError("Epic sign-in failed")),
         EPIC_OUTBOUND(Action.USER_AUTHENTICATION, "epic.outbound"),
-        EPIC_JWKS_REFETCH(Action.USER_AUTHENTICATION, "epic.jwks_refetch"),
-        UNLOCK(Action.ACCESS_CONTROL, "identity.unlock"),
-        FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null),
-        PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change"),
-        DORMANCY(Action.USER_ADMINISTRATION, "identity.dormancy"),
-        DORMANCY_LOCKOUT(Action.USER_ADMINISTRATION, "identity.dormancy_lockout"),
-        DORMANCY_ROLE_REVOCATION(
-                Action.USER_ADMINISTRATION, "identity.dormancy_role_revocation"),
-        CONNECTOR_CREATE(Action.USER_PROVISIONING, "scim.connector.create"),
-        CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete"),
-        CONNECTOR_TOKEN_ISSUE(Action.USER_ADMINISTRATION, "scim.connector.token.issue"),
-        CONNECTOR_TOKEN_ROTATE(Action.USER_ADMINISTRATION, "scim.connector.token.rotate"),
-        CONNECTOR_TOKEN_REVOKE(Action.USER_PROVISIONING, "scim.connector.token.revoke"),
-        SCIM_WRITE(Action.USER_PROVISIONING, "scim.write"),
-        SCIM_REFUSAL(Action.USER_PROVISIONING, "scim.refusal"),
-        ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied"),
-        UNAUTHENTICATED(Action.ACCESS_CONTROL, "access.unauthenticated"),
-        LOGOUT(Action.USER_LOGOUT, null),
-        ROLE_GRANT(Action.USER_ADMINISTRATION, "identity.role_grant"),
-        ROLE_REVOKE(Action.USER_ADMINISTRATION, "identity.role_revoke"),
-        ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping"),
-        SESSION_START(Action.SESSION_START, null),
-        SESSION_END(Action.SESSION_END, null),
-        AUDIT_RETENTION(null, "audit.retention"),
-        AUDIT_APPEND(null, "audit.append"),
+        EPIC_JWKS_REFETCH(Action.USER_AUTHENTICATION, "epic.jwks_refetch",
+                onError("Epic JWKS still lacks the id_token's key after its refetches")),
+        UNLOCK(Action.ACCESS_CONTROL, "identity.unlock",
+                onSuccess(ADMINISTRATIVE_CHANGE_APPLIED), onRefusal(ADMINISTRATIVE_CHANGE_REFUSED)),
+        FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null,
+                onSuccess(ADMINISTRATIVE_CHANGE_APPLIED), onRefusal(ADMINISTRATIVE_CHANGE_REFUSED)),
+        PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change",
+                onSuccess("Self-service change completed"),
+                onRefusal("Self-service change refused")),
+        DORMANCY(Action.USER_ADMINISTRATION, "identity.dormancy",
+                onSuccess("Dormancy job run at startup for the development fixtures"),
+                onSchedule("Dormancy job scheduled")),
+        DORMANCY_LOCKOUT(Action.USER_ADMINISTRATION, "identity.dormancy_lockout",
+                onSuccess("User locked for dormancy")),
+        DORMANCY_ROLE_REVOCATION(Action.USER_ADMINISTRATION, "identity.dormancy_role_revocation",
+                onSuccess("Roles revoked for dormancy")),
+        CONNECTOR_CREATE(Action.USER_PROVISIONING, "scim.connector.create",
+                onSuccess(CONNECTOR_CHANGE_APPLIED)),
+        CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete",
+                onSuccess(CONNECTOR_CHANGE_APPLIED)),
+        CONNECTOR_TOKEN_ISSUE(Action.USER_ADMINISTRATION, "scim.connector.token.issue",
+                onSuccess(CONNECTOR_CHANGE_APPLIED), onRefusal(CONNECTOR_ESCALATION_REFUSED)),
+        CONNECTOR_TOKEN_ROTATE(Action.USER_ADMINISTRATION, "scim.connector.token.rotate",
+                onSuccess(CONNECTOR_CHANGE_APPLIED), onRefusal(CONNECTOR_ESCALATION_REFUSED)),
+        CONNECTOR_TOKEN_REVOKE(Action.USER_PROVISIONING, "scim.connector.token.revoke",
+                onSuccess(CONNECTOR_CHANGE_APPLIED)),
+        SCIM_WRITE(Action.USER_PROVISIONING, "scim.write",
+                onError("SCIM write refused by an unmapped integrity violation")),
+        SCIM_REFUSAL(Action.USER_PROVISIONING, "scim.refusal",
+                onRefusal(SCIM_REQUEST_REFUSED), onError(SCIM_REQUEST_REFUSED)),
+        ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied",
+                onRefusal("Request refused: access denied")),
+        UNAUTHENTICATED(Action.ACCESS_CONTROL, "access.unauthenticated",
+                onRefusal("Request refused: authentication required")),
+        LOGOUT(Action.USER_LOGOUT, null,
+                onSuccess("Logout completed")),
+        ROLE_GRANT(Action.USER_ADMINISTRATION, "identity.role_grant",
+                onSuccess("Role granted by a mapped Group's membership")),
+        ROLE_REVOKE(Action.USER_ADMINISTRATION, "identity.role_revoke",
+                onSuccess("Role revoked by a mapped Group's membership")),
+        ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping",
+                onSuccess("Role mapping validated"),
+                onChange("Sessions issued under another role mapping ended")),
+        SESSION_START(Action.SESSION_START, null,
+                onSuccess("Session started")),
+        SESSION_END(Action.SESSION_END, null,
+                onSuccess("Session ended"),
+                onError("Sessions could not be ended; they may still be live")),
+        AUDIT_RETENTION(null, "audit.retention",
+                onSchedule("Audit retention job scheduled"),
+                onSummary("Audit retention run complete")),
+        AUDIT_APPEND(null, "audit.append",
+                onError("Audit event could not be appended; the request was not altered")),
         HTTP_REQUEST(null, "http.request"),
-        HTTP_REQUEST_REFUSAL(null, "http.request.refusal"),
-        HTTP_REQUEST_FAULT(null, "http.request.fault"),
-        APPLICATION_STARTUP(Action.APPLICATION_STARTUP, null),
-        APPLICATION_SHUTDOWN(Action.APPLICATION_SHUTDOWN, null);
+        HTTP_REQUEST_REFUSAL(null, "http.request.refusal",
+                onRefusal("Request refused")),
+        HTTP_REQUEST_FAULT(null, "http.request.fault",
+                onError("Request failed with an unexpected exception")),
+        APPLICATION_STARTUP(Action.APPLICATION_STARTUP, null,
+                onSuccess("Application started")),
+        APPLICATION_SHUTDOWN(Action.APPLICATION_SHUTDOWN, null,
+                onSuccess("Application shutting down"));
 
         private final Action action;
         private final String local;
+        private final Map<MessageSlot, String> messages;
 
-        Operation(Action action, String local) {
+        Operation(Action action, String local, Message... declared) {
             this.action = action;
             this.local = local;
+            this.messages = Message.bySlot(declared);
         }
 
         /** The standard's action, or {@code null} where none fits. */
@@ -734,6 +669,89 @@ public final class LogEvent {
         /** The operation's own name, or {@code null} where {@link #action()} identifies it. */
         public String local() {
             return local;
+        }
+
+        /** Whether this operation declares its own message for {@code slot}. */
+        boolean declares(MessageSlot slot) {
+            return messages.containsKey(slot);
+        }
+
+        /** The message of its {@link LogEvent#success} and {@code successAtWarn} records. */
+        private static Message onSuccess(String text) {
+            return new Message(MessageSlot.SUCCESS, text);
+        }
+
+        /** The message of its {@code change} success records, where they need one of their own. */
+        private static Message onChange(String text) {
+            return new Message(MessageSlot.SUCCESS_ON_CHANGE, text);
+        }
+
+        /** The message of its {@link LogEvent#refused} records. */
+        private static Message onRefusal(String text) {
+            return new Message(MessageSlot.REFUSED, text);
+        }
+
+        /** The message of its {@link LogEvent#error} records. */
+        private static Message onError(String text) {
+            return new Message(MessageSlot.ERROR, text);
+        }
+
+        /** The message of its job's {@link LogEvent#jobScheduled} startup record. */
+        private static Message onSchedule(String text) {
+            return new Message(MessageSlot.SCHEDULED, text);
+        }
+
+        /** The message of its job's {@link LogEvent#jobSummary} records. */
+        private static Message onSummary(String text) {
+            return new Message(MessageSlot.SUMMARY, text);
+        }
+    }
+
+    /**
+     * The record shapes whose message is the operation's own, each with the generic message an
+     * operation that declares none gets. {@link #success} and {@link #successAtWarn} share
+     * {@link #SUCCESS}.
+     */
+    enum MessageSlot {
+        SUCCESS("Operation completed"),
+        /**
+         * A success record of type {@code change}, where an operation must tell it apart; with
+         * none declared, the {@link #SUCCESS} message.
+         */
+        SUCCESS_ON_CHANGE(null),
+        REFUSED("Operation refused"),
+        ERROR("Operation failed"),
+        SCHEDULED("Scheduled job registered"),
+        SUMMARY("Scheduled job run summary");
+
+        private final String generic;
+
+        MessageSlot(String generic) {
+            this.generic = generic;
+        }
+    }
+
+    /** One message an {@link Operation} declares: fixed text, never a value. */
+    record Message(MessageSlot slot, String text) {
+        Message {
+            if (text == null || text.isBlank()) {
+                throw new IllegalArgumentException("a declared message has text");
+            }
+        }
+
+        /**
+         * An operation's declared messages by slot. Two for one slot is a mistake in the
+         * operation's line, refused rather than one silently winning.
+         */
+        static Map<MessageSlot, String> bySlot(Message... declared) {
+            Map<MessageSlot, String> bySlot = new EnumMap<>(MessageSlot.class);
+            for (Message message : declared) {
+                if (bySlot.putIfAbsent(message.slot(), message.text()) != null) {
+                    throw new IllegalArgumentException(
+                            "two " + message.slot() + " messages for one operation");
+                }
+            }
+            return Collections.unmodifiableMap(bySlot);
         }
     }
 

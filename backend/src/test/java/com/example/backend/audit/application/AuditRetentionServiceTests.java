@@ -137,8 +137,8 @@ class AuditRetentionServiceTests {
         service.deleteAgedOutEvents();
 
         Map<String, Object> fields = CapturedLog.fields(onlyRunRecord());
-        assertThat(fields).containsEntry(LogEvent.RETENTION_DELETED_ROWS, 7L);
-        assertThat(fields).containsEntry(LogEvent.RETENTION_PERIOD, "PT2880H");
+        assertThat(fields).containsEntry(AuditLogFields.RETENTION_DELETED_ROWS, 7L);
+        assertThat(fields).containsEntry(AuditLogFields.RETENTION_PERIOD, "PT2880H");
         assertThat(fields).containsEntry(LogEvent.CATEGORY, List.of("batch"));
         assertThat(fields).containsEntry(LogEvent.TYPE, List.of("info"));
         assertThat(fields).doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
@@ -203,7 +203,7 @@ class AuditRetentionServiceTests {
         service.deleteAgedOutEvents();
 
         assertThat(CapturedLog.fields(onlyRunRecord()))
-                .containsEntry(LogEvent.RETENTION_DELETED_ROWS, 0L);
+                .containsEntry(AuditLogFields.RETENTION_DELETED_ROWS, 0L);
     }
 
     private ILoggingEvent onlyRunRecord() {

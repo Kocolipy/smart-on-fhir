@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.observability.LogEvent;
 import java.util.List;
@@ -36,7 +37,8 @@ class LoggingOperationalAlertsAdapterTests {
                     .containsEntry(LogEvent.SEVERITY, "high")
                     .containsEntry(LogEvent.OUTCOME, "failure")
                     .containsEntry(LogEvent.REASON, "DataAccessResourceFailureException")
-                    .containsEntry(LogEvent.AUDIT_OPERATION, AuditOperation.values()[0].name())
+                    .containsEntry(
+                            AuditLogFields.AUDIT_OPERATION, AuditOperation.values()[0].name())
                     .containsEntry(LogEvent.ERROR_CAUSE_OMITTED,
                             LoggingOperationalAlertsAdapter.CAUSE_OMITTED)
                     .containsEntry(LogEvent.CATEGORY, List.of("database"))
