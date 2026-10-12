@@ -255,7 +255,8 @@ The one operation that turns submitted credentials _or an EHR launch_ into a
 session or a refusal. Its login method, `password` or `sso`, is recorded on the
 audit trail's login events and on `session-start`. A refusal, by either method,
 ends whatever session the browser held, and its reason is the audit trail's alone.
-_Avoid_: sign-on, authenticate (as a noun for the operation)
+_Avoid_: sign-on, authenticate (as a noun for the operation), database login
+(a SQL Server principal, see Database)
 
 **EHR launch**:
 Epic opening this application in the clinician's system browser, which signs the
@@ -379,6 +380,44 @@ than the retention period.
 **Scheduled job lock**:
 The per-job row a scheduled job run holds, so two runs of one job never overlap
 across instances.
+
+### Database
+
+From the switchover (ADR 0015); until it merges, the backend still runs on
+PostgreSQL with its own roles. Every term here names a SQL Server principal, never
+the sign-in operation: write "database login" or one of the qualified names below,
+and keep a bare **Login** for the operation under Authentication.
+
+**Database login**:
+One of the three SQL Server identities the backend connects as — the owner
+login, the app login and the retention login — each holding only its own
+privileges, with no role switching on a connection (ADR 0015). A database
+principal, not a Login.
+_Avoid_: database role (the roles are what a login is a member of), `SET ROLE`,
+a bare "login" (that is the sign-in operation)
+
+**Owner login**:
+The database login that owns the schema and runs migrations; only the migrate
+step holds it, never the running service.
+_Avoid_: admin user, master user (that is RDS's own)
+
+**App login**:
+The database login every request runs as, a member of `backend_app` only; it may
+append audit events but never update or delete one.
+_Avoid_: runtime role, service account
+
+**Retention login**:
+The database login only the audit retention job uses, a member of
+`backend_audit_retention` only, holding `SELECT` and `DELETE` on audit events and
+nothing else: the one principal that may delete an aged-out event, and no
+principal may update one.
+_Avoid_: retention role (the role it belongs to), audit admin
+
+**Migrate step**:
+The one-shot run of the service that applies the schema migrations as the owner
+login and exits, before the service starts, so the service itself never holds
+the owner credential.
+_Avoid_: startup migration, Flyway at boot
 
 ### Administration
 
