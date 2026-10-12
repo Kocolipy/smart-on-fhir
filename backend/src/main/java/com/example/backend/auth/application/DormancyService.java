@@ -2,7 +2,6 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.SessionRevocationCause;
-import com.example.backend.authorization.domain.Role;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -13,6 +12,7 @@ import com.example.backend.scheduling.domain.ScheduledJobLock;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
+import com.example.backend.scim.domain.ScimRoleRevocation;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
@@ -40,12 +40,13 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ul>
  *   <li><strong>Role revocation</strong> — the User's direct membership of every Group the role
- *       mapping names is removed through {@link ScimGroupRepository#removeMember}, which advances
- *       the Group's and the User's versions exactly as a connector-driven removal does. Unmapped
- *       memberships confer nothing and are untouched. One actorless
- *       {@code DORMANCY_ROLE_REVOCATION} event names the User and the Roles lost, and its sessions
- *       end after the commit. A connector may re-add a membership; while the User stays dormant
- *       the next run removes it again.
+ *       mapping names is removed through the directory's {@link ScimRoleRevocation}, which
+ *       advances the Group's and the User's versions exactly as a connector-driven removal does
+ *       and carries out what it implies through the same apply step as a connector's write: one
+ *       actorless {@code DORMANCY_ROLE_REVOCATION} event names the User and the Roles lost, and
+ *       its sessions end after the commit. Unmapped memberships confer nothing and are untouched.
+ *       A connector may re-add a membership; while the User stays dormant the next run removes it
+ *       again.
  *   <li><strong>Lockout</strong> — the job reports each due User to the login-state module
  *       ({@link LoginStateService#dormancyLocked}), which decides the lock — {@code DORMANCY}, the
  *       failure run untouched — and stores it only where no lock stands, so a User already locked
@@ -94,6 +95,7 @@ public class DormancyService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
+    private final ScimRoleRevocation roleRevocation;
     private final SessionRevocationService sessions;
     private final LoginStateService loginState;
     private final ScheduledJobLock lock;
@@ -105,6 +107,7 @@ public class DormancyService {
     public DormancyService(
             ScimUserRepository users,
             ScimGroupRepository groups,
+            ScimRoleRevocation roleRevocation,
             SessionRevocationService sessions,
             LoginStateService loginState,
             ScheduledJobLock lock,
@@ -114,6 +117,7 @@ public class DormancyService {
             Clock clock) {
         this.users = users;
         this.groups = groups;
+        this.roleRevocation = roleRevocation;
         this.sessions = sessions;
         this.loginState = loginState;
         this.lock = lock;
@@ -154,21 +158,11 @@ public class DormancyService {
             if (user.isEmpty() || !policy.verdict(user.get(), now).revokesRoles()) {
                 return;
             }
-            List<Role> lost = new ArrayList<>();
-            for (UUID groupId : groupIds) {
-                // Every candidate Group is already held under its lock; one deleted since the
-                // candidate query has no membership left to remove, so this removes nothing.
-                if (groups.removeMember(groupId, userId, now)) {
-                    roleMapping.roleOf(groupId).ifPresent(lost::add);
-                }
+            // Every candidate Group is already held under its lock. What removing the memberships
+            // implies — versions, event, log, Session revocation — is the directory's to carry out.
+            if (roleRevocation.revokeRoles(userId, groupIds, now)) {
+                revoked.add(userId);
             }
-            if (lost.isEmpty()) {
-                return;
-            }
-            audit.recordDormancyRoleRevocation(userId, lost);
-            logRoleRevocation(userId, lost);
-            sessions.revokeAllAfterCommit(userId, SessionRevocationCause.ROLE_REVOKED, null);
-            revoked.add(userId);
         });
         return revoked;
     }
@@ -211,11 +205,4 @@ public class DormancyService {
                 .log();
     }
 
-    private static void logRoleRevocation(UUID userId, List<Role> lost) {
-        LogEvent.success(log, Operation.DORMANCY_ROLE_REVOCATION, Category.PROCESS, Type.CHANGE)
-                .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
-                .addKeyValue(LogEvent.ROLE_NAME, lost.stream().map(Role::name).distinct()
-                        .sorted().collect(Collectors.joining(",")))
-                .log();
-    }
 }

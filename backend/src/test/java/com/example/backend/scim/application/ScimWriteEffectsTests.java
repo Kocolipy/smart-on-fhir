@@ -7,18 +7,22 @@ import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.authorization.domain.Role;
 import com.example.backend.scim.application.ScimWriteEffects.GroupState;
+import com.example.backend.scim.application.ScimWriteEffects.Resource;
 import com.example.backend.scim.application.ScimWriteEffects.RoleChange;
 import com.example.backend.scim.application.ScimWriteEffects.SessionRevocation;
 import com.example.backend.scim.application.ScimWriteEffects.Stored;
 import com.example.backend.scim.application.ScimWriteEffects.UserState;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimName;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserSessions.Cause;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -427,6 +431,39 @@ class ScimWriteEffectsTests {
         });
     }
 
+    // ---- the dormancy job's Role revocation --------------------------------------------------------
+
+    /**
+     * The dormancy job removed a User from several mapped Groups at once: it loses each one's Role,
+     * in the order the memberships were removed, and its Sessions end once, not once per Group.
+     */
+    @Test
+    void a_role_revocation_revokes_each_groups_role_and_ends_the_sessions_once() {
+        UUID other = UUID.randomUUID();
+        Role superuser = new Role("Superuser", Set.of());
+        Map<UUID, Role> lost = new LinkedHashMap<>();
+        lost.put(GROUP_ID, HELPDESK);
+        lost.put(other, superuser);
+
+        var effects = ScimWriteEffects.ofRoleRevocation(ALICE, lost);
+
+        assertThat(effects.audited()).isEmpty();
+        assertThat(effects.roleChanges()).containsExactly(
+                revoked(ALICE),
+                new RoleChange(RoleChange.Kind.REVOKED, ALICE, other, superuser));
+        assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
+        assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
+    }
+
+    /** A User that held none of the memberships any more lost nothing. */
+    @Test
+    void a_role_revocation_that_removed_nothing_has_no_effect() {
+        var effects = ScimWriteEffects.ofRoleRevocation(ALICE, Map.of());
+
+        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.revocations()).isEmpty();
+    }
+
     // ---- what the write stores ---------------------------------------------------------------------
 
     /**
@@ -510,6 +547,51 @@ class ScimWriteEffectsTests {
     @Nested
     class Values {
 
+        /**
+         * Every effect names the resource written: the one an alias written alone advances. The
+         * dormancy job's revocation is a write to the User it revoked, not to its Groups.
+         */
+        @Test
+        void each_effect_names_the_resource_it_was_written_to() {
+            GroupState group = new GroupState("Helpdesk", Set.of(ALICE), null);
+            assertThat(List.of(
+                    ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, STORED_ADA).written(),
+                    ScimWriteEffects.ofUserDeletion(USER_ID).written(),
+                    ScimWriteEffects.ofRoleRevocation(USER_ID, Map.of(GROUP_ID, HELPDESK))
+                            .written(),
+                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, Optional.empty())
+                            .written(),
+                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, Optional.of(HELPDESK))
+                            .written(),
+                    ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(ALICE), Optional.empty())
+                            .written()))
+                    .containsExactly(
+                            new Resource(ScimResourceType.USER, USER_ID),
+                            new Resource(ScimResourceType.USER, USER_ID),
+                            new Resource(ScimResourceType.USER, USER_ID),
+                            new Resource(ScimResourceType.GROUP, GROUP_ID),
+                            new Resource(ScimResourceType.GROUP, GROUP_ID),
+                            new Resource(ScimResourceType.GROUP, GROUP_ID));
+        }
+
+        @Test
+        void effects_written_to_no_resource_are_refused() {
+            assertThatThrownBy(() -> new ScimWriteEffects<>(null,
+                    EnumSet.noneOf(AuditUserAttribute.class), List.of(), List.of(), Stored.NOTHING))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("written");
+        }
+
+        @Test
+        void a_resource_without_a_type_or_an_id_is_refused() {
+            assertThatThrownBy(() -> new Resource(null, USER_ID))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("type");
+            assertThatThrownBy(() -> new Resource(ScimResourceType.USER, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("id");
+        }
+
         @Test
         void a_revocation_without_a_cause_is_refused() {
             assertThatThrownBy(() -> new SessionRevocation(USER_ID, EnumSet.noneOf(Cause.class)))
@@ -519,7 +601,7 @@ class ScimWriteEffectsTests {
         /** A use case reads what to store on every write, so effects always say. */
         @Test
         void effects_without_what_to_store_are_refused() {
-            assertThatThrownBy(() -> new ScimWriteEffects<>(
+            assertThatThrownBy(() -> new ScimWriteEffects<>(Resource.user(USER_ID),
                     EnumSet.noneOf(AuditUserAttribute.class), List.of(), List.of(), null))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessage("stored");
@@ -543,7 +625,7 @@ class ScimWriteEffectsTests {
             List<SessionRevocation> revocations = new ArrayList<>(List.of(revocation));
             List<RoleChange> roleChanges = new ArrayList<>(List.of(revoked(ALICE)));
             var effects = new ScimWriteEffects<>(
-                    audited, revocations, roleChanges, Stored.NOTHING);
+                    Resource.user(USER_ID), audited, revocations, roleChanges, Stored.NOTHING);
             audited.add(AuditUserAttribute.NAME);
             revocations.clear();
             roleChanges.clear();

@@ -106,6 +106,10 @@ _Avoid_: Account, SCIM User (in prose), member (except of a Group)
 A set of Users in the SCIM directory with direct members only; a mapped Group
 confers its Role.
 
+**Member label**:
+How a Group's rendered members name each User: its `displayName`, or its
+`userName` when it has none.
+
 **Admin group**:
 The server-seeded Group that is the Superuser Group, seeded under that Group's
 stable id; it can be neither renamed nor deleted. Membership confers nothing of

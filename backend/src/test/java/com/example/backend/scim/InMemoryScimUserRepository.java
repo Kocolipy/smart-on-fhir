@@ -198,6 +198,26 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     /**
+     * The version and {@code lastModified} alone, as the adapter advances them for an alias
+     * written alone. Not counted in {@link #writes()}: no User column is written.
+     */
+    @Override
+    public void advanceVersion(UUID id, Instant now) {
+        ScimUser current = stored.get(id);
+        if (current == null) {
+            return;
+        }
+        stored.put(id, new ScimUser(
+                current.id(),
+                current.profile(),
+                current.login(),
+                current.reservedName(),
+                current.version() + 1,
+                current.createdAt(),
+                now));
+    }
+
+    /**
      * Writes the dormancy basis alone, leaving the version where it is. Not counted in
      * {@link #writes()}, which counts profile and failure-run writes: a login that had no failure
      * run to clear still writes nothing a test of that rule is asking about.

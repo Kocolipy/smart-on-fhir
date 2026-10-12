@@ -137,6 +137,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
             return Optional.empty();
         }
         ScimUserEntity entity = stored.get();
+        String previousLabel =
+                ScimGroupMemberJpaRepository.memberLabel(entity.getDisplayName(), entity.getUserName());
         ScimUserProfile profile = user.profile();
         ScimName name = profile.name();
         entity.replaceProfile(
@@ -164,8 +166,20 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         } catch (DataIntegrityViolationException violation) {
             throw translated(violation);
         }
-        RepresentationChange.userWritten(user.id(), now).advanceIn(resources);
+        RepresentationChange.userReplaced(
+                        user.id(),
+                        previousLabel,
+                        ScimGroupMemberJpaRepository.memberLabel(
+                                profile.displayName(), profile.userName()),
+                        memberships.findGroupIdsOfUser(user.id()),
+                        now)
+                .advanceIn(resources);
         return findById(user.id());
+    }
+
+    @Override
+    public void advanceVersion(UUID id, Instant now) {
+        RepresentationChange.userWritten(id, now).advanceIn(resources);
     }
 
     @Override

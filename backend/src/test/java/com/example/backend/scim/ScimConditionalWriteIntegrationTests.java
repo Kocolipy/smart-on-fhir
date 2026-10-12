@@ -232,6 +232,77 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(groupDisplayName(group)).isEqualTo("Stale Every Verb");
     }
 
+    /**
+     * A Group renders each member with its label — its {@code displayName} — so a User write that
+     * changes that label changes every Group the User is in: each one's version advances, and an
+     * {@code If-Match} carrying a Group's version from before the change no longer matches.
+     */
+    @Test
+    void a_members_display_name_change_advances_its_groups_and_stales_their_if_match()
+            throws Exception {
+        UUID user = createUser("label-display-name");
+        UUID group = createGroupWith("Label Display Name", user);
+        long groupVersion = version(GROUPS, group);
+
+        assertThat(status(conditional(tokenA, withBody(patch(USERS + "/" + user), patchOp(
+                "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Shown Anew\"}")),
+                user))).isEqualTo(200);
+
+        assertThat(version(GROUPS, group)).isEqualTo(groupVersion + 1);
+        MvcResult stale = mvc.perform(as(tokenA, withBody(put(GROUPS + "/" + group),
+                        "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
+                                + "\"displayName\":\"Label Display Name Renamed\"}"))
+                .header(HttpHeaders.IF_MATCH, "\"" + groupVersion + "\"")).andReturn();
+        assertThat(stale.getResponse().getStatus()).isEqualTo(412);
+        assertThat(groupDisplayName(group)).isEqualTo("Label Display Name");
+    }
+
+    /**
+     * A member with no {@code displayName} is labelled by its {@code userName}, so renaming it
+     * changes its Groups' documents just as a {@code displayName} change does — and dropping the
+     * {@code displayName} it had is itself a label change.
+     */
+    @Test
+    void a_rename_of_a_member_labelled_by_its_user_name_advances_its_groups() throws Exception {
+        UUID user = createUser("label-user-name");
+        UUID group = createGroupWith("Label User Name", user);
+        long groupVersion = version(GROUPS, group);
+
+        assertThat(status(conditional(tokenA, withBody(put(USERS + "/" + user),
+                minimalUser("label-user-name")), user))).isEqualTo(200);
+        assertThat(version(GROUPS, group)).as("Shown -> label-user-name")
+                .isEqualTo(groupVersion + 1);
+
+        assertThat(status(conditional(tokenA, withBody(put(USERS + "/" + user),
+                minimalUser("label-user-name-renamed")), user))).isEqualTo(200);
+        assertThat(version(GROUPS, group)).isEqualTo(groupVersion + 2);
+        MvcResult stale = mvc.perform(as(tokenA, delete(GROUPS + "/" + group))
+                .header(HttpHeaders.IF_MATCH, "\"" + (groupVersion + 1) + "\"")).andReturn();
+        assertThat(stale.getResponse().getStatus()).isEqualTo(412);
+        assertThat(status(as(tokenA, get(GROUPS + "/" + group)))).isEqualTo(200);
+    }
+
+    /**
+     * A User write that leaves its label alone leaves its Groups' documents alone: renaming a
+     * member that has a {@code displayName}, or changing an attribute no Group renders, advances
+     * the User and none of its Groups.
+     */
+    @Test
+    void a_member_write_that_keeps_its_label_advances_none_of_its_groups() throws Exception {
+        UUID user = createUser("label-kept");
+        UUID group = createGroupWith("Label Kept", user);
+        long groupVersion = version(GROUPS, group);
+        long userVersion = version(USERS, user);
+
+        assertThat(status(conditional(tokenA, withBody(patch(USERS + "/" + user), patchOp(
+                "{\"op\":\"replace\",\"path\":\"userName\",\"value\":\"label-kept-renamed\"}",
+                "{\"op\":\"replace\",\"path\":\"locale\",\"value\":\"fr-FR\"}")), user)))
+                .isEqualTo(200);
+
+        assertThat(version(USERS, user)).isEqualTo(userVersion + 1);
+        assertThat(version(GROUPS, group)).isEqualTo(groupVersion);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"*", "\"1\", \"2\"", "1", "W/1"})
     void a_wildcard_list_or_malformed_if_match_is_invalid_value(String header) throws Exception {

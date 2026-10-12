@@ -26,8 +26,10 @@ import java.util.UUID;
  *   <li>A User's rendered {@code groups} lists every Group it belongs to, with the Group's
  *       {@code displayName} as the label. So a membership that starts or stops changes that
  *       User, and a Group rename changes every User still in it.
- *   <li>A Group's rendered {@code members} lists its Users. So a User deleted out of a Group
- *       changes the Group.
+ *   <li>A Group's rendered {@code members} lists its Users, each with its label — its
+ *       {@code displayName}, or its {@code userName} when it has none. So a User deleted out of
+ *       a Group changes the Group, and a User write that changes the label changes every Group
+ *       the User is in.
  * </ul>
  *
  * <p>Pure: it decides from the sets it is given and touches nothing until {@link #advanceIn},
@@ -45,12 +47,42 @@ final class RepresentationChange {
     }
 
     /**
-     * A write to the User's own attributes — a replacement, a PATCH, an {@code active} change, a
-     * completed password change. Only that User's document changed: its Groups render their
-     * members by id and label, and neither moved.
+     * A write to the User's own attributes that cannot move its label — a completed password
+     * change, the calling connector's {@code externalId} alias written alone. Only that User's
+     * document changed: its Groups render their members by id and label, and neither moved.
      */
     static RepresentationChange userWritten(UUID userId, Instant now) {
         return new RepresentationChange(List.of(userId), now);
+    }
+
+    /**
+     * A User's stored attributes replaced — the shape every User PUT and PATCH arrives in.
+     *
+     * <ul>
+     *   <li>The label each of its Groups renders it with ({@code members.display}) is unchanged:
+     *       only the User's document changed.
+     *   <li>The label changed: the User, and every Group it is a member of, because each one's
+     *       {@code members} now shows it differently. Compared exactly, so a change of case alone
+     *       is a change.
+     * </ul>
+     *
+     * @param previousLabel the label as the Groups rendered it before the write
+     * @param label         the label they render after it
+     * @param groupsOfUser  the Groups the User is a direct member of
+     */
+    static RepresentationChange userReplaced(
+            UUID userId,
+            String previousLabel,
+            String label,
+            Collection<UUID> groupsOfUser,
+            Instant now) {
+        if (previousLabel.equals(label)) {
+            return userWritten(userId, now);
+        }
+        Set<UUID> changed = new LinkedHashSet<>();
+        changed.add(userId);
+        changed.addAll(groupsOfUser);
+        return new RepresentationChange(changed, now);
     }
 
     /**

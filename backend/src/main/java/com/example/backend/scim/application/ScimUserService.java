@@ -76,7 +76,9 @@ import org.springframework.transaction.annotation.Transactional;
  *       write that changed nothing advances no version;
  *   <li>audit what moved, and end the User's sessions after the commit when the change is one
  *       a live session must not outlast. Both are decided by {@link ScimWriteEffects} from the
- *       stored and the desired state; this class carries them out.
+ *       stored and the desired state, and carried out by the apply step every SCIM write shares
+ *       ({@link ScimWriteEffectsApplier}) — which also advances the version of a write that
+ *       moved only the calling connector's alias, since that stores no User row.
  * </ol>
  *
  * <p>Every refusal is raised before anything is written, and each is audited fail-open, as a
@@ -91,12 +93,12 @@ public class ScimUserService {
     private final ScimGroupRepository groups;
     private final ScimExternalIdRepository aliases;
     private final PasswordAcceptance passwordAcceptance;
-    private final ScimUserSessions sessions;
     private final ScimUserLoginState loginStates;
     private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
     private final Clock clock;
     private final ScimQueryRepository queries;
+    private final ScimWriteEffectsApplier effects;
 
     public ScimUserService(
             ScimUserRepository users,
@@ -114,11 +116,11 @@ public class ScimUserService {
         this.groups = groups;
         this.aliases = aliases;
         this.passwordAcceptance = passwordAcceptance;
-        this.sessions = sessions;
         this.loginStates = loginStates;
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
+        this.effects = new ScimWriteEffectsApplier(users, groups, sessions, audit);
     }
 
     /**
@@ -306,7 +308,8 @@ public class ScimUserService {
         users.deleteById(id, now);
         tombstones.record(ScimResourceType.USER, id, now);
         audit.recordScimUserDeleted(connectorId, id);
-        revokeAfterCommit(connectorId, ScimWriteEffects.ofUserDeletion(id));
+        effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId),
+                ScimWriteEffects.ofUserDeletion(id), now);
         return true;
     }
 
@@ -358,50 +361,37 @@ public class ScimUserService {
             case SET -> ScimUserLoginState.Credential.set(accepted.passwordHash());
         };
         String passwordHash = credential.passwordHash();
-        ScimWriteEffects<AuditUserAttribute> effects = ScimWriteEffects.ofUserWrite(id,
+        ScimWriteEffects<AuditUserAttribute> implied = ScimWriteEffects.ofUserWrite(id,
                 new ScimWriteEffects.UserState(
                         before.profile(), before.externalId(), current.login().passwordHash()),
                 new ScimWriteEffects.UserState(after.profile(), after.externalId(), passwordHash));
-        if (effects.stored().nothing()) {
-            // Nothing a client can read moved, so nothing is written and no version advances.
-            // Still audited, with no changed paths, as a Group write that moves nothing is: the
-            // connector did write, and a connector hammering no-op writes is worth seeing.
-            audit.recordScimUserReplaced(connectorId, id, effects.audited());
-            return Optional.of(projection(connector, current));
-        }
-
+        // A write that moved nothing a client can read writes nothing and advances no version, but
+        // is still audited, with no changed paths, as a Group write that moves nothing is: the
+        // connector did write, and a connector hammering no-op writes is worth seeing.
         Instant now = clock.instant();
-        ScimUser written;
-        try {
-            written = users.replace(desired(current, after.profile(), loginStates.afterReplacement(
-                            current, after.profile(), credential, now)),
-                            now)
-                    .orElseThrow();
-        } catch (DuplicateUserNameException duplicate) {
-            audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
-            throw duplicate;
+        if (implied.stored().columns()) {
+            try {
+                users.replace(desired(current, after.profile(), loginStates.afterReplacement(
+                                current, after.profile(), credential, now)),
+                        now);
+            } catch (DuplicateUserNameException duplicate) {
+                audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
+                throw duplicate;
+            }
         }
         if (accepted != null) {
             // Remembered only now that the credential is written, in this transaction: a refusal
             // above, or a rollback after this, leaves the history as it was.
             passwordAcceptance.remember(id, accepted, now);
         }
-        if (effects.stored().alias()) {
+        if (implied.stored().alias()) {
             writeAlias(connectorId, id, after.externalId());
         }
-        audit.recordScimUserReplaced(connectorId, id, effects.audited());
-        revokeAfterCommit(connectorId, effects);
-        return Optional.of(projection(connector, written));
-    }
-
-    /**
-     * Requests every Session revocation the effects name. After commit, per ADR 0002: the port's
-     * contract, so a write that rolls back ends none.
-     */
-    private void revokeAfterCommit(UUID connectorId, ScimWriteEffects<?> effects) {
-        for (ScimWriteEffects.SessionRevocation revocation : effects.revocations()) {
-            sessions.revokeAfterCommit(connectorId, revocation.userId(), revocation.causes());
-        }
+        audit.recordScimUserReplaced(connectorId, id, implied.audited());
+        // An alias written alone stored no User row, so the apply step advances its version.
+        effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId), implied, now);
+        // Read back rather than taken from the replacement: the version may have advanced above.
+        return Optional.of(projection(connector, users.findById(id).orElseThrow()));
     }
 
     /**

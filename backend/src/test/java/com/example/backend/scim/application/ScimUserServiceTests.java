@@ -447,6 +447,22 @@ class ScimUserServiceTests {
                 .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
     }
 
+    /**
+     * The alias is not a User column, so a write that moved only the alias writes no User row: its
+     * version and {@code lastModified} are advanced on their own, once, as a Group's are.
+     */
+    @Test
+    void an_alias_only_write_advances_the_version_without_writing_the_user() {
+        long before = stored().version();
+
+        ScimUserResource written = patch(new ScimUserPatchOperation.SetExternalId("ext-ada-2"));
+
+        assertThat(written.version()).isEqualTo(before + 1);
+        assertThat(stored().version()).isEqualTo(before + 1);
+        assertThat(stored().lastModifiedAt()).isEqualTo(LATER);
+        assertThat(writesSinceSetUp()).as("no User row is written").isZero();
+    }
+
     /** Restating the stored alias is the no-op any restated attribute is. */
     @Test
     void a_put_restating_the_alias_changes_nothing() {

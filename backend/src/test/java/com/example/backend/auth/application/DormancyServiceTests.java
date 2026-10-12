@@ -21,6 +21,7 @@ import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.application.ScimRoleRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -591,14 +592,16 @@ class DormancyServiceTests {
     }
 
     private DormancyService job(DormancyPolicy policy) {
+        SessionRevocationService sessions = new SessionRevocationService(
+                accountSessions,
+                transaction,
+                audit,
+                new RecordingOperationalAlerts());
         return new DormancyService(
                 users,
                 groups,
-                new SessionRevocationService(
-                        accountSessions,
-                        transaction,
-                        audit,
-                        new RecordingOperationalAlerts()),
+                new ScimRoleRevocationService(users, groups, sessions, audit, MAPPING),
+                sessions,
                 LoginStateModules.over(users, clock),
                 lock,
                 policy,
