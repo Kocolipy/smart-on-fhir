@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
+import type { LoginOutcome } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import type { SessionRouteState } from "@/auth/session-route";
 
@@ -11,6 +12,15 @@ const INACTIVE = "You were signed out because you were inactive. Please sign in 
 const EXPIRED = "Your session ended. Please sign in again.";
 const EPIC_UNAVAILABLE = "Sign-in from Epic is temporarily unavailable. Try again shortly.";
 const CLINICIANS = "Clinicians: open this application from Epic.";
+const SIGNED_IN: LoginOutcome = {
+  kind: "signed-in",
+  user: {
+    idleTimeoutSeconds: 900,
+    passwordChangeRequired: false,
+    permissions: [],
+    username: "ada",
+  },
+};
 
 function renderLogin(login: AuthContextState["login"], state?: SessionRouteState, search = "") {
   const value: AuthContextState = {
@@ -80,7 +90,7 @@ describe("Login", () => {
   it.each(["?signin=refused", "?signin=unavailable"])(
     "keeps the password form working beside the %s notice",
     async (search) => {
-      const login = vi.fn<AuthContextState["login"]>().mockResolvedValue(undefined);
+      const login = vi.fn<AuthContextState["login"]>().mockResolvedValue(SIGNED_IN);
       renderLogin(login, undefined, search);
 
       await submit();
@@ -94,8 +104,8 @@ describe("Login", () => {
     renderLogin(
       vi.fn(
         () =>
-          new Promise<void>((resolve) => {
-            finish = resolve;
+          new Promise<LoginOutcome>((resolve) => {
+            finish = () => resolve(SIGNED_IN);
           }),
       ),
     );
@@ -107,11 +117,19 @@ describe("Login", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
+  it("says nothing more once signed in", async () => {
+    renderLogin(vi.fn<AuthContextState["login"]>().mockResolvedValue(SIGNED_IN));
+
+    await submit();
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows the refusal's own message, and clears it on the next attempt", async () => {
     const login = vi
       .fn<AuthContextState["login"]>()
-      .mockRejectedValueOnce(new Error("The username or password is incorrect."))
-      .mockReturnValueOnce(new Promise<void>(() => undefined));
+      .mockResolvedValueOnce({ kind: "refused" })
+      .mockReturnValueOnce(new Promise<LoginOutcome>(() => undefined));
     renderLogin(login, { reason: "expired" });
 
     await submit();
@@ -126,11 +144,16 @@ describe("Login", () => {
     expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${EXPIRED}$`));
   });
 
-  it("falls back to a generic message for a refusal that is not an Error", async () => {
-    renderLogin(vi.fn().mockRejectedValue("offline"));
+  it.each<[LoginOutcome, RegExp]>([
+    [{ kind: "failed" }, /^Unable to sign in\. Please try again\.$/],
+    [{ kind: "csrf-expired" }, /^Your security token expired\. Please try again\.$/],
+    [{ kind: "forbidden" }, /^You don't have permission to do this\.$/],
+  ])("shows the copy for a login that came to %j", async (outcome, copy) => {
+    renderLogin(vi.fn<AuthContextState["login"]>().mockResolvedValue(outcome));
 
     await submit();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/^Unable to sign in\. Please try again\.$/);
+    expect(screen.getByRole("alert")).toHaveTextContent(copy);
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 });

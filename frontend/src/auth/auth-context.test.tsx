@@ -46,6 +46,25 @@ const signInReasonAndStatus = (state: ReturnType<typeof useAuthState>) => ({
   status: state.status,
 });
 
+/**
+ * Runs one session action and reports what it settled to: the outcome it
+ * resolved, the status after it, and how many CSRF tokens it forgot.
+ */
+async function settle<T>(
+  result: { readonly current: ReturnType<typeof useAuthState> },
+  action: (state: ReturnType<typeof useAuthState>) => Promise<T>,
+) {
+  let outcome: T | undefined;
+  await act(async () => {
+    outcome = await action(result.current);
+  });
+  return {
+    outcome,
+    status: result.current.status,
+    tokensForgotten: vi.mocked(http.discardCsrfToken).mock.calls.length,
+  };
+}
+
 describe("AuthProvider", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -168,7 +187,7 @@ describe("AuthProvider", () => {
   it("clears the password-change reason on the next login", async () => {
     api.getCurrentUser.mockResolvedValue(CONFINED);
     api.changePassword.mockResolvedValue({ kind: "changed" });
-    api.login.mockResolvedValue(USER);
+    api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
     await act(async () => {
@@ -188,7 +207,7 @@ describe("AuthProvider", () => {
 
   it("signs in, forgetting the pre-login session's token", async () => {
     api.getCurrentUser.mockResolvedValue(null);
-    api.login.mockResolvedValue(USER);
+    api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
     await act(async () => {
@@ -203,63 +222,61 @@ describe("AuthProvider", () => {
 
   it("refuses wrong credentials, forgetting the token of the session the backend ended", async () => {
     api.getCurrentUser.mockResolvedValue(null);
-    api.login.mockResolvedValue(null);
+    api.login.mockResolvedValue({ kind: "refused" });
     const { result } = await mounted();
 
-    let refusal: unknown;
-    await act(async () => {
-      refusal = await result.current.login(...CREDENTIALS).catch((error: unknown) => error);
-    });
-
-    expect({
-      message: (refusal as Error).message,
-      status: result.current.status,
-      tokensForgotten: vi.mocked(http.discardCsrfToken).mock.calls.length,
-    }).toEqual({
-      message: "The username or password is incorrect.",
+    expect(await settle(result, (auth) => auth.login(...CREDENTIALS))).toEqual({
+      outcome: { kind: "refused" },
       status: "guest",
       tokensForgotten: 1,
     });
   });
 
-  it("keeps the token when a login fails without reaching a verdict", async () => {
-    api.getCurrentUser.mockResolvedValue(null);
-    api.login.mockRejectedValue(new Error("Unable to sign in. Please try again."));
-    const { result } = await mounted();
+  it.each([
+    { kind: "forbidden" },
+    { kind: "csrf-expired" },
+    { kind: "failed" },
+  ] as authApi.LoginOutcome[])(
+    "resolves a $kind login without a verdict, keeping the session and its token",
+    async (failure) => {
+      api.getCurrentUser.mockResolvedValue(null);
+      api.login.mockResolvedValue(failure);
+      const { result } = await mounted();
 
-    await act(async () => {
-      await result.current.login(...CREDENTIALS).catch(() => undefined);
-    });
-
-    expect(http.discardCsrfToken).not.toHaveBeenCalled();
-  });
+      expect(await settle(result, (auth) => auth.login(...CREDENTIALS))).toEqual({
+        outcome: failure,
+        status: "guest",
+        tokensForgotten: 0,
+      });
+    },
+  );
 
   it("logs out, forgetting the ended session's token", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
-    api.logout.mockResolvedValue(undefined);
+    api.logout.mockResolvedValue({ kind: "signed-out" });
     const { result } = await mounted();
 
-    await act(async () => {
-      await result.current.logout();
+    expect(await settle(result, (auth) => auth.logout())).toEqual({
+      outcome: { kind: "signed-out" },
+      status: "guest",
+      tokensForgotten: 1,
     });
-
-    expect(http.discardCsrfToken).toHaveBeenCalledOnce();
   });
 
-  it("keeps the session and its token when the logout request fails", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
-    api.logout.mockRejectedValue(new Error("Unable to sign out. Please try again."));
-    const { result } = await mounted();
+  it.each([{ kind: "csrf-expired" }, { kind: "failed" }] as authApi.LogoutOutcome[])(
+    "resolves a $kind logout, keeping the session and its token",
+    async (failure) => {
+      api.getCurrentUser.mockResolvedValue(USER);
+      api.logout.mockResolvedValue(failure);
+      const { result } = await mounted();
 
-    await act(async () => {
-      await result.current.logout().catch(() => undefined);
-    });
-
-    expect({
-      status: result.current.status,
-      tokensForgotten: vi.mocked(http.discardCsrfToken).mock.calls.length,
-    }).toEqual({ status: "authenticated", tokensForgotten: 0 });
-  });
+      expect(await settle(result, (auth) => auth.logout())).toEqual({
+        outcome: failure,
+        status: "authenticated",
+        tokensForgotten: 0,
+      });
+    },
+  );
 
   it("forgets the token on a successful change", async () => {
     api.getCurrentUser.mockResolvedValue(CONFINED);
@@ -284,7 +301,7 @@ describe("AuthProvider", () => {
 
   it("clears the expiry reason on the next login", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
-    api.login.mockResolvedValue(USER);
+    api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
     act(() => result.current.expireSession());
@@ -318,8 +335,8 @@ describe("AuthProvider", () => {
   it("logs out to a cold guest, clearing the sign-in reason", async () => {
     api.getCurrentUser.mockResolvedValue(CONFINED);
     api.changePassword.mockResolvedValue({ kind: "changed" });
-    api.login.mockResolvedValue(USER);
-    api.logout.mockResolvedValue(undefined);
+    api.login.mockResolvedValue({ kind: "signed-in", user: USER });
+    api.logout.mockResolvedValue({ kind: "signed-out" });
     const { result } = await mounted();
 
     await act(async () => {
@@ -343,7 +360,7 @@ describe("AuthProvider", () => {
 
   it("signs an idle session out: logs out, forgets the token and records why", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
-    api.logout.mockResolvedValue(undefined);
+    api.logout.mockResolvedValue({ kind: "signed-out" });
     const { result } = await mounted();
 
     await act(async () => {
@@ -359,27 +376,30 @@ describe("AuthProvider", () => {
     expect(result.current.user).toBeNull();
   });
 
-  it("clears an idle session even when its logout fails", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
-    api.logout.mockRejectedValue(new Error("Unable to sign out. Please try again."));
-    const { result } = await mounted();
+  it.each([{ kind: "csrf-expired" }, { kind: "failed" }] as authApi.LogoutOutcome[])(
+    "clears an idle session even when its logout comes to $kind",
+    async (failure) => {
+      api.getCurrentUser.mockResolvedValue(USER);
+      api.logout.mockResolvedValue(failure);
+      const { result } = await mounted();
 
-    await act(async () => {
-      await result.current.signOutForInactivity();
-    });
+      await act(async () => {
+        await result.current.signOutForInactivity();
+      });
 
-    expect(http.discardCsrfToken).toHaveBeenCalledOnce();
-    expect(signInReasonAndStatus(result.current)).toEqual({
-      signInReason: "inactive",
-      status: "guest",
-    });
-    expect(result.current.user).toBeNull();
-  });
+      expect(http.discardCsrfToken).toHaveBeenCalledOnce();
+      expect(signInReasonAndStatus(result.current)).toEqual({
+        signInReason: "inactive",
+        status: "guest",
+      });
+      expect(result.current.user).toBeNull();
+    },
+  );
 
   it("clears the Idle sign-out reason on the next login, and replaces it on a later expiry", async () => {
     api.getCurrentUser.mockResolvedValue(USER);
-    api.logout.mockResolvedValue(undefined);
-    api.login.mockResolvedValue(USER);
+    api.logout.mockResolvedValue({ kind: "signed-out" });
+    api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
     await act(async () => {

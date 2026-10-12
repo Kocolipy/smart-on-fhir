@@ -42,14 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *
    * The logout is attempted, but its outcome cannot keep the session on screen:
    * the point is that an unattended page stops showing, so a logout that fails
-   * still ends the session here, its token included.
+   * still ends the session here, its token included. The backend's own idle
+   * bound ends the session it may still hold.
    */
   const signOutForInactivity = useCallback(async () => {
-    try {
-      await authApi.logout();
-    } catch {
-      // Signed out locally regardless; the backend's own idle bound ends the session.
-    }
+    await authApi.logout();
     end("inactive");
   }, [end]);
 
@@ -66,19 +63,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       expireSession,
       login: async (username, password) => {
-        const currentUser = await authApi.login(username, password);
-        if (currentUser) {
-          signIn(currentUser);
-          return;
-        }
+        const outcome = await authApi.login(username, password);
         // A refused login ends whatever session the browser held, so the
         // Guest's token goes with it and a retry fetches the next session's.
-        end(null);
-        throw new Error(authApi.LOGIN_REFUSED_MESSAGE);
+        // Any other outcome reached no verdict and changes nothing.
+        if (outcome.kind === "signed-in") signIn(outcome.user);
+        if (outcome.kind === "refused") end(null);
+        return outcome;
       },
       logout: async () => {
-        await authApi.logout();
-        end(null);
+        const outcome = await authApi.logout();
+        // A logout that may have left the backend's session standing keeps it
+        // here too, its CSRF token with it (ADR-0009).
+        if (outcome.kind === "signed-out") end(null);
+        return outcome;
       },
       signInReason,
       signOutForInactivity,

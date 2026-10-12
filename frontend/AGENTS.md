@@ -57,7 +57,10 @@ each page's endpoints and Permissions; this list holds the rules.
   (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
   read and gated write every page listing and action goes through
   (`use-gated-read.ts`, `use-gated-write.ts`), the declaration types they take
-  (`declarations.ts`), a page's single error line (`page-status.ts`), the idle sign-out (see
+  (`declarations.ts`), a page's single error line (`page-status.ts`), the copy
+  for every session-action outcome (`session-action-copy.ts`: login, logout
+  and the password change each resolve to a closed outcome and never throw, so
+  their pages render that copy and never catch), the idle sign-out (see
   "Backend contract"), the session transitions (`session-transitions.ts`), the
   one place the auth state changes and the CSRF token is forgotten with it,
   and the sign-in reason (`sign-in-reason.ts`): why a

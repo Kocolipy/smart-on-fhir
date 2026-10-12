@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link, matchPath, Outlet, useLocation } from "react-router-dom";
 
-import { SIGN_OUT_FAILED_MESSAGE } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
+import { logoutMessage } from "@/auth/session-action-copy";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SHOWCASE_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
@@ -12,10 +12,11 @@ import { SHOWCASE_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
  * page title), the back link and Sign out.
  *
  * A Sign out that fails, or comes back CSRF-expired, leaves the session
- * standing — the auth context's `logout` throws before it ends anything, so the
- * CSRF token stays with its session (ADR-0009) — and the shell says so. A
- * successful one ends the session and the guards send the user to login with no
- * Sign-in reason. The Idle sign-out is a separate path that always ends it.
+ * standing — the auth context's `logout` resolves that outcome without ending
+ * anything, so the CSRF token stays with its session (ADR-0009) — and the shell
+ * shows the outcome's copy, which says so. A `signed-out` one has already ended
+ * the session, and the guards send the user to login with no Sign-in reason.
+ * The Idle sign-out is a separate path that always ends it.
  */
 export function SignedInShell() {
   const { logout, user } = useAuth();
@@ -28,12 +29,11 @@ export function SignedInShell() {
   async function signOut() {
     setPending(true);
     setError("");
-    try {
-      await logout();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : SIGN_OUT_FAILED_MESSAGE);
-      setPending(false);
-    }
+    const outcome = await logout();
+    // Signed out, the guards replace the shell; there is nothing to show here.
+    if (outcome.kind === "signed-out") return;
+    setError(logoutMessage(outcome));
+    setPending(false);
   }
 
   return (
@@ -55,7 +55,7 @@ export function SignedInShell() {
       </div>
       {error ? (
         <p className="w-full text-sm text-destructive" role="alert">
-          {error} You are still signed in.
+          {error}
         </p>
       ) : null}
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
+import { loginMessage } from "@/auth/session-action-copy";
 import { signInNoticeFor } from "@/auth/sign-in-reason";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,13 +26,10 @@ export function Login() {
     setError("");
     setSubmitting(true);
     const data = new FormData(event.currentTarget);
-    try {
-      await login(String(data.get("username")), String(data.get("password")));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to sign in. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
+    const outcome = await login(String(data.get("username")), String(data.get("password")));
+    // Signed in, the guest route moves on; anything else says what it came to.
+    if (outcome.kind !== "signed-in") setError(loginMessage(outcome));
+    setSubmitting(false);
   }
 
   return (

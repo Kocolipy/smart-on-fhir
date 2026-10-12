@@ -142,11 +142,7 @@ export function IdleSignOut({ idleTimeoutSeconds }: { idleTimeoutSeconds: number
 
   if (!warning) return null;
   return (
-    <IdleWarning
-      onSignOut={() => void logout().catch(() => undefined)}
-      onStay={() => void stay()}
-      staying={staying}
-    />
+    <IdleWarning onSignOut={() => void logout()} onStay={() => void stay()} staying={staying} />
   );
 }
 

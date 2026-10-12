@@ -1,5 +1,5 @@
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
-import { apiFetch, CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE, type ApiResult } from "@/lib/http";
+import { apiFetch, FORBIDDEN_MESSAGE, type ApiResult } from "@/lib/http";
 
 /**
  * Every Permission the backend grants: the closed set its `Permission` enum
@@ -87,15 +87,30 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
-/** What a refused login says: the same for an unknown name, a wrong password and a lockout. */
-export const LOGIN_REFUSED_MESSAGE = "The username or password is incorrect.";
+/**
+ * The outcomes a session action shares with every request: an authorization
+ * refusal, a CSRF token that could not be fetched, and any other failure. None
+ * of them changes the session.
+ */
+type RequestFailure = { kind: "forbidden" } | { kind: "csrf-expired" } | { kind: "failed" };
 
 /**
- * Signs in, resolving the signed-in user, or `null` for credentials the backend
- * refused. Either verdict changes the browser's session — a sign-in rotates its
- * id, a refusal ends it — which the caller acts on; any other outcome throws.
+ * What a login came to. Every request outcome resolves to one of these; none
+ * throws.
+ *
+ * - `signed-in` — the backend signed the User in, rotating the session's id.
+ * - `refused` — `401`: the credentials were refused, the same for an unknown
+ *   name, a wrong password and a lockout. The backend ended whatever session
+ *   the browser held before answering.
+ *
+ * Both verdicts change the browser's session, which the caller acts on; the
+ * rest leave it as it was. What each says is `session-action-copy.ts`'s.
  */
-export async function login(username: string, password: string): Promise<AuthUser | null> {
+export type LoginOutcome =
+  { kind: "signed-in"; user: AuthUser } | { kind: "refused" } | RequestFailure;
+
+/** Signs in. */
+export async function login(username: string, password: string): Promise<LoginOutcome> {
   const result = await apiFetch(
     "/api/auth/login",
     {
@@ -108,20 +123,28 @@ export async function login(username: string, password: string): Promise<AuthUse
 
   switch (result.kind) {
     case "ok":
-      return result.data;
+      return { kind: "signed-in", user: result.data };
     case "unauthenticated":
-      return null;
+      return { kind: "refused" };
     case "forbidden":
-      throw new Error(FORBIDDEN_MESSAGE);
     case "csrf-expired":
-      throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
-      throw new Error("Unable to sign in. Please try again.");
+      return { kind: result.kind };
   }
 }
 
-/** The Sign out failure line, shared with the shell's non-Error fallback. */
-export const SIGN_OUT_FAILED_MESSAGE = "Unable to sign out. Please try again.";
+/**
+ * What a logout came to. Every request outcome resolves to one of these; none
+ * throws.
+ *
+ * - `signed-out` — the session is gone, which the caller acts on.
+ * - `csrf-expired`, `failed` — the backend may still hold the session, so it
+ *   stands, its CSRF token with it (ADR-0009).
+ *
+ * What each says is `session-action-copy.ts`'s.
+ */
+export type LogoutOutcome =
+  { kind: "signed-out" } | Extract<RequestFailure, { kind: "csrf-expired" | "failed" }>;
 
 /**
  * Ends the session, and treats a session that had already ended as ended.
@@ -130,19 +153,18 @@ export const SIGN_OUT_FAILED_MESSAGE = "Unable to sign out. Please try again.";
  * the token held is dead too: the backend answers `403`, `apiFetch` re-fetches
  * a token (for a fresh, anonymous session) and retries, and the retry is
  * refused `401` — or `403` again. Neither is an error to the user, who asked to
- * be signed out and is, so both resolve, and the caller ends the session.
+ * be signed out and is, so both are `signed-out`.
  */
-export async function logout(): Promise<void> {
+export async function logout(): Promise<LogoutOutcome> {
   const result: ApiResult<void> = await apiFetch("/api/auth/logout", { method: "DELETE" });
   switch (result.kind) {
     case "ok":
     case "unauthenticated":
     case "forbidden":
-      return;
+      return { kind: "signed-out" };
     case "csrf-expired":
-      throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
-      throw new Error(SIGN_OUT_FAILED_MESSAGE);
+      return { kind: result.kind };
   }
 }
 
@@ -156,18 +178,19 @@ export async function logout(): Promise<void> {
  * - `current-password-rejected` — `401` while the session survives it.
  * - `locked` — `401` that ended the session: at the lockout threshold the
  *   backend locks the account and revokes every session it holds.
+ * - `failed` — includes a `401` whose session check did not answer, which can
+ *   confirm neither of the two above.
  *
  * `changed` and `locked` both mean the session is gone, which the caller acts
- * on; this module only classifies.
+ * on; this module only classifies, and `session-action-copy.ts` says the rest.
+ * Every request outcome resolves to one of these; none throws.
  */
 export type PasswordChangeOutcome =
   | { kind: "changed" }
   | { kind: "policy-violation"; message: string }
   | { kind: "current-password-rejected" }
   | { kind: "locked" }
-  | { kind: "forbidden" }
-  | { kind: "csrf-expired" }
-  | { kind: "failed" };
+  | RequestFailure;
 
 /**
  * The `PasswordRuleViolation` body's statement of the rule. Any other body
@@ -185,12 +208,25 @@ const decodeRuleMessage = jsonDecoder((body: unknown): string =>
  * wrong password leaves it standing, while reaching the threshold locks the
  * account and revokes every session the User holds, this one included. So the
  * session is asked whether it still exists.
+ *
+ * Only a probe that answers decides: a session that stands is a wrong
+ * password, and one that is gone is a lockout. A probe that does not answer
+ * cannot tell the two apart, so it claims neither — reading it as a wrong
+ * password could hide a lockout — and the change resolves as `failed`, which
+ * leaves the session standing on screen.
  */
 async function classifyRejection(): Promise<PasswordChangeOutcome> {
   const probe = await apiFetch(ME_PATH);
-  return probe.kind === "unauthenticated"
-    ? { kind: "locked" }
-    : { kind: "current-password-rejected" };
+  switch (probe.kind) {
+    case "ok":
+      return { kind: "current-password-rejected" };
+    case "unauthenticated":
+      return { kind: "locked" };
+    case "forbidden":
+    case "csrf-expired":
+    case "failed":
+      return { kind: "failed" };
+  }
 }
 
 /**
