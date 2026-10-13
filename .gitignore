@@ -37,6 +37,8 @@ playwright-report/
 .stryker-tmp/
 *.local
 *.tsbuildinfo
+# Surefire's runOrder=balanced timings, per machine (see backend/pom.xml).
+/backend/.surefire-*
 
 # AI tooling: agent definitions are tracked, fetched skills are not.
 **/.agents/*

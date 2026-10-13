@@ -261,6 +261,15 @@
               starts its own Postgres and Redis (ContainerTestConfiguration), so contexts
               split across forks cost a migrated database each, not a container start.
               Override with -DforkCount=1 to debug a test in one JVM.
+
+              The forks take classes from one shared queue, so the class that starts last
+              sets the tail: one fork idles while the other finishes it. "balanced" orders
+              the queue longest-first from the previous run's timings, kept in
+              .surefire-<config checksum> beside this file (gitignored, and outside target/
+              so `clean` keeps it). Each configuration, -Dtest=... included, keeps its own
+              file, and one with no statistics yet runs in file-system order. That
+              order already left only a 5s gap between the forks when measured; this guards
+              against a long class landing late in the queue, not against today's tail.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -268,6 +277,7 @@
                 <configuration>
                     <forkCount>${forkCount}</forkCount>
                     <reuseForks>true</reuseForks>
+                    <runOrder>balanced</runOrder>
                 </configuration>
             </plugin>
             <plugin>
