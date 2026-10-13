@@ -659,13 +659,13 @@ which mutators, and when a surviving mutant may be accepted.
 
 Faster checks for the edit loop. None replaces the baseline gate.
 
-| Layer          | Command                                    | Needs                    | Measured 2026-10-13                               |
-| -------------- | ------------------------------------------ | ------------------------ | ------------------------------------------------- |
-| Fast           | `./scripts/test-gates.sh fast`             | JDK only                 | 162 classes, 3134 tests, 24s wall                 |
-| Subsystem      | `./scripts/test-gates.sh subsystem <name>` | Docker                   | `observability` 427 tests 33s; `arch` 79 tests 7s |
-| All subsystems | `./scripts/test-gates.sh subsystems`       | Docker                   | one Maven run per package                         |
-| Broad          | `./scripts/test-gates.sh broad`            | Docker                   | 4744 tests, 0 failures, 230s wall                 |
-| Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network | broad plus `clean`, `verify` and the scan         |
+| Layer          | Command                                    | Needs                    | 
+| -------------- | ------------------------------------------ | ------------------------ | 
+| Fast           | `./scripts/test-gates.sh fast`             | JDK only                 | 
+| Subsystem      | `./scripts/test-gates.sh subsystem <name>` | Docker                   | 
+| All subsystems | `./scripts/test-gates.sh subsystems`       | Docker                   | 
+| Broad          | `./scripts/test-gates.sh broad`            | Docker                   | 
+| Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network | 
 
 The fast gate is an explicit class list in the script: every test class that
 starts no Spring context and no container. Its run fails if the log shows
@@ -673,10 +673,6 @@ either, so a class that grows a `@SpringBootTest` has to move out. Subsystem
 names are the test packages (`arch`, `auth`, `scim`, `audit`, `authorization`,
 `contract`, `observability`, `counter`, `lifecycle`, `scheduling`, `web`);
 `BackendApplicationTests`, at the package root, runs only in the broad gate.
-The slowest classes are `ScimConformanceFixtureTests` (49s),
-`EpicLoginIntegrationTests` (43s) and `ScimQueryProtocolIntegrationTests`
-(33s): the Epic outbound-timeout cases each wait about 3s on the fake, and
-each "count over the maximum is capped" case creates 201 users.
 
 The test JVMs drop every `.env.example` key from their environment
 (`excludedEnvironmentVariables` in `pom.xml`), so the results do not depend on
