@@ -10,7 +10,7 @@ import {
   type SessionRoute,
   type SessionRouteInput,
 } from "./session-route";
-import type { Permission } from "./api";
+import { EVERY_PERMISSION } from "./auth-context.testHelpers";
 import type { SessionEndReason } from "./sign-in-reason";
 
 const CHECKING: RoutedSession = { status: "checking" };
@@ -36,20 +36,6 @@ const flagged = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput 
 
 /** The Accounts page's requirement: any one of its views' Permissions. */
 const ACCOUNTS: SessionRequirement = { anyOf: ["user:read", "group:read", "connector:read"] };
-
-const EVERY_PERMISSION: Permission[] = [
-  "audit:read",
-  "connector:read",
-  "connector:token",
-  "connector:write",
-  "counter:read",
-  "counter:write",
-  "group:read",
-  "group:write",
-  "ops:read",
-  "user:read",
-  "user:write",
-];
 
 const toChangePassword: SessionRoute = { kind: "redirect", to: CREDENTIAL_CHANGE_PATH };
 

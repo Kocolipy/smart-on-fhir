@@ -1,23 +1,22 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { authState, signedIn } from "@/auth/auth-context.testHelpers";
-import { apiFetch } from "@/lib/http";
+import {
+  bare,
+  deferred,
+  holding,
+  json,
+  renderAsSession,
+  type Answers,
+  type StartingSession,
+  type WireAnswer,
+} from "@/auth/session-adapter.testHelpers";
 
 import { AUDIT_EVENTS_PATH } from "./audit-api";
 import { Audit } from "./audit";
 
-vi.mock("@/lib/http", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/http")>()),
-  apiFetch: vi.fn(),
-}));
-
-const apiFetchMock = vi.mocked(apiFetch);
-
-const auth: AuthContextState = authState(signedIn({ permissions: ["audit:read"] }));
+const AUDITOR = holding(["audit:read"]);
 
 const EVENT_1 = {
   id: "e-1",
@@ -124,18 +123,22 @@ function pageOf(events: object[], overrides: Partial<Record<string, unknown>> = 
   };
 }
 
-function resolveWith(result: object) {
-  apiFetchMock.mockResolvedValue(result as never);
-}
+/** The read of page `page` with no filter, as the page names it. */
+const atPage = (page: number) => `GET ${AUDIT_EVENTS_PATH}?page=${page}&size=50`;
 
-function renderAudit(value: AuthContextState = auth) {
-  return render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter>
-        <Audit />
-      </MemoryRouter>
-    </AuthContext.Provider>,
-  );
+/** The same answer to every read of the listing, whatever its filters or page. */
+const everyRead = (answer: WireAnswer): Answers => ({ [`GET ${AUDIT_EVENTS_PATH}*`]: answer });
+
+/** An `AuditEventPage` holding `events`, as the backend answers a read. */
+const answerPage = (events: object[], overrides: Partial<Record<string, unknown>> = {}) =>
+  json(pageOf(events, overrides));
+
+/** The read paths the page sent, in order. */
+const readPaths = (requests: () => readonly { path: string }[]) =>
+  requests().map(({ path }) => path);
+
+function renderAudit(answers: Answers, session: StartingSession = AUDITOR) {
+  return renderAsSession(<Audit />, session, { answers });
 }
 
 const table = () => screen.getByRole("table", { name: "Audit events" });
@@ -159,31 +162,21 @@ function enterYear275760(label: "From" | "To") {
 }
 
 describe("Audit", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-    vi.mocked(auth.expireSession).mockReset();
-    vi.mocked(auth.logout).mockReset();
-  });
-
   it("lists every recorded event on mount, newest first as the backend ordered them", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1, EVENT_2], { totalElements: 2 }) });
-    renderAudit();
+    const { requests } = await renderAudit(
+      everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })),
+    );
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
     // Header row, then the two events in the order the backend sent them.
     expect(within(rows[1]).getByText("LOGIN_FAILURE")).toBeInTheDocument();
     expect(within(rows[2]).getByText("SCIM_USER_LIST")).toBeInTheDocument();
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-      {},
-      expect.any(Function),
-    );
+    expect(requests()).toEqual([{ method: "GET", path: `${AUDIT_EVENTS_PATH}?page=0&size=50` }]);
   });
 
   it("shows an empty-state message when no events match", async () => {
-    resolveWith({ kind: "ok", data: pageOf([]) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([])));
 
     expect(
       await screen.findByText("No audit events match the current filters."),
@@ -191,24 +184,33 @@ describe("Audit", () => {
     expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
   });
 
-  it("sends no request for a session lacking audit:read", () => {
-    renderAudit({ ...auth, ...signedIn({ permissions: [] }) });
+  it("sends no request for a session lacking audit:read", async () => {
+    const { requests } = await renderAudit({}, holding([]));
 
-    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
   });
 
   it("reports a failed read with the page's own copy", async () => {
-    resolveWith({ kind: "failed", status: 503 });
-    renderAudit();
+    await renderAudit(everyRead(bare(503)));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the audit trail. Please try again.",
     );
   });
 
+  // An operation outside the closed set fails the whole page on decode, with
+  // the page's own copy, and renders none of it.
+  it("reports a page naming an unknown operation, and lists none of it", async () => {
+    await renderAudit(everyRead(answerPage([{ ...EVENT_1, operation: "LOGIN_TELEPORT" }])));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to load the audit trail\. Please try again\.$/,
+    );
+    expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
+  });
+
   it("renders every event field as plain text, never as a link", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_2], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("userName eq ?", { exact: false })).toBeInTheDocument();
@@ -217,8 +219,7 @@ describe("Audit", () => {
   });
 
   it("names every column exactly, in a fixed order", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
 
     await findTable();
     expect(
@@ -239,8 +240,7 @@ describe("Audit", () => {
   });
 
   it("renders a resource id beside its type, and the type alone when there is none", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1, EVENT_2], { totalElements: 2 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -251,8 +251,7 @@ describe("Audit", () => {
   });
 
   it("shows an actor's id, and an em dash for an event with no actor", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1, EVENT_2], { totalElements: 2 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -264,16 +263,14 @@ describe("Audit", () => {
   });
 
   it("joins the triggering request's method, route and correlation id", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_2], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("GET /Users (req-2)")).toBeInTheDocument();
   });
 
   it("names only the correlation id when the event names no triggering request", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_ROLE_CHANGE], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_ROLE_CHANGE], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("req-3")).toBeInTheDocument();
@@ -281,11 +278,9 @@ describe("Audit", () => {
   });
 
   it("names only the route when the triggering request carried no correlation id", async () => {
-    resolveWith({
-      kind: "ok",
-      data: pageOf([{ ...EVENT_2, requestId: null }], { totalElements: 1 }),
-    });
-    renderAudit();
+    await renderAudit(
+      everyRead(answerPage([{ ...EVENT_2, requestId: null }], { totalElements: 1 })),
+    );
 
     await findTable();
     const requestColumn = 6;
@@ -293,8 +288,7 @@ describe("Audit", () => {
   });
 
   it("joins changed paths, and shows an em dash when there are none", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1, EVENT_ROLE_CHANGE], { totalElements: 2 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_ROLE_CHANGE], { totalElements: 2 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -306,27 +300,23 @@ describe("Audit", () => {
   });
 
   it("joins a bulk read's result count and filter shape in Details", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_2], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("3 result(s) · userName eq ?")).toBeInTheDocument();
   });
 
   it("joins a membership change's Role and Permissions in Details", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_ROLE_CHANGE], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_ROLE_CHANGE], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("Engineering · user:read, group:read")).toBeInTheDocument();
   });
 
   it("names a login's method in Details", async () => {
-    resolveWith({
-      kind: "ok",
-      data: pageOf([EVENT_1, { ...EVENT_1, id: "e-5", loginMethod: "sso" }]),
-    });
-    renderAudit();
+    await renderAudit(
+      everyRead(answerPage([EVENT_1, { ...EVENT_1, id: "e-5", loginMethod: "sso" }])),
+    );
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -341,8 +331,7 @@ describe("Audit", () => {
   });
 
   it("shows an em dash in every optional column for an event naming none of them", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_BARE], { totalElements: 1 }) });
-    renderAudit();
+    await renderAudit(everyRead(answerPage([EVENT_BARE], { totalElements: 1 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -354,8 +343,7 @@ describe("Audit", () => {
 
   describe("paging", () => {
     it("disables Previous on the first page and Next with no further page", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1, totalPages: 1 }) });
-      renderAudit();
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1, totalPages: 1 })));
 
       await findTable();
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
@@ -364,46 +352,26 @@ describe("Audit", () => {
     });
 
     it("requests the next page and shows it", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never)
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
-        } as never);
+      const { requests } = await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
 
       await screen.findByText("Page 2 of 2");
       expect(within(table()).getByText("SCIM_USER_LIST")).toBeInTheDocument();
-      expect(apiFetchMock).toHaveBeenLastCalledWith(
-        `${AUDIT_EVENTS_PATH}?page=1&size=50`,
-        {},
-        expect.any(Function),
-      );
+      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=1&size=50`);
     });
 
     it("enables Previous once past the first page, and returns to it", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never)
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
-        } as never)
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never);
+      const { requests } = await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
@@ -415,23 +383,16 @@ describe("Audit", () => {
       await user.click(previous);
 
       await screen.findByText("Page 1 of 2");
-      expect(apiFetchMock).toHaveBeenLastCalledWith(
-        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-        {},
-        expect.any(Function),
-      );
+      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
     });
 
     // The total belongs to a page read; until the next one is read it is unknown.
     it("names no total while the next page loads", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never)
-        .mockReturnValueOnce(new Promise(() => {}) as never);
+      await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        [atPage(1)]: deferred().answer,
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -440,14 +401,11 @@ describe("Audit", () => {
     });
 
     it("names no total once the next page fails", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never)
-        .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+      await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        [atPage(1)]: bare(503),
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -456,21 +414,17 @@ describe("Audit", () => {
       expect(pager()).toHaveTextContent(/^Page 2$/);
     });
 
-    it("names no total for a session lacking audit:read", () => {
-      renderAudit({ ...auth, ...signedIn({ permissions: [] }) });
+    it("names no total for a session lacking audit:read", async () => {
+      await renderAudit({}, holding([]));
 
       expect(pager()).toHaveTextContent(/^Page 1$/);
     });
 
     it("keeps the total a page stated when its Refresh fails", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 51, totalPages: 2 }),
-        } as never)
-        .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+      await renderAudit({
+        [atPage(0)]: [answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }), bare(503)],
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Refresh" }));
@@ -480,18 +434,12 @@ describe("Audit", () => {
     });
 
     it("never names a total smaller than the page it is on", async () => {
-      apiFetchMock
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        } as never)
+      await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
         // The trail shrank under the filters between the two reads.
-        .mockResolvedValueOnce({
-          kind: "ok",
-          data: pageOf([], { page: 1, totalElements: 1, totalPages: 1 }),
-        } as never);
+        [atPage(1)]: answerPage([], { page: 1, totalElements: 1, totalPages: 1 }),
+      });
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -503,11 +451,8 @@ describe("Audit", () => {
 
   // The audit trail is evidence: rows a refresh could not confirm are not shown as the trail.
   it("hides the events last read once a Refresh fails", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce({ kind: "ok", data: pageOf([EVENT_1]) } as never)
-      .mockResolvedValueOnce({ kind: "failed", status: 503 } as never);
+    await renderAudit({ [atPage(0)]: [answerPage([EVENT_1]), bare(503)] });
     const user = userEvent.setup();
-    renderAudit();
 
     await findTable();
     await user.click(screen.getByRole("button", { name: "Refresh" }));
@@ -517,56 +462,56 @@ describe("Audit", () => {
   });
 
   it("reloads on Refresh without changing the filters", async () => {
-    resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+    const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
     const user = userEvent.setup();
-    renderAudit();
 
     await findTable();
     await user.click(screen.getByRole("button", { name: "Refresh" }));
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(2);
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-      {},
-      expect.any(Function),
+    await vi.waitFor(() =>
+      expect(readPaths(requests)).toEqual([
+        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
+      ]),
     );
   });
 
   describe("filters", () => {
     it("sends no request and shows a local message for a malformed actor id", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
       expect(await screen.findByText("Actor id must be a valid UUID.")).toBeInTheDocument();
-      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+      expect(requests()).toHaveLength(1);
     });
 
     it("builds the request from the submitted filters", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.selectOptions(screen.getByLabelText("Operation"), "LOGIN_FAILURE");
       await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
-      expect(apiFetchMock).toHaveBeenLastCalledWith(
+      expect(readPaths(requests).slice(-1)[0]).toBe(
         `${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&page=0&size=50`,
-        {},
-        expect.any(Function),
       );
     });
 
     it("builds the request from a resource id and a date range", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.type(screen.getByLabelText("Resource id"), "00000000-0000-4000-8000-000000000002");
@@ -574,17 +519,14 @@ describe("Audit", () => {
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
-      expect(apiFetchMock).toHaveBeenLastCalledWith(
+      expect(readPaths(requests).slice(-1)[0]).toBe(
         `${AUDIT_EVENTS_PATH}?resourceId=00000000-0000-4000-8000-000000000002&from=${encodeURIComponent(new Date("2026-01-01T00:00").toISOString())}&to=${encodeURIComponent(new Date("2026-01-02T00:00").toISOString())}&page=0&size=50`,
-        {},
-        expect.any(Function),
       );
     });
 
     it("refuses a year-275760 date with a message and keeps the listing on screen", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       enterYear275760("To");
@@ -597,22 +539,24 @@ describe("Audit", () => {
     });
 
     it("sends no request for a refused date", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       enterYear275760("From");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
       await screen.findByRole("alert");
-      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+      expect(requests()).toHaveLength(1);
     });
 
     it("reads again when the same filters are submitted twice", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
@@ -621,7 +565,7 @@ describe("Audit", () => {
       await user.click(apply);
 
       await vi.waitFor(() =>
-        expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual([
+        expect(readPaths(requests)).toEqual([
           `${AUDIT_EVENTS_PATH}?page=0&size=50`,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
@@ -630,25 +574,25 @@ describe("Audit", () => {
     });
 
     it("reads once, for the new filters only, when a submit changes them", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
       await findTable();
 
-      expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual([
+      expect(readPaths(requests)).toEqual([
         `${AUDIT_EVENTS_PATH}?page=0&size=50`,
         `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
       ]);
     });
 
     it("clears a refusal once the filters are submitted valid", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       const actorId = screen.getByLabelText("Actor id");
@@ -662,15 +606,14 @@ describe("Audit", () => {
     });
 
     it("shows a read failure that lands after a refused filter, as the latest", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { answer } = await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
       await screen.findByText("Actor id must be a valid UUID.");
-      resolveWith({ kind: "failed", status: 503 });
+      answer(everyRead(bare(503)));
       await user.click(screen.getByRole("button", { name: "Refresh" }));
 
       expect(
@@ -679,27 +622,26 @@ describe("Audit", () => {
     });
 
     it("keeps a refused filter on the error line when a later read succeeds", async () => {
-      resolveWith({ kind: "ok", data: pageOf([EVENT_1], { totalElements: 1 }) });
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
+      );
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
       await screen.findByRole("alert");
       await user.click(screen.getByRole("button", { name: "Refresh" }));
-      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      // Let the Refresh's answer land before reading the line it might have changed.
+      await findTable();
 
       expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
     });
 
     it("returns to the first page on a valid submit", async () => {
-      resolveWith({
-        kind: "ok",
-        data: pageOf([EVENT_1], { totalElements: 2, totalPages: 2 }),
-      });
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 2, totalPages: 2 })));
       const user = userEvent.setup();
-      renderAudit();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));

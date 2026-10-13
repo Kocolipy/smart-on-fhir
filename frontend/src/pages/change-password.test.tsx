@@ -1,11 +1,18 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PasswordChangeOutcome } from "@/auth/api";
-import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { authState, CHECKING, signedIn } from "@/auth/auth-context.testHelpers";
+import {
+  bare,
+  deferred,
+  holding,
+  json,
+  renderAsSession,
+  STILL_CHECKING,
+  type Answers,
+  type StartingSession,
+  type WireAnswer,
+} from "@/auth/session-adapter.testHelpers";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 
 import { ChangePassword } from "./change-password";
@@ -13,23 +20,21 @@ import { ChangePassword } from "./change-password";
 /** Distinctive values, so a search of the DOM or a log line for them cannot match by accident. */
 const CURRENT = "Current-Value-4f81";
 const NEXT = "Next-Value-9c2e-long";
+/** The two as the submission names them. */
+const [currentPassword, newPassword] = [CURRENT, NEXT];
 
-const flaggedAuth = (): AuthContextState =>
-  authState(signedIn({ passwordChangeRequired: true }), {
-    logout: vi.fn().mockResolvedValue(undefined),
-  });
+const CHANGE = "POST /api/auth/change-password";
 
-const unflaggedAuth = (): AuthContextState => ({ ...flaggedAuth(), ...signedIn() });
+/** A session confined to the password change. */
+const FLAGGED = holding([], { passwordChangeRequired: true });
 
-function renderPage(auth: AuthContextState) {
-  return render(
-    <AuthContext.Provider value={auth}>
-      <MemoryRouter>
-        <ChangePassword />
-      </MemoryRouter>
-    </AuthContext.Provider>,
-  );
-}
+/** The page as `session` sees it, the backend answering a submission as `answers` says. */
+const renderPage = (answers: Answers = {}, session: StartingSession = FLAGGED) =>
+  renderAsSession(<ChangePassword />, session, { answers });
+
+/** The submissions the page sent, as the backend saw them. */
+const submissions = (requests: () => readonly { path: string }[]) =>
+  requests().filter(({ path }) => path === "/api/auth/change-password");
 
 const field = (name: string) => screen.getByLabelText(name);
 const submit = () => screen.getByRole("button", { name: "Change password" });
@@ -75,8 +80,8 @@ describe("ChangePassword", () => {
     vi.restoreAllMocks();
   });
 
-  it("tells a flagged User the change is required", () => {
-    renderPage(flaggedAuth());
+  it("tells a flagged User the change is required", async () => {
+    await renderPage();
 
     expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
     expect(
@@ -85,21 +90,21 @@ describe("ChangePassword", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("renders safely while the session's user details are unavailable", () => {
-    renderPage({ ...unflaggedAuth(), ...CHECKING });
+  it("renders safely while the session's user details are unavailable", async () => {
+    await renderPage({}, STILL_CHECKING);
 
     // No flag to read means no confinement: the unflagged copy and a way back.
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
   });
 
-  it("tells an unflagged User it is a voluntary change", () => {
-    renderPage(unflaggedAuth());
+  it("tells an unflagged User it is a voluntary change", async () => {
+    await renderPage({}, holding([]));
 
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
   });
 
-  it("keeps every field a masked password field with the matching autocomplete hint", () => {
-    renderPage(flaggedAuth());
+  it("keeps every field a masked password field with the matching autocomplete hint", async () => {
+    await renderPage();
 
     expect(field("Current password")).toHaveAttribute("type", "password");
     expect(field("Current password")).toHaveAttribute("autocomplete", "current-password");
@@ -111,8 +116,8 @@ describe("ChangePassword", () => {
     }
   });
 
-  it("states the password requirements before submission and links them to the new-password field", () => {
-    renderPage(flaggedAuth());
+  it("states the password requirements before submission and links them to the new-password field", async () => {
+    await renderPage();
 
     const requirements = screen.getByRole("list");
     expect(requirements).toHaveAttribute("id", "newPasswordRequirements");
@@ -129,8 +134,8 @@ describe("ChangePassword", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("bounds the new password and its confirmation by the backend's length policy", () => {
-    renderPage(flaggedAuth());
+  it("bounds the new password and its confirmation by the backend's length policy", async () => {
+    await renderPage();
 
     // Literal values, not the constant: PasswordPolicy.java is the authority,
     // and a drift in the SPA's mirror of it must fail here.
@@ -145,20 +150,24 @@ describe("ChangePassword", () => {
   });
 
   it.each([
-    ["a success", { kind: "changed" }],
-    // The lockout ended the session too, so the login page says it, not this one.
-    ["a lockout", { kind: "locked" }],
-  ] as [string, PasswordChangeOutcome][])(
+    ["a success", { [CHANGE]: bare(204) }],
+    // A 401 the session does not survive: the lockout ended it too, so the
+    // login page says it, not this one.
+    ["a lockout", { [CHANGE]: bare(401), "GET /api/auth/me": bare(401) }],
+  ] as [string, Answers][])(
     "submits current and new password and shows nothing on %s",
-    async (_name, outcome) => {
-      const auth = flaggedAuth();
-      vi.mocked(auth.changePassword).mockResolvedValue(outcome);
-      renderPage(auth);
+    async (_name, answers) => {
+      const { requests } = await renderPage(answers);
 
       await fillAndSubmit();
 
-      expect(auth.changePassword).toHaveBeenCalledTimes(1);
-      expect(auth.changePassword).toHaveBeenCalledWith(CURRENT, NEXT);
+      expect(submissions(requests)).toEqual([
+        {
+          body: { currentPassword, newPassword },
+          method: "POST",
+          path: "/api/auth/change-password",
+        },
+      ]);
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       // Only a refusal the User can correct clears the form; an ended session
       // has the route guard replace the page, so this one does nothing further.
@@ -168,12 +177,11 @@ describe("ChangePassword", () => {
   );
 
   it("refuses a mismatched confirmation without submitting, and clears the fields", async () => {
-    const auth = flaggedAuth();
-    renderPage(auth);
+    const { requests } = await renderPage();
 
     await fillAndSubmit("Something-Else-123");
 
-    expect(auth.changePassword).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
     expect(screen.getByRole("alert")).toHaveTextContent(
       /^The new password and its confirmation do not match\.$/,
     );
@@ -184,25 +192,24 @@ describe("ChangePassword", () => {
   // `session-action-copy.test.ts`'s; these prove the page clears the fields
   // after one and that its line echoes neither value — the backend's own
   // statement of a rule included.
-  const refusals: [string, PasswordChangeOutcome, RegExp][] = [
+  const refusals: [string, WireAnswer, RegExp][] = [
     [
       "a 400 by the rule the backend names",
-      { kind: "policy-violation", message: "The new password must be at least 12 characters long" },
+      json({ message: "The new password must be at least 12 characters long" }, 400),
       /^The new password must be at least 12 characters long$/,
     ],
     [
+      // The session survives the 401, so the probe after it still answers 200.
       "a 401 as a wrong current password",
-      { kind: "current-password-rejected" },
+      bare(401),
       /^The current password is incorrect\.$/,
     ],
   ];
 
   it.each(refusals)(
     "shows %s, clears the fields and echoes neither value",
-    async (_name, outcome, copy) => {
-      const auth = flaggedAuth();
-      vi.mocked(auth.changePassword).mockResolvedValue(outcome);
-      renderPage(auth);
+    async (_name, answer, copy) => {
+      await renderPage({ [CHANGE]: answer });
 
       await fillAndSubmit();
 
@@ -216,16 +223,8 @@ describe("ChangePassword", () => {
   );
 
   it("clears an earlier refusal when the next submission starts", async () => {
-    const auth = flaggedAuth();
-    let finish: ((outcome: PasswordChangeOutcome) => void) | undefined;
-    vi.mocked(auth.changePassword)
-      .mockResolvedValueOnce({ kind: "current-password-rejected" })
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-      );
-    renderPage(auth);
+    const second = deferred();
+    await renderPage({ [CHANGE]: [bare(401), second.answer] });
 
     await fillAndSubmit();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
@@ -234,14 +233,12 @@ describe("ChangePassword", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Changing password…" })).toBeDisabled();
 
-    finish?.({ kind: "changed" });
+    await second.settle(bare(204));
     expect(await screen.findByRole("button", { name: "Change password" })).toBeEnabled();
   });
 
   it("says the confirmation does not match in place of an earlier refusal", async () => {
-    const auth = flaggedAuth();
-    vi.mocked(auth.changePassword).mockResolvedValue({ kind: "current-password-rejected" });
-    renderPage(auth);
+    await renderPage({ [CHANGE]: bare(401) });
     await fillAndSubmit();
     await screen.findByRole("alert");
 
@@ -253,9 +250,7 @@ describe("ChangePassword", () => {
   });
 
   it("withdraws the mismatch line when a matching submission starts", async () => {
-    const auth = flaggedAuth();
-    vi.mocked(auth.changePassword).mockReturnValue(new Promise(() => undefined));
-    renderPage(auth);
+    await renderPage({ [CHANGE]: deferred().answer });
     await fillAndSubmit("Something-Else-123");
     // user-event keeps its own record of what it typed, which the page's
     // `form.reset()` does not touch; clearing through it keeps the next fill matched.

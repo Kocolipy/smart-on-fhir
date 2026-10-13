@@ -6,7 +6,7 @@ import { apiFetch, type ApiResult } from "@/lib/http";
  * defines, spelled as `/api/auth/me` reports them. A value outside this list is
  * refused, never passed through, because the guards read it.
  */
-const PERMISSIONS = [
+export const PERMISSIONS = [
   "audit:read",
   "connector:read",
   "connector:token",

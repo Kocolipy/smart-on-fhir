@@ -1,74 +1,41 @@
-import { act, render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { authState, CHECKING, signedIn } from "@/auth/auth-context.testHelpers";
+import {
+  bare,
+  deferred,
+  holding,
+  json,
+  renderAsSession,
+  STILL_CHECKING,
+  type Answers,
+  type StartingSession,
+} from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
-import { apiFetch } from "@/lib/http";
 
 import { Showcase } from "./showcase";
 
-vi.mock("@/lib/http", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/http")>()),
-  apiFetch: vi.fn(),
-}));
-
-const apiFetchMock = vi.mocked(apiFetch);
 const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
 const reset = () => screen.getByRole("button", { name: "Reset" });
 
-const auth: AuthContextState = authState(
-  signedIn({ permissions: ["counter:read", "counter:write"] }),
-);
+/** The counter's `CountResponse`, as the backend answers every counter endpoint. */
+const counted = (value: number) => json({ count: value });
 
-/**
- * Answers every request with `result`, as `apiFetch` would classify it. The
- * decoder the page's declaration names is `showcase-api.test.ts`'s to prove;
- * here an `ok` result's `data` is the count itself.
- */
-const answering = (result: object) => () => Promise.resolve(result);
+const COUNTER_USER = holding(["counter:read", "counter:write"]);
 
-/** Every request the page sent, as path and init — the operation it named. */
-const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
+/** The page as `session` sees it, the count reading zero unless `answers` says otherwise. */
+const renderShowcase = (answers: Answers = {}, session: StartingSession = COUNTER_USER) =>
+  renderAsSession(<Showcase />, session, { answers: { "GET /api/count": counted(0), ...answers } });
 
-function resolveWith(result: object) {
-  apiFetchMock.mockImplementation(answering(result) as never);
-}
-
-/** The page as a session holding exactly these Permissions sees it. */
-const holding = (permissions: Permission[]): AuthContextState => ({
-  ...auth,
-  ...signedIn({ permissions }),
-});
-
-function resolveOnceWith(result: object) {
-  apiFetchMock.mockImplementationOnce(answering(result) as never);
-}
-
-function renderShowcase(value: AuthContextState = auth) {
-  return render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter>
-        <Showcase />
-      </MemoryRouter>
-    </AuthContext.Provider>,
-  );
-}
+/** The page for a session holding exactly `permissions`, its links all a test reads. */
+const renderHolding = (permissions: Permission[]) => renderShowcase({}, holding(permissions));
 
 describe("Showcase", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-    resolveWith({ kind: "ok", data: 0 });
-    vi.mocked(auth.expireSession).mockReset();
-    vi.mocked(auth.logout).mockReset();
-  });
-
   it("offers every User the password change, and the accounts page only by Permission", async () => {
-    const { unmount } = renderShowcase();
-    expect(await screen.findByRole("link", { name: "Change password" })).toHaveAttribute(
+    const { unmount } = await renderShowcase();
+    expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
       "href",
       "/change-password",
     );
@@ -76,15 +43,15 @@ describe("Showcase", () => {
     unmount();
 
     // A Monitoring account's Permissions open no Accounts view and no audit trail.
-    const { unmount: unmountOther } = renderShowcase(holding(["ops:read"]));
-    expect(await screen.findByRole("link", { name: "Change password" })).toBeInTheDocument();
+    const { unmount: unmountOther } = await renderHolding(["ops:read"]);
+    expect(screen.getByRole("link", { name: "Change password" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
     unmountOther();
 
     for (const view of ["user:read", "group:read", "connector:read"] as const) {
-      const { unmount: unmountView } = renderShowcase(holding([view]));
-      expect(await screen.findByRole("link", { name: "Manage accounts" })).toHaveAttribute(
+      const { unmount: unmountView } = await renderHolding([view]);
+      expect(screen.getByRole("link", { name: "Manage accounts" })).toHaveAttribute(
         "href",
         "/accounts",
       );
@@ -97,36 +64,32 @@ describe("Showcase", () => {
   });
 
   it("offers the audit trail only to a session holding audit:read", async () => {
-    const { unmount } = renderShowcase(holding(["audit:read"]));
-    expect(await screen.findByRole("link", { name: "View audit log" })).toHaveAttribute(
-      "href",
-      "/audit",
-    );
+    const { unmount } = await renderHolding(["audit:read"]);
+    expect(screen.getByRole("link", { name: "View audit log" })).toHaveAttribute("href", "/audit");
     // Its own Permission does not also open the Accounts page.
     expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
     unmount();
 
-    renderShowcase(holding(["user:read"]));
-    expect(await screen.findByRole("link", { name: "Manage accounts" })).toBeInTheDocument();
+    await renderHolding(["user:read"]);
+    expect(screen.getByRole("link", { name: "Manage accounts" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
   });
 
   it("shows a baseline User no counter, asks for none, and keeps self-service", async () => {
-    renderShowcase(holding([]));
+    const { requests } = await renderHolding([]);
 
     expect(
-      await screen.findByText("You are signed in. Your account has no access to the counter."),
+      screen.getByText("You are signed in. Your account has no access to the counter."),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Change password" })).toBeInTheDocument();
-    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
   });
 
   it("shows counter:read the count without the controls that change it", async () => {
-    resolveWith({ kind: "ok", data: 4 });
-    renderShowcase(holding(["counter:read"]));
+    await renderShowcase({ "GET /api/count": counted(4) }, holding(["counter:read"]));
 
     expect(await screen.findByText("Clicked 4 times")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
@@ -135,7 +98,7 @@ describe("Showcase", () => {
 
   // Without counter:read the count is never read, so nothing offers to change it.
   it("offers counter:write alone no change to a count it cannot read", async () => {
-    renderShowcase(holding(["counter:write"]));
+    await renderHolding(["counter:write"]);
     await screen.findByText("You are signed in. Your account has no access to the counter.");
 
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
@@ -143,64 +106,66 @@ describe("Showcase", () => {
   });
 
   it("renders the original home page and signed-in user", async () => {
-    renderShowcase();
+    await renderShowcase();
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
-  it("renders safely while the session's user details are unavailable", () => {
-    renderShowcase({ ...auth, ...CHECKING });
+  it("renders safely while the session's user details are unavailable", async () => {
+    const { requests } = await renderShowcase({}, STILL_CHECKING);
     // No session details, so no Permission: nothing is offered and nothing is asked for.
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
-    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
   });
 
   it("loads the current count when the showcase opens", async () => {
-    resolveWith({ kind: "ok", data: 3 });
-    renderShowcase();
+    const { requests } = await renderShowcase({ "GET /api/count": counted(3) });
 
     expect(await screen.findByText("Clicked 3 times")).toBeInTheDocument();
-    expect(sent()).toEqual([["/api/count", {}]]);
+    expect(requests()).toEqual([{ method: "GET", path: "/api/count" }]);
   });
 
   it("disables counter actions while the initial count is loading", async () => {
-    let finishLoading: ((result: object) => void) | undefined;
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishLoading = resolve;
-      }) as never,
-    );
-    renderShowcase();
+    const loading = deferred();
+    await renderShowcase({ "GET /api/count": loading.answer });
 
     expect(increment()).toBeDisabled();
     expect(reset()).toBeDisabled();
 
-    finishLoading?.({ kind: "ok", data: 2 });
+    await loading.settle(counted(2));
     expect(await screen.findByText("Clicked 2 times")).toBeInTheDocument();
     expect(increment()).toBeEnabled();
     expect(reset()).toBeEnabled();
   });
 
-  it("shows no count while the initial count is loading", () => {
-    apiFetchMock.mockReturnValueOnce(new Promise(() => {}) as never);
-    renderShowcase();
+  it("shows no count while the initial count is loading", async () => {
+    await renderShowcase({ "GET /api/count": deferred().answer });
 
     expect(screen.getByText("Loading the counter…")).toBeInTheDocument();
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
   });
 
   it("reports a failed initial counter read", async () => {
-    resolveWith({ kind: "failed", status: 503 });
-    renderShowcase();
+    await renderShowcase({ "GET /api/count": bare(503) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the counter. Please try again.",
     );
   });
 
+  // A body that drifted from `CountResponse` fails the read like a 5xx, and
+  // shows no count: the page renders nothing it could not decode.
+  it("reports a count body that does not decode, and shows no count", async () => {
+    await renderShowcase({ "GET /api/count": json({ count: "3" }) });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to load the counter\. Please try again\.$/,
+    );
+    expect(screen.queryByTestId("count")).not.toBeInTheDocument();
+  });
+
   // The count was never read, so no count is shown and nothing offers to change it.
   it("shows no count and offers no change after a failed initial counter read", async () => {
-    resolveWith({ kind: "failed", status: 503 });
-    renderShowcase();
+    await renderShowcase({ "GET /api/count": bare(503) });
     await screen.findByRole("alert");
 
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
@@ -209,10 +174,11 @@ describe("Showcase", () => {
   });
 
   it("reports a refused counter update as permission denied and keeps the session", async () => {
-    resolveOnceWith({ kind: "ok", data: 2 });
-    resolveOnceWith({ kind: "forbidden" });
+    const { requests, session } = await renderShowcase({
+      "GET /api/count": counted(2),
+      "POST /api/count/increment": bare(403),
+    });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(await screen.findByRole("button", { name: "Increment" }));
 
@@ -221,59 +187,47 @@ describe("Showcase", () => {
     );
     // The count from the last successful read stands, and nothing ends the session.
     expect(count()).toHaveTextContent("Clicked 2 times");
-    expect(auth.expireSession).not.toHaveBeenCalled();
-    expect(auth.logout).not.toHaveBeenCalled();
+    expect(session().status).toBe("authenticated");
+    expect(requests()).not.toContainEqual(expect.objectContaining({ path: "/api/auth/logout" }));
   });
 
   it("expires the auth state when the initial request is unauthenticated", async () => {
-    let finishLoading: ((result: object) => void) | undefined;
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishLoading = resolve;
-      }) as never,
-    );
-    renderShowcase();
+    const loading = deferred();
+    const { session } = await renderShowcase({ "GET /api/count": loading.answer });
 
-    await act(async () => {
-      finishLoading?.({ kind: "unauthenticated" });
-    });
+    await loading.settle(bare(401));
 
     // The page never sees this case: the session seam ends the session, and the
     // route guard replaces this page with the login route on the same update.
     // Meanwhile the count was never read, so none is shown.
-    expect(auth.expireSession).toHaveBeenCalledOnce();
+    expect(session()).toEqual({ signInReason: "expired", status: "guest" });
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
   });
 
   it("counts each click", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "ok", data: 1 });
-    resolveOnceWith({ kind: "ok", data: 2 });
+    const { requests } = await renderShowcase({
+      "POST /api/count/increment": [counted(1), counted(2)],
+    });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
     await user.click(increment());
 
     expect(count()).toHaveTextContent(/^Clicked 2 times$/);
-    expect(sent().slice(-1)).toEqual([["/api/count/increment", { method: "POST" }]]);
+    expect(requests().slice(-1)).toEqual([{ method: "POST", path: "/api/count/increment" }]);
   });
 
   it("uses the singular label at exactly one", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "ok", data: 1 });
+    await renderShowcase({ "POST /api/count/increment": counted(1) });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
     expect(count()).toHaveTextContent(/^Clicked 1 time$/);
   });
 
   it("disables Reset until there is something to reset", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "ok", data: 1 });
+    await renderShowcase({ "POST /api/count/increment": counted(1) });
     const user = userEvent.setup();
-    renderShowcase();
 
     expect(reset()).toBeDisabled();
     await user.click(increment());
@@ -281,46 +235,38 @@ describe("Showcase", () => {
   });
 
   it("disables counter actions while an update is pending", async () => {
-    let finishIncrement: ((result: object) => void) | undefined;
-    resolveOnceWith({ kind: "ok", data: 0 });
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishIncrement = resolve;
-      }) as never,
-    );
+    const incrementing = deferred();
+    await renderShowcase({ "POST /api/count/increment": incrementing.answer });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
     expect(increment()).toBeDisabled();
     expect(reset()).toBeDisabled();
 
-    finishIncrement?.({ kind: "ok", data: 1 });
+    await incrementing.settle(counted(1));
     expect(await screen.findByText("Clicked 1 time")).toBeInTheDocument();
     expect(increment()).toBeEnabled();
     expect(reset()).toBeEnabled();
   });
 
   it("returns the count to zero on reset", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "ok", data: 1 });
-    resolveOnceWith({ kind: "ok", data: 0 });
+    const { requests } = await renderShowcase({
+      "POST /api/count/increment": counted(1),
+      "POST /api/count/reset": counted(0),
+    });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
     await user.click(reset());
 
     expect(count()).toHaveTextContent(/^Clicked 0 times$/);
     expect(reset()).toBeDisabled();
-    expect(sent().slice(-1)).toEqual([["/api/count/reset", { method: "POST" }]]);
+    expect(requests().slice(-1)).toEqual([{ method: "POST", path: "/api/count/reset" }]);
   });
 
   it("keeps the count and reports backend failures", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "failed", status: 503 });
+    await renderShowcase({ "POST /api/count/increment": bare(503) });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
 
@@ -335,10 +281,8 @@ describe("Showcase", () => {
   it.each([400, 404, 409])(
     "reports a %i refusal with the page's own default copy, not the hook's generic one",
     async (status) => {
-      resolveOnceWith({ kind: "ok", data: 0 });
-      resolveOnceWith({ kind: "failed", status });
+      await renderShowcase({ "POST /api/count/increment": bare(status) });
       const user = userEvent.setup();
-      renderShowcase();
 
       await user.click(increment());
 
@@ -349,14 +293,15 @@ describe("Showcase", () => {
   );
 
   it("expires the auth state when an update is unauthenticated", async () => {
-    resolveOnceWith({ kind: "ok", data: 0 });
-    resolveOnceWith({ kind: "unauthenticated" });
+    const { session } = await renderShowcase({
+      "POST /api/count/increment": bare(401),
+    });
     const user = userEvent.setup();
-    renderShowcase();
 
     await user.click(increment());
 
-    expect(auth.expireSession).toHaveBeenCalledOnce();
-    expect(count()).toHaveTextContent(/^Clicked 0 times$/);
+    // The session ends with it, so the route guard replaces the page; nothing
+    // here shows a count for a session that no longer stands.
+    expect(session()).toEqual({ signInReason: "expired", status: "guest" });
   });
 });
