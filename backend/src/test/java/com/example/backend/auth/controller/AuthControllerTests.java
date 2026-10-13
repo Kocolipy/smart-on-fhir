@@ -899,15 +899,6 @@ class AuthControllerTests {
         assertThat(response.getHeaders("Clear-Site-Data")).containsExactly(CLEAR_SITE_DATA);
     }
 
-    @Test
-    void logoutWithoutASessionStillAsksTheBrowserToClearTheSitesData() {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        controller.logout(new MockHttpServletRequest(), response);
-
-        assertThat(response.getHeaders("Clear-Site-Data")).containsExactly(CLEAR_SITE_DATA);
-    }
-
     /** Over MockMvc, so the header is observed on the response as the handler mapping sends it. */
     @Test
     void theLogoutResponseCarriesTheExactClearSiteDataValue() throws Exception {
@@ -919,33 +910,6 @@ class AuthControllerTests {
     }
 
     // ---- input length limits -----------------------------------------------------------------
-
-    /** The logout is audited against the stable id the session's principal index holds. */
-    @Test
-    void logoutRecordsTheEventAgainstTheSessionsUser() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-
-        controller.logout(request, new MockHttpServletResponse());
-
-        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT))
-                .extracting(com.example.backend.audit.RecordingAuditTrail.Recorded::subjectId)
-                .containsExactly(users.require("ada").id());
-    }
-
-    /** A session never signed in to names no account, so its logout records nothing. */
-    @Test
-    void logoutOfASessionWithNoPrincipalIndexRecordsNothing() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession(true).setAttribute("unrelated", "value");
-
-        controller.logout(request, new MockHttpServletResponse());
-
-        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT)).isEmpty();
-    }
 
     /**
      * The operational stream's line for a logout: one INFO {@code user-logout} record, after the

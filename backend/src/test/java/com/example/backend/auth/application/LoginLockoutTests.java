@@ -373,25 +373,6 @@ class LoginLockoutTests {
         assertThat(users.require(BOOTSTRAP_ADMIN).login().failedLoginAttempts()).isZero();
     }
 
-    /**
-     * And it logs in as an administrator, by membership of the reserved Admin group rather
-     * than by a role column — with {@code ADMIN} ahead of {@code USER}, which is what a
-     * caller reading a single role off the authorities depends on.
-     */
-    @Test
-    void theBootstrapAdminLogsInAsAnAdministratorThroughItsGroupMembership() {
-        Authentication authentication =
-                login.logIn(BOOTSTRAP_ADMIN, CORRECT_PASSWORD).accepted().orElseThrow().authentication();
-
-        assertThat(authentication.getAuthorities())
-                .extracting(Object::toString)
-                // Filtered to the roles: the authenticated token also carries Spring
-                // Security's own FACTOR_PASSWORD authority, which is not a derived role and
-                // says how the principal authenticated rather than what it may do.
-                .filteredOn(authority -> authority.startsWith("ROLE_"))
-                .containsExactly("ROLE_USER");
-    }
-
     @Test
     void everyBootstrapAdminFailureIsStillAudited() {
         for (int attempt = 0; attempt < 10; attempt++) {

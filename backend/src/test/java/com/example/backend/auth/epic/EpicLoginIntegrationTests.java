@@ -26,9 +26,6 @@ import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUserRepository;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.Cookie;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -141,9 +138,6 @@ class EpicLoginIntegrationTests {
 
     @Autowired
     private RoleMapping roleMapping;
-
-    @Autowired
-    private MeterRegistry meters;
 
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
@@ -429,16 +423,6 @@ class EpicLoginIntegrationTests {
         assertThat(me(landing.signedIn()).username()).isEqualTo(clinician);
     }
 
-    @Test
-    void theEpicLoginCounterRecordsASuccess() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        double before = successes();
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(successes()).isEqualTo(before + 1);
-    }
-
     /**
      * The accepted record is written once the session is signed in, so it names that session —
      * the one the clinician goes on to use — by its hash, and carries the MFA factor (Logging
@@ -563,16 +547,6 @@ class EpicLoginIntegrationTests {
                 .doesNotContain(practitioner);
     }
 
-    @Test
-    void theEpicLoginCounterRecordsARefusalWithItsReason() throws Exception {
-        String practitioner = EPIC.practitioners().provisionLocked();
-        double before = refusals("ACCOUNT_LOCKED");
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(refusals("ACCOUNT_LOCKED")).isEqualTo(before + 1);
-    }
-
     // ---- Epic unavailable (D23, D24, D26) ------------------------------------------------------
 
     @Test
@@ -683,17 +657,6 @@ class EpicLoginIntegrationTests {
 
         assertThat(sessionRepository.findByPrincipalName(
                 EPIC.practitioners().idOf(practitioner).toString())).isEmpty();
-    }
-
-    @Test
-    void theEpicLoginCounterRecordsAnUnavailableLaunch() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
-        double before = unavailables();
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(unavailables()).isEqualTo(before + 1);
     }
 
     /**
@@ -909,48 +872,6 @@ class EpicLoginIntegrationTests {
                         .asString().matches("00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]"));
     }
 
-    @Test
-    void theOutboundTimerCountsTheTokenCall() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        long before = outboundCalls("token");
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(outboundCalls("token")).isEqualTo(before + 1);
-    }
-
-    @Test
-    void theOutboundErrorCounterCountsAToken5xxUnderItsCall() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
-        double before = outboundErrors("token");
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(outboundErrors("token")).isEqualTo(before + 1);
-    }
-
-    @Test
-    void theOutboundErrorCounterCountsAJwksTimeoutUnderItsCall() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
-        double before = outboundErrors("jwks");
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(outboundErrors("jwks")).isEqualTo(before + 1);
-    }
-
-    @Test
-    void aSuccessfulLoginCountsNoOutboundError() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        double before = outboundErrors("token") + outboundErrors("jwks");
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(outboundErrors("token") + outboundErrors("jwks")).isEqualTo(before);
-    }
-
     // ---- discovery and Epic's keys, kept (D26) ------------------------------------------------
 
     @Test
@@ -1150,27 +1071,6 @@ class EpicLoginIntegrationTests {
                 .collect(Collectors.toSet());
     }
 
-    private double successes() {
-        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "success").counter();
-        return counter == null ? 0 : counter.count();
-    }
-
-    private double unavailables() {
-        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "unavailable")
-                .tag("reason", "EPIC_UNAVAILABLE").counter();
-        return counter == null ? 0 : counter.count();
-    }
-
-    private long outboundCalls(String call) {
-        Timer timer = meters.find("epic.outbound").tag("call", call).timer();
-        return timer == null ? 0 : timer.count();
-    }
-
-    private double outboundErrors(String call) {
-        Counter counter = meters.find("epic.outbound.errors").tag("call", call).counter();
-        return counter == null ? 0 : counter.count();
-    }
-
     /** Every Epic {@code EPIC_UNAVAILABLE} failure the audit trail holds, each naming nobody. */
     private int unavailableFailures() {
         return jdbc.queryForObject("""
@@ -1196,12 +1096,6 @@ class EpicLoginIntegrationTests {
     /** Every outbound call record, in order. */
     private static List<ILoggingEvent> outbound(CapturedLog captured) {
         return captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "epic.outbound");
-    }
-
-    private double refusals(String reason) {
-        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "refused")
-                .tag("reason", reason).counter();
-        return counter == null ? 0 : counter.count();
     }
 
     /** Every key and value in the session store, as text: what the store would hand an attacker. */

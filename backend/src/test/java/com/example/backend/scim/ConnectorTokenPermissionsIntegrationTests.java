@@ -288,21 +288,6 @@ class ConnectorTokenPermissionsIntegrationTests {
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
     }
 
-    /** Discovery takes a valid token and no Permission; with no token it is challenged. */
-    @Test
-    void discovery_needs_a_token_and_no_permission() throws Exception {
-        UUID connector = createConnector("permissions-discovery");
-        String token = presented(issue(connector, "[\"group:read\"]", CONNECTOR_ADMIN));
-
-        for (String path : List.of("/scim/v2/ServiceProviderConfig", "/scim/v2/ResourceTypes",
-                "/scim/v2/Schemas")) {
-            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus())
-                    .as("%s with no token", path).isEqualTo(401);
-            assertThat(mvc.perform(bearer(get(path), token)).andReturn().getResponse().getStatus())
-                    .as("%s with a token", path).isEqualTo(200);
-        }
-    }
-
     /** A token cannot reach the application chain, whatever it carries. */
     @Test
     void a_token_cannot_reach_the_application_chain() throws Exception {

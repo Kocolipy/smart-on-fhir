@@ -334,55 +334,6 @@ class ScimGroupServiceTests {
 
     // ---- replace and patch --------------------------------------------------------------------
 
-    /** AC 3: a membership change advances the Group's version and the affected Users' versions. */
-    @Test
-    void adding_a_member_advances_the_groups_version_and_that_members_version() {
-        ScimGroupResource created = service.create(
-                CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
-        long aliceBefore = users.require("alice").version();
-        long bobBefore = users.require("bob").version();
-
-        ScimGroupResource replaced = service.replace(
-                CONNECTOR,
-                created.id(), current(created.id()),
-                new ScimGroupReplacement("Engineering", List.of(alice.id()), null)).orElseThrow();
-
-        assertThat(replaced.version()).isEqualTo(created.version() + 1);
-        assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
-        assertThat(users.require("bob").version())
-                .as("a User who was never a member is unaffected")
-                .isEqualTo(bobBefore);
-    }
-
-    @Test
-    void removing_a_member_advances_the_removed_users_version() {
-        ScimGroupResource created = service.create(
-                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
-        long aliceBefore = users.require("alice").version();
-
-        service.replace(CONNECTOR, created.id(), current(created.id()), new ScimGroupReplacement("Engineering", List.of(), null));
-
-        assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
-    }
-
-    /** AC 3: a display-name change advances every CURRENT member's version. */
-    @Test
-    void renaming_a_group_advances_every_current_members_version() {
-        ScimGroupResource created = service.create(
-                CONNECTOR,
-                new NewScimGroup("Engineering", List.of(alice.id(), bob.id()), null));
-        long aliceBefore = users.require("alice").version();
-        long bobBefore = users.require("bob").version();
-
-        service.replace(
-                CONNECTOR,
-                created.id(), current(created.id()),
-                new ScimGroupReplacement("Platform", List.of(alice.id(), bob.id()), null));
-
-        assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
-        assertThat(users.require("bob").version()).isEqualTo(bobBefore + 1);
-    }
-
     /**
      * A no-op write reports no changed attributes. Compared rather than inferred from the verb,
      * because a trail that recorded every PUT as changing both attributes could not be used to find

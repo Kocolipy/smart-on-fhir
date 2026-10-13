@@ -532,15 +532,6 @@ describe("Accounts", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("reports an expired security token on a listing read with transport-specific copy", async () => {
-    routeApi({ users: { kind: "csrf-expired" } });
-    renderAccounts();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Your security token expired. Please try again.",
-    );
-  });
-
   it("reports a refused action as permission denied and keeps the session", async () => {
     routeApi({
       actions: [{ kind: "forbidden" }],
@@ -554,17 +545,6 @@ describe("Accounts", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/^You don't have permission to do this\.$/);
     // The refused row is left as it was, and nothing ends the session.
     expect(screen.getByRole("button", { name: "Unlock grace" })).toBeEnabled();
-    expect(auth.expireSession).not.toHaveBeenCalled();
-    expect(auth.logout).not.toHaveBeenCalled();
-  });
-
-  it("reports a refused listing read as permission denied and keeps the session", async () => {
-    routeApi({ users: { kind: "forbidden" } });
-    renderAccounts();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^You don't have permission to do this\.$/,
-    );
     expect(auth.expireSession).not.toHaveBeenCalled();
     expect(auth.logout).not.toHaveBeenCalled();
   });
@@ -643,13 +623,10 @@ describe("Accounts", () => {
 
   // Through the real transport and decoders, against a backend whose Users body
   // has drifted from the contract. The Groups listing answers a valid body, so
-  // the same pipeline is shown rendering what does decode.
-  it.each([
-    ["a renamed field", [{ ...userRow(), userName: undefined, login: "grace" }]],
-    ["null where a string was promised", [userRow({ createdAt: null as unknown as string })]],
-    ["a string where a boolean was promised", [{ ...userRow(), locked: "false" }]],
-    ["an object where the list was promised", { users: [userRow()] }],
-  ])("reports a Users body with %s and renders none of it", async (_, usersBody) => {
+  // the same pipeline is shown rendering what does decode. Which drifts the
+  // decoder refuses is accounts-api.test.ts's and decode.test.ts's to say.
+  it("reports a Users body with a renamed field and renders none of it", async () => {
+    const usersBody = [{ ...userRow(), userName: undefined, login: "grace" }];
     const actual = await vi.importActual<typeof import("@/lib/http")>("@/lib/http");
     apiFetchMock.mockImplementation(actual.apiFetch as never);
     vi.stubGlobal(
@@ -669,33 +646,6 @@ describe("Accounts", () => {
       expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
       expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
       expect(screen.queryByText("grace")).not.toBeInTheDocument();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("reports a Users body that is not JSON at all, as a proxy's error page", async () => {
-    const actual = await vi.importActual<typeof import("@/lib/http")>("@/lib/http");
-    apiFetchMock.mockImplementation(actual.apiFetch as never);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) =>
-        Promise.resolve(
-          input === "/api/admin/accounts"
-            ? new Response("<html><body>502 Bad Gateway</body></html>", {
-                headers: { "Content-Type": "text/html" },
-              })
-            : Response.json([groupRow()]),
-        ),
-      ),
-    );
-    try {
-      renderAccounts();
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /^Unable to load the users\. Please try again\.$/,
-      );
-      expect(screen.queryByText(/Bad Gateway/)).not.toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }

@@ -584,8 +584,9 @@ describe("Connectors", () => {
     );
   });
 
-  // The csrf-expired mapping is the seam's own, exercised generically by
-  // use-gated-write.test.tsx; this page proves only its own default copy.
+  // The forbidden and csrf-expired mappings are the seam's own, exercised
+  // generically by use-gated-read.test.tsx and use-gated-write.test.tsx; this
+  // page proves only its own default copy.
   it("reports any other failure with action-specific default copy", async () => {
     routeApi({
       actions: [{ kind: "failed", status: 503 }, { kind: "failed" }],
@@ -603,34 +604,6 @@ describe("Connectors", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Revoking the token failed. Please try again.",
     );
-  });
-
-  it("reports a refused mutation as permission denied and keeps the session", async () => {
-    routeApi({
-      actions: [{ kind: "forbidden" }],
-      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
-    });
-    const user = userEvent.setup();
-    renderConnectors();
-
-    await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^You don't have permission to do this\.$/,
-    );
-    expect(auth.expireSession).not.toHaveBeenCalled();
-    expect(auth.logout).not.toHaveBeenCalled();
-  });
-
-  it("reports a refused listing read as permission denied and keeps the session", async () => {
-    routeApi({ listings: [{ kind: "forbidden" }] });
-    renderConnectors();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^You don't have permission to do this\.$/,
-    );
-    expect(auth.expireSession).not.toHaveBeenCalled();
-    expect(auth.logout).not.toHaveBeenCalled();
   });
 
   it("reports a failed listing read without claiming there are no connectors", async () => {

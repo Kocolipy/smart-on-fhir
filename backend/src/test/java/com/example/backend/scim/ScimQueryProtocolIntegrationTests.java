@@ -930,18 +930,6 @@ class ScimQueryProtocolIntegrationTests {
         assertThat(body(result).get("totalResults").asInt()).isPositive();
     }
 
-    /** ...and still may not write, so the exemption is the {@code .search} suffix alone. */
-    @Test
-    void a_read_only_token_still_cannot_create() throws Exception {
-        MvcResult refused = mvc.perform(post(USERS)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + readToken)
-                        .contentType(SCIM_JSON)
-                        .content("{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"qp-ro\"}"))
-                .andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(403);
-    }
-
     /**
      * The base search: an attribute one type lacks has no value there. {@code userName} is a
      * User attribute, so it selects no Group; {@code not (userName pr)} selects every Group and

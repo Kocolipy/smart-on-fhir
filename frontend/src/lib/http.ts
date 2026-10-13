@@ -197,19 +197,10 @@ export async function apiFetch<T, E>(
     }
     if (decode === undefined) return { kind: "ok", data: undefined };
 
-    return await readData(response, decode);
-  } catch {
-    return { kind: "failed" };
-  }
-}
-
-/**
- * A success body is a contract, unlike a failure body: one that does not decode
- * is a plain `failed` with **no** `status`, so a page shows its own failure copy
- * instead of rendering partial data, and nothing reads the `2xx` as meaningful.
- */
-async function readData<T>(response: Response, decode: ApiDecoder<T>): Promise<ApiResult<T>> {
-  try {
+    // A success body is a contract, unlike a failure body: one that does not
+    // decode lands in the catch below as a plain `failed` with **no** `status`,
+    // so a page shows its own failure copy instead of rendering partial data,
+    // and nothing reads the `2xx` as meaningful.
     return { kind: "ok", data: await decode(response) };
   } catch {
     return { kind: "failed" };

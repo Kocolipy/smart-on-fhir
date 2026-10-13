@@ -659,13 +659,13 @@ which mutators, and when a surviving mutant may be accepted.
 
 Faster checks for the edit loop. None replaces the baseline gate.
 
-| Layer          | Command                                    | Needs                    | 
-| -------------- | ------------------------------------------ | ------------------------ | 
-| Fast           | `./scripts/test-gates.sh fast`             | JDK only                 | 
-| Subsystem      | `./scripts/test-gates.sh subsystem <name>` | Docker                   | 
-| All subsystems | `./scripts/test-gates.sh subsystems`       | Docker                   | 
-| Broad          | `./scripts/test-gates.sh broad`            | Docker                   | 
-| Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network | 
+| Layer          | Command                                    | Needs                    |
+| -------------- | ------------------------------------------ | ------------------------ |
+| Fast           | `./scripts/test-gates.sh fast`             | JDK only                 |
+| Subsystem      | `./scripts/test-gates.sh subsystem <name>` | Docker                   |
+| All subsystems | `./scripts/test-gates.sh subsystems`       | Docker                   |
+| Broad          | `./scripts/test-gates.sh broad`            | Docker                   |
+| Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network |
 
 The fast gate is an explicit class list in the script: every test class that
 starts no Spring context and no container. Its run fails if the log shows
@@ -677,6 +677,17 @@ names are the test packages (`arch`, `auth`, `scim`, `audit`, `authorization`,
 The test JVMs drop every `.env.example` key from their environment
 (`excludedEnvironmentVariables` in `pom.xml`), so the results do not depend on
 what the shell exported.
+
+Deletions, 2026-10-13: 17 test methods whose oracle and failure domain a
+surviving test already held — seven Epic meter `+1` checks
+(`EpicLoginRedactionIntegrationTests.theEpicLoginMetersMoveUnderTheExpectedTags`
+asserts every path's whole meter delta), three Group version-bump service
+tests that read the in-memory fake (`RepresentationChangeTests` owns the rule),
+three logout duplicates within `AuthControllerTests`, two discovery-needs-a-token
+copies (`ScimDiscoveryIntegrationTests`), one read-only-create refusal
+(`ScimUserProvisioningIntegrationTests`), and one Bootstrap Admin role check
+left over from `ROLE_ADMIN`'s retirement. The baseline gate after, on c4be0f8:
+`Tests run: 4751, Failures: 0, Errors: 0, Skipped: 0`, 28 contexts started.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

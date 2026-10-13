@@ -410,21 +410,6 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     /**
-     * Discovery and the resource endpoints alike are challenged without a credential (ADR
-     * 0010): discovery needs a valid token, though no Permission.
-     */
-    @Test
-    void discovery_needs_a_credential_like_every_other_scim_path() throws Exception {
-        mvc.perform(get("/scim/v2/ServiceProviderConfig"))
-                .andExpect(result -> assertThat(result.getResponse().getStatus())
-                        .as("no token, so challenged")
-                        .isEqualTo(401));
-
-        mvc.perform(get(SCIM_PATH))
-                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
-    }
-
-    /**
      * An unknown SCIM path must not become the SPA shell. Without {@code /scim} being a
      * reserved server path this would be a 200 carrying HTML, which a provisioning
      * client would read as a successful empty response.

@@ -150,15 +150,11 @@ describe("SignedInShell", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("lays the Accounts page out wide and top-aligned", () => {
-    renderShell(authWith(vi.fn()), "/accounts");
-    expect(screen.getByRole("main")).toHaveClass("max-w-6xl");
-    expect(screen.getByRole("main").className.trim()).toBe(TOP_ALIGNED_WIDE);
-  });
-
-  it("lays the Audit page out wide and top-aligned", () => {
-    renderShell(authWith(vi.fn()), "/audit");
-    expect(screen.getByRole("main")).toHaveClass("max-w-6xl");
+  it.each([
+    ["Accounts", "/accounts"],
+    ["Audit", "/audit"],
+  ])("lays the %s page out wide and top-aligned", (_, path) => {
+    renderShell(authWith(vi.fn()), path);
     expect(screen.getByRole("main").className.trim()).toBe(TOP_ALIGNED_WIDE);
   });
 

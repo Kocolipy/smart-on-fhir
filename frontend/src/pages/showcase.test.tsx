@@ -208,15 +208,6 @@ describe("Showcase", () => {
     expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
   });
 
-  it("reports an expired CSRF token with security-specific copy", async () => {
-    resolveWith({ kind: "csrf-expired" });
-    renderShowcase();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Your security token expired. Please try again.",
-    );
-  });
-
   it("reports a refused counter update as permission denied and keeps the session", async () => {
     resolveOnceWith({ kind: "ok", data: 2 });
     resolveOnceWith({ kind: "forbidden" });
