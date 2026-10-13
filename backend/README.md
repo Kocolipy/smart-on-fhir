@@ -689,6 +689,15 @@ copies (`ScimDiscoveryIntegrationTests`), one read-only-create refusal
 left over from `ROLE_ADMIN`'s retirement. The baseline gate after, on c4be0f8:
 `Tests run: 4751, Failures: 0, Errors: 0, Skipped: 0`, 28 contexts started.
 
+Scheduled-job run module, 2026-10-13 (ADR 0005 amendment): two service tests
+that re-tested the lock's per-job keying (`anotherJobHoldingItsLockDoesNotStopThisOne`
+in `DormancyServiceTests`, `anotherJobsLockBeingHeldDoesNotStopARetentionRun` in
+`AuditRetentionServiceTests`) moved into the module's own
+`ScheduledJobRunServiceTests` (fast gate, six tests). The new
+`ScheduledJobRunIntegrationTests` (five tests) joins the shared context. The
+baseline gate after: `Tests run: 4813, Failures: 0, Errors: 0, Skipped: 0`, up from
+4803 on bc8bc92.
+
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the
 repository root, and the Semgrep registry download inside `./scripts/semgrep.sh`.

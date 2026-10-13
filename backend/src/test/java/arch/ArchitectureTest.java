@@ -434,9 +434,11 @@ public class ArchitectureTest {
             Map.entry("authorization", Set.of()),
             // The shared base every module logs through, so it knows none of them.
             Map.entry("observability", Set.of()),
-            // The scheduled-job lock is shared by the auth and audit jobs (ADR 0005), so it knows
-            // neither of them.
-            Map.entry("scheduling", Set.of()),
+            // The scheduled-job lock and run module are shared by the auth and audit jobs (ADR 0005),
+            // so it knows neither of them. A job's one identity, ScheduledJob, carries the
+            // Operation its records are classified as, so it depends on the logging base every
+            // module depends on, which depends on nothing back.
+            Map.entry("scheduling", Set.of("observability")),
             // SPA routing and the API error shape are shared plumbing and know no business module.
             Map.entry("web", Set.of("observability")),
             // Shared by every business module, so it depends on none of them.
@@ -867,6 +869,30 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("one module takes the scim slice's locks, a connector token's included, so a"
                     + " rotation's lock is taken the one way, before the token is read");
+
+    /**
+     * A scheduled job's lock has one taker: the scheduled-job run module,
+     * {@code scheduling.application.ScheduledJobRunService}, which opens the run's own transaction
+     * on the primary data source, takes the lock in it and holds it until the body it hands the
+     * job has ended (ADR 0005). A job body that took the lock itself would hold it for whatever
+     * transaction it happened to be in — released after a first batch's commit, or at once in
+     * autocommit on a data source whose transaction manager is not the lock's.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_scheduled_job_run_takes_a_job_lock =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.scheduling.application.ScheduledJobRunService")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is ScheduledJobLock.tryAcquire",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("tryAcquire")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scheduling.domain"
+                                                    + ".ScheduledJobLock")))
+            .allowEmptyShould(true)
+            .because("the lock lives in the run's own transaction, which only the run module"
+                    + " opens, so no job body can take it for a shorter one");
 
     /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =

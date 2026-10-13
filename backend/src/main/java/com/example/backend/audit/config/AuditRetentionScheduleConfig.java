@@ -6,6 +6,7 @@ import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ScheduledJobSpec;
 import com.example.backend.observability.ServiceTimeZone;
+import com.example.backend.scheduling.domain.ScheduledJob;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
@@ -33,9 +34,6 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 @EnableScheduling
 public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
 
-    /** The {@code job} tag of this job's run metrics ({@link ScheduledJobMetrics}). */
-    static final String RETENTION_JOB = "audit-retention";
-
     /** What the job does, on its startup record. */
     public static final String RETENTION_DESCRIPTION =
             "Deletes every audit event recorded longer ago than the retention period";
@@ -55,8 +53,11 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
+        // The job's one identity: its name is the job tag of its run metrics
+        // (ScheduledJobMetrics), its batch.job.name and its lock row.
         jobs.schedule(registrar, ScheduledJobSpec
-                .of(RETENTION_JOB, AuditRetentionService.OPERATION, policy.schedule(),
+                .of(ScheduledJob.AUDIT_RETENTION.jobName(),
+                        ScheduledJob.AUDIT_RETENTION.operation(), policy.schedule(),
                         RETENTION_DESCRIPTION, retention::deleteAgedOutEvents)
                 .startupField(AuditLogFields.RETENTION_PERIOD, policy.period().toString()));
     }

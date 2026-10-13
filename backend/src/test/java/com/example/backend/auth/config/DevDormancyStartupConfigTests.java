@@ -15,6 +15,8 @@ import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
+import com.example.backend.scheduling.RecordingTransactionManager;
+import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -57,7 +59,7 @@ class DevDormancyStartupConfigTests {
                     users, groups, sessions, audit, TestRoleMappings.superuserOnly()),
             sessions,
             LoginStateModules.over(users, clock),
-            lock,
+            new ScheduledJobRunService(lock, new RecordingTransactionManager()),
             DormancyPolicy.defaults(),
             TestRoleMappings.superuserOnly(),
             audit,

@@ -5,6 +5,7 @@ import com.example.backend.auth.application.DormancyService;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scheduling.domain.ScheduledJob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
@@ -43,7 +44,8 @@ public class DevDormancyStartupConfig {
     public void runOnce() {
         DormancyRun run = dormancy.run();
         LoggingEventBuilder record =
-                LogEvent.success(log, DormancyService.OPERATION, Category.BATCH, Type.INFO);
+                LogEvent.success(
+                        log, ScheduledJob.DORMANCY.operation(), Category.BATCH, Type.INFO);
         if (run.skipped()) {
             record.addKeyValue(LogEvent.REASON, LogEvent.REASON_LOCK_HELD);
         } else {

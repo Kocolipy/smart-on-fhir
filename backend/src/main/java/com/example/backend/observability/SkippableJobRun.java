@@ -7,8 +7,10 @@ import java.util.Map;
  * {@link ScheduledJobMetrics#instrumentLocked}: whether it found another run of the same
  * job holding the lock, and so did no work.
  *
- * <p>The lock is taken inside the job, in the job's own transaction, so only the job knows
- * whether it ran; this is how it says so, and the wrapper logs the run's end accordingly.
+ * <p>The lock is taken inside the run, in the transaction the scheduled-job run module
+ * ({@code scheduling.application.ScheduledJobRunService}) opens for it, so only the run knows
+ * whether it did the work; this is how it says so, and the wrapper logs the run's end
+ * accordingly.
  */
 public interface SkippableJobRun {
 

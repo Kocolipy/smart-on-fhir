@@ -3,15 +3,13 @@ package com.example.backend.audit.application;
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
-import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.time.Clock;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Enforces the retention window: one pass that removes every event older than it.
@@ -27,39 +25,38 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>Serialization</h2>
  *
- * <p>A run takes the job's own lock ({@link ScheduledJob#AUDIT_RETENTION}) first, so two
+ * <p>A run goes through the module that runs a scheduled job ({@link ScheduledJobRunService}),
+ * which takes the job's own lock ({@link ScheduledJob#AUDIT_RETENTION}) first, so two
  * instances on the same cron do not both delete: the second finds the lock held, does
  * nothing, and reports it {@linkplain AuditRetentionRun#skipped skipped}, which
  * {@code ScheduledJobMetrics.instrumentLocked} logs as the run's {@code lock-held} end. The
- * lock is taken before the adapter assumes the retention role, as the application's own
- * role, which is the one granted it.
+ * lock is taken before the body runs, and so before the adapter assumes the retention role,
+ * as the application's own role, which is the one granted it.
  *
- * <p>{@code @Transactional} is load-bearing rather than incidental. The lock is held for
- * the rest of the transaction, and the adapter assumes the retention database role with
+ * <p>The body runs inside the transaction the module opened for the lock, and that is
+ * load-bearing rather than incidental: the adapter assumes the retention database role with
  * {@code SET LOCAL ROLE}, which needs a transaction to be local to; without one the delete
- * would run as the application's own role and be refused.
+ * would run as the application's own role and be refused. The lock is the module's, held
+ * for the whole run whatever transactions the body opens of its own.
  */
 @Service
 public class AuditRetentionService {
-
-    /** The operation every record this job emits is classified as, its schedule included. */
-    public static final Operation OPERATION = Operation.AUDIT_RETENTION;
 
     private static final Logger log = LoggerFactory.getLogger(AuditRetentionService.class);
 
     private final AuditEventRetention retention;
     private final AuditRetentionPolicy policy;
-    private final ScheduledJobLock lock;
+    private final ScheduledJobRunService runs;
     private final Clock clock;
 
     public AuditRetentionService(
             AuditEventRetention retention,
             AuditRetentionPolicy policy,
-            ScheduledJobLock lock,
+            ScheduledJobRunService runs,
             Clock clock) {
         this.retention = retention;
         this.policy = policy;
-        this.lock = lock;
+        this.runs = runs;
         this.clock = clock;
     }
 
@@ -69,14 +66,16 @@ public class AuditRetentionService {
      *
      * @return whether the run skipped, and how many rows it removed
      */
-    @Transactional
     public AuditRetentionRun deleteAgedOutEvents() {
-        if (!lock.tryAcquire(ScheduledJob.AUDIT_RETENTION)) {
-            return AuditRetentionRun.skippedRun();
-        }
+        return runs.run(ScheduledJob.AUDIT_RETENTION, this::deleteHoldingTheLock)
+                .orElseGet(AuditRetentionRun::skippedRun);
+    }
+
+    /** The run's body, inside the run's transaction and under the job's lock. */
+    private AuditRetentionRun deleteHoldingTheLock() {
         Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
-        LogEvent.jobSummary(log, OPERATION)
+        LogEvent.jobSummary(log, ScheduledJob.AUDIT_RETENTION.operation())
                 .addKeyValue(AuditLogFields.RETENTION_PERIOD, policy.period().toString())
                 .addKeyValue(AuditLogFields.RETENTION_DELETED_ROWS, deleted)
                 .log();

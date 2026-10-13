@@ -8,6 +8,12 @@ package com.example.backend.scheduling.domain;
  * commit or the rollback that ends the run, so there is no release to forget and no lease to
  * outlive a crashed instance. A run that cannot take the lock does not wait for it; the other run
  * is already doing the same work, so the right answer is to skip.
+ *
+ * <p>Which transaction that is decides how long the lock is held, so it has one caller: the
+ * scheduled-job run module ({@code scheduling.application.ScheduledJobRunService}), which takes it
+ * in the run's own transaction on the primary data source and holds that open for the whole of
+ * the job's body. A job body never takes it itself
+ * ({@code ArchitectureTest.only_the_scheduled_job_run_takes_a_job_lock}).
  */
 public interface ScheduledJobLock {
 
