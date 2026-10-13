@@ -20,6 +20,7 @@ import com.example.backend.scheduling.InMemoryScheduledJobLock;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimRoleRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -36,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +84,8 @@ class DormancyServiceTests {
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
+
+    private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
     private final InMemoryAccountSessions accountSessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
@@ -213,7 +217,8 @@ class DormancyServiceTests {
         assertThat(run.locked()).containsExactly(ada.id());
         assertThat(run.rolesRevoked()).isEmpty();
         assertThat(groups.findById(superusers.id()).orElseThrow().hasMember(ada.id())).isTrue();
-        assertThat(groups.lockedReads()).as("no Group is locked with nothing to revoke").isEmpty();
+        assertThat(writeLocks.requests()).as("no Group is locked with nothing to revoke")
+                .containsExactly(Set.of(ada.id()));
     }
 
     // ---- the role-revocation step ----------------------------------------------------------
@@ -341,11 +346,12 @@ class DormancyServiceTests {
     }
 
     /**
-     * Every affected Group is locked, in id order, before any membership moves — the point a
-     * connector's conditional write serializes on.
+     * Every Group and User the run may change is locked in one request, before any membership
+     * moves — the point a connector's write serializes on. One request because the order is the
+     * lock module's: a lock asked for later, with others held, would be out of it.
      */
     @Test
-    void theAffectedGroupsAreLockedInIdOrder() {
+    void everyAffectedGroupAndUserIsLockedInOneRequest() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         ScimUser bob = users.given(ScimIdentities.userAuthenticatedAt("bob", CREATED));
         superuserGroupOf(bootstrap, ada);
@@ -353,7 +359,23 @@ class DormancyServiceTests {
 
         job.run();
 
-        assertThat(groups.lockedReads()).containsExactly(ACCOUNT_ADMINS, SUPERUSER_GROUP);
+        assertThat(writeLocks.requests())
+                .containsExactly(Set.of(ACCOUNT_ADMINS, SUPERUSER_GROUP, ada.id(), bob.id()));
+    }
+
+    /**
+     * A role-revocation candidate that is no lockout candidate — already locked, say — is locked
+     * with its Group all the same: removing the membership advances its version too.
+     */
+    @Test
+    void aRevocationCandidateIsLockedWithItsGroupThoughNoLockoutCandidate() {
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimGroup superusers = superuserGroupOf(bootstrap, ada);
+        users.answerDormancyCandidatesWith(List.of());
+
+        job.run();
+
+        assertThat(writeLocks.requests()).containsExactly(Set.of(superusers.id(), ada.id()));
     }
 
     // ---- what it never touches -------------------------------------------------------------
@@ -600,6 +622,7 @@ class DormancyServiceTests {
         return new DormancyService(
                 users,
                 groups,
+                writeLocks,
                 new ScimRoleRevocationService(users, groups, sessions, audit, MAPPING),
                 sessions,
                 LoginStateModules.over(users, clock),

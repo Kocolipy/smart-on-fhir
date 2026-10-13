@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.auth.domain.AccountSessions;
 import com.example.backend.auth.domain.SessionRevocationCause;
@@ -134,8 +135,8 @@ public class SessionRevocationService implements ScimUserSessions {
         try {
             ended = end.applyAsInt(sessions);
         } catch (RuntimeException storeFailed) {
-            audit.recordUserSessionsRevoked(
-                    actorId, userId, paths(causes), auditCauses(causes), false);
+            audit.append(new Audited.UserSessionsRevoked(
+                    actorId, userId, paths(causes), auditCauses(causes), false));
             alerts.sessionRevocationFailed(storeFailed.getClass());
             if (imposedByRefusal(causes)) {
                 return;
@@ -145,7 +146,8 @@ public class SessionRevocationService implements ScimUserSessions {
         if (ended == 0) {
             return;
         }
-        audit.recordUserSessionsRevoked(actorId, userId, paths(causes), auditCauses(causes), true);
+        audit.append(new Audited.UserSessionsRevoked(
+                actorId, userId, paths(causes), auditCauses(causes), true));
         logEnded(userId, causes, ended);
     }
 

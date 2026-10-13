@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -150,6 +151,7 @@ class AuthControllerTests {
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
                         users,
+                        new InMemoryScimWriteLocks(),
                         new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,

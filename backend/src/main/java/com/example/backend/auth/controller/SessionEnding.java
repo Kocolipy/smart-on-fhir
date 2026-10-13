@@ -1,6 +1,7 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -120,7 +121,7 @@ class SessionEnding {
      */
     private void recordLogout(HttpSession session) {
         HttpSessionAttributes.signedIn(session).owner().ifPresent(userId -> {
-            audit.recordLogout(userId);
+            audit.append(new Audited.Logout(userId));
             // Beside the audit append, after it succeeded: the trail is the record of who logged
             // out, and this is the operational stream's line for the same moment.
             try (LogContext.Scope scope = LogContext.userId(userId)) {

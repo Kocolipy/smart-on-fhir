@@ -3,6 +3,7 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.PasswordAcceptance;
@@ -30,6 +31,7 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -60,8 +62,11 @@ import org.springframework.transaction.annotation.Transactional;
  * desired state is the same and must not be able to differ between the two verbs:
  *
  * <ol>
- *   <li>read the User under its resource lock — absent is a {@code 404}, decided before the
- *       precondition so a malformed or stale header cannot disclose which ids exist;
+ *   <li>lock the User and every Group it is in, through the one lock module
+ *       ({@link ScimWriteLocks}) and in its one order — a label change advances those Groups too,
+ *       so they are locked whether or not this write turns out to move it — then read the User
+ *       — absent is a {@code 404}, decided before the precondition so a malformed or stale header
+ *       cannot disclose which ids exist;
  *   <li>check the {@code If-Match} precondition, when one was sent, against the locked version,
  *       so two writers racing with the same one produce one success and one {@code 412}. A write
  *       without one is applied unconditionally, still under the lock and in one transaction with
@@ -99,9 +104,11 @@ public class ScimUserService {
     private final Clock clock;
     private final ScimQueryRepository queries;
     private final ScimWriteEffectsApplier effects;
+    private final ScimWriteLocks writeLocks;
 
     public ScimUserService(
             ScimUserRepository users,
+            ScimWriteLocks writeLocks,
             ScimGroupRepository groups,
             ScimExternalIdRepository aliases,
             PasswordAcceptance passwordAcceptance,
@@ -113,6 +120,7 @@ public class ScimUserService {
             ScimQueryRepository queries) {
         this.queries = queries;
         this.users = users;
+        this.writeLocks = writeLocks;
         this.groups = groups;
         this.aliases = aliases;
         this.passwordAcceptance = passwordAcceptance;
@@ -151,7 +159,8 @@ public class ScimUserService {
             ScimAttributeLimits.requireWithin(command.profile());
             ScimAttributeLimits.requireExternalIdWithin(command.externalId());
         } catch (ScimAttributeValueException unacceptable) {
-            audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimUserCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
             throw unacceptable;
         }
         PasswordAcceptance.Accepted password = null;
@@ -161,8 +170,8 @@ public class ScimUserService {
             password = acceptedOrRefused(
                     passwordAcceptance.acceptForNewUser(
                             command.password(), command.profile().userName()),
-                    () -> audit.recordScimUserCreateRejected(
-                            connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
+                    () -> audit.append(new Audited.ScimUserCreateRejected(
+                            connector.connectorId(), AuditScimRefusal.INVALID_VALUE)));
         }
         Instant now = clock.instant();
         String passwordHash = password == null ? null : password.passwordHash();
@@ -174,7 +183,8 @@ public class ScimUserService {
         try {
             created = users.create(user);
         } catch (DuplicateUserNameException duplicate) {
-            audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.UNIQUENESS);
+            audit.append(new Audited.ScimUserCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.UNIQUENESS));
             throw duplicate;
         }
         if (password != null) {
@@ -183,7 +193,7 @@ public class ScimUserService {
         if (command.externalId() != null) {
             aliases.put(connector.connectorId(), created.id(), command.externalId());
         }
-        audit.recordScimUserCreated(connector.connectorId(), created.id());
+        audit.append(new Audited.ScimUserCreated(connector.connectorId(), created.id()));
         // A freshly created User is in no Group, so the reverse view is empty rather than
         // read: a create cannot put a User in a Group, because `groups` is read-only.
         return ScimUserResource.of(created, List.of(), command.externalId());
@@ -219,8 +229,8 @@ public class ScimUserService {
     public ScimUserListing query(AuthenticatedConnector connector, ScimQuery query, String baseUri) {
         ScimQuery.Result result = queries.query(query, connector.connectorId(), baseUri);
         List<ScimUserResource> resources = resources(connector, result.idsOf(ScimResourceType.USER));
-        audit.recordScimUsersQueried(
-                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter()));
+        audit.append(new Audited.ScimUsersQueried(
+                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter())));
         return new ScimUserListing(resources, result.totalResults(), query.page());
     }
 
@@ -278,9 +288,10 @@ public class ScimUserService {
     /**
      * Deletes a User — a DELETE.
      *
-     * <p>The same order as a write, for the same reasons: read under the resource lock (absent is
-     * a {@code 404}, decided before the precondition), check {@code If-Match} against the locked
-     * version, then refuse the Bootstrap Admin, which no SCIM operation may delete.
+     * <p>The same order as a write, for the same reasons: lock the User and every Group it leaves,
+     * then read it (absent is a {@code 404}, decided before the precondition), check
+     * {@code If-Match} against the locked version, then refuse the Bootstrap Admin, which no SCIM
+     * operation may delete.
      *
      * <p>The live rows go — profile, emails, credential, password history, memberships, connector
      * aliases — and a tombstone holding only the id, the type and the time is written in the same
@@ -293,7 +304,7 @@ public class ScimUserService {
     @Transactional
     public boolean delete(
             AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
-        Optional<ScimUser> stored = users.findByIdForUpdate(id);
+        Optional<ScimUser> stored = lockedForWrite(id);
         if (stored.isEmpty()) {
             return false;
         }
@@ -301,16 +312,28 @@ public class ScimUserService {
         precondition.requireSatisfiedBy(current.version());
         UUID connectorId = connector.connectorId();
         if (current.isProtectedFromWrites()) {
-            audit.recordScimUserDeleteRejected(connectorId, id, AuditScimRefusal.MUTABILITY);
+            audit.append(new Audited.ScimUserDeleteRejected(
+                    connectorId, id, AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
         Instant now = clock.instant();
         users.deleteById(id, now);
         tombstones.record(ScimResourceType.USER, id, now);
-        audit.recordScimUserDeleted(connectorId, id);
+        audit.append(new Audited.ScimUserDeleted(connectorId, id));
         effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId),
                 ScimWriteEffects.ofUserDeletion(id), now);
         return true;
+    }
+
+    /**
+     * The User a write or deletion acts on, read only once the lock module holds it and every
+     * Group it is in, so the read is the committed state and the version it carries is the one
+     * {@code If-Match} is checked against. The one way into a User write: the lock must come
+     * before the read, and naming the pair keeps the two from being separated.
+     */
+    private Optional<ScimUser> lockedForWrite(UUID id) {
+        writeLocks.lockUserWrite(id);
+        return users.findById(id);
     }
 
     /** The shared shape of a User write; see the class documentation for its order. */
@@ -319,7 +342,7 @@ public class ScimUserService {
             UUID id,
             ScimVersionPrecondition precondition,
             UnaryOperator<ScimUserEdit> change) {
-        Optional<ScimUser> stored = users.findByIdForUpdate(id);
+        Optional<ScimUser> stored = lockedForWrite(id);
         if (stored.isEmpty()) {
             return Optional.empty();
         }
@@ -327,7 +350,8 @@ public class ScimUserService {
         precondition.requireSatisfiedBy(current.version());
         UUID connectorId = connector.connectorId();
         if (current.isProtectedFromWrites()) {
-            audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.MUTABILITY);
+            audit.append(new Audited.ScimUserWriteRejected(
+                    connectorId, id, AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
 
@@ -340,10 +364,11 @@ public class ScimUserService {
             // A PUT and a PATCH can both set the alias now, so it is bounded on the shared path.
             ScimAttributeLimits.requireExternalIdWithin(after.externalId());
         } catch (ScimPatchRefusedException refused) {
-            audit.recordScimUserWriteRejected(connectorId, id, refusal(refused));
+            audit.append(new Audited.ScimUserWriteRejected(connectorId, id, refusal(refused)));
             throw refused;
         } catch (ScimAttributeValueException unacceptable) {
-            audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimUserWriteRejected(
+                    connectorId, id, AuditScimRefusal.INVALID_VALUE));
             throw unacceptable;
         }
 
@@ -352,8 +377,8 @@ public class ScimUserService {
                 ? acceptedOrRefused(
                         passwordAcceptance.acceptFor(
                                 current, password.plaintext(), after.profile().userName()),
-                        () -> audit.recordScimUserWriteRejected(
-                                connectorId, id, AuditScimRefusal.INVALID_VALUE))
+                        () -> audit.append(new Audited.ScimUserWriteRejected(
+                                connectorId, id, AuditScimRefusal.INVALID_VALUE)))
                 : null;
         ScimUserLoginState.Credential credential = switch (password.kind()) {
             case UNCHANGED -> ScimUserLoginState.Credential.unchanged(current.login().passwordHash());
@@ -375,7 +400,8 @@ public class ScimUserService {
                                 current, after.profile(), credential, now)),
                         now);
             } catch (DuplicateUserNameException duplicate) {
-                audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
+                audit.append(new Audited.ScimUserWriteRejected(
+                        connectorId, id, AuditScimRefusal.UNIQUENESS));
                 throw duplicate;
             }
         }
@@ -387,7 +413,7 @@ public class ScimUserService {
         if (implied.stored().alias()) {
             writeAlias(connectorId, id, after.externalId());
         }
-        audit.recordScimUserReplaced(connectorId, id, implied.audited());
+        audit.append(new Audited.ScimUserReplaced(connectorId, id, implied.audited()));
         // An alias written alone stored no User row, so the apply step advances its version.
         effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId), implied, now);
         // Read back rather than taken from the replacement: the version may have advanced above.

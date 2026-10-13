@@ -1,13 +1,11 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEntity;
-import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -23,16 +21,26 @@ import org.springframework.data.repository.query.Param;
 interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UUID> {
 
     /**
-     * The resource row, locked {@code FOR UPDATE} until the transaction ends.
+     * Locks these resource rows {@code FOR UPDATE} until the transaction ends, one at a time in
+     * ascending id order, and reports the ids that exist.
+     *
+     * <p>Called only by {@link ScimWriteLockAdapter}, the one place a SCIM write's locks are taken;
+     * {@code ArchitectureTest} holds that. The order is the statement's own: Postgres locks rows as
+     * the sort returns them, so every caller acquires in the database's {@code uuid} order — not
+     * {@link UUID#compareTo}'s, which compares signed halves and disagrees with it. That guarantee
+     * is Postgres's, not SQL's: an engine that locks rows as the scan reads them, before any sort
+     * (SQL Server under {@code UPDLOCK}, ADR 0015), takes them in access-path order whatever the
+     * {@code ORDER BY} says, so a switchover must re-establish the order here, the one place.
      *
      * <p>The serialization point of a conditional write. A second writer holding the same
-     * precondition blocks here until the first commits, and then — because a locking read in
-     * Postgres returns the row as the lock holder left it — reads the version the first one
-     * produced, so its precondition fails instead of both writes succeeding.
+     * precondition blocks here until the first commits, and its next statement then reads the
+     * version the first one produced, so its precondition fails instead of both writes
+     * succeeding. Native and returning ids alone, so it loads no entity: the reads after it are
+     * the transaction's first, and see what the previous lock holder committed.
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select r from ScimResourceEntity r where r.id = :id")
-    Optional<ScimResourceEntity> lockById(@Param("id") UUID id);
+    @Query(value = "SELECT id FROM scim_resources WHERE id IN (:ids) ORDER BY id FOR UPDATE",
+            nativeQuery = true)
+    List<UUID> lockInIdOrder(@Param("ids") Collection<UUID> ids);
 
     /**
      * Advances the version of every named resource and records when it changed.

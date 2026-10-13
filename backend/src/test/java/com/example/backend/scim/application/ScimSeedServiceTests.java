@@ -14,6 +14,7 @@ import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
 import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimSeedService.DevFixture;
 import com.example.backend.scim.application.ScimSeedService.SeededIdentity;
@@ -29,6 +30,7 @@ import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -62,9 +64,12 @@ class ScimSeedServiceTests {
 
     private final RecordingSeedLock seedLock = new RecordingSeedLock();
 
+    private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
+
     private final ScimSeedService seeding = new ScimSeedService(
             users,
             groups,
+            writeLocks,
             seedLock,
             audit,
             passwordEncoder,
@@ -383,6 +388,32 @@ class ScimSeedServiceTests {
                 });
     }
 
+    /**
+     * The restore advances the Admin group and the Bootstrap Admin, so it asks the lock module for
+     * them as a Group write does, and a seed that restores nothing asks for nothing.
+     */
+    @Test
+    void only_a_restore_locks_the_admin_group_with_the_bootstrap_admin() {
+        seeding.seed(RECOVERY);
+        ScimGroup adminGroup =
+                groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow();
+        ScimUser bootstrapAdmin =
+                users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
+        groups.given(new ScimGroup(
+                adminGroup.id(),
+                adminGroup.displayName(),
+                List.of(),
+                ReservedResourceName.ADMIN_GROUP,
+                adminGroup.version(),
+                adminGroup.createdAt(),
+                adminGroup.lastModifiedAt()));
+
+        seeding.seed(RECOVERY);
+
+        assertThat(writeLocks.requests())
+                .containsExactly(Set.of(adminGroup.id(), bootstrapAdmin.id()));
+    }
+
     /** A run that finds the membership intact restores nothing, so it records no restore. */
     @Test
     void a_later_run_that_finds_the_membership_intact_records_no_restore() {
@@ -615,7 +646,7 @@ class ScimSeedServiceTests {
 
     private ScimSeedService seedingUnder(RoleMapping mapping) {
         return new ScimSeedService(
-                users, groups, seedLock, audit, passwordEncoder,
+                users, groups, new InMemoryScimWriteLocks(), seedLock, audit, passwordEncoder,
                 Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping,
                 LoginStateModules.over(users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC)));
     }

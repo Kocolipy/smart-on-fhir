@@ -9,6 +9,7 @@ import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -45,6 +46,9 @@ class ScimUserPersistenceAdapterIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimWriteLocks writeLocks;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -113,7 +117,8 @@ class ScimUserPersistenceAdapterIntegrationTests {
                 new ScimLoginState("hash", 0, null, null, EARLIER, null));
 
         inTransaction(() -> {
-            ScimUser locked = users.findByIdForUpdate(stored.id()).orElseThrow();
+            writeLocks.lockUserWrite(stored.id());
+            ScimUser locked = users.findById(stored.id()).orElseThrow();
             inNewTransaction(() -> {
                 users.recordAuthentication(stored.id(), LATER);
                 return null;
@@ -165,7 +170,8 @@ class ScimUserPersistenceAdapterIntegrationTests {
     /** A replacement as the SCIM write path makes it: locked read, then the write, one transaction. */
     private ScimLoginState replace(ScimUser user, boolean active, ScimLoginState login) {
         return inTransaction(() -> {
-            ScimUser locked = users.findByIdForUpdate(user.id()).orElseThrow();
+            writeLocks.lockUserWrite(user.id());
+            ScimUser locked = users.findById(user.id()).orElseThrow();
             return users.replace(ScimIdentities.withActive(locked, active, login),
                     Instant.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().login();
         });

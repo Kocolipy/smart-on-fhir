@@ -1,7 +1,9 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -113,12 +115,17 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * What an Unlock decided.
+     * What an Unlock decided, and so what it changed.
      *
-     * @param state          the User's login state as the Unlock left it
-     * @param changeRequired whether the Unlock required a password change
+     * @param state           the User's login state as the Unlock left it
+     * @param changeRequired  whether the Unlock required a password change
+     * @param lifted          the cause of the lock the Unlock lifted, which also restarted the
+     *                        dormancy basis — or {@code null} when no lock stood
+     * @param attemptsCleared whether the failure run held attempts the Unlock cleared
      */
-    public record Unlock(ScimLoginState state, boolean changeRequired) {
+    public record Unlock(
+            ScimLoginState state, boolean changeRequired, LockCause lifted,
+            boolean attemptsCleared) {
     }
 
     /**
@@ -168,7 +175,7 @@ public class LoginStateService implements ScimUserLoginState {
                 : before.withFailureRecorded(policy, clock.instant());
         writeFailureRun(user, before, after);
         if (after.isLocked() && !before.isLocked()) {
-            audit.recordLockoutSet(user.id());
+            audit.append(new Audited.LockoutSet(user.id()));
             sessions.revokeAllAfterCommit(
                     user.id(), SessionRevocationCause.FAILURE_RUN_LOCKOUT, null);
         }
@@ -221,18 +228,19 @@ public class LoginStateService implements ScimUserLoginState {
         ScimLoginState before = user.login();
         ScimLoginState after = before.withFailureRunCleared();
         writeFailureRun(user, before, after);
+        boolean attemptsCleared = before.failedLoginAttempts() > 0;
         if (!before.isLocked()) {
-            return new Unlock(after, false);
+            return new Unlock(after, false, null, attemptsCleared);
         }
         Instant now = clock.instant();
         after = after.withDormancyBasisReset(now);
         users.resetDormancyBasis(user.id(), now);
         if (!before.hasPassword()) {
-            return new Unlock(after, false);
+            return new Unlock(after, false, before.lockCause(), attemptsCleared);
         }
         after = after.withPasswordChangeRequired(now);
         users.requirePasswordChange(user.id(), now);
-        return new Unlock(after, true);
+        return new Unlock(after, true, before.lockCause(), attemptsCleared);
     }
 
     /**

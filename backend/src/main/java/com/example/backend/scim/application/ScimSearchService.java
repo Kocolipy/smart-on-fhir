@@ -1,6 +1,7 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
@@ -66,8 +67,8 @@ public class ScimSearchService {
                 ordered.add(resource);
             }
         }
-        audit.recordScimResourcesQueried(
-                connector.connectorId(), ordered.size(), ScimAuditFilterShapes.of(query.filter()));
+        audit.append(new Audited.ScimResourcesQueried(
+                connector.connectorId(), ordered.size(), ScimAuditFilterShapes.of(query.filter())));
         return new ScimSearchListing(ordered, result.totalResults(), query.page());
     }
 }

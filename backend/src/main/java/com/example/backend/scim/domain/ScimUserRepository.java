@@ -47,19 +47,6 @@ public interface ScimUserRepository {
     Optional<ScimUser> findById(UUID id);
 
     /**
-     * The live User with this id, read under an exclusive lock on its resource row that is held
-     * until the calling transaction ends.
-     *
-     * <p>The conditional-write path's read. Two connectors racing a write with the same
-     * {@code If-Match} both reach this line; the lock makes the second wait for the first to
-     * commit, so it then reads the version the first one produced and its precondition fails —
-     * one success and one {@code 412}, rather than two successes and a lost update. Must be the
-     * first read of this User in the transaction, so no earlier unlocked copy can be served in its
-     * place.
-     */
-    Optional<ScimUser> findByIdForUpdate(UUID id);
-
-    /**
      * Replaces the User's profile with the given one, stores the given credential, change-required
      * flag and dormancy basis, and advances its version exactly once, reporting the User as it now
      * stands. When the write changed the label each of the User's Groups renders it with — its

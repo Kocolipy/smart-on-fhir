@@ -13,6 +13,7 @@ import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -66,12 +67,13 @@ class ScimSearchServiceTests {
             new InMemoryScimPasswordHistoryRepository(), ScimPasswordAcceptanceConfig.hasher(null));
 
     private final ScimUserService userService = new ScimUserService(
-            users, groups, aliases, PASSWORDS_UNUSED,
+            users, new InMemoryScimWriteLocks(), groups, aliases, PASSWORDS_UNUSED,
             (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
             new InMemoryScimTombstoneRepository(), audit, clock, defaultQueries);
 
     private final ScimGroupService groupService = new ScimGroupService(
-            groups, users, aliases, (connectorId, userId, causes) -> { },
+            groups, new InMemoryScimWriteLocks(), users, aliases,
+            (connectorId, userId, causes) -> { },
             new InMemoryScimTombstoneRepository(), audit, clock,
             defaultQueries, com.example.backend.authorization.TestRoleMappings.superuserOnly());
 
@@ -170,7 +172,7 @@ class ScimSearchServiceTests {
                         users.require("bea").id())));
 
         ScimUserService service = new ScimUserService(
-                users, groups, aliases, PASSWORDS_UNUSED,
+                users, new InMemoryScimWriteLocks(), groups, aliases, PASSWORDS_UNUSED,
                 (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
                 new InMemoryScimTombstoneRepository(), audit, clock, scripted);
         ScimUserListing listing = service.query(CONNECTOR, new ScimQuery(

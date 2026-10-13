@@ -3,6 +3,7 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
@@ -23,9 +24,11 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -109,9 +112,11 @@ public class ScimGroupService {
     private final ScimQueryRepository queries;
     private final RoleMapping roleMapping;
     private final ScimWriteEffectsApplier effects;
+    private final ScimWriteLocks writeLocks;
 
     public ScimGroupService(
             ScimGroupRepository groups,
+            ScimWriteLocks writeLocks,
             ScimUserRepository users,
             ScimExternalIdRepository aliases,
             ScimUserSessions sessions,
@@ -122,6 +127,7 @@ public class ScimGroupService {
             RoleMapping roleMapping) {
         this.queries = queries;
         this.groups = groups;
+        this.writeLocks = writeLocks;
         this.users = users;
         this.aliases = aliases;
         this.tombstones = tombstones;
@@ -138,6 +144,9 @@ public class ScimGroupService {
      * forbidden control character — is refused first, as {@code invalidValue} naming the
      * attribute, and audited as that.
      *
+     * <p>The members are locked first, through the lock module and in its order: each one's
+     * version advances, and the new Group itself is visible to no other writer yet.
+     *
      * <p>A {@code displayName} already taken arrives as {@link DuplicateDisplayNameException}
      * from the failed statement rather than from a prior read, and a member that is not a live
      * User as {@link UnknownGroupMemberException} from the failed membership insert. Both are
@@ -150,10 +159,11 @@ public class ScimGroupService {
             ScimAttributeLimits.requireGroupDisplayNameWithin(command.displayName());
             ScimAttributeLimits.requireExternalIdWithin(command.externalId());
         } catch (ScimAttributeValueException unacceptable) {
-            audit.recordScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimGroupCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
             throw unacceptable;
         }
+        writeLocks.lock(command.memberIds());
         refuseFrozenMembershipChange(connector, command.memberIds());
         ScimGroup group = ScimGroup.created(
                 UUID.randomUUID(),
@@ -164,18 +174,18 @@ public class ScimGroupService {
         try {
             created = groups.create(group);
         } catch (DuplicateDisplayNameException duplicate) {
-            audit.recordScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.UNIQUENESS);
+            audit.append(new Audited.ScimGroupCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.UNIQUENESS));
             throw duplicate;
         } catch (UnknownGroupMemberException unknownMember) {
-            audit.recordScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimGroupCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
             throw unknownMember;
         }
         if (command.externalId() != null) {
             aliases.put(connector.connectorId(), created.id(), command.externalId());
         }
-        audit.recordScimGroupCreated(connector.connectorId(), created.id());
+        audit.append(new Audited.ScimGroupCreated(connector.connectorId(), created.id()));
         return ScimGroupResource.of(created, command.externalId());
     }
 
@@ -205,8 +215,8 @@ public class ScimGroupService {
         ScimQuery.Result result = queries.query(query, connector.connectorId(), baseUri);
         List<ScimGroupResource> resources =
                 resources(connector, result.idsOf(ScimResourceType.GROUP));
-        audit.recordScimGroupsQueried(
-                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter()));
+        audit.append(new Audited.ScimGroupsQueried(
+                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter())));
         return new ScimGroupListing(resources, result.totalResults(), query.page());
     }
 
@@ -235,6 +245,7 @@ public class ScimGroupService {
                 connector,
                 id,
                 precondition,
+                replacement.memberIds(),
                 current -> new GroupEdit(
                         current.group().replacedWith(
                                 replacement.displayName(),
@@ -262,7 +273,8 @@ public class ScimGroupService {
             UUID id,
             ScimVersionPrecondition precondition,
             List<ScimGroupPatchOperation> operations) {
-        return apply(connector, id, precondition, current -> folded(current, operations));
+        return apply(connector, id, precondition, namedUsers(operations),
+                current -> folded(current, operations));
     }
 
     /**
@@ -298,6 +310,13 @@ public class ScimGroupService {
                 externalId);
     }
 
+    /** Every User a PATCH's operations name; see {@link ScimGroupPatchOperation#namedUserIds}. */
+    private static Set<UUID> namedUsers(List<ScimGroupPatchOperation> operations) {
+        Set<UUID> named = new LinkedHashSet<>();
+        operations.forEach(operation -> named.addAll(operation.namedUserIds()));
+        return named;
+    }
+
     /**
      * Deletes a Group.
      *
@@ -310,6 +329,9 @@ public class ScimGroupService {
      * them one by one would. The mapping still names the Group's id afterwards, but no Group
      * answers to it, so it confers nothing until the deployment replaces its mapping.
      *
+     * <p>The Group and every member are locked first, through the lock module and in its order:
+     * each member's version advances.
+     *
      * <p>A tombstone holding only the id, the type and the time is written in the same
      * transaction; it is never consulted for uniqueness, so the former {@code displayName} is
      * free for the next create.
@@ -321,7 +343,7 @@ public class ScimGroupService {
     @Transactional
     public boolean delete(
             AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
-        Optional<ScimGroup> stored = groups.findByIdForUpdate(id);
+        Optional<ScimGroup> stored = lockedForWrite(id, List.of());
         if (stored.isEmpty()) {
             return false;
         }
@@ -337,7 +359,7 @@ public class ScimGroupService {
             // read and the delete already has its tombstone, and a second would collide on it.
             tombstones.record(ScimResourceType.GROUP, id, now);
         }
-        audit.recordScimGroupDeleted(connector.connectorId(), id);
+        audit.append(new Audited.ScimGroupDeleted(connector.connectorId(), id));
         if (deleted) {
             effects.apply(ScimWriteEffectsApplier.Writer.connector(connector.connectorId()),
                     ScimWriteEffects.ofGroupDeletion(id, memberIdSet(group), roleMapping.roleOf(id)),
@@ -347,13 +369,27 @@ public class ScimGroupService {
     }
 
     /**
+     * The Group a write or deletion acts on, read only once the lock module holds it, its current
+     * members and every User the request names, so the read is the committed state and the
+     * version it carries is the one {@code If-Match} is checked against. The one way into a Group
+     * write: the lock must come before the read, and naming the pair keeps the two from being
+     * separated.
+     */
+    private Optional<ScimGroup> lockedForWrite(UUID id, Collection<UUID> namedUsers) {
+        writeLocks.lockGroupWrite(id, namedUsers);
+        return groups.findById(id);
+    }
+
+    /**
      * The shared shape of a Group write: read the stored Group, compute what it should become,
      * refuse what the reservations forbid, write it, audit what moved.
      *
-     * <p>The Group is read under its resource lock and the {@code If-Match} precondition, when one
-     * was sent, checked against that version, so two writers holding the same precondition produce
-     * one success and one {@code 412} rather than a lost update. A write without one is applied
-     * unconditionally under the same lock, last writer wins.
+     * <p>The Group is read only once the lock module holds it, its current members and every User
+     * the request names — a superset of every resource the write can advance, in the module's one
+     * order — and the {@code If-Match} precondition, when one was sent, checked against that
+     * version, so two writers holding the same precondition produce one success and one
+     * {@code 412} rather than a lost update. A write without one is applied unconditionally under
+     * the same lock, last writer wins.
      *
      * <p>One method for PUT and PATCH because everything except the computation is identical,
      * and because the refusals must not be able to differ between the two verbs — a protection
@@ -363,8 +399,9 @@ public class ScimGroupService {
             AuthenticatedConnector connector,
             UUID id,
             ScimVersionPrecondition precondition,
+            Collection<UUID> namedUsers,
             UnaryOperator<GroupEdit> change) {
-        Optional<ScimGroup> stored = groups.findByIdForUpdate(id);
+        Optional<ScimGroup> stored = lockedForWrite(id, namedUsers);
         if (stored.isEmpty()) {
             return Optional.empty();
         }
@@ -380,7 +417,8 @@ public class ScimGroupService {
             ScimAttributeLimits.requireGroupDisplayNameWithin(desired.displayName());
             ScimAttributeLimits.requireExternalIdWithin(edit.externalId());
         } catch (ScimAttributeValueException unacceptable) {
-            audit.recordScimGroupWriteRejected(connectorId, id, AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimGroupWriteRejected(
+                    connectorId, id, AuditScimRefusal.INVALID_VALUE));
             throw unacceptable;
         }
 
@@ -394,12 +432,12 @@ public class ScimGroupService {
         try {
             written = groups.replace(desired).orElse(null);
         } catch (DuplicateDisplayNameException duplicate) {
-            audit.recordScimGroupWriteRejected(
-                    connector.connectorId(), id, AuditScimRefusal.UNIQUENESS);
+            audit.append(new Audited.ScimGroupWriteRejected(
+                    connector.connectorId(), id, AuditScimRefusal.UNIQUENESS));
             throw duplicate;
         } catch (UnknownGroupMemberException unknownMember) {
-            audit.recordScimGroupWriteRejected(
-                    connector.connectorId(), id, AuditScimRefusal.INVALID_VALUE);
+            audit.append(new Audited.ScimGroupWriteRejected(
+                    connector.connectorId(), id, AuditScimRefusal.INVALID_VALUE));
             throw unknownMember;
         }
         if (written == null) {
@@ -416,7 +454,7 @@ public class ScimGroupService {
         if (implied.stored().alias()) {
             writeAlias(connectorId, id, edit.externalId());
         }
-        audit.recordScimGroupReplaced(connectorId, id, implied.audited());
+        audit.append(new Audited.ScimGroupReplaced(connectorId, id, implied.audited()));
         // The alias is not a Group column, so a replacement that moved only the alias advanced
         // nothing; the apply step advances the version the connector reads.
         effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId), implied,
@@ -449,7 +487,7 @@ public class ScimGroupService {
      * membership naming the Bootstrap Admin is adding it.
      *
      * <p>Audited as a refused CREATE rather than a refused write, because there is no resource
-     * to name — a Group that was never created has no id, so {@code recordScimGroupCreateRejected}
+     * to name — a Group that was never created has no id, so {@code Audited.ScimGroupCreateRejected}
      * records the connector and the reason and nothing else.
      *
      * <p>It audits HERE rather than leaving it to the caller. An earlier version of this method
@@ -466,8 +504,8 @@ public class ScimGroupService {
             return;
         }
         if (memberIds.contains(bootstrapAdminId.get())) {
-            audit.recordScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.MUTABILITY);
+            audit.append(new Audited.ScimGroupCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
     }
@@ -487,8 +525,8 @@ public class ScimGroupService {
     /** Records the refusal and returns the exception, so neither can happen without the other. */
     private ProtectedResourceException refuse(
             AuthenticatedConnector connector, UUID groupId, ReservedResourceName reservedName) {
-        audit.recordScimGroupWriteRejected(
-                connector.connectorId(), groupId, AuditScimRefusal.MUTABILITY);
+        audit.append(new Audited.ScimGroupWriteRejected(
+                connector.connectorId(), groupId, AuditScimRefusal.MUTABILITY));
         return new ProtectedResourceException(reservedName);
     }
 

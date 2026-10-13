@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -11,7 +12,9 @@ import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,8 +48,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The refusals must NOT roll back: a wrong current password's count has to commit for the
  * lockout to mean anything. So the use case is one transaction that the two refusal exceptions do
- * not roll back, and the User is read under its resource lock first, so a concurrent change or
- * lockout is decided against the state it left rather than a stale read.
+ * not roll back, and the User is read under its resource lock first — taken through the SCIM
+ * write lock module ({@link ScimWriteLocks}), the change advancing that User's version alone — so a
+ * concurrent change or lockout is decided against the state it left rather than a stale read.
  */
 @Service
 public class PasswordChangeService {
@@ -54,6 +58,7 @@ public class PasswordChangeService {
     private static final Logger log = LoggerFactory.getLogger(PasswordChangeService.class);
 
     private final ScimUserRepository users;
+    private final ScimWriteLocks writeLocks;
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
@@ -69,6 +74,7 @@ public class PasswordChangeService {
      */
     public PasswordChangeService(
             ScimUserRepository users,
+            ScimWriteLocks writeLocks,
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginAttemptService attempts,
@@ -76,6 +82,7 @@ public class PasswordChangeService {
             SessionRevocationService sessions,
             AuditTrail audit) {
         this.users = users;
+        this.writeLocks = writeLocks;
         this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
         this.attempts = attempts;
@@ -95,7 +102,8 @@ public class PasswordChangeService {
     @Transactional(noRollbackFor = {
             CurrentPasswordRejectedException.class, PasswordPolicyViolationException.class})
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
-        ScimUser user = users.findByIdForUpdate(userId)
+        writeLocks.lock(List.of(userId));
+        ScimUser user = users.findById(userId)
                 .orElseThrow(CurrentPasswordRejectedException::new);
         refuseStanding(user);
         if (!user.login().hasPassword()
@@ -115,7 +123,7 @@ public class PasswordChangeService {
         Instant changedAt = loginState.passwordChanged(user, accepted.passwordHash())
                 .orElseThrow(CurrentPasswordRejectedException::new);
         passwordAcceptance.remember(userId, accepted, changedAt);
-        audit.recordPasswordChanged(userId);
+        audit.append(new Audited.PasswordChanged(userId));
         sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
         LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
                 .log();
@@ -124,12 +132,14 @@ public class PasswordChangeService {
     /** Refuses an inactive or locked User before anything is compared. */
     private void refuseStanding(ScimUser user) {
         if (!user.profile().active()) {
-            audit.recordPasswordChangeRefused(user.id(), AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
+            audit.append(new Audited.PasswordChangeRefused(
+                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_DISABLED));
             refused(AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
             throw new CurrentPasswordRejectedException();
         }
         if (user.login().isLocked()) {
-            audit.recordPasswordChangeRefused(user.id(), AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
+            audit.append(new Audited.PasswordChangeRefused(
+                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_LOCKED));
             refused(AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
             throw new CurrentPasswordRejectedException();
         }
@@ -143,7 +153,7 @@ public class PasswordChangeService {
             case CONTAINS_USER_NAME -> AuditPasswordChangeRefusal.CONTAINS_USER_NAME;
             case REUSED -> AuditPasswordChangeRefusal.REUSED;
         };
-        audit.recordPasswordChangeRefused(user.id(), reason);
+        audit.append(new Audited.PasswordChangeRefused(user.id(), reason));
         refused(reason);
         return new PasswordPolicyViolationException(rule);
     }

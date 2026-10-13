@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
@@ -15,17 +16,17 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimRoleRevocation;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -63,13 +64,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>The job's lock ({@link ScheduledJobLock}) — a second run skips while one is in
  *       progress, on any instance.
- *   <li>The resource locks and a second look. Role revocation locks every affected Group before
- *       any User — the order a connector's write to a Group takes — and then each User; the
- *       lockout step re-reads each candidate under its User lock. Every candidate is decided again
- *       on the locked read by the policy's {@link DormancyVerdict} — the job's only copy of the
- *       rule — so a User that logged in or was unlocked since the candidate query is
- *       left alone. Role revocation runs first so that no Group lock is ever requested while this
- *       transaction already holds a User lock.
+ *   <li>The resource locks and a second look. Both steps' candidates are found first, and then
+ *       every Group and User either step may change is locked in one batch, through the SCIM write
+ *       lock module ({@link ScimWriteLocks}) and in its one order — the order a connector's User
+ *       and Group writes lock in too, so the run cannot deadlock against them. Every candidate is
+ *       then read and decided again by the policy's {@link DormancyVerdict} — the job's only copy
+ *       of the rule — so a User that logged in or was unlocked since the candidate queries is left
+ *       alone.
  * </ul>
  *
  * <p>The Bootstrap Admin is never processed: both candidate queries exclude reserved Users, and
@@ -95,6 +96,7 @@ public class DormancyService {
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
+    private final ScimWriteLocks writeLocks;
     private final ScimRoleRevocation roleRevocation;
     private final SessionRevocationService sessions;
     private final LoginStateService loginState;
@@ -107,6 +109,7 @@ public class DormancyService {
     public DormancyService(
             ScimUserRepository users,
             ScimGroupRepository groups,
+            ScimWriteLocks writeLocks,
             ScimRoleRevocation roleRevocation,
             SessionRevocationService sessions,
             LoginStateService loginState,
@@ -117,6 +120,7 @@ public class DormancyService {
             Clock clock) {
         this.users = users;
         this.groups = groups;
+        this.writeLocks = writeLocks;
         this.roleRevocation = roleRevocation;
         this.sessions = sessions;
         this.loginState = loginState;
@@ -137,15 +141,34 @@ public class DormancyService {
             return DormancyRun.skippedRun();
         }
         Instant now = clock.instant();
-        List<UUID> rolesRevoked = revokeRoles(now);
-        List<UUID> locked = lockDormantUsers(now);
+        List<ScimGroupMembership> revocationCandidates = groups.findDormantMemberships(
+                roleMapping.mappedGroupIds(), policy.roleRevocationCutoff(now));
+        List<UUID> lockoutCandidates = users.findDormantUnlockedUserIds(policy.lockoutCutoff(now));
+        writeLocks.lock(resourcesToLock(revocationCandidates, lockoutCandidates));
+        List<UUID> rolesRevoked = revokeRoles(revocationCandidates, now);
+        List<UUID> locked = lockDormantUsers(lockoutCandidates, now);
         return new DormancyRun(false, locked, rolesRevoked);
     }
 
-    private List<UUID> revokeRoles(Instant now) {
-        List<ScimGroupMembership> candidates = groups.findDormantMemberships(
-                roleMapping.mappedGroupIds(), policy.roleRevocationCutoff(now));
-        lockGroups(candidates);
+    /**
+     * Every Group and User the run may change: each candidate membership's Group and User, whose
+     * versions a removal advances, and each lockout candidate, which is decided on a read the lock
+     * makes current. Locked together because a lock taken later, while this run already holds
+     * others, would be out of the module's order. A resource deleted since the candidate queries
+     * locks nothing, and the reads below find it gone.
+     */
+    private static Set<UUID> resourcesToLock(
+            List<ScimGroupMembership> revocationCandidates, List<UUID> lockoutCandidates) {
+        Set<UUID> resources = new LinkedHashSet<>();
+        for (ScimGroupMembership membership : revocationCandidates) {
+            resources.add(membership.groupId());
+            resources.add(membership.userId());
+        }
+        resources.addAll(lockoutCandidates);
+        return resources;
+    }
+
+    private List<UUID> revokeRoles(List<ScimGroupMembership> candidates, Instant now) {
         Map<UUID, List<UUID>> groupsByUser = new LinkedHashMap<>();
         for (ScimGroupMembership membership : candidates) {
             groupsByUser.computeIfAbsent(membership.userId(), user -> new ArrayList<>())
@@ -153,12 +176,12 @@ public class DormancyService {
         }
         List<UUID> revoked = new ArrayList<>();
         groupsByUser.forEach((userId, groupIds) -> {
-            Optional<ScimUser> user = users.findByIdForUpdate(userId);
+            Optional<ScimUser> user = users.findById(userId);
             // Decided again on the locked read; the verdict is NOT_DUE for the Bootstrap Admin.
             if (user.isEmpty() || !policy.verdict(user.get(), now).revokesRoles()) {
                 return;
             }
-            // Every candidate Group is already held under its lock. What removing the memberships
+            // The User and every candidate Group are already held. What removing the memberships
             // implies — versions, event, log, Session revocation — is the directory's to carry out.
             if (roleRevocation.revokeRoles(userId, groupIds, now)) {
                 revoked.add(userId);
@@ -167,30 +190,15 @@ public class DormancyService {
         return revoked;
     }
 
-    /**
-     * Every Group the candidates belong to, read under its resource lock in id order — the same
-     * serialization point a connector's conditional write to it takes, and a fixed order so two
-     * writers taking several Group locks cannot deadlock on each other. A Group deleted since the
-     * candidate query is simply absent from the reads.
-     */
-    private void lockGroups(List<ScimGroupMembership> candidates) {
-        Set<UUID> ordered = candidates.stream()
-                .map(ScimGroupMembership::groupId)
-                .collect(Collectors.toCollection(TreeSet::new));
-        for (UUID groupId : ordered) {
-            groups.findByIdForUpdate(groupId);
-        }
-    }
-
-    private List<UUID> lockDormantUsers(Instant now) {
+    private List<UUID> lockDormantUsers(List<UUID> candidates, Instant now) {
         List<UUID> locked = new ArrayList<>();
-        for (UUID candidate : users.findDormantUnlockedUserIds(policy.lockoutCutoff(now))) {
-            Optional<ScimUser> user = users.findByIdForUpdate(candidate);
+        for (UUID candidate : candidates) {
+            Optional<ScimUser> user = users.findById(candidate);
             if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()
                     || !loginState.dormancyLocked(user.get(), now)) {
                 continue;
             }
-            audit.recordDormancyLockout(candidate);
+            audit.append(new Audited.DormancyLockout(candidate));
             logLockout(candidate);
             sessions.revokeAllAfterCommit(candidate, SessionRevocationCause.DORMANCY_LOCKOUT, null);
             locked.add(candidate);

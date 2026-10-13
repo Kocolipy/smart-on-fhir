@@ -783,7 +783,9 @@ logins right now, and is an Admin's. So:
   unlocked and stays deactivated. Unlocking a locked User also restarts its
   **dormancy basis**, so the next dormancy run does not lock it again before it
   has had the chance to sign in, and records the lifted lock's cause on its
-  `LOCKOUT_LIFT` event. Unlocking a User that has a password also sets its
+  `LOCKOUT_LIFT` event. That event's changed paths are what the Unlock changed:
+  `failedLoginAttempts` when the run held attempts, and `lockedAt`, `lockCause`
+  and `lastAuthenticatedAt` when a lock stood. Unlocking a User that has a password also sets its
   **change-required flag** (below); an Admin cannot unlock themselves.
 
 **Change-required flag** — application-owned state on a User saying its current

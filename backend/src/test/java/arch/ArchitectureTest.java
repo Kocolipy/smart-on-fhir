@@ -700,35 +700,51 @@ public class ArchitectureTest {
      * id, and no event body may carry a username, a password or a bearer value.
      * That is a property of every present and future call site at once, so it cannot
      * be held by reviewing them — the leak that matters is the event someone records
-     * next year in a flow no test covers. It can be held by a signature: a username,
+     * next year in a flow no test covers. It can be held by a shape: a username,
      * a password and a bearer value are all {@code String}s, so a boundary that
-     * declares no {@code String} parameter cannot be handed one.
+     * admits no {@code String} cannot be handed one.
      *
-     * <p>The event's own textual fields are filled in behind this boundary, from
-     * vocabularies the audit slice owns — a resource type, a status class, an error
-     * code that is a reason name, a route template. Adding a {@code String} parameter
-     * to {@link com.example.backend.audit.domain.AuditTrail} to pass one of them in
-     * from outside is what this rule refuses.
+     * <p>The boundary is {@link com.example.backend.audit.domain.AuditTrail}'s one
+     * {@code append} and the {@link com.example.backend.audit.domain.Audited} event
+     * values it takes, so the rule holds both: no method or constructor of either
+     * declares a parameter whose type mentions {@code String} — a {@code List<String>}
+     * as much as a bare one — and no event holds a field of such a type. The event's
+     * own textual fields are spelled inside the audit slice, from vocabularies it owns —
+     * a resource type, a path name, a status class, an error code that is a reason
+     * name. Adding a {@code String} component to an event, or a {@code String}
+     * parameter to the trail, to pass one of them in from outside is what this rule
+     * refuses. An event kind added later is held by it without being named here.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_audit_trail_boundary_admits_no_free_text =
-        methods()
-            .that().areDeclaredInClassesThat()
-                .haveFullyQualifiedName("com.example.backend.audit.domain.AuditTrail")
-            .should(new ArchCondition<JavaMethod>("declare no String parameter") {
+        classes()
+            .that().haveFullyQualifiedName("com.example.backend.audit.domain.AuditTrail")
+            .or().areAssignableTo("com.example.backend.audit.domain.Audited")
+            .should(new ArchCondition<JavaClass>("admit no String in a parameter or a field") {
+                private boolean mentionsString(com.tngtech.archunit.core.domain.JavaType type) {
+                    return type.getName().matches(".*\\bjava\\.lang\\.(String|CharSequence)\\b.*");
+                }
+
                 @Override
-                public void check(JavaMethod method, ConditionEvents events) {
-                    method.getRawParameterTypes().stream()
-                        .filter(parameter -> parameter.getName().equals("java.lang.String"))
+                public void check(JavaClass boundary, ConditionEvents events) {
+                    boundary.getCodeUnits().forEach(unit -> unit.getParameterTypes().stream()
+                        .filter(this::mentionsString)
                         .forEach(parameter -> events.add(SimpleConditionEvent.violated(
-                            method,
-                            method.getFullName() + " declares a String parameter; an audit"
-                                + " event's actor, subject and classification are ids and"
-                                + " closed sets, and a String is how a username or a"
-                                + " credential would get in")));
+                            unit,
+                            unit.getFullName() + " declares a parameter of type "
+                                + parameter.getName() + "; an audit event's actor, subject"
+                                + " and classification are ids and closed sets, and a String"
+                                + " is how a username or a credential would get in"))));
+                    boundary.getFields().stream()
+                        .filter(field -> !field.getModifiers().contains(
+                                com.tngtech.archunit.core.domain.JavaModifier.STATIC))
+                        .filter(field -> mentionsString(field.getType()))
+                        .forEach(field -> events.add(SimpleConditionEvent.violated(
+                            field,
+                            field.getFullName() + " holds a " + field.getType().getName()
+                                + "; an audit event holds ids and closed sets only")));
                 }
             })
-            .allowEmptyShould(true)
             .because("A username, a password and a bearer value are all Strings, so the one"
                     + " boundary that records events admits none");
 
@@ -806,6 +822,29 @@ public class ArchitectureTest {
             .because("RepresentationChange decides which resources' versions a write advances,"
                     + " so every write path applies one rule (issue #137)");
 
+    /**
+     * A SCIM write's resource locks have one owner:
+     * {@code scim.infrastructure.persistence.ScimWriteLockAdapter}, which takes every row a write
+     * needs in one canonical order before the write changes anything. A second place that locked
+     * resource rows would pick its own order, which is how a User DELETE and a Group PUT on a
+     * shared membership deadlocked: each locked its own subject first and the other's later.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_write_lock_module_locks_scim_resources =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is ScimResourceJpaRepository.lockInIdOrder",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("lockInIdOrder")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scim.infrastructure.persistence"
+                                                    + ".ScimResourceJpaRepository")))
+            .allowEmptyShould(true)
+            .because("one module locks a SCIM write's rows, in one order, so no two writers can"
+                    + " each hold a row the other waits for");
+
     /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =
             "com.example.backend.auth.application.LoginStateService";
@@ -816,19 +855,17 @@ public class ArchitectureTest {
      * transition into the lock, records {@code LOCKOUT_SET} and revokes the User's Sessions after
      * the commit. A counting path that recorded the Lockout itself would be repeating the edge
      * test, and a copy that forgot the revocation would read like its neighbour. The audit slice,
-     * which implements the trail, is the one other place that may name the method.
+     * which declares the event, is the one other place that may construct it.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_login_state_module_records_a_lockout =
         noClasses()
             .that().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
             .and().resideOutsideOfPackage("com.example.backend.audit..")
-            .should().callMethodWhere(DescribedPredicate.describe(
-                    "target is AuditTrail.recordLockoutSet",
-                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("recordLockoutSet")
-                                    && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.audit.domain.AuditTrail")))
+            .should().callConstructorWhere(DescribedPredicate.describe(
+                    "target is the Audited.LockoutSet event",
+                    (JavaConstructorCall call) -> call.getTargetOwner().isEquivalentTo(
+                            com.example.backend.audit.domain.Audited.LockoutSet.class)))
             .allowEmptyShould(true)
             .because("the login-state module carries out what a newly imposed Lockout implies, so"
                     + " every counting path audits it and revokes Sessions the same way (issues"

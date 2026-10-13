@@ -58,7 +58,7 @@ final class EpicPractitioners {
         String practitioner = provision();
         UUID id = idOf(practitioner);
         transactions.executeWithoutResult(status -> {
-            ScimUser user = users.findByIdForUpdate(id).orElseThrow();
+            ScimUser user = users.findById(id).orElseThrow();
             users.replace(ScimIdentities.withActive(user, false, user.login()), Instant.now());
         });
         return practitioner;

@@ -2,6 +2,7 @@ package com.example.backend.auth.config;
 
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.RequestActor;
@@ -62,10 +63,10 @@ public class RefusalLoggingAccessDeniedHandler implements AccessDeniedHandler {
         } else if (refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)) {
             // Only when the log took it: the same once-per-exchange guard covers both records,
             // so an error dispatch refused again is neither logged nor audited a second time.
-            audit.recordAccessDenied(
+            audit.append(new Audited.AccessDenied(
                     RequestActor.userOf(request),
                     new AuditRequest(RequestIdFilter.method(request), routes.of(request),
-                            RequestIdFilter.requestId(request)));
+                            RequestIdFilter.requestId(request))));
         }
         answer.handle(request, response, refused);
     }
