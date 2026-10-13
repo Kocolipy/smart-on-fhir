@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.scim.domain.EdgeWhitespace;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupReference;
@@ -258,17 +259,34 @@ public class LoginIdentityService implements UserDetailsService {
     /**
      * The submitted name in the form uniqueness is decided on, or a refusal.
      *
-     * <p>A blank submission cannot normalize, and normalization throws on one. It is turned into
-     * the same {@code UsernameNotFoundException} an unknown name produces, because that is what it
-     * is: no User holds a blank userName, and a distinguishable failure here would tell a caller
-     * that its input was rejected for a different reason than being wrong.
+     * <p>A name that can name no User ({@link #lookupKeyOf}) is turned into the same
+     * {@code UsernameNotFoundException} an unknown name produces, because that is what it is, and
+     * a distinguishable failure here would tell a caller that its input was rejected for a
+     * different reason than being wrong. {@code DaoAuthenticationProvider} still runs its dummy-hash
+     * comparison on it, as on any unknown name, so it costs what a wrong name costs.
      */
     private static NormalizedUserName normalized(String username) {
-        try {
-            return NormalizedUserName.of(username);
-        } catch (IllegalArgumentException blank) {
-            throw new UsernameNotFoundException("User not found", blank);
+        return lookupKeyOf(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+    }
+
+    /**
+     * The key a submitted login name is looked up by, or empty when it can name no User — decided
+     * before any lookup, so whatever the database would match it against never comes into it.
+     *
+     * <p>Two kinds of name can name nobody. A blank one cannot normalize: no User holds a blank
+     * {@code userName}. One beginning or ending with whitespace ({@link EdgeWhitespace}) cannot
+     * either, since the directory refuses such a {@code userName}; and on an engine that ignores
+     * trailing spaces ({@link EdgeWhitespace} says which and why) {@code alice } would find
+     * {@code alice}, sign in as her and lengthen her failure run. Refused here, it is an unknown
+     * account on every engine. The password Login's lookup and its failure counting both take their key from
+     * this one rule, so the two cannot disagree about who an attempt was against.
+     */
+    static Optional<NormalizedUserName> lookupKeyOf(String username) {
+        if (username == null || username.isBlank() || EdgeWhitespace.borders(username)) {
+            return Optional.empty();
         }
+        return Optional.of(NormalizedUserName.of(username));
     }
 
     /**

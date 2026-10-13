@@ -90,10 +90,35 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         return Optional.ofNullable(stored.get(id));
     }
 
+    private boolean ignoresTrailingSpaces;
+
+    /**
+     * Makes every lookup by name compare as SQL Server's {@code =} does: trailing spaces ignored on
+     * both sides, so {@code ada } finds {@code ada} (ADR 0015). PostgreSQL compares them, so a
+     * caller relying on the database to tell the two apart would behave differently on the other
+     * engine; a test of a refusal that must come before any lookup needs this stand-in to show it.
+     */
+    public void ignoreTrailingSpacesInNameLookupsAsSqlServerDoes() {
+        ignoresTrailingSpaces = true;
+    }
+
+    private String compared(NormalizedUserName name) {
+        String value = name.value();
+        if (!ignoresTrailingSpaces) {
+            return value;
+        }
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == ' ') {
+            end--;
+        }
+        return value.substring(0, end);
+    }
+
     @Override
     public Optional<ScimUser> findByNormalizedUserName(NormalizedUserName normalizedUserName) {
+        String sought = compared(normalizedUserName);
         Optional<ScimUser> found = stored.values().stream()
-                .filter(user -> user.profile().normalizedUserName().equals(normalizedUserName))
+                .filter(user -> compared(user.profile().normalizedUserName()).equals(sought))
                 .findFirst();
         Runnable hook = afterNextNameLookup;
         afterNextNameLookup = null;

@@ -20,9 +20,11 @@ import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
+import com.example.backend.scim.domain.ScimAttributeValueException;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimValueControlCharacterException;
+import com.example.backend.scim.domain.ScimValueEdgeWhitespaceException;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -177,10 +179,13 @@ class ScimExceptionHandler {
 
     /**
      * A value carrying a character its attribute refuses — U+0000 anywhere, or a control in a
-     * name. Names the attribute and the characters, never the value nor where in it they were.
+     * name — or a key beginning or ending with whitespace
+     * ({@link ScimValueEdgeWhitespaceException}). Names the attribute and the
+     * rule, never the value nor where in it the offending characters were.
      */
-    @ExceptionHandler(ScimValueControlCharacterException.class)
-    ResponseEntity<Map<String, Object>> handle(ScimValueControlCharacterException refused) {
+    @ExceptionHandler({
+            ScimValueControlCharacterException.class, ScimValueEdgeWhitespaceException.class})
+    ResponseEntity<Map<String, Object>> handle(ScimAttributeValueException refused) {
         return render(ScimErrorException.invalidValue(refused.getMessage()));
     }
 

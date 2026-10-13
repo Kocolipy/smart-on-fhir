@@ -132,6 +132,19 @@ class RefusalTimingEquivalenceTests {
     }
 
     /**
+     * A name with whitespace at an edge is refused as unknown before any lookup (ADR 0015), and
+     * pays the same one verification an unknown name does rather than answering faster.
+     */
+    @Test
+    void aUsernameBorderedByWhitespaceRunsExactlyOneVerification() {
+        passwordEncoder.matchCalls.set(0);
+
+        refuse("ada ", "correct-password");
+
+        assertThat(passwordEncoder.matchCalls).hasValue(1);
+    }
+
+    /**
      * A locked or deactivated User is refused for its state, not its password, yet pays the
      * same one verification first: a refusal that skipped the comparison would answer faster,
      * and so tell an attacker which accounts are locked or deactivated (ADR 0007).

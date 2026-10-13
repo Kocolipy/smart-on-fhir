@@ -237,7 +237,8 @@ final class EpicLoginFlow {
     /**
      * The {@code id_token} decoder: RS256 only, Epic's keys from the shared {@link EpicJwkSource}
      * — cached, and refetched on an unknown {@code kid} (D26) — and the OpenID Connect claim
-     * checks with a 30-second skew from the injected clock.
+     * checks with a 30-second skew from the injected clock, behind {@link EpicIdentityClaims}'
+     * refusal of an {@code iss} or {@code sub} with edge whitespace (ADR 0015).
      */
     private JwtDecoder idTokenDecoder(ClientRegistration registration) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder
@@ -250,8 +251,9 @@ final class EpicLoginFlow {
         OidcIdTokenValidator claims = new OidcIdTokenValidator(registration);
         claims.setClock(clock);
         claims.setClockSkew(CLOCK_SKEW);
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                List.of(timestamps, claims, new EpicIdTokenChecks(mfaEvidenceRequired))));
+        // The identity claims first, and alone: a padded iss would make the OIDC check throw.
+        decoder.setJwtValidator(EpicIdentityClaims.ahead(new DelegatingOAuth2TokenValidator<>(
+                List.of(timestamps, claims, new EpicIdTokenChecks(mfaEvidenceRequired)))));
         return decoder;
     }
 

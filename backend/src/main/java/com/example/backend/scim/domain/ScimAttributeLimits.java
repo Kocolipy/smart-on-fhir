@@ -29,6 +29,12 @@ import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbid
  * into logs, where a newline or an escape sequence forges a line or repaints a terminal. The
  * other attributes keep them, because a connector may legitimately send, say, a tab in a
  * formatted name, and nothing renders those as a heading.
+ *
+ * <p>The keys — {@code userName}, {@code displayName} of a User and of a Group,
+ * {@code emails.value}, {@code emails.type} and {@code externalId}, every attribute that is unique
+ * or looked up — also refuse whitespace at either edge, for the reason {@link EdgeWhitespace}
+ * gives. Whitespace inside a key, and whitespace anywhere in the other attributes, is stored as
+ * sent.
  */
 public final class ScimAttributeLimits {
 
@@ -62,7 +68,7 @@ public final class ScimAttributeLimits {
      * @throws ScimAttributeValueException naming the first attribute found unacceptable
      */
     public static void requireWithin(ScimUserProfile profile) {
-        require("userName", profile.userName(), USER_NAME, Forbidden.CONTROL);
+        requireKey("userName", profile.userName(), USER_NAME, Forbidden.CONTROL);
         requireLength("userName", profile.normalizedUserName().value(), USER_NAME);
         ScimName name = profile.name();
         require("name.formatted", name.formatted(), NAME_PART, Forbidden.NUL);
@@ -71,42 +77,60 @@ public final class ScimAttributeLimits {
         require("name.middleName", name.middleName(), NAME_PART, Forbidden.NUL);
         require("name.honorificPrefix", name.honorificPrefix(), NAME_PART, Forbidden.NUL);
         require("name.honorificSuffix", name.honorificSuffix(), NAME_PART, Forbidden.NUL);
-        require("displayName", profile.displayName(), DISPLAY_NAME, Forbidden.CONTROL);
+        requireKey("displayName", profile.displayName(), DISPLAY_NAME, Forbidden.CONTROL);
         require("preferredLanguage", profile.preferredLanguage(), LOCALIZATION, Forbidden.NUL);
         require("locale", profile.locale(), LOCALIZATION, Forbidden.NUL);
         require("timezone", profile.timezone(), LOCALIZATION, Forbidden.NUL);
         for (ScimEmail email : profile.emails()) {
-            require("emails.value", email.value(), EMAIL_VALUE, Forbidden.NUL);
-            require("emails.type", email.type(), EMAIL_TYPE, Forbidden.NUL);
+            requireKey("emails.value", email.value(), EMAIL_VALUE, Forbidden.NUL);
+            requireKey("emails.type", email.type(), EMAIL_TYPE, Forbidden.NUL);
         }
     }
 
     /**
-     * Refuses a Group {@code displayName} longer than its column, as submitted or normalized, or
-     * holding a control character.
+     * Refuses a Group {@code displayName} longer than its column, as submitted or normalized,
+     * holding a control character, or beginning or ending with whitespace.
      *
      * @throws ScimAttributeValueException naming {@code displayName}
      */
     public static void requireGroupDisplayNameWithin(String displayName) {
-        require("displayName", displayName, DISPLAY_NAME, Forbidden.CONTROL);
+        requireKey("displayName", displayName, DISPLAY_NAME, Forbidden.CONTROL);
         requireLength("displayName", NormalizedDisplayName.of(displayName).value(), DISPLAY_NAME);
     }
 
     /**
-     * Refuses an {@code externalId} longer than its column or holding U+0000. An absent one is
-     * within every rule.
+     * Refuses an {@code externalId} longer than its column, holding U+0000, or beginning or
+     * ending with whitespace. An absent one is within every rule.
      *
      * @throws ScimAttributeValueException naming {@code externalId}
      */
     public static void requireExternalIdWithin(String externalId) {
-        require("externalId", externalId, EXTERNAL_ID, Forbidden.NUL);
+        requireKey("externalId", externalId, EXTERNAL_ID, Forbidden.NUL);
+    }
+
+    /**
+     * {@link #require}, for a unique or looked-up attribute, which also refuses whitespace at
+     * either edge. Checked after the forbidden characters, so a name ending in a tab is still
+     * named for the control it holds, and before the length.
+     */
+    private static void requireKey(String attribute, String value, int limit, Forbidden forbidden) {
+        requireAllowedCharacters(attribute, value, forbidden);
+        if (EdgeWhitespace.borders(value)) {
+            throw new ScimValueEdgeWhitespaceException(attribute);
+        }
+        requireLength(attribute, value, limit);
     }
 
     private static void require(String attribute, String value, int limit, Forbidden forbidden) {
+        requireAllowedCharacters(attribute, value, forbidden);
+        requireLength(attribute, value, limit);
+    }
+
+    private static void requireAllowedCharacters(
+            String attribute, String value, Forbidden forbidden) {
         if (value != null && value.codePoints().anyMatch(forbidden::includes)) {
             throw new ScimValueControlCharacterException(attribute, forbidden);
         }
-        requireLength(attribute, value, limit);
     }
 
     private static void requireLength(String attribute, String value, int limit) {
