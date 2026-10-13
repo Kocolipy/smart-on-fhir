@@ -24,7 +24,8 @@ A SCIM write aimed at a reserved resource returns `400` with
 `scimType: mutability`. This covers modifying or deleting the Bootstrap Admin,
 renaming or deleting the Admin group, and removing the Bootstrap Admin's
 membership. The detail says which kind of resource was protected, but not which
-resource or why. `ScimExceptionHandler` maps `ProtectedResourceException` to it.
+resource or why. The SCIM refusal table (`ScimRefusals`, applied by
+`ScimExceptionHandler`) maps `ProtectedResourceException` to it.
 
 `mutability` is RFC 7644's error for an attempt to change something that cannot
 be changed, and that is what happened. A `403` on a write is about the

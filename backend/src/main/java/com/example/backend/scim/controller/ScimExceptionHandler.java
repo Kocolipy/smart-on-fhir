@@ -1,5 +1,6 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -10,28 +11,13 @@ import com.example.backend.observability.MetricTag;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.RequestFault;
 import com.example.backend.scim.application.ScimLogFields;
-import com.example.backend.scim.domain.DuplicateDisplayNameException;
-import com.example.backend.scim.domain.DuplicateUserNameException;
-import com.example.backend.scim.domain.InvalidPreconditionException;
-import com.example.backend.scim.domain.InvalidScimFilterException;
-import com.example.backend.scim.domain.InvalidScimQueryException;
-import com.example.backend.scim.domain.PasswordHistoryPolicy;
-import com.example.backend.scim.domain.PasswordPolicyRefusedException;
-import com.example.backend.scim.domain.PasswordReusedException;
-import com.example.backend.scim.domain.PreconditionFailedException;
-import com.example.backend.scim.domain.ProtectedResourceException;
-import com.example.backend.scim.domain.ScimAttributeValueException;
-import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
-import com.example.backend.scim.domain.ScimValueControlCharacterException;
-import com.example.backend.scim.domain.ScimValueEdgeWhitespaceException;
-import com.example.backend.scim.domain.ScimValueTooLongException;
-import com.example.backend.scim.domain.UnknownGroupMemberException;
+import com.example.backend.scim.domain.ScimRequestRefusedException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +43,12 @@ import org.springframework.web.servlet.HandlerMapping;
  * security chain renders those as the same document, and {@code ScimRequestBodyLimitFilter}
  * refuses a body declaring more than the size bound before any of this runs.
  *
+ * <p>It is also where a refused write is audited — once, at the edge of the request, whichever
+ * module raised the refusal. What each kind of refusal answers and is audited as is
+ * {@link ScimRefusals}' table; this advice adapts the exceptions to it, records, audits and
+ * renders. The audit is a refused event, so it is fail-open (ADR 0004): a trail that cannot
+ * record it leaves the answer as it was.
+ *
  * <p>The body is built as an ordered map rather than a record so the field order is
  * {@code schemas}, {@code status}, {@code scimType}, {@code detail} as RFC 7644's
  * examples have it, and so {@code scimType} can be omitted entirely — rather than
@@ -67,9 +59,11 @@ class ScimExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ScimExceptionHandler.class);
 
-    private static final String USERS_ROUTE = "/scim/v2/Users";
+    private final AuditTrail audit;
 
-    private static final String GROUPS_ROUTE = "/scim/v2/Groups";
+    ScimExceptionHandler(AuditTrail audit) {
+        this.audit = audit;
+    }
 
     /** Every refusal this slice raises deliberately. */
     @ExceptionHandler(ScimErrorException.class)
@@ -99,94 +93,12 @@ class ScimExceptionHandler {
     }
 
     /**
-     * A {@code userName} already taken, translated at the boundary.
-     *
-     * <p>The domain exception carries no detail naming the value, and neither does this:
-     * the caller knows which {@code userName} it sent, and echoing it back would put it
-     * in a response body and in every log that records one.
+     * A refusal the directory raised — every kind of it, through the one table that says what
+     * each is answered and audited as ({@link ScimRefusals#answer}).
      */
-    @ExceptionHandler(DuplicateUserNameException.class)
-    ResponseEntity<Map<String, Object>> handle(DuplicateUserNameException duplicate) {
-        return render(ScimErrorException.uniqueness(
-                "A User with the requested userName already exists."));
-    }
-
-    /**
-     * A Group {@code displayName} already taken.
-     *
-     * <p>RFC 7643 does not make {@code displayName} unique; this directory does, because a Group's
-     * membership confers authority and two Groups an administrator reads as the same name is how
-     * membership of the wrong one gets granted. Advertised in the Group schema as
-     * {@code uniqueness=server}, so a connector is told rather than discovering it here.
-     */
-    @ExceptionHandler(DuplicateDisplayNameException.class)
-    ResponseEntity<Map<String, Object>> handle(DuplicateDisplayNameException duplicate) {
-        return render(ScimErrorException.uniqueness(
-                "A Group with the requested displayName already exists."));
-    }
-
-    /**
-     * A member that is not a live User.
-     *
-     * <p>One message for three causes — an id naming a Group, a deleted User, or nothing at all —
-     * because distinguishing them would disclose the existence and the type of resources the caller
-     * has not been shown. The id is not echoed: the caller sent it, and an error body is also a log
-     * line.
-     */
-    @ExceptionHandler(UnknownGroupMemberException.class)
-    ResponseEntity<Map<String, Object>> handle(UnknownGroupMemberException unknownMember) {
-        return render(ScimErrorException.invalidValue(
-                "Every Group member must reference a live User."));
-    }
-
-    /** An {@code If-Match} that is a wildcard, a list, repeated, or not an entity tag. */
-    @ExceptionHandler(InvalidPreconditionException.class)
-    ResponseEntity<Map<String, Object>> handle(InvalidPreconditionException invalid) {
-        return render(ScimErrorException.invalidValue(
-                "If-Match must carry exactly one strong ETag; '*' and lists are not accepted."));
-    }
-
-    /** An {@code If-Match} naming a version another write has already replaced. */
-    @ExceptionHandler(PreconditionFailedException.class)
-    ResponseEntity<Map<String, Object>> handle(PreconditionFailedException stale) {
-        return render(ScimErrorException.preconditionFailed(
-                "The resource has changed since that ETag was issued; GET it and retry."));
-    }
-
-    /** A password breaking an intrinsic policy rule. Names the rule, never the value. */
-    @ExceptionHandler(PasswordPolicyRefusedException.class)
-    ResponseEntity<Map<String, Object>> handle(PasswordPolicyRefusedException refused) {
-        return render(ScimErrorException.invalidValue(
-                "The password does not satisfy the password policy (" + refused.rule().name()
-                        + "). " + refused.rule().message() + "."));
-    }
-
-    /** A password the User has used recently. Names the rule, never the value. */
-    @ExceptionHandler(PasswordReusedException.class)
-    ResponseEntity<Map<String, Object>> handle(PasswordReusedException reused) {
-        return render(ScimErrorException.invalidValue(
-                "The password matches one of the User's " + PasswordHistoryPolicy.RETAINED
-                        + " most recent passwords; a new value is required."));
-    }
-
-    /** A value longer than its stored limit. Names the attribute and the limit, never the value. */
-    @ExceptionHandler(ScimValueTooLongException.class)
-    ResponseEntity<Map<String, Object>> handle(ScimValueTooLongException tooLong) {
-        return render(ScimErrorException.invalidValue(
-                tooLong.attribute() + " must be at most " + tooLong.limit()
-                        + " characters long."));
-    }
-
-    /**
-     * A value carrying a character its attribute refuses — U+0000 anywhere, or a control in a
-     * name — or a key beginning or ending with whitespace
-     * ({@link ScimValueEdgeWhitespaceException}). Names the attribute and the
-     * rule, never the value nor where in it the offending characters were.
-     */
-    @ExceptionHandler({
-            ScimValueControlCharacterException.class, ScimValueEdgeWhitespaceException.class})
-    ResponseEntity<Map<String, Object>> handle(ScimAttributeValueException refused) {
-        return render(ScimErrorException.invalidValue(refused.getMessage()));
+    @ExceptionHandler(ScimRequestRefusedException.class)
+    ResponseEntity<Map<String, Object>> handle(ScimRequestRefusedException refused) {
+        return render(ScimRefusals.answer(refused));
     }
 
     /**
@@ -220,62 +132,19 @@ class ScimExceptionHandler {
         return body(refusal);
     }
 
-    /** A PATCH operation the stored resource cannot accept. */
-    @ExceptionHandler(ScimPatchRefusedException.class)
-    ResponseEntity<Map<String, Object>> handle(ScimPatchRefusedException refused) {
-        return render(switch (refused.reason()) {
-            case MUTABILITY -> ScimErrorException.mutability(refused.getMessage());
-            case NO_TARGET -> ScimErrorException.noTarget(refused.getMessage());
-        });
-    }
-
     /**
-     * A write aimed at a resource reserved for deployment recovery.
-     *
-     * <p>{@code mutability}, which is SCIM's {@code scimType} for an attempt to change something
-     * that cannot be changed, with a {@code 400}. Deliberately NOT a {@code 403}: the caller's token
-     * may hold every Permission the write needs, and the refusal is about the target rather than
-     * about the credential — answering 403 would send an integrator to re-check its token's
-     * Permissions (ADR 0006).
-     *
-     * <p>The detail says which kind of resource was protected but not which resource, and nothing
-     * about why this deployment reserves it.
-     */
-    /** A filter this service does not evaluate. The message quotes no literal from it. */
-    @ExceptionHandler(InvalidScimFilterException.class)
-    ResponseEntity<Map<String, Object>> handle(InvalidScimFilterException invalid) {
-        return render(ScimErrorException.invalidFilter(invalid.getMessage()));
-    }
-
-    /** A sort, paging value or search body this service cannot honour. */
-    @ExceptionHandler(InvalidScimQueryException.class)
-    ResponseEntity<Map<String, Object>> handle(InvalidScimQueryException invalid) {
-        return render(ScimErrorException.invalidValue(invalid.getMessage()));
-    }
-
-    @ExceptionHandler(ProtectedResourceException.class)
-    ResponseEntity<Map<String, Object>> handle(ProtectedResourceException protectedResource) {
-        return render(ScimErrorException.mutability(
-                switch (protectedResource.reservedName()) {
-                    case BOOTSTRAP_ADMIN ->
-                            "This User is reserved for deployment recovery; it cannot be deleted,"
-                                    + " and its attributes and its Group membership cannot be"
-                                    + " changed.";
-                    case ADMIN_GROUP ->
-                            "This Group is reserved for deployment recovery; it cannot be renamed"
-                                    + " or deleted, though its ordinary membership may change.";
-                }));
-    }
-
-    /**
-     * Records the refusal, then renders it. Every handler but the integrity-violation one comes
-     * through here, so each refusal gets exactly one record: {@code WARN} for the caller's
-     * error, {@code ERROR} with the exception attached for a fault on this side. The record
-     * carries the refusal's {@link ScimErrorException#reason() reason}, its status, and the
-     * resource the request addressed where the route names one — never the detail, which
+     * Records the refusal, audits it, then renders it. Every handler but the integrity-violation
+     * one comes through here, so each refusal gets exactly one record: {@code WARN} for the
+     * caller's error, {@code ERROR} with the exception attached for a fault on this side. The
+     * record carries the refusal's {@link ScimErrorException#reason() reason}, its status, and
+     * the resource the request addressed where the route names one — never the detail, which
      * may name an attribute, and never anything the caller submitted.
+     *
+     * <p>The audit is the refused-write event the table names for this kind on this route
+     * ({@link ScimRefusals#audited}), when it names one, so each refused write is audited exactly
+     * once however deep the refusal was raised.
      */
-    private static ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {
+    private ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {
         boolean fault = refusal.status().is5xxServerError();
         int status = refusal.status().value();
         inResourceContext(resourceType -> withResourceType(
@@ -293,6 +162,10 @@ class ScimExceptionHandler {
         if (fault) {
             RequestFault.recorded();
         }
+        HttpServletRequest request = currentRequest();
+        if (request != null) {
+            ScimRefusals.audited(refusal, request).ifPresent(audit::append);
+        }
         return body(refusal);
     }
 
@@ -305,7 +178,9 @@ class ScimExceptionHandler {
      */
     private static void inResourceContext(Consumer<String> write) {
         HttpServletRequest request = currentRequest();
-        String resourceId = request == null ? null : resourceId(request);
+        String resourceId = request == null
+                ? null
+                : Objects.toString(ScimRefusals.resourceId(request), null);
         try (LogContext.Scope scope = LogContext.resourceId(resourceId)) {
             write.accept(request == null ? null : resourceType(request));
         }
@@ -325,28 +200,15 @@ class ScimExceptionHandler {
     }
 
     /** {@code User} or {@code Group}, from the matched template; {@code null} for any other. */
-    static String resourceType(HttpServletRequest request) {
+    private static String resourceType(HttpServletRequest request) {
         if (!(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)
                 instanceof String route)) {
             return null;
         }
-        if (isUnder(route, USERS_ROUTE)) {
+        if (isUnder(route, ScimSchemas.USERS_PATH)) {
             return "User";
         }
-        return isUnder(route, GROUPS_ROUTE) ? "Group" : null;
-    }
-
-    static String resourceId(HttpServletRequest request) {
-        if (!(request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE)
-                instanceof Map<?, ?> variables)
-                || !(variables.get("id") instanceof String id)) {
-            return null;
-        }
-        try {
-            return UUID.fromString(id).toString();
-        } catch (IllegalArgumentException notAnId) {
-            return null;
-        }
+        return isUnder(route, ScimSchemas.GROUPS_PATH) ? "Group" : null;
     }
 
     private static boolean isUnder(String route, String prefix) {

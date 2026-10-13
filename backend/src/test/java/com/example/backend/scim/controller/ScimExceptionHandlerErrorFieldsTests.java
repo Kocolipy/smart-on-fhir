@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
 import java.util.List;
@@ -24,7 +25,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 class ScimExceptionHandlerErrorFieldsTests {
 
-    private final ScimExceptionHandler handler = new ScimExceptionHandler();
+    private final ScimExceptionHandler handler = new ScimExceptionHandler(new RecordingAuditTrail());
 
     private final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/scim/v2/Me");
 

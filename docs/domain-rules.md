@@ -584,6 +584,18 @@ paths, error classification and timestamp; it never records a password, bearer
 token, hash, `userName` or other profile value. Every collection query and search is
 one bulk-read event carrying the number of resources returned and the filter's
 shape (`userName eq ?`), never its values; a single-resource read is not recorded.
+A refused create, replacement, patch or deletion is one failure event naming the
+connector, the resource it addressed where it has one, and the reason as the
+`scimType` the connector received (`uniqueness`, `invalidValue`, `mutability`,
+`noTarget`). It is recorded by what the refusal is, whichever part of the service
+refused it — the reading of the request or the directory itself — so the same
+`scimType` is audited alike wherever it arose. A refusal read from the request is
+raised before the resource is looked up, so it names the id the write addressed
+whether or not a resource holds it. A refused precondition (a stale or malformed
+`If-Match`), a body that is not SCIM (`invalidSyntax`), a malformed PATCH path
+(`invalidPath`, `invalidFilter`), a `404` for an id naming no resource, a path
+segment that is not an id at all, and any refusal of a read are answered and logged
+but not recorded.
 Admins read it through the **audit listing** (`GET /api/admin/audit-events`): newest
 first, paginated, filterable by operation, outcome, actor, resource and time window.
 The listing returns the stored events as they are — redaction lives in what an event

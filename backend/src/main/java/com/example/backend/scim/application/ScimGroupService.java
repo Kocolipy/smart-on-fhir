@@ -1,7 +1,6 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditGroupAttribute;
-import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -10,7 +9,6 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimAttributeLimits;
-import com.example.backend.scim.domain.ScimAttributeValueException;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -73,9 +71,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Every refusal is raised before anything is written, so a refused write changes nothing —
  * which is what makes "verified by re-reading unchanged" a property of this class rather than
- * of a test's luck. Each is audited, and the audit append is deliberately the fail-open kind:
- * the refusal rolls this transaction back, so an append that joined it would be rolled back
- * with it, and an attempt to provision the recovery authority away would leave no trace.
+ * of a test's luck. Each is audited, but not here: a refusal is audited by what it is, once, at
+ * the edge of the request, whichever module raised it, so this class raises and never catches
+ * to record. The append there is deliberately the fail-open kind: the refusal rolls this
+ * transaction back, so an append that joined it would be rolled back with it, and an attempt to
+ * provision the recovery authority away would leave no trace.
  *
  * <h2>A mapped Group's membership is Role assignment</h2>
  *
@@ -142,46 +142,29 @@ public class ScimGroupService {
      *
      * <p>A {@code displayName} or {@code externalId} its column cannot hold — too long, or with a
      * forbidden control character — is refused first, as {@code invalidValue} naming the
-     * attribute, and audited as that.
+     * attribute.
      *
      * <p>The members are locked first, through the lock module and in its order: each one's
      * version advances, and the new Group itself is visible to no other writer yet.
      *
      * <p>A {@code displayName} already taken arrives as {@link DuplicateDisplayNameException}
      * from the failed statement rather than from a prior read, and a member that is not a live
-     * User as {@link UnknownGroupMemberException} from the failed membership insert. Both are
-     * audited in a transaction of their own — this one is already doomed — and re-thrown for
-     * the adapter to render.
+     * User as {@link UnknownGroupMemberException} from the failed membership insert. Both
+     * propagate for the adapter to render, and are audited at the edge in a transaction of their
+     * own — this one is already doomed.
      */
     @Transactional
     public ScimGroupResource create(AuthenticatedConnector connector, NewScimGroup command) {
-        try {
-            ScimAttributeLimits.requireGroupDisplayNameWithin(command.displayName());
-            ScimAttributeLimits.requireExternalIdWithin(command.externalId());
-        } catch (ScimAttributeValueException unacceptable) {
-            audit.append(new Audited.ScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
-            throw unacceptable;
-        }
+        ScimAttributeLimits.requireGroupDisplayNameWithin(command.displayName());
+        ScimAttributeLimits.requireExternalIdWithin(command.externalId());
         writeLocks.lock(command.memberIds());
-        refuseFrozenMembershipChange(connector, command.memberIds());
+        refuseFrozenMembershipChange(command.memberIds());
         ScimGroup group = ScimGroup.created(
                 UUID.randomUUID(),
                 command.displayName(),
                 references(command.memberIds()),
                 clock.instant());
-        ScimGroup created;
-        try {
-            created = groups.create(group);
-        } catch (DuplicateDisplayNameException duplicate) {
-            audit.append(new Audited.ScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.UNIQUENESS));
-            throw duplicate;
-        } catch (UnknownGroupMemberException unknownMember) {
-            audit.append(new Audited.ScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
-            throw unknownMember;
-        }
+        ScimGroup created = groups.create(group);
         if (command.externalId() != null) {
             aliases.put(connector.connectorId(), created.id(), command.externalId());
         }
@@ -350,7 +333,7 @@ public class ScimGroupService {
         ScimGroup group = stored.get();
         precondition.requireSatisfiedBy(group.version());
         if (group.isProtectedFromWrites()) {
-            throw refuse(connector, id, group.reservedName());
+            throw new ProtectedResourceException(group.reservedName());
         }
         Instant now = clock.instant();
         boolean deleted = groups.deleteById(id, now);
@@ -413,33 +396,17 @@ public class ScimGroupService {
         String currentAlias = aliases.find(connectorId, id).orElse(null);
         GroupEdit edit = change.apply(new GroupEdit(current, currentAlias));
         ScimGroup desired = edit.group();
-        try {
-            ScimAttributeLimits.requireGroupDisplayNameWithin(desired.displayName());
-            ScimAttributeLimits.requireExternalIdWithin(edit.externalId());
-        } catch (ScimAttributeValueException unacceptable) {
-            audit.append(new Audited.ScimGroupWriteRejected(
-                    connectorId, id, AuditScimRefusal.INVALID_VALUE));
-            throw unacceptable;
-        }
+        ScimAttributeLimits.requireGroupDisplayNameWithin(desired.displayName());
+        ScimAttributeLimits.requireExternalIdWithin(edit.externalId());
 
         if (current.isProtectedFromWrites()
                 && !current.displayName().equals(desired.displayName())) {
-            throw refuse(connector, id, current.reservedName());
+            throw new ProtectedResourceException(current.reservedName());
         }
-        refuseFrozenMembershipChange(connector, id, current, desired);
+        refuseFrozenMembershipChange(current, desired);
 
-        ScimGroup written;
-        try {
-            written = groups.replace(desired).orElse(null);
-        } catch (DuplicateDisplayNameException duplicate) {
-            audit.append(new Audited.ScimGroupWriteRejected(
-                    connector.connectorId(), id, AuditScimRefusal.UNIQUENESS));
-            throw duplicate;
-        } catch (UnknownGroupMemberException unknownMember) {
-            audit.append(new Audited.ScimGroupWriteRejected(
-                    connector.connectorId(), id, AuditScimRefusal.INVALID_VALUE));
-            throw unknownMember;
-        }
+        // A taken displayName or a member naming no live User fails here, audited at the edge.
+        ScimGroup written = groups.replace(desired).orElse(null);
         if (written == null) {
             // Deleted between the read and the write. The caller sees the same 404 it would
             // have seen a moment earlier, which is the truthful answer either way.
@@ -470,15 +437,14 @@ public class ScimGroupService {
      * that removes and re-adds the User is allowed: the rule protects the User's state, not the
      * shape of the request.
      */
-    private void refuseFrozenMembershipChange(
-            AuthenticatedConnector connector, UUID id, ScimGroup current, ScimGroup desired) {
+    private void refuseFrozenMembershipChange(ScimGroup current, ScimGroup desired) {
         Optional<UUID> bootstrapAdminId = bootstrapAdminId();
         if (bootstrapAdminId.isEmpty()) {
             return;
         }
         UUID protectedUserId = bootstrapAdminId.get();
         if (current.hasMember(protectedUserId) != desired.hasMember(protectedUserId)) {
-            throw refuse(connector, id, ReservedResourceName.BOOTSTRAP_ADMIN);
+            throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
     }
 
@@ -488,24 +454,17 @@ public class ScimGroupService {
      *
      * <p>Audited as a refused CREATE rather than a refused write, because there is no resource
      * to name — a Group that was never created has no id, so {@code Audited.ScimGroupCreateRejected}
-     * records the connector and the reason and nothing else.
-     *
-     * <p>It audits HERE rather than leaving it to the caller. An earlier version of this method
-     * raised without auditing and its javadoc claimed "the caller records it", which was simply
-     * untrue: the only caller invokes it as the first statement of {@link #create}, outside the
-     * try block that audits the two persistence refusals, so an attempt to provision the recovery
-     * authority away left NO trace — precisely what this class's own contract says must never
-     * happen. The test covering it asserted only the exception type, so nothing failed.
+     * records the connector and the reason and nothing else. The edge records it, from the route
+     * the refusal was raised on, as it records every refusal: an earlier version audited each
+     * refusal where it was raised, and this one was once missed — an attempt to provision the
+     * recovery authority away left no trace — which is the gap auditing at the edge closes.
      */
-    private void refuseFrozenMembershipChange(
-            AuthenticatedConnector connector, List<UUID> memberIds) {
+    private void refuseFrozenMembershipChange(List<UUID> memberIds) {
         Optional<UUID> bootstrapAdminId = bootstrapAdminId();
         if (bootstrapAdminId.isEmpty()) {
             return;
         }
         if (memberIds.contains(bootstrapAdminId.get())) {
-            audit.append(new Audited.ScimGroupCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
     }
@@ -520,14 +479,6 @@ public class ScimGroupService {
      */
     private Optional<UUID> bootstrapAdminId() {
         return users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).map(ScimUser::id);
-    }
-
-    /** Records the refusal and returns the exception, so neither can happen without the other. */
-    private ProtectedResourceException refuse(
-            AuthenticatedConnector connector, UUID groupId, ReservedResourceName reservedName) {
-        audit.append(new Audited.ScimGroupWriteRejected(
-                connector.connectorId(), groupId, AuditScimRefusal.MUTABILITY));
-        return new ProtectedResourceException(reservedName);
     }
 
     private static Set<UUID> memberIdSet(ScimGroup group) {

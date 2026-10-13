@@ -9,7 +9,7 @@ package com.example.backend.scim.domain;
  * literal from the filter — a filter is the preferred carrier of personal values, and an error
  * body is logged and cached in places the filter itself was kept out of.
  */
-public class InvalidScimFilterException extends RuntimeException {
+public final class InvalidScimFilterException extends ScimRequestRefusedException {
 
     public InvalidScimFilterException(String message) {
         super(message);

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.application.ScimLogFields;
@@ -48,7 +49,7 @@ import org.springframework.web.servlet.HandlerMapping;
  */
 class ScimExceptionHandlerLogTests {
 
-    private final ScimExceptionHandler handler = new ScimExceptionHandler();
+    private final ScimExceptionHandler handler = new ScimExceptionHandler(new RecordingAuditTrail());
 
     @AfterEach
     void clearRequestContext() {

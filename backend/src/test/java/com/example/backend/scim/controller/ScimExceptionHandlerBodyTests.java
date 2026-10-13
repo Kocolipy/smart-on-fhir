@@ -8,6 +8,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
@@ -36,7 +37,7 @@ import tools.jackson.databind.JsonNode;
  */
 class ScimExceptionHandlerBodyTests {
 
-    private final ScimExceptionHandler handler = new ScimExceptionHandler();
+    private final ScimExceptionHandler handler = new ScimExceptionHandler(new RecordingAuditTrail());
 
     @Test
     void the_real_codec_wraps_a_stream_that_crossed_the_bound_and_it_renders_as_413() {

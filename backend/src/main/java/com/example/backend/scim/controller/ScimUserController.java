@@ -47,7 +47,7 @@ import tools.jackson.databind.JsonNode;
  * identity were optional.
  */
 @RestController
-@RequestMapping(ScimSchemas.BASE_PATH + "/Users")
+@RequestMapping(ScimSchemas.USERS_PATH)
 class ScimUserController {
 
     /** The resource type every query on this endpoint is over. */
@@ -95,7 +95,7 @@ class ScimUserController {
      */
     @PreAuthorize("hasAuthority('user:read')")
     @GetMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> byId(
             @AuthenticationPrincipal AuthenticatedConnector connector,
@@ -179,7 +179,7 @@ class ScimUserController {
      */
     @PreAuthorize("hasAuthority('user:write')")
     @PutMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> replace(
@@ -208,7 +208,7 @@ class ScimUserController {
      */
     @PreAuthorize("hasAuthority('user:write')")
     @PatchMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> patch(
@@ -236,7 +236,7 @@ class ScimUserController {
      * {@code userName} is free for the next create.
      */
     @PreAuthorize("hasAuthority('user:write')")
-    @DeleteMapping(path = "/{id}")
+    @DeleteMapping(path = ScimSchemas.ID_PATH)
     ResponseEntity<Void> delete(
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,

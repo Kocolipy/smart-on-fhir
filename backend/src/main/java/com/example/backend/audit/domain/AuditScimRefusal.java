@@ -3,6 +3,10 @@ package com.example.backend.audit.domain;
 /**
  * Why a SCIM write was refused, as a closed set.
  *
+ * <p>Not every refusal has a reason here: a body that is not SCIM ({@code invalidSyntax}), a
+ * malformed PATCH path ({@code invalidPath} or {@code invalidFilter}) and a refused precondition
+ * are answered and logged, but not audited.
+ *
  * <p>A closed set for the same reason {@link AuditRefusalReason} is one: the reason
  * is a field every later query groups by, and a free-text reason is a place a
  * caller's own value — a {@code userName}, a filter, a submitted attribute — could
@@ -32,11 +36,15 @@ public enum AuditScimRefusal {
      * <p>SCIM's own {@code scimType} for an attempt to change something immutable, so the
      * recorded refusal and the error body the caller received name the same thing.
      *
-     * <p>Also a User PATCH removing a required attribute — {@code userName}, or an email's
-     * {@code value} — which is the same {@code scimType} for the same reason.
+     * <p>Also a PATCH naming a read-only attribute, or a User PATCH removing a required one —
+     * {@code userName}, or an email's {@code value} — which is the same {@code scimType} for the
+     * same reason.
      */
     MUTABILITY,
 
-    /** A User PATCH's filtered path selected no value — SCIM's {@code noTarget}. */
+    /**
+     * A PATCH selected no value — a filtered path matching nothing, or a {@code remove} with no
+     * path — SCIM's {@code noTarget}.
+     */
     NO_TARGET
 }

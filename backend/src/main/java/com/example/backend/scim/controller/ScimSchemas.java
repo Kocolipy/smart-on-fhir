@@ -16,6 +16,18 @@ public final class ScimSchemas {
     public static final String BASE_PATH = "/scim/v2";
 
     /**
+     * The User endpoint. The route its controller maps, and so the template the dispatcher reports
+     * as matched, which is how a refusal tells which resource and which write it was aimed at.
+     */
+    static final String USERS_PATH = BASE_PATH + "/Users";
+
+    /** The Group endpoint, mapped and matched as {@link #USERS_PATH} is. */
+    static final String GROUPS_PATH = BASE_PATH + "/Groups";
+
+    /** One resource under an endpoint; {@code id} is the path variable it is read back from. */
+    static final String ID_PATH = "/{id}";
+
+    /**
      * SCIM's own media type, which every response defaults to.
      *
      * <p>Spring's Jackson converter already supports {@code application/*+json}, so

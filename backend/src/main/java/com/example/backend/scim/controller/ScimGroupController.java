@@ -51,7 +51,7 @@ import tools.jackson.databind.JsonNode;
  * audit event names the actor. Both would be silent defects if the identity were optional.
  */
 @RestController
-@RequestMapping(ScimSchemas.BASE_PATH + "/Groups")
+@RequestMapping(ScimSchemas.GROUPS_PATH)
 class ScimGroupController {
 
     /** The resource type every query on this endpoint is over. */
@@ -97,7 +97,7 @@ class ScimGroupController {
      */
     @PreAuthorize("hasAuthority('group:read')")
     @GetMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> byId(
             @AuthenticationPrincipal AuthenticatedConnector connector,
@@ -177,7 +177,7 @@ class ScimGroupController {
      */
     @PreAuthorize("hasAuthority('group:write')")
     @PutMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> replace(
@@ -207,7 +207,7 @@ class ScimGroupController {
      */
     @PreAuthorize("hasAuthority('group:write')")
     @PatchMapping(
-            path = "/{id}",
+            path = ScimSchemas.ID_PATH,
             consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
             produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> patch(
@@ -235,7 +235,7 @@ class ScimGroupController {
      * know whether the id it holds was ever real.
      */
     @PreAuthorize("hasAuthority('group:write')")
-    @DeleteMapping(path = "/{id}")
+    @DeleteMapping(path = ScimSchemas.ID_PATH)
     ResponseEntity<Void> delete(
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,

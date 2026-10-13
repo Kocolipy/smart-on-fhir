@@ -3,9 +3,13 @@ package com.example.backend.scim.controller;
 import org.springframework.http.HttpStatus;
 
 /**
- * A refusal a SCIM caller is entitled to see, carrying the three things its error body
- * needs: the status, the standard {@code scimType} where one applies, and a detail
- * safe to render.
+ * A refusal a SCIM caller is entitled to see: its {@link ScimRefusals.Kind kind}, which
+ * decides the status, the standard {@code scimType} where one applies and whether the refusal
+ * is audited, and a detail safe to render.
+ *
+ * <p>Whoever raises it — a reader, a controller, or the refusal table answering for the
+ * directory — raises a kind, so the same kind is answered and audited alike wherever it came
+ * from.
  *
  * <p>An exception rather than a returned error value because the refusals happen deep
  * in parsing — an unsupported attribute is discovered while reading a nested object —
@@ -21,26 +25,16 @@ import org.springframework.http.HttpStatus;
  */
 public class ScimErrorException extends RuntimeException {
 
-    private final HttpStatus status;
+    private final ScimRefusals.Kind kind;
 
-    private final String scimType;
-
-    private final String reason;
-
-    private ScimErrorException(HttpStatus status, String scimType, String detail) {
-        this(status, scimType, scimType, detail);
-    }
-
-    private ScimErrorException(HttpStatus status, String scimType, String reason, String detail) {
+    private ScimErrorException(ScimRefusals.Kind kind, String detail) {
         super(detail);
-        this.status = status;
-        this.scimType = scimType;
-        this.reason = reason;
+        this.kind = kind;
     }
 
     /** The body was not valid SCIM: unparseable, or missing something required. */
     public static ScimErrorException invalidSyntax(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidSyntax", detail);
+        return new ScimErrorException(ScimRefusals.Kind.INVALID_SYNTAX, detail);
     }
 
     /**
@@ -49,12 +43,12 @@ public class ScimErrorException extends RuntimeException {
      * attribute.
      */
     public static ScimErrorException invalidValue(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidValue", detail);
+        return new ScimErrorException(ScimRefusals.Kind.INVALID_VALUE, detail);
     }
 
     /** A live resource already holds a unique attribute the write asked for. */
     public static ScimErrorException uniqueness(String detail) {
-        return new ScimErrorException(HttpStatus.CONFLICT, "uniqueness", detail);
+        return new ScimErrorException(ScimRefusals.Kind.UNIQUENESS, detail);
     }
 
     /**
@@ -67,32 +61,40 @@ public class ScimErrorException extends RuntimeException {
      * own {@code scimType} for this condition is {@code mutability}.
      */
     public static ScimErrorException mutability(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "mutability", detail);
+        return new ScimErrorException(ScimRefusals.Kind.MUTABILITY, detail);
     }
 
     /** A PATCH path that is malformed or names no attribute this service implements. */
     public static ScimErrorException invalidPath(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidPath", detail);
+        return new ScimErrorException(ScimRefusals.Kind.INVALID_PATH, detail);
     }
 
     /** A PATCH filter that selected no value. */
     public static ScimErrorException noTarget(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "noTarget", detail);
+        return new ScimErrorException(ScimRefusals.Kind.NO_TARGET, detail);
     }
 
     /** A filter using syntax or a comparison this service does not support. */
     public static ScimErrorException invalidFilter(String detail) {
-        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidFilter", detail);
+        return new ScimErrorException(ScimRefusals.Kind.INVALID_FILTER, detail);
+    }
+
+    /**
+     * A write's {@code If-Match} was not one strong entity tag: {@code invalidValue}, but a refused
+     * precondition, which is not audited.
+     */
+    static ScimErrorException invalidPrecondition(String detail) {
+        return new ScimErrorException(ScimRefusals.Kind.INVALID_PRECONDITION, detail);
     }
 
     /** A write's {@code If-Match} named a version that is no longer current. */
     public static ScimErrorException preconditionFailed(String detail) {
-        return new ScimErrorException(HttpStatus.PRECONDITION_FAILED, null, "preconditionFailed", detail);
+        return new ScimErrorException(ScimRefusals.Kind.PRECONDITION_FAILED, detail);
     }
 
     /** No live resource has this id, or no such discovery document exists. */
     public static ScimErrorException notFound(String detail) {
-        return new ScimErrorException(HttpStatus.NOT_FOUND, null, "notFound", detail);
+        return new ScimErrorException(ScimRefusals.Kind.NOT_FOUND, detail);
     }
 
     /**
@@ -105,12 +107,12 @@ public class ScimErrorException extends RuntimeException {
      * consistent with what discovery advertises.
      */
     public static ScimErrorException unsupportedQuery(String detail) {
-        return new ScimErrorException(HttpStatus.FORBIDDEN, null, "unsupportedQuery", detail);
+        return new ScimErrorException(ScimRefusals.Kind.UNSUPPORTED_QUERY, detail);
     }
 
     /** The request body ran past the namespace's size bound while it was being read. */
     public static ScimErrorException payloadTooLarge(String detail) {
-        return new ScimErrorException(HttpStatus.CONTENT_TOO_LARGE, null, "payloadTooLarge", detail);
+        return new ScimErrorException(ScimRefusals.Kind.PAYLOAD_TOO_LARGE, detail);
     }
 
     /**
@@ -121,7 +123,7 @@ public class ScimErrorException extends RuntimeException {
      * {@code 501}'s meaning, rather than that it named a resource that does not exist.
      */
     public static ScimErrorException notImplemented(String detail) {
-        return new ScimErrorException(HttpStatus.NOT_IMPLEMENTED, null, "notImplemented", detail);
+        return new ScimErrorException(ScimRefusals.Kind.NOT_IMPLEMENTED, detail);
     }
 
     /**
@@ -129,16 +131,21 @@ public class ScimErrorException extends RuntimeException {
      * {@code scimType}, which RFC 7644 §3.12 defines none for.
      */
     public static ScimErrorException serverError(String detail) {
-        return new ScimErrorException(HttpStatus.INTERNAL_SERVER_ERROR, null, "serverError", detail);
+        return new ScimErrorException(ScimRefusals.Kind.SERVER_ERROR, detail);
+    }
+
+    /** The kind of refusal, which decides everything about it but the detail. */
+    ScimRefusals.Kind kind() {
+        return kind;
     }
 
     public HttpStatus status() {
-        return status;
+        return kind.status;
     }
 
     /** The standard {@code scimType}, or {@code null} where the RFC defines none. */
     public String scimType() {
-        return scimType;
+        return kind.scimType;
     }
 
     /**
@@ -148,7 +155,7 @@ public class ScimErrorException extends RuntimeException {
      * as {@code event.reason}; never anything the caller sent.
      */
     public String reason() {
-        return reason;
+        return kind.reason;
     }
 
     /** The human-readable detail, safe by construction: never a submitted value. */

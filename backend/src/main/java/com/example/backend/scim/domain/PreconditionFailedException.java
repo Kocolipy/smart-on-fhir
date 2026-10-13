@@ -7,7 +7,7 @@ package com.example.backend.scim.domain;
  * <p>Rendered as {@code 412 Precondition Failed}. Raised before anything is computed or
  * written, so the refused write changes nothing and a client can re-read and retry.
  */
-public class PreconditionFailedException extends RuntimeException {
+public final class PreconditionFailedException extends ScimRequestRefusedException {
 
     public PreconditionFailedException() {
         super("the If-Match precondition does not name the resource's current version");

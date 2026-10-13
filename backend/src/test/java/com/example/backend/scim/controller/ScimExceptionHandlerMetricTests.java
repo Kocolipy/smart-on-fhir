@@ -2,6 +2,7 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.domain.InvalidScimFilterException;
 import org.junit.jupiter.api.AfterEach;
@@ -39,7 +40,7 @@ class ScimExceptionHandlerMetricTests {
                 ServerHttpObservationFilter.CURRENT_OBSERVATION_CONTEXT_ATTRIBUTE, context);
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
-        new ScimExceptionHandler().handle(new InvalidScimFilterException("unparseable"));
+        new ScimExceptionHandler(new RecordingAuditTrail()).handle(new InvalidScimFilterException("unparseable"));
 
         assertThat(context.getLowCardinalityKeyValue(MetricTag.SCIM_TYPE))
                 .as("the scimType tag recorded on the in-flight observation")
