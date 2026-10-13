@@ -36,10 +36,21 @@ came to implement it twice and disagree.
 ## Sessions
 
 **Session status** — what the SPA currently knows about the visitor's session:
-`checking` before the one start-up check has answered, then `authenticated` or
-`guest`. It is a _condition_, not an event, which is why a session ending is not
-a fourth member. `resolveSessionRoute` is the only place the status decides what
-a route does.
+`checking` before the start-up check has answered, then `authenticated` or
+`guest` — or `unchecked`, when the check did not answer. It is a _condition_,
+not an event, which is why a session ending is not a member of its own.
+`resolveSessionRoute` is the only place the status decides what a route does.
+
+**The start-up check** — `GET /api/auth/me`, once on arrival. `200` signs the
+visitor in, and **only a `401` makes them a Guest**. Any other answer — a `403`,
+a `5xx`, a network error, a CSRF token that could not be fetched — says nothing
+about whether a live session stands, so the status becomes `unchecked`: the SPA
+neither routes to login nor forgets the CSRF token (no session-end transition
+runs), and every route shows one line saying the session could not be checked,
+with a way to check again. The retry runs the same check under the same rules:
+`200` signs in, `401` makes a Guest, anything else stays `unchecked`. Treating a
+hiccup as a Guest would be worse than a wait: the User would sign in again, and
+under One session per User that ends every other session they hold.
 
 **Guest** — the session status of a person with no session. The status a cold
 arrival starts in, and

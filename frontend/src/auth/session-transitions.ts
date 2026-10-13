@@ -8,27 +8,40 @@
  * token cannot drift apart — a session the SPA still shows as signed in never
  * outlives its token being forgotten, nor the other way round. Callers say
  * *which* transition happened; none of them reaches the token itself.
+ *
+ * Two transitions change the auth state without changing the session, and so
+ * keep the token: a start-up check that did not answer (`checkFailed`), which
+ * leaves the session unknown rather than ended, and the retry of that check
+ * (`recheck`).
  */
 
 import { useCallback, useState } from "react";
 
 import { discardCsrfToken } from "@/lib/http";
 
-import type { AuthUser } from "./api";
-import type { AuthStatus } from "./auth-context-value";
+import type { AuthUser, SessionCheckFailure } from "./api";
+import type { Session } from "./auth-context-value";
 import type { SessionEndReason } from "./sign-in-reason";
 
-/** What the SPA knows about the visitor's session, changed only as a whole. */
-export interface Session {
-  /** Why the current `guest` status began: see `AuthContextState.signInReason`. */
-  signInReason: SessionEndReason | null;
-  status: AuthStatus;
-  user: AuthUser | null;
-}
-
-const CHECKING: Session = { signInReason: null, status: "checking", user: null };
+const CHECKING: Session = {
+  checkFailure: null,
+  signInReason: null,
+  status: "checking",
+  user: null,
+};
 
 export interface SessionTransitions {
+  /**
+   * The start-up check did not answer, so the session is unknown — neither
+   * signed in nor ended. Not a change of session, so the token is kept: the
+   * backend may still hold the session it belongs to.
+   */
+  checkFailed: (failure: SessionCheckFailure) => void;
+  /**
+   * The session is to be checked again, after one that did not answer. Not a
+   * change of session either, so the token is kept.
+   */
+  recheck: () => void;
   /**
    * The session has ended, recording why for the login page, or `null` for one
    * the User ended or that had none to give. Also the transition for a session
@@ -48,13 +61,19 @@ export function useSessionTransitions(): SessionTransitions {
 
   const signIn = useCallback((user: AuthUser) => {
     discardCsrfToken();
-    setSession({ signInReason: null, status: "authenticated", user });
+    setSession({ checkFailure: null, signInReason: null, status: "authenticated", user });
   }, []);
 
   const end = useCallback((reason: SessionEndReason | null) => {
     discardCsrfToken();
-    setSession({ signInReason: reason, status: "guest", user: null });
+    setSession({ checkFailure: null, signInReason: reason, status: "guest", user: null });
   }, []);
 
-  return { end, session, signIn };
+  const checkFailed = useCallback((failure: SessionCheckFailure) => {
+    setSession({ checkFailure: failure, signInReason: null, status: "unchecked", user: null });
+  }, []);
+
+  const recheck = useCallback(() => setSession(CHECKING), []);
+
+  return { checkFailed, end, recheck, session, signIn };
 }

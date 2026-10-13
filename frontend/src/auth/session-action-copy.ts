@@ -1,6 +1,6 @@
 /**
- * The copy for every **session action** outcome — login, logout and the
- * password change — and the only place it lives.
+ * The copy for every **session action** outcome — login, logout, the password
+ * change and the start-up session check — and the only place it lives.
  *
  * Each action resolves to a closed outcome (`auth/api.ts`), never a throw; the
  * page that ran it renders the line this module gives for it. Each switch is
@@ -14,7 +14,12 @@
  * (`sign-in-reason.ts`).
  */
 
-import type { LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
+import type {
+  LoginOutcome,
+  LogoutOutcome,
+  PasswordChangeOutcome,
+  SessionCheckFailure,
+} from "./api";
 import { refusalMessage } from "./use-session-request";
 
 /** What a refused login says: the same for an unknown name, a wrong password and a lockout. */
@@ -38,6 +43,15 @@ export function loginMessage(outcome: Exclude<LoginOutcome, { kind: "signed-in" 
  */
 export function logoutMessage(outcome: Exclude<LogoutOutcome, { kind: "signed-out" }>): string {
   return `${refusalMessage(outcome, "Unable to sign out. Please try again.")} You are still signed in.`;
+}
+
+/**
+ * What a start-up session check that did not answer says — the whole line, so
+ * it says the session could not be checked rather than that it ended. The
+ * visitor is no Guest, so nothing here mentions signing in.
+ */
+export function sessionCheckMessage(outcome: SessionCheckFailure): string {
+  return `Your session could not be checked. ${refusalMessage(outcome, "Please try again.")}`;
 }
 
 /**

@@ -80,23 +80,67 @@ describe("AuthProvider", () => {
   });
 
   it("starts as a cold guest when there is no session", async () => {
-    api.getCurrentUser.mockResolvedValue(null);
+    api.getCurrentUser.mockResolvedValue({ kind: "guest" });
     const { result } = await mounted();
 
     expect(signInReasonAndStatus(result.current)).toEqual({ signInReason: null, status: "guest" });
     expect(result.current.user).toBeNull();
   });
 
-  it("treats a failed session check as a cold guest", async () => {
-    api.getCurrentUser.mockRejectedValue(new Error("offline"));
-    const { result } = await mounted();
+  // A check that did not answer says nothing about whether a live session
+  // stands: only a 401 makes a Guest, so this one ends nothing and forgets no
+  // token, and no login route is taken.
+  it.each(["forbidden", "csrf-expired", "failed"] as const)(
+    "leaves the session unknown, not a Guest, when its check comes back %s",
+    async (kind) => {
+      api.getCurrentUser.mockResolvedValue({ kind });
+      const { result } = renderHook(() => useAuthState(), { wrapper });
+      await waitFor(() => expect(result.current.status).not.toBe("checking"));
 
-    expect(signInReasonAndStatus(result.current)).toEqual({ signInReason: null, status: "guest" });
+      expect({
+        checkFailure: result.current.checkFailure,
+        status: result.current.status,
+        tokensForgotten: vi.mocked(http.discardCsrfToken).mock.calls.length,
+      }).toEqual({ checkFailure: { kind }, status: "unchecked", tokensForgotten: 0 });
+    },
+  );
+
+  it.each([
+    ["signs in", { kind: "signed-in", user: USER }, "authenticated"],
+    ["makes a Guest", { kind: "guest" }, "guest"],
+    ["leaves the session unknown", { kind: "failed" }, "unchecked"],
+  ] as const)(
+    "checking again after an unanswered check %s by the same rules",
+    async (_name, answer, status) => {
+      api.getCurrentUser.mockResolvedValueOnce({ kind: "failed" }).mockResolvedValueOnce(answer);
+      const { result } = renderHook(() => useAuthState(), { wrapper });
+      await waitFor(() => expect(result.current.status).toBe("unchecked"));
+
+      act(() => result.current.retrySessionCheck());
+      await waitFor(() => expect(api.getCurrentUser).toHaveBeenCalledTimes(2));
+      await act(async () => {});
+
+      expect(result.current.status).toBe(status);
+    },
+  );
+
+  it("checks again on every retry, not only the first", async () => {
+    api.getCurrentUser.mockResolvedValue({ kind: "failed" });
+    const { result } = renderHook(() => useAuthState(), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe("unchecked"));
+
+    for (const run of [2, 3]) {
+      act(() => result.current.retrySessionCheck());
+      await waitFor(() => expect(result.current.status).toBe("unchecked"));
+      await waitFor(() => expect(api.getCurrentUser).toHaveBeenCalledTimes(run));
+    }
+
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(3);
   });
 
   it.each([
-    ["finds a session", () => Promise.resolve(USER)],
-    ["fails", () => Promise.reject(new Error("offline"))],
+    ["finds a session", () => Promise.resolve({ kind: "signed-in", user: USER } as const)],
+    ["fails", () => Promise.resolve({ kind: "failed" } as const)],
   ])(
     "changes nothing, the token included, when its check %s after the provider unmounted",
     async (_name, settle) => {
@@ -116,7 +160,7 @@ describe("AuthProvider", () => {
   );
 
   it("holds a flagged session's user as reported", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     const { result } = await mounted();
 
     expect(result.current.status).toBe("authenticated");
@@ -124,7 +168,7 @@ describe("AuthProvider", () => {
   });
 
   it("ends the session on a successful change and records why", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     api.changePassword.mockResolvedValue({ kind: "changed" });
     const { result } = await mounted();
 
@@ -143,7 +187,7 @@ describe("AuthProvider", () => {
   });
 
   it("ends the session on a lockout and records why, forgetting the token", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     api.changePassword.mockResolvedValue({ kind: "locked" });
     const { result } = await mounted();
 
@@ -167,7 +211,7 @@ describe("AuthProvider", () => {
   ] as authApi.PasswordChangeOutcome[])(
     "keeps the session and its token on a $kind refusal",
     async (refusal) => {
-      api.getCurrentUser.mockResolvedValue(CONFINED);
+      api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
       api.changePassword.mockResolvedValue(refusal);
       const { result } = await mounted();
 
@@ -185,7 +229,7 @@ describe("AuthProvider", () => {
   );
 
   it("clears the password-change reason on the next login", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     api.changePassword.mockResolvedValue({ kind: "changed" });
     api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
@@ -206,7 +250,7 @@ describe("AuthProvider", () => {
   });
 
   it("signs in, forgetting the pre-login session's token", async () => {
-    api.getCurrentUser.mockResolvedValue(null);
+    api.getCurrentUser.mockResolvedValue({ kind: "guest" });
     api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
@@ -221,7 +265,7 @@ describe("AuthProvider", () => {
   });
 
   it("refuses wrong credentials, forgetting the token of the session the backend ended", async () => {
-    api.getCurrentUser.mockResolvedValue(null);
+    api.getCurrentUser.mockResolvedValue({ kind: "guest" });
     api.login.mockResolvedValue({ kind: "refused" });
     const { result } = await mounted();
 
@@ -239,7 +283,7 @@ describe("AuthProvider", () => {
   ] as authApi.LoginOutcome[])(
     "resolves a $kind login without a verdict, keeping the session and its token",
     async (failure) => {
-      api.getCurrentUser.mockResolvedValue(null);
+      api.getCurrentUser.mockResolvedValue({ kind: "guest" });
       api.login.mockResolvedValue(failure);
       const { result } = await mounted();
 
@@ -252,7 +296,7 @@ describe("AuthProvider", () => {
   );
 
   it("logs out, forgetting the ended session's token", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     api.logout.mockResolvedValue({ kind: "signed-out" });
     const { result } = await mounted();
 
@@ -266,7 +310,7 @@ describe("AuthProvider", () => {
   it.each([{ kind: "csrf-expired" }, { kind: "failed" }] as authApi.LogoutOutcome[])(
     "resolves a $kind logout, keeping the session and its token",
     async (failure) => {
-      api.getCurrentUser.mockResolvedValue(USER);
+      api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
       api.logout.mockResolvedValue(failure);
       const { result } = await mounted();
 
@@ -279,7 +323,7 @@ describe("AuthProvider", () => {
   );
 
   it("forgets the token on a successful change", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     api.changePassword.mockResolvedValue({ kind: "changed" });
     const { result } = await mounted();
 
@@ -291,7 +335,7 @@ describe("AuthProvider", () => {
   });
 
   it("forgets the CSRF token of a session the backend has ended", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
     act(() => result.current.expireSession());
@@ -300,7 +344,7 @@ describe("AuthProvider", () => {
   });
 
   it("clears the expiry reason on the next login", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();
 
@@ -317,7 +361,7 @@ describe("AuthProvider", () => {
   });
 
   it("an expiry after a change says the session expired, not that it changed", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     api.changePassword.mockResolvedValue({ kind: "changed" });
     const { result } = await mounted();
 
@@ -333,7 +377,7 @@ describe("AuthProvider", () => {
   });
 
   it("logs out to a cold guest, clearing the sign-in reason", async () => {
-    api.getCurrentUser.mockResolvedValue(CONFINED);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: CONFINED });
     api.changePassword.mockResolvedValue({ kind: "changed" });
     api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     api.logout.mockResolvedValue({ kind: "signed-out" });
@@ -359,7 +403,7 @@ describe("AuthProvider", () => {
   });
 
   it("signs an idle session out: logs out, forgets the token and records why", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     api.logout.mockResolvedValue({ kind: "signed-out" });
     const { result } = await mounted();
 
@@ -379,7 +423,7 @@ describe("AuthProvider", () => {
   it.each([{ kind: "csrf-expired" }, { kind: "failed" }] as authApi.LogoutOutcome[])(
     "clears an idle session even when its logout comes to $kind",
     async (failure) => {
-      api.getCurrentUser.mockResolvedValue(USER);
+      api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
       api.logout.mockResolvedValue(failure);
       const { result } = await mounted();
 
@@ -397,7 +441,7 @@ describe("AuthProvider", () => {
   );
 
   it("clears the Idle sign-out reason on the next login, and replaces it on a later expiry", async () => {
-    api.getCurrentUser.mockResolvedValue(USER);
+    api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: USER });
     api.logout.mockResolvedValue({ kind: "signed-out" });
     api.login.mockResolvedValue({ kind: "signed-in", user: USER });
     const { result } = await mounted();

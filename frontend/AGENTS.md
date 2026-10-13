@@ -58,9 +58,9 @@ each page's endpoints and Permissions; this list holds the rules.
   read and gated write every page listing and action goes through
   (`use-gated-read.ts`, `use-gated-write.ts`), the declaration types they take
   (`declarations.ts`), a page's single error line (`page-status.ts`), the copy
-  for every session-action outcome (`session-action-copy.ts`: login, logout
-  and the password change each resolve to a closed outcome and never throw, so
-  their pages render that copy and never catch), the idle sign-out (see
+  for every session-action outcome (`session-action-copy.ts`: login, logout,
+  the password change and the start-up session check each resolve to a closed
+  outcome and never throw, so their pages render that copy and never catch), the idle sign-out (see
   "Backend contract"), the session transitions (`session-transitions.ts`), the
   one place the auth state changes and the CSRF token is forgotten with it,
   and the sign-in reason (`sign-in-reason.ts`): why a
@@ -163,7 +163,11 @@ backend side moves. What the SPA has to honour:
   the next unsafe request fetches the new session's before it is sent.
   `src/auth/session-transitions.ts` is the one place that call is made: each of
   its transitions (`signIn`, `end(reason)`) changes the auth state and forgets
-  the token in the same step, so no caller can do one without the other. A refused login is one of them because the
+  the token in the same step, so no caller can do one without the other. A
+  start-up check that did not answer (anything but `200` or `401`) settles
+  nothing: the status becomes `unchecked`, the token is kept, nobody is routed
+  to login, and the guards show one line saying the session could not be
+  checked, with a retry under the same rules. A refused login is one of them because the
   backend ends whatever session the browser held before answering its bare
   `401`, so a retry after a wrong password needs the next session's token
   rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie

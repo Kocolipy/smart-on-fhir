@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { LoginOutcome } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, guest } from "@/auth/auth-context.testHelpers";
 import type { SessionRouteState } from "@/auth/session-route";
 
 import { Login } from "./login";
@@ -23,16 +24,7 @@ const SIGNED_IN: LoginOutcome = {
 };
 
 function renderLogin(login: AuthContextState["login"], state?: SessionRouteState, search = "") {
-  const value: AuthContextState = {
-    changePassword: vi.fn(),
-    expireSession: vi.fn(),
-    login,
-    logout: vi.fn(),
-    signInReason: null,
-    signOutForInactivity: vi.fn(),
-    status: "guest",
-    user: null,
-  };
+  const value = authState(guest(), { login });
   render(
     <MemoryRouter initialEntries={[{ pathname: "/", search, state }]}>
       <AuthContext.Provider value={value}>

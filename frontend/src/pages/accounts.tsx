@@ -316,9 +316,10 @@ const everyRow = <R,>(rows: R[]) => rows;
  * the one function that changes it. Each listing is read only when the session
  * holds its Permission.
  *
- * The page has one error line, which both listings and every action report
- * to, and it shows the latest failure. Starting an action withdraws whatever
- * was shown, as the action supersedes it.
+ * The page has one error line, which both listings, every action and the
+ * connector panel — handed this status — report to, and it shows the latest
+ * failure. Starting an action withdraws whatever was shown, as the action
+ * supersedes it.
  */
 function useDirectory() {
   const status = usePageStatus();
@@ -348,7 +349,7 @@ function useDirectory() {
       },
     });
 
-  return { error: status.error, groups, pending: write.pending, runAction, users };
+  return { groups, pending: write.pending, runAction, status, users };
 }
 
 /**
@@ -369,7 +370,8 @@ function useDirectory() {
  */
 export function Accounts() {
   const { user } = useAuth();
-  const { error, groups, pending, runAction, users } = useDirectory();
+  const { groups, pending, runAction, status, users } = useDirectory();
+  const { error } = status;
   const onAction: OnAction | null = holds(user, USER_ACTION.permission)
     ? (target, action) => void runAction(target, action)
     : null;
@@ -407,7 +409,8 @@ export function Accounts() {
         {(rows) => <GroupsTable groups={rows} />}
       </ProjectionCard>
 
-      <Connectors />
+      {/* The connector panel reports to this page's one error line, above. */}
+      <Connectors status={status} />
     </div>
   );
 }

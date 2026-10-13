@@ -32,15 +32,19 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   outcome (`401` on `/me` is a guest, not an error; `401` on change-password is
   a wrong current password or a lockout, never a reason to end the session by
   itself), and the decoder for the session's `permissions`. The three **session
-  actions** — `login`, `logout`, `changePassword` — each resolve to a closed
-  outcome (`LoginOutcome`, `LogoutOutcome`, `PasswordChangeOutcome`) for every
-  request outcome, and none of them throws.
+  actions** — `login`, `logout`, `changePassword` — and the start-up session
+  check, `getCurrentUser`, each resolve to a closed outcome (`LoginOutcome`,
+  `LogoutOutcome`, `PasswordChangeOutcome`, `SessionCheckOutcome`) for every
+  request outcome, and none of them throws. The check's outcome is `signed-in`,
+  `guest` (a `401`, the only verdict that makes a Guest), or a request failure
+  that leaves the session unknown.
 - `session-action-copy.ts` — the copy for every session-action outcome, and the
-  only place it lives: `loginMessage`, `logoutMessage` and
-  `passwordChangeMessage`, each an exhaustive switch over the outcomes that
+  only place it lives: `loginMessage`, `logoutMessage`,
+  `passwordChangeMessage` and `sessionCheckMessage`, each over the outcomes that
   leave the visitor on the page, with the two transport outcomes read through
-  the seam's `refusalMessage`. The Login page, the shell and the Change
-  password page render what these return; none of them catches.
+  the seam's `refusalMessage`. The Login page, the shell, the idle warning, the
+  Change password page and the route guards render what these return; none of
+  them catches.
 - `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
   reads. Which Permission a request requires is not here: it is declared on the
   endpoint (`declarations.ts`, below).
@@ -66,9 +70,13 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   transitions**: the one place the auth state (status, user, sign-in reason)
   changes, as `signIn(user)` or `end(reason)`, and the only `src/auth` caller of
   `discardCsrfToken()`. Each transition changes the state and forgets the token
-  in the same step, so the two cannot drift apart.
-- `auth-context.tsx` — the `AuthProvider`, which checks the session once on
-  mount and maps each session event onto a transition: a login, a refused login
+  in the same step, so the two cannot drift apart. Two transitions change the
+  status without changing the session, so they keep the token: `checkFailed`,
+  for a start-up check that did not answer (status `unchecked`), and `recheck`,
+  its retry (back to `checking`).
+- `auth-context.tsx` — the `AuthProvider`, which checks the session on mount
+  (and again on `retrySessionCheck`) — `ok` signs in, `401` ends with no reason,
+  anything else is `checkFailed` — and maps each session event onto a transition: a login, a refused login
   and a logout; an expiry, an Idle sign-out, a password change and the lockout
   a change can run into, each recording its sign-in reason (none for a logout
   or a refused login).
@@ -88,7 +96,9 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   pure transition table: who waits, who renders, who is redirected where, and
   what the redirect carries.
 - `route-guards.tsx` — `ProtectedRoute` and `GuestRoute`, two thin adapters over
-  that table sharing one pending view.
+  that table sharing one pending view and one `unchecked` view: a single error
+  line from `sessionCheckMessage` and a "Check again" button. An `unchecked`
+  session is not a Guest, so neither guard renders its page or redirects.
 - `use-session-request.ts` — the seam features request through. It handles an
   `unauthenticated` result itself and returns a `SessionResult`, which has no
   `unauthenticated` member, so no page can forget to relay a session ending.
@@ -130,7 +140,12 @@ rotation, revocation or delete changes more than one token. A token's plaintext
 lives only in that component's state, shown once in the disclosure panel, so
 dismissing it, navigating away or reloading loses it for good. The panel reads
 the session itself and offers each control by its own declaration's Permission,
-and the token Permissions it may grant by the ones the session holds.
+and the token Permissions it may grant by the ones the session holds. It is a
+panel of the Accounts page, not a page: it takes the Accounts page's
+`PageStatus` and renders no error line of its own, so its listing and its
+changes share one line with Users and Groups, under the one rule, the latest
+event wins. A rotation refused `409` (the token was revoked, has expired or was
+already rotated) has its own copy.
 `pages/accounts-api.ts` holds the wire types both files share and declares every
 endpoint they call, each with its Permission.
 
@@ -443,8 +458,12 @@ When the logout fails or comes back CSRF-expired, the auth context's `logout`
 resolves that outcome without ending anything, so the session stands and the
 CSRF token stays with it (ADR-0009: the token is forgotten only through the
 session transitions); the shell shows the outcome's copy (`logoutMessage`, which
-says the User is still signed in) in an error line. The Idle sign-out is a separate path and keeps its
-rule: a logout that fails still ends the session there.
+says the User is still signed in) in an error line. The idle warning's own Sign
+out button is a manual Sign out too, and follows the same rule: a pending state
+while the logout is out, and on a failed or CSRF-expired one the session stands
+and the dialog shows the same `logoutMessage` copy in an announced error line.
+The Idle sign-out at the limit is a separate path and keeps its rule: a logout
+that fails still ends the session there.
 
 A new protected area is a new `<Route>` under that layout, wrapped in its own
 `ProtectedRoute` when it needs a Permission. Lazy route chunks are unused; add

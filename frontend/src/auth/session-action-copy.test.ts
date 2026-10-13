@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
-import { loginMessage, logoutMessage, passwordChangeMessage } from "./session-action-copy";
+import type {
+  LoginOutcome,
+  LogoutOutcome,
+  PasswordChangeOutcome,
+  SessionCheckFailure,
+} from "./api";
+import {
+  loginMessage,
+  logoutMessage,
+  passwordChangeMessage,
+  sessionCheckMessage,
+} from "./session-action-copy";
 
 // Literal copy throughout, not the constants it is built from: a change to
 // what the User reads must fail here.
@@ -39,5 +49,14 @@ describe("the session-action copy", () => {
     [{ kind: "failed" }, "Unable to change the password. Please try again."],
   ])("a password change that came to %j says %j", (outcome, copy) => {
     expect(passwordChangeMessage(outcome)).toBe(copy);
+  });
+
+  it.each<[SessionCheckFailure, string]>([
+    // The whole line: the session could not be checked, and why when the seam knows.
+    [{ kind: "forbidden" }, `Your session could not be checked. ${FORBIDDEN}`],
+    [{ kind: "csrf-expired" }, `Your session could not be checked. ${CSRF_EXPIRED}`],
+    [{ kind: "failed" }, "Your session could not be checked. Please try again."],
+  ])("a session check that came to %j says %j", (outcome, copy) => {
+    expect(sessionCheckMessage(outcome)).toBe(copy);
   });
 });

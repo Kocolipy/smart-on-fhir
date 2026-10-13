@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 
 import { ME_PATH } from "./api";
 import { useAuthState } from "./auth-context-value";
+import { logoutMessage } from "./session-action-copy";
 import { useSessionRequest } from "./use-session-request";
 
 /** How long before the limit the warning opens: about a minute, per the session contract. */
@@ -140,19 +141,49 @@ export function IdleSignOut({ idleTimeoutSeconds }: { idleTimeoutSeconds: number
     if (result.kind === "ok") markActive();
   }, [markActive, request]);
 
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+
+  /**
+   * The User's own Sign out, on the shell's rule (ADR-0009): a logout that may
+   * have left the backend's session standing keeps it here too, and the dialog
+   * says so. A `signed-out` one has already ended the session, which unmounts
+   * this component. The limit's own sign-out is `onIdle`'s, which ends the
+   * session whatever the logout came to.
+   */
+  const signOut = useCallback(async () => {
+    setSigningOut(true);
+    setSignOutError("");
+    const outcome = await logout();
+    if (outcome.kind === "signed-out") return;
+    setSignOutError(logoutMessage(outcome));
+    setSigningOut(false);
+  }, [logout]);
+
   if (!warning) return null;
   return (
-    <IdleWarning onSignOut={() => void logout()} onStay={() => void stay()} staying={staying} />
+    <IdleWarning
+      onSignOut={() => void signOut()}
+      onStay={() => void stay()}
+      signOutError={signOutError}
+      signingOut={signingOut}
+      staying={staying}
+    />
   );
 }
 
 function IdleWarning({
   onSignOut,
   onStay,
+  signOutError,
+  signingOut,
   staying,
 }: {
   onSignOut: () => void;
   onStay: () => void;
+  /** What a Sign out that left the session standing said, or empty. */
+  signOutError: string;
+  signingOut: boolean;
   staying: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -188,9 +219,14 @@ function IdleWarning({
       <p className="mt-2 text-sm text-muted-foreground" id="idle-warning-description">
         You will be signed out soon because you have been inactive.
       </p>
+      {signOutError ? (
+        <p className="mt-2 text-sm text-destructive" role="alert">
+          {signOutError}
+        </p>
+      ) : null}
       <div className="mt-6 flex justify-end gap-2">
-        <Button onClick={onSignOut} type="button" variant="outline">
-          Sign out
+        <Button disabled={signingOut} onClick={onSignOut} type="button" variant="outline">
+          {signingOut ? "Signing out…" : "Sign out"}
         </Button>
         <Button disabled={staying} onClick={onStay} type="button">
           {staying ? "Staying signed in…" : "Stay signed in"}

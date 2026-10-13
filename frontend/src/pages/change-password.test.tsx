@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, CHECKING, signedIn } from "@/auth/auth-context.testHelpers";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 
 import { ChangePassword } from "./change-password";
@@ -13,26 +14,12 @@ import { ChangePassword } from "./change-password";
 const CURRENT = "Current-Value-4f81";
 const NEXT = "Next-Value-9c2e-long";
 
-const flaggedAuth = (): AuthContextState => ({
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn().mockResolvedValue(undefined),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired: true, permissions: [], username: "ada" },
-});
+const flaggedAuth = (): AuthContextState =>
+  authState(signedIn({ passwordChangeRequired: true }), {
+    logout: vi.fn().mockResolvedValue(undefined),
+  });
 
-const unflaggedAuth = (): AuthContextState => ({
-  ...flaggedAuth(),
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: [],
-    username: "ada",
-  },
-});
+const unflaggedAuth = (): AuthContextState => ({ ...flaggedAuth(), ...signedIn() });
 
 function renderPage(auth: AuthContextState) {
   return render(
@@ -98,8 +85,8 @@ describe("ChangePassword", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("renders safely while authenticated user details are unavailable", () => {
-    renderPage({ ...unflaggedAuth(), user: null });
+  it("renders safely while the session's user details are unavailable", () => {
+    renderPage({ ...unflaggedAuth(), ...CHECKING });
 
     // No flag to read means no confinement: the unflagged copy and a way back.
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();

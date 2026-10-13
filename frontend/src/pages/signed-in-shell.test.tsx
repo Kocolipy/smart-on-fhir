@@ -5,22 +5,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { LogoutOutcome } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, CHECKING, signedIn } from "@/auth/auth-context.testHelpers";
 
 import { SignedInShell } from "./signed-in-shell";
 
 const authWith = (
   logout: AuthContextState["logout"],
   passwordChangeRequired = false,
-): AuthContextState => ({
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout,
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired, permissions: [], username: "ada" },
-});
+): AuthContextState => authState(signedIn({ passwordChangeRequired }), { logout });
 
 function renderShell(auth: AuthContextState, path = "/showcase") {
   return render(
@@ -140,8 +132,8 @@ describe("SignedInShell", () => {
     );
   });
 
-  it("renders safely while the signed-in user's details are unavailable", () => {
-    renderShell({ ...authWith(vi.fn()), user: null });
+  it("renders safely while the session's user details are unavailable", () => {
+    renderShell({ ...authWith(vi.fn()), ...CHECKING });
     expect(screen.getByText(/^Signed in as\s*$/)).toBeInTheDocument();
   });
 

@@ -7,6 +7,7 @@ import { apiFetch, CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
 
 import type { Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
+import { authState as buildAuthState, signedIn } from "./auth-context.testHelpers";
 import type { WriteDeclaration } from "./declarations";
 import { usePageStatus, useStatusReporter } from "./page-status";
 import { useGatedWrite } from "./use-gated-write";
@@ -57,16 +58,7 @@ const ROTATE: WriteDeclaration = {
 const expireSession = vi.fn();
 
 function authState(permissions: Permission[]): AuthContextState {
-  return {
-    changePassword: vi.fn(),
-    expireSession,
-    login: vi.fn(),
-    logout: vi.fn(),
-    signInReason: null,
-    signOutForInactivity: vi.fn(),
-    status: "authenticated",
-    user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
-  };
+  return buildAuthState(signedIn({ permissions }), { expireSession });
 }
 
 /**

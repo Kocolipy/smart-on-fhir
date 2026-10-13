@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, signedIn } from "@/auth/auth-context.testHelpers";
 import type { Permission } from "@/auth/api";
+import { usePageStatus } from "@/auth/page-status";
 import { apiFetch } from "@/lib/http";
 
 import {
@@ -12,6 +14,7 @@ import {
   type ConnectorToken,
   type IssuedToken,
 } from "./accounts-api";
+import { Accounts } from "./accounts";
 import { Connectors } from "./connectors";
 
 vi.mock("@/lib/http", async (importOriginal) => ({
@@ -21,21 +24,7 @@ vi.mock("@/lib/http", async (importOriginal) => ({
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-const auth: AuthContextState = {
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: [],
-    username: "ada",
-  },
-};
+const auth: AuthContextState = authState(signedIn());
 
 /**
  * Everything the panel can offer: its listing (connector:read), connector
@@ -107,11 +96,26 @@ function routeApi({ actions = [], listings }: { actions?: object[]; listings: ob
 /** Every request the page sent, as path and init — the operation it named. */
 const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
 
+/**
+ * The page the panel sits on, reduced to what it shares with the panel: the
+ * one page status, and the error line that renders it. The panel has no line
+ * of its own, so its failures show here.
+ */
+function PanelPage() {
+  const status = usePageStatus();
+  return (
+    <>
+      {status.error ? <p role="alert">{status.error}</p> : null}
+      <Connectors status={status} />
+    </>
+  );
+}
+
 /** The panel, for a session holding `permissions` — by default all it can use. */
 function renderConnectors(permissions: readonly Permission[] = EVERY_PERMISSION) {
   return render(
-    <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions } }}>
-      <Connectors />
+    <AuthContext.Provider value={{ ...auth, ...signedIn({ permissions: [...permissions] }) }}>
+      <PanelPage />
     </AuthContext.Provider>,
   );
 }
@@ -565,6 +569,21 @@ describe("Connectors", () => {
     );
   });
 
+  it("reports a rotation refused because the token can no longer be rotated", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 409 }],
+      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Refused: the token can no longer be rotated — it was revoked, has expired or was already rotated.",
+    );
+  });
+
   // The csrf-expired mapping is the seam's own, exercised generically by
   // use-gated-write.test.tsx; this page proves only its own default copy.
   it("reports any other failure with action-specific default copy", async () => {
@@ -670,5 +689,53 @@ describe("Connectors", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /^Deleting Okta failed\. Please try again\.$/,
     );
+  });
+});
+
+describe("Connectors on the Accounts page", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  /**
+   * The page as an administrator holding every Permission it uses sees it: the
+   * Users, Groups and Connectors listings, each answered from a promise the
+   * test settles, so the order the outcomes land in is the test's.
+   */
+  function renderAccounts() {
+    const settle: Record<string, (result: object) => void> = {};
+    apiFetchMock.mockImplementation(
+      ((path: string) =>
+        new Promise((resolve) => {
+          settle[path] = resolve;
+        })) as never,
+    );
+    render(
+      <AuthContext.Provider
+        value={{
+          ...auth,
+          ...signedIn({ permissions: [...EVERY_PERMISSION, "user:read", "group:read"] }),
+        }}
+      >
+        <Accounts />
+      </AuthContext.Provider>,
+    );
+    return (path: string, result: object) =>
+      act(async () => {
+        settle[path](result);
+        await Promise.resolve();
+      });
+  }
+
+  it("reports to the page's one error line, where the latest failure across Users and Connectors shows", async () => {
+    const answer = renderAccounts();
+
+    await answer("/api/admin/groups", { kind: "ok", data: [] });
+    await answer("/api/admin/accounts", { kind: "failed", status: 503 });
+    await answer("/api/admin/connectors", { kind: "failed", status: 503 });
+
+    expect(screen.getAllByRole("alert").map((line) => line.textContent)).toEqual([
+      "Unable to load the connectors. Please try again.",
+    ]);
   });
 });

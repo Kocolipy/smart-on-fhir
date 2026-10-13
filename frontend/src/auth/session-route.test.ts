@@ -5,18 +5,28 @@ import {
   DEFAULT_DESTINATION,
   LOGIN_PATH,
   resolveSessionRoute,
+  type RoutedSession,
   type SessionRequirement,
   type SessionRoute,
   type SessionRouteInput,
 } from "./session-route";
 import type { Permission } from "./api";
+import type { SessionEndReason } from "./sign-in-reason";
+
+const CHECKING: RoutedSession = { status: "checking" };
+const AUTHENTICATED: RoutedSession = { status: "authenticated" };
+/** A start-up check that came back `403`: the failure travels with the status. */
+const UNCHECKED: RoutedSession = { checkFailure: { kind: "forbidden" }, status: "unchecked" };
+const guest = (signInReason: SessionEndReason | null = null): RoutedSession => ({
+  signInReason,
+  status: "guest",
+});
 
 const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput => ({
   passwordChangeRequired: false,
   pathname: "/showcase",
   requires: "authenticated",
-  signInReason: null,
-  status: "authenticated",
+  session: AUTHENTICATED,
   ...overrides,
 });
 
@@ -47,7 +57,7 @@ describe("resolveSessionRoute for the change-required flag", () => {
   const cases: [string, SessionRouteInput, SessionRoute][] = [
     [
       "waits for a flagged session like any other",
-      flagged({ status: "checking" }),
+      flagged({ session: CHECKING }),
       { kind: "pending" },
     ],
     [
@@ -102,21 +112,20 @@ describe("resolveSessionRoute for the change-required flag", () => {
     ],
     [
       "sends a Guest on the change-password route to login",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, status: "guest" }),
+      input({ pathname: CREDENTIAL_CHANGE_PATH, session: guest() }),
       { kind: "redirect", state: { from: CREDENTIAL_CHANGE_PATH }, to: LOGIN_PATH },
     ],
     [
       "returns a User whose change succeeded to login, recording no return destination",
       input({
         pathname: CREDENTIAL_CHANGE_PATH,
-        signInReason: "password-changed",
-        status: "guest",
+        session: guest("password-changed"),
       }),
       { kind: "redirect", state: { reason: "password-changed" }, to: LOGIN_PATH },
     ],
     [
       "returns a User whose change locked the account to login, recording no return destination",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, signInReason: "locked", status: "guest" }),
+      input({ pathname: CREDENTIAL_CHANGE_PATH, session: guest("locked") }),
       { kind: "redirect", state: { reason: "locked" }, to: LOGIN_PATH },
     ],
     [
@@ -124,8 +133,7 @@ describe("resolveSessionRoute for the change-required flag", () => {
       input({
         pathname: LOGIN_PATH,
         requires: "guest",
-        signInReason: "password-changed",
-        status: "guest",
+        session: guest("password-changed"),
       }),
       { kind: "render" },
     ],
@@ -140,42 +148,54 @@ describe("resolveSessionRoute", () => {
   const cases: [string, SessionRouteInput, SessionRoute][] = [
     [
       "waits on a protected route while the session status is unknown",
-      input({ status: "checking" }),
+      input({ session: CHECKING }),
       { kind: "pending" },
     ],
     [
       "waits on a guest route while the session status is unknown",
-      input({ pathname: LOGIN_PATH, requires: "guest", status: "checking" }),
+      input({ pathname: LOGIN_PATH, requires: "guest", session: CHECKING }),
       { kind: "pending" },
+    ],
+    // A check that did not answer makes nobody a Guest: no route to login, no
+    // return destination recorded, and no render of what the session may hold.
+    [
+      "neither renders nor redirects a protected route when the session could not be checked",
+      input({ session: UNCHECKED }),
+      { failure: { kind: "forbidden" }, kind: "unchecked" },
+    ],
+    [
+      "neither renders nor redirects a guest route when the session could not be checked",
+      input({ pathname: LOGIN_PATH, requires: "guest", session: UNCHECKED }),
+      { failure: { kind: "forbidden" }, kind: "unchecked" },
     ],
     [
       "renders a protected route for an authenticated visitor",
-      input({ status: "authenticated" }),
+      input({ session: AUTHENTICATED }),
       { kind: "render" },
     ],
     [
       "sends a guest to login, recording the return destination",
-      input({ pathname: "/showcase", status: "guest" }),
+      input({ pathname: "/showcase", session: guest() }),
       { kind: "redirect", state: { from: "/showcase" }, to: LOGIN_PATH },
     ],
     [
       "marks the redirect as an Expired session, replaying the page it left",
-      input({ pathname: "/showcase", signInReason: "expired", status: "guest" }),
+      input({ pathname: "/showcase", session: guest("expired") }),
       { kind: "redirect", state: { from: "/showcase", reason: "expired" }, to: LOGIN_PATH },
     ],
     [
       "marks the redirect as an Idle sign-out, replaying the page it left",
-      input({ pathname: "/accounts", signInReason: "inactive", status: "guest" }),
+      input({ pathname: "/accounts", session: guest("inactive") }),
       { kind: "redirect", state: { from: "/accounts", reason: "inactive" }, to: LOGIN_PATH },
     ],
     [
       "renders a guest route for a guest",
-      input({ pathname: LOGIN_PATH, requires: "guest", status: "guest" }),
+      input({ pathname: LOGIN_PATH, requires: "guest", session: guest() }),
       { kind: "render" },
     ],
     [
       "sends an authenticated visitor off a guest route to the default destination",
-      input({ pathname: LOGIN_PATH, requires: "guest", status: "authenticated" }),
+      input({ pathname: LOGIN_PATH, requires: "guest", session: AUTHENTICATED }),
       { kind: "redirect", to: DEFAULT_DESTINATION },
     ],
     [
@@ -184,13 +204,13 @@ describe("resolveSessionRoute", () => {
         pathname: LOGIN_PATH,
         requires: "guest",
         returnTo: "/showcase/settings",
-        status: "authenticated",
+        session: AUTHENTICATED,
       }),
       { kind: "redirect", to: "/showcase/settings" },
     ],
     [
       "renders login for a Guest whose session expired",
-      input({ pathname: LOGIN_PATH, requires: "guest", signInReason: "expired", status: "guest" }),
+      input({ pathname: LOGIN_PATH, requires: "guest", session: guest("expired") }),
       { kind: "render" },
     ],
   ];
@@ -200,7 +220,7 @@ describe("resolveSessionRoute", () => {
   });
 
   it("records the visited path, not a fixed one, as the return destination", () => {
-    const route = resolveSessionRoute(input({ pathname: "/reports/42", status: "guest" }));
+    const route = resolveSessionRoute(input({ pathname: "/reports/42", session: guest() }));
     expect(route).toEqual({
       kind: "redirect",
       state: { from: "/reports/42" },
@@ -252,7 +272,7 @@ describe("resolveSessionRoute", () => {
 
   it("sends a guest on a Permission-guarded route to login with its return destination", () => {
     expect(
-      resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS, status: "guest" })),
+      resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS, session: guest() })),
     ).toEqual({
       kind: "redirect",
       state: { from: "/accounts" },
