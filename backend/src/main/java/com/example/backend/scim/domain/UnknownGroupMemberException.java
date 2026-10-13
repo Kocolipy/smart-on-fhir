@@ -18,7 +18,7 @@ package com.example.backend.scim.domain;
  * rendered error may name it; the exception is what a log line is built from, and a
  * pattern of probed ids is not worth retaining.
  */
-public class UnknownGroupMemberException extends RuntimeException {
+public final class UnknownGroupMemberException extends ScimRequestRefusedException {
 
     public UnknownGroupMemberException(Throwable cause) {
         super("a Group member must be a live SCIM User", cause);

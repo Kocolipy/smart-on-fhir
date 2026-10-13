@@ -9,7 +9,7 @@ package com.example.backend.scim.domain;
  * nothing else: the value never reaches this object, so it cannot reach its message, a log line or
  * a response built from it.
  */
-public abstract sealed class ScimAttributeValueException extends RuntimeException
+public abstract sealed class ScimAttributeValueException extends ScimRequestRefusedException
         permits ScimValueTooLongException, ScimValueControlCharacterException,
                 ScimValueEdgeWhitespaceException {
 

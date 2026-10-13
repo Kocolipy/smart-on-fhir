@@ -117,6 +117,14 @@ class ScimUserServiceTests {
     private final ScimUserSessions sessions = (connectorId, userId, causes) ->
             revocations.add(new Revocation(connectorId, userId, Set.copyOf(causes)));
 
+    /**
+     * Why a refused write leaves this trail empty: a refusal is audited by what it is, once, at the
+     * edge of the request ({@code ScimRefusalAuditTests}), so the use case records neither the
+     * refusal nor any write for it.
+     */
+    private static final String REFUSAL_IS_THE_EDGES =
+            "a refusal is recorded at the edge, not by the use case";
+
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private final FakeSaltedEncoder encoder = new FakeSaltedEncoder();
@@ -221,8 +229,8 @@ class ScimUserServiceTests {
     }
 
     /**
-     * A taken userName fails the create at the store, after the password was accepted: the refusal
-     * is recorded as uniqueness against the connector, and no history is remembered for anyone.
+     * A taken userName fails the create at the store, after the password was accepted: nothing is
+     * recorded here — the refusal is the edge's to audit — and no history is remembered for anyone.
      */
     @Test
     void a_create_with_a_taken_user_name_is_refused_and_remembers_no_password() {
@@ -234,11 +242,7 @@ class ScimUserServiceTests {
 
         assertThat(writesSinceSetUp()).isZero();
         assertThat(history.findRecentHashes(ada.id())).isEqualTo(adaHistory);
-        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
-                    assertThat(event.detail()).isEqualTo("UNIQUENESS");
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @Test
@@ -646,7 +650,7 @@ class ScimUserServiceTests {
     }
 
     @Test
-    void the_bootstrap_admin_cannot_be_written_and_the_attempt_is_recorded() {
+    void the_bootstrap_admin_cannot_be_written_and_no_write_is_recorded() {
         ScimUser reserved = users.createReserved(
                 ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
         ScimVersionPrecondition itsVersion = ScimVersionPrecondition.ofIfMatch(
@@ -657,30 +661,25 @@ class ScimUserServiceTests {
                 .isInstanceOf(ProtectedResourceException.class);
 
         assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.subjectId()).isEqualTo(reserved.id());
-                    assertThat(event.detail()).isEqualTo("MUTABILITY");
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @Test
-    void a_taken_user_name_is_refused_as_a_duplicate_and_recorded() {
+    void a_taken_user_name_is_refused_as_a_duplicate_and_no_write_is_recorded() {
         service.create(CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
         audit.reset();
 
         assertThatThrownBy(() -> patch(new SetText(TextAttribute.USER_NAME, "GRACE")))
                 .isInstanceOf(DuplicateUserNameException.class);
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("UNIQUENESS");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
         assertThat(revocations).isEmpty();
     }
 
     // ---- stored-length limits ---------------------------------------------------------------
 
     /**
-     * A value longer than its column is refused before anything is written and audited as an
-     * invalid value, naming the attribute and its limit and not the value.
+     * A value longer than its column is refused before anything is written, as an invalid value
+     * naming the attribute and its limit and not the value.
      */
     @Test
     void an_over_length_value_on_create_is_an_invalid_value_and_nothing_is_written() {
@@ -698,12 +697,7 @@ class ScimUserServiceTests {
 
         assertThat(writesSinceSetUp()).isZero();
         assertThat(encoder.salt).as("nothing is hashed for a refused create").isEqualTo(1);
-        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
-                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
-                    assertThat(event.subjectId()).isNull();
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @Test
@@ -715,8 +709,7 @@ class ScimUserServiceTests {
 
         assertThat(writesSinceSetUp()).isZero();
         assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("INVALID_VALUE");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @Test
@@ -812,11 +805,7 @@ class ScimUserServiceTests {
         assertThat(stored()).isEqualTo(before);
         assertThat(writesSinceSetUp()).isZero();
         assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
-                    assertThat(event.subjectId()).isEqualTo(ada.id());
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     // ---- partial update -------------------------------------------------------------------
@@ -834,15 +823,14 @@ class ScimUserServiceTests {
     }
 
     @Test
-    void removing_the_user_name_is_refused_changes_nothing_and_is_recorded_as_mutability() {
+    void removing_the_user_name_is_refused_and_changes_nothing() {
         ScimUser before = stored();
 
         assertThatThrownBy(() -> patch(new RemoveText(TextAttribute.USER_NAME)))
                 .isInstanceOf(ScimPatchRefusedException.class);
 
         assertThat(stored()).isEqualTo(before);
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("MUTABILITY");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     /**
@@ -863,8 +851,7 @@ class ScimUserServiceTests {
         assertThat(stored()).isEqualTo(before);
         assertThat(writesSinceSetUp()).isZero();
         assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("NO_TARGET");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     // ---- password history -----------------------------------------------------------------
@@ -876,9 +863,7 @@ class ScimUserServiceTests {
         assertThatThrownBy(() -> put(stored().profile(), "first-password-1", "ext-ada"))
                 .isInstanceOf(PasswordReusedException.class);
 
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE))
-                .extracting(RecordingAuditTrail.Recorded::detail)
-                .containsExactly("INVALID_VALUE", "INVALID_VALUE");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
         assertThat(revocations).isEmpty();
         assertThat(history.findRecentHashes(ada.id())).hasSize(1);
     }
@@ -954,19 +939,14 @@ class ScimUserServiceTests {
 
     @ParameterizedTest
     @MethodSource("subPolicyPasswords")
-    void a_create_with_a_sub_policy_password_is_refused_writes_nothing_and_is_recorded(
+    void a_create_with_a_sub_policy_password_is_refused_and_writes_nothing(
             String candidate, PasswordPolicy.Rule rule) {
         assertRefusedFor(() -> service.create(CONNECTOR, new NewScimUser(
                 minimal("ada-lovelace", true), candidate, "ext-new")), candidate, rule);
 
         assertThat(writesSinceSetUp()).isZero();
         assertThat(history.findRecentHashes(ada.id())).hasSize(1);
-        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
-                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
-                    assertThat(event.subjectId()).isNull();
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @ParameterizedTest
@@ -998,12 +978,7 @@ class ScimUserServiceTests {
         assertThat(revocations).isEmpty();
         assertThat(encoder.matches).as("a sub-policy value is never compared to the history")
                 .isZero();
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
-                    assertThat(event.subjectId()).as("the refusal names the User it targeted")
-                            .isEqualTo(ada.id());
-                });
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     /**
@@ -1146,7 +1121,7 @@ class ScimUserServiceTests {
     }
 
     @Test
-    void the_bootstrap_admin_cannot_be_deleted_and_the_attempt_is_recorded() {
+    void the_bootstrap_admin_cannot_be_deleted_and_no_deletion_is_recorded() {
         ScimUser reserved = users.createReserved(
                 ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
         ScimVersionPrecondition itsVersion = ScimVersionPrecondition.ofIfMatch(
@@ -1158,9 +1133,7 @@ class ScimUserServiceTests {
         assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
         assertThat(tombstones.recorded()).isEmpty();
         assertThat(revocations).isEmpty();
-        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
-                AuditOperation.SCIM_USER_DELETE, CONNECTOR.connectorId(), reserved.id(),
-                "MUTABILITY"));
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     @Test

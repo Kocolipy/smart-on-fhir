@@ -11,7 +11,7 @@ package com.example.backend.scim.domain;
  * <p>Carries the SCIM refusal it is and a detail built from this service's own vocabulary
  * (attribute names), never a submitted value.
  */
-public class ScimPatchRefusedException extends RuntimeException {
+public final class ScimPatchRefusedException extends ScimRequestRefusedException {
 
     /** Which RFC 7644 §3.12 {@code scimType} the refusal is. */
     public enum Reason {

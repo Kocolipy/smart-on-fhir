@@ -147,6 +147,7 @@ FAST_GATE=(
   com/example/backend/scim/controller/ScimPatchPathGrammarTests
   com/example/backend/scim/controller/ScimQueryRequestTests
   com/example/backend/scim/controller/ScimQueryVocabularyTests
+  com/example/backend/scim/controller/ScimRefusalAuditTests
   com/example/backend/scim/controller/ScimSchemaDocumentsTests
   com/example/backend/scim/controller/ScimUserPatchReaderTests
   com/example/backend/scim/controller/ScimUserRequestReaderTests
@@ -220,7 +221,8 @@ mode="$1"; shift || true
 case "$mode" in
   fast)
     echo "== fast gate (${#FAST_GATE[@]} classes) =="
-    joined=$(IFS=,; echo "${FAST_GATE[*]+"${FAST_GATE[*]}"}")
+    joined=$(printf '%s,' "${FAST_GATE[@]+"${FAST_GATE[@]}"}")
+    joined="${joined%,}"
     log=$(mktemp "${TMPDIR:-/tmp}/fast-gate.XXXXXX")
     status=0
     run_tests "$joined" 2>&1 | tee "$log" || status=$?

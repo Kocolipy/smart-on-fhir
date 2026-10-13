@@ -22,7 +22,7 @@ package com.example.backend.scim.domain;
  * administrator reading the refusal needs to know whether the recovery User or the recovery
  * Group was the target. It carries nothing the caller submitted.
  */
-public class ProtectedResourceException extends RuntimeException {
+public final class ProtectedResourceException extends ScimRequestRefusedException {
 
     private final ReservedResourceName reservedName;
 

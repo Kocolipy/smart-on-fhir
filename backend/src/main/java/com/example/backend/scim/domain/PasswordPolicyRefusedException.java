@@ -8,7 +8,7 @@ package com.example.backend.scim.domain;
  * the submitted value never reaches this object, so it cannot reach its message, a log line or a
  * response built from it.
  */
-public class PasswordPolicyRefusedException extends RuntimeException {
+public final class PasswordPolicyRefusedException extends ScimRequestRefusedException {
 
     private final transient PasswordPolicy.Rule rule;
 

@@ -14,7 +14,7 @@ whose transaction has already committed (`AuditTrailService`). How a failing
 session store answers, on every revocation trigger, is the 2026-10-10 addendum below;
 where the rule is expressed — once, from each event's kind — is the 2026-10-12
 addendum; which connections a fail-open append commits on is the 2026-10-13
-addendum.
+addendum; where a refused SCIM write is recorded is the second 2026-10-13 addendum.
 
 To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
 PostgreSQL), in the database enforcement these appends write into: the audit trail
@@ -243,3 +243,29 @@ A bigger main pool only moves the threshold the attack has to reach.
 The cost: two more connections per instance against the database's connection
 limit, and a second place a database outage is felt — a fail-open append fails
 after 2 s rather than 30 s, and the request it rides answers sooner for it.
+
+## Addendum (2026-10-13): A refused SCIM write is recorded once, at the edge
+
+Architecture review 2026-10-13 (third pass), candidate B14. The SCIM use cases
+recorded their own refusals, each in a `catch` that appended the refused event and
+rethrew, while the same `scimType` raised by the adapter reading the request — a
+PATCH naming a read-only attribute, a `name` that is not a complex value — was never
+recorded at all. Whether a refusal reached the trail depended on which module
+noticed it.
+
+**Decision: a refused SCIM write is recorded by what it is, once, at the edge of the
+request.** The SCIM controller advice (`ScimExceptionHandler`) records it from one
+table (`scim.controller.ScimRefusals`): each kind of refusal names its status, its
+`scimType`, its log reason and its audit reason, and the route the dispatcher matched
+names the refused event (`ScimUserCreateRejected`, `ScimUserWriteRejected`,
+`ScimUserDeleteRejected`, `ScimGroupCreateRejected`, `ScimGroupWriteRejected` — a
+Group deletion stays a refused Group write). The use cases raise and never catch to
+record. The deliberate exception stands: a refused precondition is not recorded.
+
+The semantics this ADR decides are unchanged — every one of those events is
+`Audited.Refused`, fail-open with an alert — and so is the fail-open path: the edge
+appends through `AuditTrail` like every other caller. One consequence for the
+starvation analysis above: a SCIM write's refusal is now appended after its
+transaction has rolled back and released its connection and its write locks, so it
+no longer holds a main-pool connection while it waits for the audit append pool.
+

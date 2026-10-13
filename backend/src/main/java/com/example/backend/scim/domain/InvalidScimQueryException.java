@@ -9,7 +9,7 @@ package com.example.backend.scim.domain;
  * <p>SCIM's {@code 400 invalidValue}. Like {@link InvalidScimFilterException} it never quotes
  * what the client sent.
  */
-public class InvalidScimQueryException extends RuntimeException {
+public final class InvalidScimQueryException extends ScimRequestRefusedException {
 
     public InvalidScimQueryException(String message) {
         super(message);

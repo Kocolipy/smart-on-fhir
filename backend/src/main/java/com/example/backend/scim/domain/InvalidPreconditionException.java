@@ -8,7 +8,7 @@ package com.example.backend.scim.domain;
  * list because "any of these versions" is not the exact match this profile requires. Rendered
  * as {@code 400 invalidValue}. Carries nothing the caller sent.
  */
-public class InvalidPreconditionException extends RuntimeException {
+public final class InvalidPreconditionException extends ScimRequestRefusedException {
 
     public InvalidPreconditionException() {
         super("an If-Match precondition must be exactly one strong entity tag");

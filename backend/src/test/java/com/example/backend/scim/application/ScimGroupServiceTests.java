@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.RoleMapping;
@@ -77,6 +76,10 @@ class ScimGroupServiceTests {
 
     private final InMemoryScimExternalIdRepository aliases =
             new InMemoryScimExternalIdRepository();
+
+    /** Why a refused write records nothing here; see {@link #refusalsRecordedHere}. */
+    private static final String REFUSAL_IS_THE_EDGES =
+            "a refusal is recorded at the edge, not by the use case";
 
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
@@ -239,14 +242,13 @@ class ScimGroupServiceTests {
     }
 
     @Test
-    void a_display_name_a_live_group_already_holds_is_refused_and_audited_as_a_uniqueness_failure() {
+    void a_display_name_a_live_group_already_holds_is_refused_as_a_uniqueness_failure() {
         service.create(CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
 
         assertThatThrownBy(() -> service.create(
                         CONNECTOR, new NewScimGroup("engineering", List.of(), null)))
                 .isInstanceOf(DuplicateDisplayNameException.class);
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
-                .containsExactly(AuditScimRefusal.UNIQUENESS.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
     /** AC 1: a Group's id as a member is rejected as invalid — the membership names Users only. */
@@ -261,12 +263,11 @@ class ScimGroupServiceTests {
     }
 
     @Test
-    void an_unknown_id_as_a_member_is_refused_and_audited_as_an_invalid_value() {
+    void an_unknown_id_as_a_member_is_refused_as_an_invalid_value() {
         assertThatThrownBy(() -> service.create(
                         CONNECTOR, new NewScimGroup("Ghosts", List.of(UUID.randomUUID()), null)))
                 .isInstanceOf(UnknownGroupMemberException.class);
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
     // ---- read ---------------------------------------------------------------------------------
@@ -434,18 +435,16 @@ class ScimGroupServiceTests {
     }
 
     /**
-     * A write naming a member that does not exist is audited as an invalid value, on the REPLACE
-     * operation rather than the create one.
+     * A write naming a member that does not exist is refused as an invalid value, on the REPLACE
+     * operation rather than the create one, and records no write.
      *
-     * <p>Separate from the create-time case above because they are separate call sites with
-     * separate audit calls, and the write one was reachable by tests that asserted only the thrown
-     * exception: mutation testing removed the audit call on this path and every test still passed.
-     * A refused provisioning write that leaves no trace is the failure mode the audit trail exists
-     * to prevent — an operator investigating why a connector's membership never converged would
-     * find nothing recorded at all.
+     * <p>Separate from the create-time case above because they are separate call sites. Each once
+     * carried its own audit call, and mutation testing removed this one with every test still
+     * passing; the refusal is audited at the edge now, for every call site at once
+     * ({@code ScimRefusalAuditTests}).
      */
     @Test
-    void a_write_naming_an_unknown_member_is_audited_as_an_invalid_value_on_the_write() {
+    void a_write_naming_an_unknown_member_is_refused_as_an_invalid_value_on_the_write() {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
 
@@ -455,16 +454,12 @@ class ScimGroupServiceTests {
                         new ScimGroupReplacement("Engineering", List.of(UUID.randomUUID()), null)))
                 .isInstanceOf(UnknownGroupMemberException.class);
 
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE))
-                .singleElement()
-                .satisfies(recorded -> assertThat(recorded.subjectId()).isEqualTo(created.id()));
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     /** The same refusal reached through PATCH, which shares the one write path. */
     @Test
-    void a_patch_naming_an_unknown_member_is_audited_as_an_invalid_value() {
+    void a_patch_naming_an_unknown_member_is_refused_as_an_invalid_value() {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
 
@@ -472,17 +467,15 @@ class ScimGroupServiceTests {
                         new ScimGroupPatchOperation.AddMembers(List.of(UUID.randomUUID())))))
                 .isInstanceOf(UnknownGroupMemberException.class);
 
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_REPLACE)).isEmpty();
     }
 
     /**
      * A rename onto a displayName another live Group holds is refused as a uniqueness failure on
-     * the write, naming the Group it was aimed at — the replace-path counterpart of the create-time
-     * uniqueness refusal, with its own audit call that mutation testing found unreached.
+     * the write — the replace-path counterpart of the create-time uniqueness refusal.
      */
     @Test
-    void a_rename_onto_a_held_display_name_is_audited_as_a_uniqueness_failure_on_the_write() {
+    void a_rename_onto_a_held_display_name_is_refused_as_a_uniqueness_failure_on_the_write() {
         service.create(CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
         ScimGroupResource platform = service.create(
                 CONNECTOR, new NewScimGroup("Platform", List.of(), null));
@@ -493,11 +486,7 @@ class ScimGroupServiceTests {
                         new ScimGroupReplacement("ENGINEERING", List.of(), null)))
                 .isInstanceOf(DuplicateDisplayNameException.class);
 
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
-                .containsExactly(AuditScimRefusal.UNIQUENESS.name());
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE))
-                .singleElement()
-                .satisfies(recorded -> assertThat(recorded.subjectId()).isEqualTo(platform.id()));
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     // ---- externalId -----------------------------------------------------------------------------
@@ -833,9 +822,9 @@ class ScimGroupServiceTests {
     // ---- stored-length limits ---------------------------------------------------------------
 
     /**
-     * A {@code displayName} longer than its column is refused before anything is written and
-     * audited as an invalid value — not, as it once was, as a uniqueness conflict the database's
-     * refusal was mistaken for.
+     * A {@code displayName} longer than its column is refused before anything is written, as an
+     * invalid value — not, as it once was, as a uniqueness conflict the database's refusal was
+     * mistaken for.
      */
     @Test
     void an_over_length_display_name_on_create_is_an_invalid_value_and_nothing_is_stored() {
@@ -847,8 +836,7 @@ class ScimGroupServiceTests {
                 });
 
         assertThat(groups.size()).isZero();
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
     @Test
@@ -859,8 +847,7 @@ class ScimGroupServiceTests {
                         refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
 
         assertThat(groups.size()).isZero();
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
     /** An over-length alias is refused on PUT and PATCH alike, and the stored one is kept. */
@@ -880,9 +867,7 @@ class ScimGroupServiceTests {
         assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
         assertThat(groups.findById(created.id()).orElseThrow().version())
                 .isEqualTo(created.version());
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name(),
-                        AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_REPLACE)).isEmpty();
     }
 
     @Test
@@ -911,12 +896,7 @@ class ScimGroupServiceTests {
                 .isInstanceOf(ScimValueTooLongException.class);
 
         assertThat(groups.findById(engineering.id())).contains(before);
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
-                .containsExactly(AuditScimRefusal.INVALID_VALUE.name(),
-                        AuditScimRefusal.INVALID_VALUE.name());
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE))
-                .allSatisfy(recorded -> assertThat(recorded.subjectId())
-                        .isEqualTo(engineering.id()));
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     // ---- delete -------------------------------------------------------------------------------
@@ -1058,13 +1038,12 @@ class ScimGroupServiceTests {
                         CONNECTOR, new NewScimGroup("Engineering", List.of(recovery.id()), null)))
                 .isInstanceOf(ProtectedResourceException.class);
 
-        // The refusal must be AUDITED, not merely thrown. This assertion is the one that was
-        // missing: the test asserted the exception type alone, so it passed while the create-time
-        // refusal recorded nothing at all — an attempt to provision the recovery authority away
-        // left no trace, which is the exact outcome this class's contract forbids. Recorded as a
-        // refused CREATE with no resource id, because no Group came into existence to name.
-        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
-                .containsExactly(AuditScimRefusal.MUTABILITY.name());
+        // The refusal must be AUDITED, not merely thrown — once a test asserted the exception
+        // type alone and passed while the create-time refusal recorded nothing at all. It is
+        // audited at the edge now, as a refused CREATE with no resource id: ScimRefusalAuditTests
+        // holds that a protected-resource refusal is mutability and that POST /Groups records it
+        // as ScimGroupCreateRejected. The use case records nothing.
+        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
     @Test
@@ -1081,21 +1060,20 @@ class ScimGroupServiceTests {
                 .isInstanceOf(ProtectedResourceException.class);
     }
 
-    /** AC 7: every protected-resource refusal produces its own audit event. */
+    /**
+     * AC 7: every protected-resource refusal produces its own audit event — at the edge, which
+     * {@code ScimRefusalAuditTests} holds; the use case deletes nothing and records no deletion.
+     */
     @Test
-    void a_protected_resource_refusal_is_audited_as_a_mutability_failure_naming_the_group() {
+    void a_protected_resource_refusal_deletes_nothing_and_records_no_deletion() {
         ScimGroup adminGroup = seedAdminGroup();
         audit.reset();
 
         assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id(), current(adminGroup.id())))
                 .isInstanceOf(ProtectedResourceException.class);
 
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
-                    assertThat(event.subjectId()).isEqualTo(adminGroup.id());
-                    assertThat(event.detail()).isEqualTo(AuditScimRefusal.MUTABILITY.name());
-                });
+        assertThat(groups.findById(adminGroup.id())).isPresent();
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     /** Ordinary membership of the Admin group stays writable — that is what provisioning is for. */
@@ -1299,13 +1277,11 @@ class ScimGroupServiceTests {
      * refusal that connector's investigation never finds. Checked here, once, so every refusal
      * path a test drives is held to it.
      */
-    private List<String> refusalDetails(AuditOperation operation) {
-        List<RecordingAuditTrail.Recorded> refusals = audit.of(operation).stream()
-                .filter(recorded -> recorded.detail() != null)
-                .toList();
-        assertThat(refusals).as("every refusal names the connector that made it")
-                .allSatisfy(recorded ->
-                        assertThat(recorded.actorId()).isEqualTo(CONNECTOR.connectorId()));
-        return refusals.stream().map(RecordingAuditTrail.Recorded::detail).toList();
+    /**
+     * The refusals of this operation the use case recorded itself — none, ever: a refusal is
+     * audited by what it is, once, at the edge of the request ({@code ScimRefusalAuditTests}).
+     */
+    private List<RecordingAuditTrail.Recorded> refusalsRecordedHere(AuditOperation operation) {
+        return audit.of(operation).stream().filter(recorded -> recorded.detail() != null).toList();
     }
 }

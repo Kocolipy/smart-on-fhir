@@ -641,6 +641,57 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     /**
+     * A refusal is audited by what it is, not by which module raised it: a PATCH naming a read-only
+     * attribute is refused by the request reader, one removing {@code userName} by the directory,
+     * and both are {@code mutability} — so each is recorded once, and alike, naming the User the
+     * write was aimed at.
+     */
+    @Test
+    void a_reader_refusal_is_audited_once_like_the_same_refusal_from_the_directory()
+            throws Exception {
+        UUID id = UUID.fromString(body(create("""
+                {"schemas":["%s"],"userName":"refused-alike"}""".formatted(USER_SCHEMA)))
+                .get("id").asText());
+        for (String operation : List.of(
+                "{\"op\":\"replace\",\"path\":\"id\",\"value\":\"another\"}",
+                "{\"op\":\"remove\",\"path\":\"userName\"}")) {
+            mvc.perform(asConnector(patch(USERS + "/" + id)).contentType(SCIM_JSON).content("""
+                    {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                     "Operations":[%s]}""".formatted(operation))).andReturn();
+        }
+
+        assertThat(eventsOf(AuditOperation.SCIM_USER_REPLACE).stream()
+                        .map(event -> event.get("outcome") + " " + event.get("error_code") + " "
+                                + event.get("subject_id"))
+                        .toList())
+                .containsExactly("FAILURE MUTABILITY " + id, "FAILURE MUTABILITY " + id);
+    }
+
+    /**
+     * A write refused while its request is read is recorded naming the id it addressed, whether or
+     * not a User holds it: the reader refuses before the User is looked up, and the attempt is the
+     * act on record. A well-formed write to that id is a {@code 404}, which is not recorded.
+     */
+    @Test
+    void a_reader_refusal_on_an_id_naming_no_user_is_recorded_and_its_not_found_is_not()
+            throws Exception {
+        UUID nobody = UUID.fromString("5f0c2b8e-1d4a-4e6b-9c3f-2a7d8e9b0c1d");
+        for (String operation : List.of(
+                "{\"op\":\"replace\",\"path\":\"id\",\"value\":\"another\"}",
+                "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Nobody\"}")) {
+            mvc.perform(asConnector(patch(USERS + "/" + nobody)).contentType(SCIM_JSON).content("""
+                    {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                     "Operations":[%s]}""".formatted(operation))).andReturn();
+        }
+
+        assertThat(eventsOf(AuditOperation.SCIM_USER_REPLACE).stream()
+                        .map(event -> event.get("outcome") + " " + event.get("error_code") + " "
+                                + event.get("subject_id"))
+                        .toList())
+                .containsExactly("FAILURE MUTABILITY " + nobody);
+    }
+
+    /**
      * One password policy on every SCIM path that sets a password: a sub-policy value is refused on
      * POST, PUT and PATCH as {@code 400 invalidValue} naming the rule, the refusal is audited, and
      * the value reaches no response, no audit row and no log line.

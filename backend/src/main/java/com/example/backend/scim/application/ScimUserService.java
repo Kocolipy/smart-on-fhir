@@ -1,6 +1,5 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.Audited;
@@ -13,14 +12,12 @@ import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimAttributeLimits;
-import com.example.backend.scim.domain.ScimAttributeValueException;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimPasswordChange;
-import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -86,10 +83,12 @@ import org.springframework.transaction.annotation.Transactional;
  *       moved only the calling connector's alias, since that stores no User row.
  * </ol>
  *
- * <p>Every refusal is raised before anything is written, and each is audited fail-open, as a
- * refused Group write is. A refused precondition is NOT audited: it is the ordinary signal of two
- * writers colliding, carries nothing about the User, and is counted by the operational telemetry
- * instead ({@code ops/prometheus/alerts.yaml}).
+ * <p>Every refusal is raised before anything is written, and none is audited here: a refusal is
+ * audited by what it is, once, at the edge of the request, whichever module raised it — this one,
+ * the directory, or the adapter reading the request — so this class raises and never catches to
+ * record. The edge's table keeps the deliberate exception: a refused precondition is NOT audited.
+ * It is the ordinary signal of two writers colliding, carries nothing about the User, and is
+ * counted by the operational telemetry instead ({@code ops/prometheus/alerts.yaml}).
  */
 @Service
 public class ScimUserService {
@@ -141,37 +140,27 @@ public class ScimUserService {
      * history, so a later change back to it is refused like any other reuse.
      *
      * <p>A value its column cannot hold — see {@link ScimAttributeLimits} — is refused first, as
-     * {@code invalidValue} naming the attribute and the rule, and audited fail-open as that.
-     * Without it the INSERT would fail on the column and the failure could only be guessed at.
+     * {@code invalidValue} naming the attribute and the rule. Without it the INSERT would fail on
+     * the column and the failure could only be guessed at.
      *
      * <p>A submitted password must satisfy {@link PasswordPolicy} before anything else happens; a
-     * refusal names the rule, is audited fail-open as {@code invalidValue}, and writes nothing.
+     * refusal names the rule and writes nothing.
      *
-     * <p>A {@code userName} already taken arrives as
-     * {@link DuplicateUserNameException} from the failed INSERT rather than from a
-     * prior read. The refusal is audited in a transaction of its own — this one is
-     * already doomed — and then re-thrown for the adapter to render as a SCIM
-     * {@code uniqueness} error.
+     * <p>A {@code userName} already taken arrives as {@link DuplicateUserNameException} from the
+     * failed INSERT rather than from a prior read, and propagates for the adapter to render as a
+     * SCIM {@code uniqueness} error. Its audit is the edge's, fail-open and in a transaction of its
+     * own — this one is already doomed.
      */
     @Transactional
     public ScimUserResource create(AuthenticatedConnector connector, NewScimUser command) {
-        try {
-            ScimAttributeLimits.requireWithin(command.profile());
-            ScimAttributeLimits.requireExternalIdWithin(command.externalId());
-        } catch (ScimAttributeValueException unacceptable) {
-            audit.append(new Audited.ScimUserCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
-            throw unacceptable;
-        }
+        ScimAttributeLimits.requireWithin(command.profile());
+        ScimAttributeLimits.requireExternalIdWithin(command.externalId());
         PasswordAcceptance.Accepted password = null;
         if (command.password() != null) {
             // A User being created has no credential and no history, so nothing can be reused;
             // the policy's own order still decides which rule a refusal names.
-            password = acceptedOrRefused(
-                    passwordAcceptance.acceptForNewUser(
-                            command.password(), command.profile().userName()),
-                    () -> audit.append(new Audited.ScimUserCreateRejected(
-                            connector.connectorId(), AuditScimRefusal.INVALID_VALUE)));
+            password = acceptedOrRefused(passwordAcceptance.acceptForNewUser(
+                    command.password(), command.profile().userName()));
         }
         Instant now = clock.instant();
         String passwordHash = password == null ? null : password.passwordHash();
@@ -179,14 +168,7 @@ public class ScimUserService {
         ScimUser user = withLogin(
                 ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now),
                 loginStates.created(passwordHash, now));
-        ScimUser created;
-        try {
-            created = users.create(user);
-        } catch (DuplicateUserNameException duplicate) {
-            audit.append(new Audited.ScimUserCreateRejected(
-                    connector.connectorId(), AuditScimRefusal.UNIQUENESS));
-            throw duplicate;
-        }
+        ScimUser created = users.create(user);
         if (password != null) {
             passwordAcceptance.remember(created.id(), password, now);
         }
@@ -312,8 +294,6 @@ public class ScimUserService {
         precondition.requireSatisfiedBy(current.version());
         UUID connectorId = connector.connectorId();
         if (current.isProtectedFromWrites()) {
-            audit.append(new Audited.ScimUserDeleteRejected(
-                    connectorId, id, AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
         Instant now = clock.instant();
@@ -350,35 +330,20 @@ public class ScimUserService {
         precondition.requireSatisfiedBy(current.version());
         UUID connectorId = connector.connectorId();
         if (current.isProtectedFromWrites()) {
-            audit.append(new Audited.ScimUserWriteRejected(
-                    connectorId, id, AuditScimRefusal.MUTABILITY));
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
 
         ScimUserEdit before =
                 ScimUserEdit.of(current.profile(), aliases.find(connectorId, id).orElse(null));
-        ScimUserEdit after;
-        try {
-            after = change.apply(before);
-            ScimAttributeLimits.requireWithin(after.profile());
-            // A PUT and a PATCH can both set the alias now, so it is bounded on the shared path.
-            ScimAttributeLimits.requireExternalIdWithin(after.externalId());
-        } catch (ScimPatchRefusedException refused) {
-            audit.append(new Audited.ScimUserWriteRejected(connectorId, id, refusal(refused)));
-            throw refused;
-        } catch (ScimAttributeValueException unacceptable) {
-            audit.append(new Audited.ScimUserWriteRejected(
-                    connectorId, id, AuditScimRefusal.INVALID_VALUE));
-            throw unacceptable;
-        }
+        ScimUserEdit after = change.apply(before);
+        ScimAttributeLimits.requireWithin(after.profile());
+        // A PUT and a PATCH can both set the alias now, so it is bounded on the shared path.
+        ScimAttributeLimits.requireExternalIdWithin(after.externalId());
 
         ScimPasswordChange password = after.password();
         PasswordAcceptance.Accepted accepted = password.kind() == ScimPasswordChange.Kind.SET
-                ? acceptedOrRefused(
-                        passwordAcceptance.acceptFor(
-                                current, password.plaintext(), after.profile().userName()),
-                        () -> audit.append(new Audited.ScimUserWriteRejected(
-                                connectorId, id, AuditScimRefusal.INVALID_VALUE)))
+                ? acceptedOrRefused(passwordAcceptance.acceptFor(
+                        current, password.plaintext(), after.profile().userName()))
                 : null;
         ScimUserLoginState.Credential credential = switch (password.kind()) {
             case UNCHANGED -> ScimUserLoginState.Credential.unchanged(current.login().passwordHash());
@@ -395,15 +360,10 @@ public class ScimUserService {
         // connector did write, and a connector hammering no-op writes is worth seeing.
         Instant now = clock.instant();
         if (implied.stored().columns()) {
-            try {
-                users.replace(desired(current, after.profile(), loginStates.afterReplacement(
-                                current, after.profile(), credential, now)),
-                        now);
-            } catch (DuplicateUserNameException duplicate) {
-                audit.append(new Audited.ScimUserWriteRejected(
-                        connectorId, id, AuditScimRefusal.UNIQUENESS));
-                throw duplicate;
-            }
+            // A taken userName fails here as DuplicateUserNameException, audited at the edge.
+            users.replace(desired(current, after.profile(), loginStates.afterReplacement(
+                            current, after.profile(), credential, now)),
+                    now);
         }
         if (accepted != null) {
             // Remembered only now that the credential is written, in this transaction: a refusal
@@ -421,18 +381,15 @@ public class ScimUserService {
     }
 
     /**
-     * The accepted password, or — after recording the refusal fail-open — the refusal a connector
-     * receives for the rule it broke. The decision itself is {@link PasswordAcceptance}'s, in the
-     * policy's own order, which is the order the self-service change applies too.
+     * The accepted password, or the refusal a connector receives for the rule it broke. The
+     * decision itself is {@link PasswordAcceptance}'s, in the policy's own order, which is the
+     * order the self-service change applies too.
      */
     private static PasswordAcceptance.Accepted acceptedOrRefused(
-            PasswordAcceptance.Decision decision, Runnable recordRefusal) {
+            PasswordAcceptance.Decision decision) {
         return switch (decision) {
             case PasswordAcceptance.Accepted accepted -> accepted;
-            case PasswordAcceptance.Refused refused -> {
-                recordRefusal.run();
-                throw refusal(refused.rule());
-            }
+            case PasswordAcceptance.Refused refused -> throw refusal(refused.rule());
         };
     }
 
@@ -480,13 +437,6 @@ public class ScimUserService {
                 user.version(),
                 user.createdAt(),
                 user.lastModifiedAt());
-    }
-
-    private static AuditScimRefusal refusal(ScimPatchRefusedException refused) {
-        return switch (refused.reason()) {
-            case MUTABILITY -> AuditScimRefusal.MUTABILITY;
-            case NO_TARGET -> AuditScimRefusal.NO_TARGET;
-        };
     }
 
     /** The stored User as this connector sees it, alias and computed Group memberships included. */

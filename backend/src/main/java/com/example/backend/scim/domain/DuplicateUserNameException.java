@@ -16,7 +16,7 @@ package com.example.backend.scim.domain;
  * just sent — but it is also a value that must not reach a log line, and an
  * exception message is the shortest path into one.
  */
-public class DuplicateUserNameException extends RuntimeException {
+public final class DuplicateUserNameException extends ScimRequestRefusedException {
 
     public DuplicateUserNameException(Throwable cause) {
         super("a live SCIM User already holds this userName", cause);

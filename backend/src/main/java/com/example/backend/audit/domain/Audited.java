@@ -440,7 +440,8 @@ public sealed interface Audited {
 
     /**
      * A User create refused — a {@code userName} a live User already holds ({@code UNIQUENESS}),
-     * or a password the policy does not accept ({@code INVALID_VALUE}).
+     * or a value the schema or the password policy does not accept ({@code INVALID_VALUE}),
+     * whichever module raised it: the SCIM edge records every refused create by the refusal's kind.
      *
      * <p>No subject id, because there is none: the resource was not created, and the existing User
      * that holds the name is not what the event is about. Fail-open in a transaction of its own,
@@ -499,10 +500,12 @@ public sealed interface Audited {
     }
 
     /**
-     * A User write refused after the User was found — a reused password, a PATCH that would remove
-     * a required attribute or found no target, a taken {@code userName}, or an attempt to write the
-     * Bootstrap Admin. The write's own transaction is rolling back, so an append that joined it
-     * would vanish with it.
+     * A User write refused — a value the schema or the password policy does not accept, a PATCH
+     * naming a read-only attribute, removing a required one or finding no target, a taken
+     * {@code userName}, or an attempt to write the Bootstrap Admin. Named by the User the write
+     * addressed, whether the request's reader refused it before the User was looked up or the
+     * directory after it was found. The write's own transaction has rolled back, so an append that
+     * joined it would vanish with it.
      */
     record ScimUserWriteRejected(UUID connectorId, UUID userId, AuditScimRefusal reason)
             implements Refused {

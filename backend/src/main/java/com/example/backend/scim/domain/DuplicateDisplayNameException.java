@@ -17,7 +17,7 @@ package com.example.backend.scim.domain;
  * <p>Carries no message naming the value, for the reason the User exception does not: an
  * exception message is the shortest path into a log line.
  */
-public class DuplicateDisplayNameException extends RuntimeException {
+public final class DuplicateDisplayNameException extends ScimRequestRefusedException {
 
     public DuplicateDisplayNameException(Throwable cause) {
         super("a live SCIM Group already holds this displayName", cause);
