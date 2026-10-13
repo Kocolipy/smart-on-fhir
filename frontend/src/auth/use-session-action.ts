@@ -1,0 +1,104 @@
+/**
+ * The one way a page runs a **session action** — login, logout or the
+ * password change.
+ *
+ * A page names the action and runs it with the action's own arguments; the
+ * hook owns the rest, in one order for all three: it withdraws the line an
+ * earlier run left, holds the pending flag while the action is out, and reads
+ * the closed outcome it resolves to (`auth/api.ts`; an action never throws).
+ * An outcome that ends or starts a session — `signed-in`, `signed-out`,
+ * `changed`, `locked` — has already moved the session, so the guards move the
+ * visitor on and the login page says why (`sign-in-reason.ts`); there is
+ * nothing to show, and the hook shows nothing. Every other outcome leaves the
+ * visitor on the page, and the hook hands it the one line
+ * `session-action-copy.ts` gives for it. The page renders `pending` and
+ * `error` as they come, as it does a gated write's, and never reads the
+ * outcome itself.
+ *
+ * Pending clears once the action settles, whatever its outcome. On one that
+ * ended or started a session the guard replaces the page on that same update,
+ * so the settled control is never seen; a page still mounted gets its control
+ * back, as one left on the page needs.
+ *
+ * Which outcome of login or logout starts or ends a session is decided here, by
+ * {@link LINE_FOR}. For the password change it is `sign-in-reason.ts`'s
+ * `sessionEndReasonFor`, the rule the provider ends the session by, and
+ * {@link LINE_FOR} reads it rather than repeating it. Each copy function only
+ * takes the outcomes that remain.
+ */
+
+import { useState } from "react";
+
+import type { PasswordChangeOutcome } from "./api";
+import { useAuth, type AuthContextValue } from "./auth-context-value";
+import { loginMessage, logoutMessage, passwordChangeMessage } from "./session-action-copy";
+import { sessionEndReasonFor } from "./sign-in-reason";
+
+type SessionActions = Pick<AuthContextValue, "changePassword" | "login" | "logout">;
+
+/** The auth context member a session action is: `login`, `logout` or `changePassword`. */
+export type SessionActionName = keyof SessionActions;
+
+type ArgsOf<N extends SessionActionName> = Parameters<SessionActions[N]>;
+type OutcomeOf<N extends SessionActionName> = Awaited<ReturnType<SessionActions[N]>>;
+
+/**
+ * Whether a password change ended the session, by the provider's own rule; the
+ * type only lets the copy below see the refusals that remain.
+ */
+function endedSession(
+  outcome: PasswordChangeOutcome,
+): outcome is Extract<PasswordChangeOutcome, { kind: "changed" | "locked" }> {
+  return sessionEndReasonFor(outcome) !== null;
+}
+
+/**
+ * The line each action's outcome shows, or `null` for one that ended or
+ * started a session, which the guards answer by moving the visitor on.
+ */
+const LINE_FOR: { [N in SessionActionName]: (outcome: OutcomeOf<N>) => string | null } = {
+  changePassword: (outcome) => (endedSession(outcome) ? null : passwordChangeMessage(outcome)),
+  login: (outcome) => (outcome.kind === "signed-in" ? null : loginMessage(outcome)),
+  logout: (outcome) => (outcome.kind === "signed-out" ? null : logoutMessage(outcome)),
+};
+
+/**
+ * How a run settled: `stayed` when the outcome left the visitor on the page with
+ * its line, `moved-on` when it ended or started a session and the guards take
+ * the visitor elsewhere.
+ */
+export type SessionActionResult = "moved-on" | "stayed";
+
+export interface SessionAction<A extends unknown[]> {
+  /** The line the latest run's outcome shows, or `null` while there is none. */
+  error: string | null;
+  /** Whether a run is out; the control that runs it disables on this. */
+  pending: boolean;
+  /**
+   * Runs the action once. Never rejects, and resolves how it settled — for a
+   * page that tidies up after a refusal.
+   */
+  run: (...args: A) => Promise<SessionActionResult>;
+}
+
+export function useSessionAction<N extends SessionActionName>(name: N): SessionAction<ArgsOf<N>> {
+  const auth = useAuth();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (...args: ArgsOf<N>): Promise<SessionActionResult> => {
+    // `auth[name]` and `LINE_FOR[name]` agree on `N`, which TypeScript cannot follow through the index.
+    const act = auth[name] as (...args: ArgsOf<N>) => Promise<OutcomeOf<N>>;
+    setError(null);
+    setPending(true);
+    try {
+      const line = LINE_FOR[name](await act(...args));
+      setError(line);
+      return line === null ? "moved-on" : "stayed";
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return { error, pending, run };
+}

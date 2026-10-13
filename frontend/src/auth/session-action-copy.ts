@@ -2,8 +2,10 @@
  * The copy for every **session action** outcome — login, logout, the password
  * change and the start-up session check — and the only place it lives.
  *
- * Each action resolves to a closed outcome (`auth/api.ts`), never a throw; the
- * page that ran it renders the line this module gives for it. Each switch is
+ * Each action resolves to a closed outcome (`auth/api.ts`), never a throw. The
+ * session action (`use-session-action.ts`) hands a page the line this module
+ * gives for login, logout and the password change, and the route guards
+ * render the start-up check's. Each switch is
  * exhaustive over the outcomes that carry copy, so a new outcome cannot ship
  * without its own. The two transport outcomes read the request seam's
  * {@link refusalMessage}, as the gated read and write do, so `forbidden` and
@@ -11,7 +13,9 @@
  *
  * The outcomes that carry no copy here are the ones that end or start a
  * session: the guards move the visitor on, and the login page says why
- * (`sign-in-reason.ts`).
+ * (`sign-in-reason.ts`). Which outcomes those are is the session action's to
+ * decide, by `sign-in-reason.ts`'s rule for the password change; these
+ * signatures only exclude them.
  */
 
 import type {

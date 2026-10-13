@@ -44,8 +44,8 @@ export type AuthStatus = Session["status"];
  *
  * The three **session actions** — `login`, `logout`, `changePassword` — never
  * reject for a request outcome: each resolves to a closed outcome with the
- * session already updated for it, and the page renders the line
- * `session-action-copy.ts` gives for it.
+ * session already updated for it. A page runs one through
+ * `useSessionAction` (`use-session-action.ts`) and renders what it hands back.
  */
 export interface AuthContextValue {
   /**

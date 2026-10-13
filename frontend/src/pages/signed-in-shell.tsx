@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { Link, matchPath, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
-import { logoutMessage } from "@/auth/session-action-copy";
+import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SHOWCASE_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
@@ -14,27 +13,17 @@ import { SHOWCASE_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
  * A Sign out that fails, or comes back CSRF-expired, leaves the session
  * standing — the auth context's `logout` resolves that outcome without ending
  * anything, so the CSRF token stays with its session (ADR-0009) — and the shell
- * shows the outcome's copy, which says so. A `signed-out` one has already ended
- * the session, and the guards send the user to login with no Sign-in reason.
- * The Idle sign-out is a separate path that always ends it.
+ * shows the line the session action hands back, which says so. A `signed-out`
+ * one has already ended the session, and the guards send the user to login
+ * with no Sign-in reason. The Idle sign-out is a separate path that always
+ * ends it.
  */
 export function SignedInShell() {
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
   const { pathname } = useLocation();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const signOut = useSessionAction("logout");
   const page = SIGNED_IN_PAGES.find((entry) => matchPath(entry.path, pathname)) ?? SHOWCASE_PAGE;
   const confined = user?.passwordChangeRequired === true;
-
-  async function signOut() {
-    setPending(true);
-    setError("");
-    const outcome = await logout();
-    // Signed out, the guards replace the shell; there is nothing to show here.
-    if (outcome.kind === "signed-out") return;
-    setError(logoutMessage(outcome));
-    setPending(false);
-  }
 
   return (
     <main
@@ -49,13 +38,13 @@ export function SignedInShell() {
           <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
           <h1 className="text-3xl font-semibold tracking-tight">{page.title}</h1>
         </div>
-        <Button disabled={pending} variant="outline" onClick={() => void signOut()}>
-          {pending ? "Signing out…" : "Sign out"}
+        <Button disabled={signOut.pending} variant="outline" onClick={() => void signOut.run()}>
+          {signOut.pending ? "Signing out…" : "Sign out"}
         </Button>
       </div>
-      {error ? (
+      {signOut.error ? (
         <p className="w-full text-sm text-destructive" role="alert">
-          {error}
+          {signOut.error}
         </p>
       ) : null}
 

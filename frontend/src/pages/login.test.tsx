@@ -42,7 +42,9 @@ const submit = () =>
   });
 
 describe("Login", () => {
-  // Which sign-in reason says what, and which one wins, is the table in
+  // Running the login — pending, the outcome, which one signs in, its copy — is
+  // `use-session-action.test.tsx`'s; these prove the page renders what it hands
+  // back. Which sign-in reason says what, and which one wins, is the table in
   // `sign-in-reason.test.ts`; these prove the page renders the notice it gives
   // for each carriage.
   it("says why for a reason carried in router state", () => {
@@ -134,18 +136,5 @@ describe("Login", () => {
     await submit();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${EXPIRED}$`));
-  });
-
-  it.each<[LoginOutcome, RegExp]>([
-    [{ kind: "failed" }, /^Unable to sign in\. Please try again\.$/],
-    [{ kind: "csrf-expired" }, /^Your security token expired\. Please try again\.$/],
-    [{ kind: "forbidden" }, /^You don't have permission to do this\.$/],
-  ])("shows the copy for a login that came to %j", async (outcome, copy) => {
-    renderLogin(vi.fn<AuthContextState["login"]>().mockResolvedValue(outcome));
-
-    await submit();
-
-    expect(screen.getByRole("alert")).toHaveTextContent(copy);
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 });

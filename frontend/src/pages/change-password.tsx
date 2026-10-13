@@ -1,23 +1,12 @@
 import { useState, type FormEvent } from "react";
 
-import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
-import { passwordChangeMessage } from "@/auth/session-action-copy";
-import { sessionEndReasonFor } from "@/auth/sign-in-reason";
+import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const MISMATCH_MESSAGE = "The new password and its confirmation do not match.";
-
-/**
- * The outcomes that end the session, which the login page explains instead.
- * Which those are is `sessionEndReasonFor`'s rule; this type only narrows.
- */
-type SessionEnding = Extract<PasswordChangeOutcome, { kind: "changed" | "locked" }>;
-
-const endsSession = (outcome: PasswordChangeOutcome): outcome is SessionEnding =>
-  sessionEndReasonFor(outcome) !== null;
 
 const inputClass =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -29,17 +18,23 @@ const inputClass =
  * visitor may open it, and a session with the change-required flag is offered
  * nothing else. On success the backend ends every session of the User, and on
  * a lockout it revokes them; either way the auth state is cleared and the guard
- * returns the visitor to login, which says why.
+ * returns the visitor to login, which says why. Running the change is the
+ * session action's (`useSessionAction`), which shows nothing for either; the
+ * page owns only what comes before and after it — the confirmation check, and
+ * clearing the fields after a refusal.
  *
  * The fields are uncontrolled on purpose. A controlled input mirrors its value
  * into the DOM `value` attribute, and a password belongs in no attribute; read
  * once from the form on submit, it lives only in the input and the request.
  */
 export function ChangePassword() {
-  const { changePassword, user } = useAuth();
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const { user } = useAuth();
+  const change = useSessionAction("changePassword");
+  // The page's own refusal, which sends nothing; it stands until the next submission.
+  const [mismatch, setMismatch] = useState(false);
   const confined = user?.passwordChangeRequired === true;
+  // The action's line is the outcome's own copy, which never contains either submitted value.
+  const error = mismatch ? MISMATCH_MESSAGE : change.error;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,25 +42,17 @@ export function ChangePassword() {
     // handler has returned, and the form is still needed to clear the fields.
     const form = event.currentTarget;
     const data = new FormData(form);
-    const currentPassword = String(data.get("currentPassword"));
     const newPassword = String(data.get("newPassword"));
-    setError("");
-
-    if (newPassword !== String(data.get("confirmPassword"))) {
+    const mismatched = newPassword !== String(data.get("confirmPassword"));
+    setMismatch(mismatched);
+    if (mismatched) {
       form.reset();
-      setError(MISMATCH_MESSAGE);
       return;
     }
 
-    setSubmitting(true);
-    const outcome = await changePassword(currentPassword, newPassword);
-    setSubmitting(false);
-    // A change or a lockout ended the session, and the guard has already
-    // moved on to login, which says which; there is nothing to show here.
-    if (endsSession(outcome)) return;
-    form.reset();
-    // The outcome's own copy, which never contains either submitted value.
-    setError(passwordChangeMessage(outcome));
+    // Only a refusal clears the fields: an ended session has the guard replace the page.
+    const settled = await change.run(String(data.get("currentPassword")), newPassword);
+    if (settled === "stayed") form.reset();
   }
 
   return (
@@ -141,8 +128,8 @@ export function ChangePassword() {
               {error}
             </p>
           ) : null}
-          <Button className="w-full" disabled={submitting} type="submit">
-            {submitting ? "Changing password…" : "Change password"}
+          <Button className="w-full" disabled={change.pending} type="submit">
+            {change.pending ? "Changing password…" : "Change password"}
           </Button>
         </form>
       </CardContent>
