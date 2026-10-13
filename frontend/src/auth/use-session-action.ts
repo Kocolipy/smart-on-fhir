@@ -11,9 +11,11 @@
  * visitor on and the login page says why (`sign-in-reason.ts`); there is
  * nothing to show, and the hook shows nothing. Every other outcome leaves the
  * visitor on the page, and the hook hands it the one line
- * `session-action-copy.ts` gives for it. The page renders `pending` and
- * `error` as they come, as it does a gated write's, and never reads the
- * outcome itself.
+ * `session-action-copy.ts` gives for it — on the signed-in layout's one error
+ * line when the caller hands it a reporter there, or as `error` for the login
+ * page, which is outside that layout. The page renders `pending` (and, on the
+ * login page, `error`) as they come, as it does a gated write's, and never
+ * reads the outcome itself.
  *
  * Pending clears once the action settles, whatever its outcome. On one that
  * ended or started a session the guard replaces the page on that same update,
@@ -31,6 +33,7 @@ import { useState } from "react";
 
 import type { PasswordChangeOutcome } from "./api";
 import { useAuth, type AuthContextValue } from "./auth-context-value";
+import type { StatusReporter } from "./page-status";
 import { loginMessage, logoutMessage, passwordChangeMessage } from "./session-action-copy";
 import { sessionEndReasonFor } from "./sign-in-reason";
 
@@ -69,9 +72,8 @@ const LINE_FOR: { [N in SessionActionName]: (outcome: OutcomeOf<N>) => string | 
  */
 export type SessionActionResult = "moved-on" | "stayed";
 
-export interface SessionAction<A extends unknown[]> {
-  /** The line the latest run's outcome shows, or `null` while there is none. */
-  error: string | null;
+/** A session action whose line goes to a page status: the control's half. */
+export interface ReportingSessionAction<A extends unknown[]> {
   /** Whether a run is out; the control that runs it disables on this. */
   pending: boolean;
   /**
@@ -81,19 +83,42 @@ export interface SessionAction<A extends unknown[]> {
   run: (...args: A) => Promise<SessionActionResult>;
 }
 
-export function useSessionAction<N extends SessionActionName>(name: N): SessionAction<ArgsOf<N>> {
+/** A session action that holds its own line, for a page outside the signed-in layout. */
+export interface SessionAction<A extends unknown[]> extends ReportingSessionAction<A> {
+  /** The line the latest run's outcome shows, or `null` while there is none. */
+  error: string | null;
+}
+
+/**
+ * Runs `name`. Inside the signed-in layout the caller hands it a reporter on
+ * the layout's page status (`useStatusReporter`), and the line goes there: the
+ * run withdraws its own earlier line as it starts and reports the new one as it
+ * settles, under the status's latest-event rule. Outside it — the login page —
+ * the hook holds the line itself and hands back `error`.
+ */
+export function useSessionAction<N extends SessionActionName>(name: N): SessionAction<ArgsOf<N>>;
+export function useSessionAction<N extends SessionActionName>(
+  name: N,
+  reporter: StatusReporter,
+): ReportingSessionAction<ArgsOf<N>>;
+export function useSessionAction<N extends SessionActionName>(
+  name: N,
+  reporter?: StatusReporter,
+): SessionAction<ArgsOf<N>> {
   const auth = useAuth();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Where the outcome's line goes: the layout's status, or the hook's own `error`.
+  const report = reporter?.report ?? setError;
 
   const run = async (...args: ArgsOf<N>): Promise<SessionActionResult> => {
     // `auth[name]` and `LINE_FOR[name]` agree on `N`, which TypeScript cannot follow through the index.
     const act = auth[name] as (...args: ArgsOf<N>) => Promise<OutcomeOf<N>>;
-    setError(null);
+    report(null);
     setPending(true);
     try {
       const line = LINE_FOR[name](await act(...args));
-      setError(line);
+      report(line);
       return line === null ? "moved-on" : "stayed";
     } finally {
       setPending(false);

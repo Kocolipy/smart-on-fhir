@@ -54,11 +54,15 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   (`sign-in-reason.ts`), the rule the provider ends the session by, rather than
   repeating it. Pending clears once the action settles, whatever the outcome:
   on one that moved the session the guard replaces the page on the same
-  update. The Login page, the shell's Sign out, the idle warning's Sign out and
-  the Change password page render its `pending` and `error`, as a page does a
-  gated write's; none of them reads an outcome or catches. `run` resolves
-  `"stayed"` or `"moved-on"`, which the Change password page reads to clear its
-  fields after a refusal.
+  update. Inside the signed-in layout a caller hands it a reporter on the page
+  status (`useStatusReporter`, below), and the line goes to the layout's one
+  error line: the shell's Sign out and the Change password page do, and render
+  only `pending`. Outside that layout it holds the line itself and hands back
+  `error`: the Login page and the idle warning's Sign out (in its own dialog)
+  render `pending` and `error`. Either way the caller renders what it is handed,
+  as a page does a gated write's; none of them reads an outcome or catches.
+  `run` resolves `"stayed"` or `"moved-on"`, which the Change password page
+  reads to clear its fields after a refusal.
 - `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
   reads. Which Permission a request requires is not here: it is declared on the
   endpoint (`declarations.ts`, below).
@@ -73,13 +77,22 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   to share its Permission today; and a
   declaration is module-level data, so its decoder is one stable reference
   without a page hoisting it.
-- `page-status.ts` — `usePageStatus`, a page's single error line, and
-  `useStatusReporter`, a source's handle on it. Every gated read and write on
-  the page reports its outcome there (and the Audit page its refused filters),
-  and the module alone decides what shows: **the latest event wins**. A failure
+- `page-status.ts` — the signed-in page's single error line:
+  `PageStatusScope`, which holds the status and hands its line to the one
+  component that renders it, and `useStatusReporter`, a source's handle on it.
+  Every gated read and write on the page reports its outcome there (and the
+  Audit page its refused filters, the Change password page its mismatch, and
+  the shell's Sign out and the password change their session-action line), and
+  the module alone decides what shows: **the latest event wins**. A failure
   becomes the line; a success withdraws only its own source's failure, so one
   still standing from another source shows again; a write starting withdraws
   every failure, as the action supersedes them. No hook knows about any other.
+  One line per page is held by the structure, not by convention: the status
+  exists only inside the scope, which `SignedInShell` renders once around every
+  signed-in page and which throws when rendered inside another; a reporter can
+  report but never read, and throws outside a scope. The scope is reset on
+  every path change, and a source that unmounts withdraws its failure and
+  reports nothing after, so a failure never follows the user to the next page.
 - `session-transitions.ts` — `useSessionTransitions`, the **session
   transitions**: the one place the auth state (status, user, sign-in reason)
   changes, as `signIn(user)` or `end(reason)`, and the only `src/auth` caller of
@@ -155,10 +168,10 @@ lives only in that component's state, shown once in the disclosure panel, so
 dismissing it, navigating away or reloading loses it for good. The panel reads
 the session itself and offers each control by its own declaration's Permission,
 and the token Permissions it may grant by the ones the session holds. It is a
-panel of the Accounts page, not a page: it takes the Accounts page's
-`PageStatus` and renders no error line of its own, so its listing and its
-changes share one line with Users and Groups, under the one rule, the latest
-event wins. A rotation refused `409` (the token was revoked, has expired or was
+panel of the Accounts page, not a page: like the page, it reports to the
+signed-in layout's page status and renders no error line of its own, so its
+listing and its changes share one line with Users and Groups, under the one
+rule, the latest event wins. A rotation refused `409` (the token was revoked, has expired or was
 already rotated) has its own copy.
 `pages/accounts-api.ts` holds the wire types both files share and declares every
 endpoint they call, each with its Permission.
@@ -169,7 +182,8 @@ time, filtered by operation, outcome, actor id, resource id and a time range.
 `pages/audit-api.ts` decodes every field and checks each filter before the
 request is built, so a malformed one is refused on the page and nothing is sent;
 its `AUDIT_EVENTS` declaration reads the path the filters parsed into. A refused
-filter and a failed read share the error line, the later of the two showing.
+filter and a failed read share the layout's error line, the later of the two
+showing.
 Ids are shown as ids, never resolved to usernames, which would need `user:read`.
 The page reads on mount, on a filter submit (every valid one, the filters
 already shown included), on paging and on Refresh — a second Refresh
@@ -194,8 +208,8 @@ copy the page supplies, because only the page knows what was being attempted.
 
 Every listing read — Users, Groups, connectors, the audit trail and the Showcase counter — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the read's
-declaration (from its API module) with the declaration's arguments, its failure
-copy and the page status; the hook sends nothing without the Permission, resets
+declaration (from its API module) with the declaration's arguments and its
+failure copy, and the hook reports to the page status around it; it sends nothing without the Permission, resets
 when the Permission or the path changes, and drops an answer for a key it has
 moved off. Its `reload()` is "read for these arguments now": while the gate is
 open it always sends, for the arguments the next render names, and **the
@@ -456,8 +470,11 @@ SPA contract, and a deep link like `/showcase` 404s without it.
 The four signed-in pages (Showcase, Accounts, Audit, Change password) are
 children of one layout route in `App.tsx`: a `ProtectedRoute` around
 `SignedInShell` (`pages/signed-in-shell.tsx`). The shell owns the header (who is
-signed in and the page title), the back link and Sign out; a page renders none of
-them, only its body. Each signed-in page is declared exactly once, as an entry in
+signed in and the page title), the page's one error line, the back link and Sign
+out; a page renders none of them, only its body. The shell holds the page status
+(`auth/page-status.ts`) and renders its line between the header and the page:
+the page, its panels and Sign out report to it, the latest failure shows, and
+the line starts empty on every path. Each signed-in page is declared exactly once, as an entry in
 `SIGNED_IN_PAGES` (`pages/signed-in-pages.tsx`): its path, element, optional
 `permissions` guard, and the shell metadata (title, back link, column width,
 centering). `App.tsx` maps the table to `<Route>`s, and the shell finds the
@@ -471,9 +488,11 @@ its own `ProtectedRoute` inside the shell. Sign out shows a pending state while 
 When the logout fails or comes back CSRF-expired, the auth context's `logout`
 resolves that outcome without ending anything, so the session stands and the
 CSRF token stays with it (ADR-0009: the token is forgotten only through the
-session transitions); the shell shows the line `useSessionAction("logout")`
-hands back (`logoutMessage`, which says the User is still signed in) in an error
-line. The idle warning's own Sign out button is a manual Sign out too, run
+session transitions); `useSessionAction("logout")` reports its line
+(`logoutMessage`, which says the User is still signed in) to the page status,
+so it shows on the shell's one error line, replacing or replaced by the page's
+own failures under the latest-event rule. The shell holds no Sign out error of
+its own. The idle warning's own Sign out button is a manual Sign out too, run
 through the same session action, so it cannot follow a different rule: a pending
 state while the logout is out, and on a failed or CSRF-expired one the session
 stands and the dialog shows the same line in an announced error line.

@@ -9,7 +9,8 @@ import type { Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState as buildAuthState, signedIn } from "./auth-context.testHelpers";
 import type { WriteDeclaration } from "./declarations";
-import { usePageStatus, useStatusReporter } from "./page-status";
+import { useStatusReporter } from "./page-status";
+import { InPageStatus, shownLine } from "./page-status.testHelpers";
 import { useGatedWrite } from "./use-gated-write";
 
 vi.mock("@/lib/http", async (importOriginal) => ({
@@ -62,22 +63,23 @@ function authState(permissions: Permission[]): AuthContextState {
 }
 
 /**
- * The write as a page holds it — reporting into the page's own status — beside
- * one other source on that status (a read, say), which a test reports through
- * to see how the two share the error line.
+ * The write as a page holds it — reporting into the page status around it —
+ * beside one other source on that status (a read, say), which a test reports
+ * through to see how the two share the error line.
  */
 function useHarness() {
-  const status = usePageStatus();
-  const other = useStatusReporter(status);
-  const write = useGatedWrite({ status });
-  return { error: status.error, other, pending: write.pending, run: write.run };
+  const other = useStatusReporter();
+  const write = useGatedWrite();
+  return { other, pending: write.pending, run: write.run };
 }
 
-/** Renders the harness under a session holding exactly `permissions`. */
+/** Renders the harness under a session holding exactly `permissions`, inside a page status. */
 const renderWrite = (permissions: Permission[] = ["counter:write"]) =>
   renderHook(() => useHarness(), {
     wrapper: ({ children }: { children: ReactNode }) => (
-      <AuthContext.Provider value={authState(permissions)}>{children}</AuthContext.Provider>
+      <AuthContext.Provider value={authState(permissions)}>
+        <InPageStatus>{children}</InPageStatus>
+      </AuthContext.Provider>
     ),
   });
 
@@ -106,7 +108,10 @@ describe("useGatedWrite", () => {
   it("is not pending, with no error, before any write runs", () => {
     const { result } = renderWrite();
 
-    expect(result.current).toMatchObject({ error: null, pending: false });
+    expect({ error: shownLine(), pending: result.current.pending }).toEqual({
+      error: null,
+      pending: false,
+    });
   });
 
   it("sends a write without a body as just its method, at the path built from its arguments, with no decoder", async () => {
@@ -198,7 +203,7 @@ describe("useGatedWrite", () => {
 
     expect(onOk).toHaveBeenCalledTimes(1);
     expect(onOk).toHaveBeenCalledWith(42);
-    expect(result.current.error).toBeNull();
+    expect(shownLine()).toBeNull();
   });
 
   it("ends the session once on a 401, and shows the page's failure copy meanwhile", async () => {
@@ -212,7 +217,7 @@ describe("useGatedWrite", () => {
 
     expect(expireSession).toHaveBeenCalledOnce();
     expect(onOk).not.toHaveBeenCalled();
-    expect(result.current.error).toBe("Unable to update.");
+    expect(shownLine()).toBe("Unable to update.");
   });
 
   it("sends nothing for a session lacking the declaration's Permission, and says so", async () => {
@@ -223,7 +228,7 @@ describe("useGatedWrite", () => {
 
     expect(apiFetchMock).not.toHaveBeenCalled();
     expect(onOk).not.toHaveBeenCalled();
-    expect(result.current.error).toBe(FORBIDDEN_MESSAGE);
+    expect(shownLine()).toBe(FORBIDDEN_MESSAGE);
   });
 
   it("still runs the `after` step for a write refused for want of its Permission", async () => {
@@ -256,7 +261,7 @@ describe("useGatedWrite", () => {
 
     await act(() => result.current.run(INCREMENT));
 
-    expect(result.current.error).toBe(message);
+    expect(shownLine()).toBe(message);
   });
 
   it("maps forbidden and csrf-expired through the shared seam copy, not a page's own", async () => {
@@ -266,11 +271,11 @@ describe("useGatedWrite", () => {
 
     answerWith({ kind: "forbidden" });
     await act(() => result.current.run(INCREMENT, { messages }));
-    expect(result.current.error).toBe(FORBIDDEN_MESSAGE);
+    expect(shownLine()).toBe(FORBIDDEN_MESSAGE);
 
     answerWith({ kind: "csrf-expired" });
     await act(() => result.current.run(INCREMENT, { messages }));
-    expect(result.current.error).toBe(CSRF_EXPIRED_MESSAGE);
+    expect(shownLine()).toBe(CSRF_EXPIRED_MESSAGE);
   });
 
   it("lets a page's own copy for a status win over the hook's default", async () => {
@@ -283,9 +288,7 @@ describe("useGatedWrite", () => {
       }),
     );
 
-    expect(result.current.error).toBe(
-      "grace no longer exists. Reload the page for the current list.",
-    );
+    expect(shownLine()).toBe("grace no longer exists. Reload the page for the current list.");
   });
 
   it("lets a page's own default win over the hook's, for a status neither names", async () => {
@@ -298,7 +301,7 @@ describe("useGatedWrite", () => {
       }),
     );
 
-    expect(result.current.error).toBe("Unable to update the counter. Please try again.");
+    expect(shownLine()).toBe("Unable to update the counter. Please try again.");
   });
 
   it.each([400, 404, 409])(
@@ -313,7 +316,7 @@ describe("useGatedWrite", () => {
         }),
       );
 
-      expect(result.current.error).toBe("Unable to update the counter. Please try again.");
+      expect(shownLine()).toBe("Unable to update the counter. Please try again.");
     },
   );
 
@@ -327,7 +330,7 @@ describe("useGatedWrite", () => {
       }),
     );
 
-    expect(result.current.error).toBe("Unable to complete the action. Please try again.");
+    expect(shownLine()).toBe("Unable to complete the action. Please try again.");
   });
 
   it("withdraws every failure on the page status the moment a write starts", async () => {
@@ -340,7 +343,7 @@ describe("useGatedWrite", () => {
       ran = result.current.run(INCREMENT);
     });
 
-    expect(result.current.error).toBeNull();
+    expect(shownLine()).toBeNull();
     await act(async () => {
       settle({ data: 1, kind: "ok" });
       await ran;
@@ -355,7 +358,7 @@ describe("useGatedWrite", () => {
     await act(() => result.current.run(INCREMENT));
     await act(() => result.current.run(INCREMENT));
 
-    expect(result.current.error).toBeNull();
+    expect(shownLine()).toBeNull();
   });
 
   it("lets a failure its `after` step reports replace the write's own, as the latest", async () => {
@@ -368,7 +371,7 @@ describe("useGatedWrite", () => {
       }),
     );
 
-    expect(result.current.error).toBe("the reload failed too");
+    expect(shownLine()).toBe("the reload failed too");
   });
 
   it("lets its refusal stand when its `after` step succeeds", async () => {
@@ -381,6 +384,6 @@ describe("useGatedWrite", () => {
       }),
     );
 
-    expect(result.current.error).toBe("Refused: check the values and try again.");
+    expect(shownLine()).toBe("Refused: check the values and try again.");
   });
 });

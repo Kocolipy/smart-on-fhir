@@ -7,14 +7,13 @@ import {
   deferred,
   holding,
   json,
-  renderAsSession,
   type Answers,
   type StartingSession,
   type WireAnswer,
 } from "@/auth/session-adapter.testHelpers";
 
 import { AUDIT_EVENTS_PATH } from "./audit-api";
-import { Audit } from "./audit";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const AUDITOR = holding(["audit:read"]);
 
@@ -137,8 +136,9 @@ const answerPage = (events: object[], overrides: Partial<Record<string, unknown>
 const readPaths = (requests: () => readonly { path: string }[]) =>
   requests().map(({ path }) => path);
 
+/** The page as `session` sees it, inside the signed-in layout that renders its one error line. */
 function renderAudit(answers: Answers, session: StartingSession = AUDITOR) {
-  return renderAsSession(<Audit />, session, { answers });
+  return renderSignedIn("/audit", session, answers);
 }
 
 const table = () => screen.getByRole("table", { name: "Audit events" });

@@ -9,8 +9,9 @@ import type { Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState as buildAuthState, signedIn } from "./auth-context.testHelpers";
 import type { ReadDeclaration } from "./declarations";
-import { usePageStatus, useStatusReporter } from "./page-status";
-import { useGatedRead } from "./use-gated-read";
+import { useStatusReporter } from "./page-status";
+import { InPageStatus, shownLine } from "./page-status.testHelpers";
+import { useGatedRead, type GatedRead } from "./use-gated-read";
 
 const decodeCount = jsonDecoder((body: unknown) =>
   readObject(body, "CountResponse").integer("count"),
@@ -46,12 +47,25 @@ interface Options {
   path: string;
 }
 
-/** The read as a page holds it: the hook, reporting into the page's own status. */
+/** The read as a page holds it, reporting into the page status around it. */
 function useRead({ failureMessage, path }: Options) {
-  const status = usePageStatus();
-  const read = useGatedRead(COUNT_AT, { args: [path], failureMessage, status });
-  return { ...read, error: status.error };
+  return useGatedRead(COUNT_AT, { args: [path], failureMessage });
 }
+
+/** What the page shows for the read: the line the page status draws, and the read's view. */
+const shown = (result: { current: GatedRead<number> }) => ({
+  error: shownLine(),
+  view: result.current.view,
+});
+
+/** A session holding `permissions`, and the page status a read reports to. */
+const inSession =
+  (permissions: Permission[]) =>
+  ({ children }: { children: ReactNode }) => (
+    <AuthContext.Provider value={authState(permissions)}>
+      <InPageStatus>{children}</InPageStatus>
+    </AuthContext.Provider>
+  );
 
 /**
  * Renders the hook under a session holding `permissions`. `withPermissions`
@@ -64,7 +78,9 @@ function renderRead({
   let auth = authState(permissions);
   let current: Options = { failureMessage: FAILURE, path: "/api/count", ...options };
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={auth}>
+      <InPageStatus>{children}</InPageStatus>
+    </AuthContext.Provider>
   );
   const hook = renderHook(({ options: given }: { options: Options }) => useRead(given), {
     initialProps: { options: current },
@@ -123,14 +139,14 @@ describe("useGatedRead", () => {
     await act(async () => {});
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(result.current).toMatchObject({ error: null, view: { kind: "not-permitted" } });
+    expect(shown(result)).toMatchObject({ error: null, view: { kind: "not-permitted" } });
   });
 
   it("is loading, with nothing failed, until the read answers", () => {
     const { result } = renderRead();
 
     expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
-    expect(result.current).toMatchObject({ error: null, view: { kind: "loading" } });
+    expect(shown(result)).toMatchObject({ error: null, view: { kind: "loading" } });
   });
 
   it("reads the path its declaration builds from the arguments, with a plain GET", () => {
@@ -143,16 +159,9 @@ describe("useGatedRead", () => {
   });
 
   it("reads a declaration that takes no arguments without being handed any", async () => {
-    const { result } = renderHook(
-      () => useGatedRead(COUNT, { failureMessage: FAILURE, status: usePageStatus() }),
-      {
-        wrapper: ({ children }: { children: ReactNode }) => (
-          <AuthContext.Provider value={authState(["counter:read"])}>
-            {children}
-          </AuthContext.Provider>
-        ),
-      },
-    );
+    const { result } = renderHook(() => useGatedRead(COUNT, { failureMessage: FAILURE }), {
+      wrapper: inSession(["counter:read"]),
+    });
 
     expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
     await answer(count(4));
@@ -163,14 +172,14 @@ describe("useGatedRead", () => {
     const { result } = renderRead();
     await answer(count(7));
 
-    expect(result.current).toMatchObject({ error: null, view: { data: 7, kind: "ready" } });
+    expect(shown(result)).toMatchObject({ error: null, view: { data: 7, kind: "ready" } });
   });
 
   it("shows the seam's copy for a refusal and keeps the session", async () => {
     const { result } = renderRead();
     await answer(new Response(null, { status: 403 }));
 
-    expect(result.current).toMatchObject({ error: FORBIDDEN_MESSAGE, view: { kind: "failed" } });
+    expect(shown(result)).toMatchObject({ error: FORBIDDEN_MESSAGE, view: { kind: "failed" } });
     expect(expireSession).not.toHaveBeenCalled();
   });
 
@@ -178,14 +187,14 @@ describe("useGatedRead", () => {
     const { result } = renderRead();
     await answer(new Response(null, { status: 500 }));
 
-    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
+    expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("treats a success body that does not decode as a failure, not as data", async () => {
     const { result } = renderRead();
     await answer(Response.json({ count: "seven" }));
 
-    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
+    expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("ends the session on an unauthenticated read and reports a failure", async () => {
@@ -193,7 +202,7 @@ describe("useGatedRead", () => {
     await answer(new Response(null, { status: 401 }));
 
     expect(expireSession).toHaveBeenCalledTimes(1);
-    expect(result.current).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
+    expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("keeps the last data as stale when a re-read is refused, and is ready again when one succeeds", async () => {
@@ -209,7 +218,7 @@ describe("useGatedRead", () => {
     expect(result.current.view).toEqual({ data: 3, kind: "ready" });
     await answer(new Response(null, { status: 403 }));
     await act(() => reloaded);
-    expect(result.current).toMatchObject({
+    expect(shown(result)).toMatchObject({
       error: FORBIDDEN_MESSAGE,
       view: { data: 3, kind: "stale" },
     });
@@ -219,7 +228,7 @@ describe("useGatedRead", () => {
     });
     await answer(count(4));
     await act(() => reloaded);
-    expect(result.current).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
+    expect(shown(result)).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
   });
 
   describe("when an older read answers after a newer one", () => {
@@ -240,7 +249,7 @@ describe("useGatedRead", () => {
       await answerNewest(count(2));
       await answer(new Response(null, { status: 500 })); // the mount read, answering last
 
-      expect(result.current.error).toBeNull();
+      expect(shownLine()).toBeNull();
     });
 
     it("lands only the newest of two re-reads", async () => {
@@ -339,7 +348,7 @@ describe("useGatedRead", () => {
 
     hook.withPermissions([]);
 
-    expect(hook.result.current).toMatchObject({ error: null, view: { kind: "not-permitted" } });
+    expect(shown(hook.result)).toMatchObject({ error: null, view: { kind: "not-permitted" } });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -378,7 +387,7 @@ describe("useGatedRead", () => {
 
     hook.withOptions({ path: "/api/other" });
 
-    expect(hook.result.current).toMatchObject({ error: null, view: { kind: "loading" } });
+    expect(shown(hook.result)).toMatchObject({ error: null, view: { kind: "loading" } });
     expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
     await answer(count(2));
     expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
@@ -435,7 +444,7 @@ describe("useGatedRead", () => {
     hook.withOptions({ failureMessage });
     await answer(new Response(null, { status: 500 }));
 
-    expect(hook.result.current).toMatchObject({
+    expect(shown(hook.result)).toMatchObject({
       error: failureMessage,
       view: { data: 1, kind: "stale" },
     });
@@ -444,23 +453,16 @@ describe("useGatedRead", () => {
   it("leaves another source's failure on the page status when its own read succeeds", async () => {
     const { result } = renderHook(
       () => {
-        const status = usePageStatus();
-        const other = useStatusReporter(status);
-        const read = useGatedRead(COUNT, { failureMessage: FAILURE, status });
-        return { error: status.error, other, read };
+        const other = useStatusReporter();
+        const read = useGatedRead(COUNT, { failureMessage: FAILURE });
+        return { other, read };
       },
-      {
-        wrapper: ({ children }: { children: ReactNode }) => (
-          <AuthContext.Provider value={authState(["counter:read"])}>
-            {children}
-          </AuthContext.Provider>
-        ),
-      },
+      { wrapper: inSession(["counter:read"]) },
     );
 
     act(() => result.current.other.report("Something else failed."));
     await answer(count(1));
 
-    expect(result.current.error).toBe("Something else failed.");
+    expect(shownLine()).toBe("Something else failed.");
   });
 });

@@ -18,9 +18,10 @@ import { SignedInShell } from "@/pages/signed-in-shell";
  * `ErrorBoundary` is the outermost element, so a render error anywhere below it
  * (a page, a guard, the router or `AuthProvider`) shows a generic fallback
  * instead of a blank page. The signed-in pages are children of one layout route,
- * `SignedInShell`, which owns their header, back link and Sign out. They are
- * declared once in `SIGNED_IN_PAGES`; a page that lists `permissions` keeps its
- * own guard inside the shell.
+ * `SignedInShell`, which owns their header, their one error line (the page
+ * status every page, panel and Sign out reports to, reset on every path), the
+ * back link and Sign out. They are declared once in `SIGNED_IN_PAGES`; a page
+ * that lists `permissions` keeps its own guard inside the shell.
  */
 export function App() {
   return (

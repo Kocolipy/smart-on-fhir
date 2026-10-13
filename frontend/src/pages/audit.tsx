@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import { usePageStatus, useStatusReporter } from "@/auth/page-status";
+import { useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -231,18 +231,17 @@ function FiltersForm({
  * renews the session's idle clock.
  *
  * A filter refused on the page and a read refused by the backend share the
- * one error line, where the latest failure shows.
+ * page's one error line, which the signed-in layout owns and renders, where
+ * the latest failure shows.
  */
 function useAuditEvents() {
   const [draft, setDraft] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
   const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
-  const status = usePageStatus();
-  const filters = useStatusReporter(status);
+  const filters = useStatusReporter();
 
   const reading = useGatedRead(AUDIT_EVENTS, {
     args: [query],
     failureMessage: "Unable to load the audit trail. Please try again.",
-    status,
   });
 
   const submit = (event: FormEvent) => {
@@ -261,7 +260,6 @@ function useAuditEvents() {
 
   return {
     draft,
-    error: status.error,
     nextPage: () => setQuery((current) => auditQueryAtPage(current, current.page + 1)),
     page: query.page,
     // No clamp: the Previous button that calls this is disabled at page zero,
@@ -340,8 +338,7 @@ function Pager({
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { draft, error, nextPage, page, previousPage, reload, setDraft, submit, view } =
-    useAuditEvents();
+  const { draft, nextPage, page, previousPage, reload, setDraft, submit, view } = useAuditEvents();
 
   return (
     <div className="flex flex-col gap-6">
@@ -354,12 +351,6 @@ export function Audit() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <FiltersForm draft={draft} onChange={setDraft} onSubmit={submit} />
-
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
 
           <div className="overflow-x-auto">
             {/* A refresh that failed hides the events last read: the trail is

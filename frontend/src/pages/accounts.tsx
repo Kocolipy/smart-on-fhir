@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
-import { usePageStatus } from "@/auth/page-status";
 import { holds } from "@/auth/permissions";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
@@ -316,22 +315,19 @@ const everyRow = <R,>(rows: R[]) => rows;
  * the one function that changes it. Each listing is read only when the session
  * holds its Permission.
  *
- * The page has one error line, which both listings, every action and the
- * connector panel — handed this status — report to, and it shows the latest
- * failure. Starting an action withdraws whatever was shown, as the action
- * supersedes it.
+ * Both listings, every action and the connector panel report to the page's
+ * one error line, which the signed-in layout owns and renders, and it shows
+ * the latest failure. Starting an action withdraws whatever was shown, as the
+ * action supersedes it.
  */
 function useDirectory() {
-  const status = usePageStatus();
   const users = useGatedRead(USERS, {
     failureMessage: "Unable to load the users. Please try again.",
-    status,
   });
   const groups = useGatedRead(GROUPS, {
     failureMessage: "Unable to load the groups. Please try again.",
-    status,
   });
-  const write = useGatedWrite({ status });
+  const write = useGatedWrite();
 
   /**
    * Runs one action and replaces just that row from the response, rather than
@@ -349,7 +345,7 @@ function useDirectory() {
       },
     });
 
-  return { groups, pending: write.pending, runAction, status, users };
+  return { groups, pending: write.pending, runAction, users };
 }
 
 /**
@@ -370,20 +366,13 @@ function useDirectory() {
  */
 export function Accounts() {
   const { user } = useAuth();
-  const { groups, pending, runAction, status, users } = useDirectory();
-  const { error } = status;
+  const { groups, pending, runAction, users } = useDirectory();
   const onAction: OnAction | null = holds(user, USER_ACTION.permission)
     ? (target, action) => void runAction(target, action)
     : null;
 
   return (
     <div className="flex flex-col gap-6">
-      {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      ) : null}
-
       <ProjectionCard
         description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
         empty="No users are provisioned."
@@ -409,8 +398,8 @@ export function Accounts() {
         {(rows) => <GroupsTable groups={rows} />}
       </ProjectionCard>
 
-      {/* The connector panel reports to this page's one error line, above. */}
-      <Connectors status={status} />
+      {/* The connector panel reports to the page's one error line, the layout's. */}
+      <Connectors />
     </div>
   );
 }

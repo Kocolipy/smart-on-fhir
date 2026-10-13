@@ -7,14 +7,13 @@ import {
   deferred,
   holding,
   json,
-  renderAsSession,
   STILL_CHECKING,
   type Answers,
   type StartingSession,
 } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
 
-import { Showcase } from "./showcase";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
@@ -25,9 +24,12 @@ const counted = (value: number) => json({ count: value });
 
 const COUNTER_USER = holding(["counter:read", "counter:write"]);
 
-/** The page as `session` sees it, the count reading zero unless `answers` says otherwise. */
+/**
+ * The page as `session` sees it, inside the signed-in layout that renders its
+ * one error line, the count reading zero unless `answers` says otherwise.
+ */
 const renderShowcase = (answers: Answers = {}, session: StartingSession = COUNTER_USER) =>
-  renderAsSession(<Showcase />, session, { answers: { "GET /api/count": counted(0), ...answers } });
+  renderSignedIn("/showcase", session, { "GET /api/count": counted(0), ...answers });
 
 /** The page for a session holding exactly `permissions`, its links all a test reads. */
 const renderHolding = (permissions: Permission[]) => renderShowcase({}, holding(permissions));

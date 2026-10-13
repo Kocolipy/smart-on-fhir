@@ -9,9 +9,10 @@
  * session there exactly once and the page never sees `unauthenticated`. It
  * owns the pending flag and mapping a refusal to copy (a transport refusal
  * through the seam's own {@link refusalMessage}, a `failed` one through the
- * page's copy and this hook's defaults), and reports the outcome to the page's
- * {@link PageStatus}. A write starting supersedes everything the error line
- * shows, so it withdraws every standing failure there before it sends.
+ * page's copy and this hook's defaults), and reports the outcome to the page
+ * status the signed-in layout holds (`page-status.ts`). A write starting
+ * supersedes everything the error line shows, so it withdraws every standing
+ * failure there before it sends.
  *
  * A declaration naming a Permission the session does not hold is never sent:
  * it settles as `forbidden` at once, which is what the backend would have
@@ -38,7 +39,7 @@ import type { ApiRequestInit } from "@/lib/http";
 
 import { useAuth } from "./auth-context-value";
 import type { DeclarationArgs, WriteDeclaration } from "./declarations";
-import { useStatusReporter, type PageStatus } from "./page-status";
+import { useStatusReporter } from "./page-status";
 import { holds } from "./permissions";
 import { refusalMessage, useSessionRequest, type SessionResult } from "./use-session-request";
 
@@ -58,11 +59,6 @@ export type RunOptions<A extends readonly unknown[], T> = DeclarationArgs<A> & {
    */
   after?: () => Promise<void>;
 };
-
-export interface GatedWriteOptions {
-  /** The page's error line, which this write reports its outcome to. */
-  status: PageStatus;
-}
 
 /** Runs one write. Never rejects: a decoder or handler that throws is the caller's bug. */
 export type RunWrite = <A extends readonly unknown[], T>(
@@ -100,10 +96,10 @@ function requestInit(method: string, body: unknown): ApiRequestInit {
   return { body: JSON.stringify(body), headers: { "Content-Type": "application/json" }, method };
 }
 
-export function useGatedWrite({ status }: GatedWriteOptions): GatedWrite {
+export function useGatedWrite(): GatedWrite {
   const { user } = useAuth();
   const request = useSessionRequest();
-  const { report, supersedeAll } = useStatusReporter(status);
+  const { report, supersedeAll } = useStatusReporter();
   const [pending, setPending] = useState(false);
 
   const send = <A extends readonly unknown[], T>(
