@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
+import { EVERY_PERMISSION } from "@/auth/auth-context.testHelpers";
 import {
   bare,
   deferred,
   holding,
+  json,
   renderAsSession,
   STILL_CHECKING,
   type Answers,
@@ -14,6 +16,7 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 
 import { SignedInShell } from "./signed-in-shell";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const LOGOUT = "DELETE /api/auth/logout";
 
@@ -151,5 +154,125 @@ describe("SignedInShell", () => {
   it("renders the Showcase layout for a trailing-slash path", async () => {
     await renderShell("/showcase/");
     expect(screen.getByRole("heading", { level: 1, name: "Front End" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The page's one error line belongs to the layout: the page, its panels and
+ * Sign out all report to it, so however many of them fail there is one line,
+ * showing the latest failure — and it starts empty on every page.
+ */
+describe("SignedInShell's error line", () => {
+  const USERS = "GET /api/admin/accounts";
+  const CONNECTORS = "GET /api/admin/connectors";
+  const GROUPS = "GET /api/admin/groups";
+  const CHANGE = "POST /api/auth/change-password";
+  const MISMATCH = "The new password and its confirmation do not match.";
+  const SIGN_OUT_FAILED = "Unable to sign out. Please try again. You are still signed in.";
+
+  const lines = () => screen.queryAllByRole("alert").map((line) => line.textContent);
+
+  /** Fills the password change, its confirmation `confirm`, and submits it. */
+  async function submitChange(confirm: string) {
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Current password"), "Current-Value-4f81");
+    await user.type(screen.getByLabelText("New password"), "Next-Value-9c2e-long");
+    await user.type(screen.getByLabelText("Confirm new password"), confirm);
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+  }
+
+  it("shows one line on Accounts, the latest, when the Users, the Connectors and Sign out all fail", async () => {
+    await renderSignedIn("/accounts", holding(EVERY_PERMISSION), {
+      [CONNECTORS]: bare(503),
+      [GROUPS]: json([]),
+      [LOGOUT]: bare(500),
+      [USERS]: bare(503),
+    });
+    await screen.findByRole("alert");
+
+    await userEvent.setup().click(signOut());
+
+    expect(lines()).toEqual([SIGN_OUT_FAILED]);
+  });
+
+  it("shows a page's failure on the one line in place of an earlier failed Sign out", async () => {
+    const users = deferred();
+    await renderSignedIn("/accounts", holding(["user:read"]), {
+      [LOGOUT]: bare(500),
+      [USERS]: users.answer,
+    });
+    await userEvent.setup().click(signOut());
+    await screen.findByRole("alert");
+
+    await users.settle(bare(503));
+
+    expect(lines()).toEqual(["Unable to load the users. Please try again."]);
+  });
+
+  it("starts the next page with no line after a failed Sign out", async () => {
+    await renderSignedIn("/showcase", SIGNED_IN, { [LOGOUT]: bare(500) });
+    const user = userEvent.setup();
+    await user.click(signOut());
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("link", { name: "Change password" }));
+
+    expect(lines()).toEqual([]);
+  });
+
+  it("starts the next page with no line after the page's own failure", async () => {
+    await renderSignedIn("/accounts", holding(["user:read"]), { [USERS]: bare(503) });
+    await screen.findByRole("alert");
+
+    await userEvent.setup().click(screen.getByRole("link", { name: "Back to counter" }));
+
+    expect(lines()).toEqual([]);
+  });
+
+  it("keeps a write the user left behind off the next page's line", async () => {
+    const increment = deferred();
+    await renderSignedIn("/showcase", holding(["counter:read", "counter:write"]), {
+      "GET /api/count": json({ count: 0 }),
+      "POST /api/count/increment": increment.answer,
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Increment" }));
+    await user.click(screen.getByRole("link", { name: "Change password" }));
+
+    await increment.settle(bare(500));
+
+    expect(lines()).toEqual([]);
+  });
+
+  it("shows the password change's mismatch on the one line, in place of a failed Sign out", async () => {
+    await renderSignedIn("/change-password", SIGNED_IN, { [LOGOUT]: bare(500) });
+    await userEvent.setup().click(signOut());
+    await screen.findByRole("alert");
+
+    await submitChange("Something-Else-123");
+
+    expect(lines()).toEqual([MISMATCH]);
+  });
+
+  it("shows a refused password change on the one line, in place of a failed Sign out", async () => {
+    await renderSignedIn("/change-password", SIGNED_IN, {
+      [CHANGE]: json({ message: "The new password must be at least 12 characters long" }, 400),
+      [LOGOUT]: bare(500),
+    });
+    await userEvent.setup().click(signOut());
+    await screen.findByRole("alert");
+
+    await submitChange("Next-Value-9c2e-long");
+
+    expect(lines()).toEqual(["The new password must be at least 12 characters long"]);
+  });
+
+  it("shows a failed Sign out on the one line, in place of the password change's mismatch", async () => {
+    await renderSignedIn("/change-password", SIGNED_IN, { [LOGOUT]: bare(500) });
+    await submitChange("Something-Else-123");
+
+    await userEvent.setup().click(signOut());
+
+    expect(lines()).toEqual([SIGN_OUT_FAILED]);
   });
 });

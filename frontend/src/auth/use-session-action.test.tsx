@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { LogoutOutcome } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState, signedIn } from "./auth-context.testHelpers";
+import { useStatusReporter } from "./page-status";
+import { InPageStatus, shownLine } from "./page-status.testHelpers";
 import {
   useSessionAction,
   type SessionActionName,
@@ -219,6 +221,70 @@ describe("useSessionAction", () => {
       await act(() => result.current.run());
 
       expect(result.current.error).toBeNull();
+    });
+  });
+
+  /**
+   * Inside the signed-in layout the action is handed a reporter on the page
+   * status, and its line goes there, under the status's latest-event rule,
+   * beside whatever else on the page reports.
+   */
+  describe("reporting to a page status", () => {
+    const SIGN_OUT_FAILED = "Unable to sign out. Please try again. You are still signed in.";
+
+    /** Sign out reporting to a page status, beside one other source on it. */
+    function renderReporting(logout: Actions["logout"]) {
+      const value = authState(signedIn(), { logout });
+      return renderHook(
+        () => {
+          const other = useStatusReporter();
+          const signOut = useSessionAction("logout", useStatusReporter());
+          return { other, signOut };
+        },
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <AuthContext.Provider value={value}>
+              <InPageStatus>{children}</InPageStatus>
+            </AuthContext.Provider>
+          ),
+        },
+      );
+    }
+
+    it("shows a refusal's line on the page status", async () => {
+      const { result } = renderReporting(
+        vi.fn<Actions["logout"]>().mockResolvedValue({ kind: "failed" }),
+      );
+
+      await act(() => result.current.signOut.run());
+
+      expect(shownLine()).toBe(SIGN_OUT_FAILED);
+    });
+
+    it("shows nothing on the page status for an outcome that moved the visitor on", async () => {
+      const { result } = renderReporting(
+        vi.fn<Actions["logout"]>().mockResolvedValue({ kind: "signed-out" }),
+      );
+
+      await act(() => result.current.signOut.run());
+
+      expect(shownLine()).toBeNull();
+    });
+
+    it("withdraws only its own line as the next run starts, so another source's shows again", async () => {
+      const logout = vi
+        .fn<Actions["logout"]>()
+        .mockResolvedValueOnce({ kind: "failed" })
+        .mockReturnValueOnce(new Promise<LogoutOutcome>(() => undefined));
+      const { result } = renderReporting(logout);
+      act(() => result.current.other.report("The listing failed."));
+      await act(() => result.current.signOut.run());
+
+      await act(async () => {
+        void result.current.signOut.run();
+      });
+
+      expect(shownLine()).toBe("The listing failed.");
     });
   });
 });

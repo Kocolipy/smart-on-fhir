@@ -57,7 +57,7 @@ each page's endpoints and Permissions; this list holds the rules.
   (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
   read and gated write every page listing and action goes through
   (`use-gated-read.ts`, `use-gated-write.ts`), the declaration types they take
-  (`declarations.ts`), a page's single error line (`page-status.ts`), the copy
+  (`declarations.ts`), a signed-in page's single error line (`page-status.ts`), the copy
   for every session-action outcome (`session-action-copy.ts`: login, logout,
   the password change and the start-up session check each resolve to a closed
   outcome and never throw), the session action every page runs login, logout
@@ -75,10 +75,12 @@ each page's endpoints and Permissions; this list holds the rules.
   `failed`, `ready`, `stale`) that pages switch on; a gated write sends its
   declaration through the request seam itself — nothing for a session lacking
   its Permission — and owns the pending flag and the refusal copy. Neither owns
-  an error: each reports its outcome to the page's `PageStatus`
-  (`usePageStatus`), which decides the error line by one rule, the latest
-  event wins — a failure shows, a success withdraws only its own source's, and
-  a write starting withdraws them all.
+  an error: each reports its outcome to the page status (`useStatusReporter`),
+  which decides the error line by one rule, the latest event wins — a failure
+  shows, a success withdraws only its own source's, and a write starting
+  withdraws them all. The status exists only inside the `PageStatusScope` the
+  signed-in layout renders, so a page or panel can report to it but never
+  create one or draw a second line.
 - **`src/pages/`** — one component per page, plus an API module per page —
   `accounts-api.ts` for the wire types and declared endpoints the Accounts page
   and its connector panel share, `audit-api.ts` for the Audit page's,
@@ -112,10 +114,11 @@ each page's endpoints and Permissions; this list holds the rules.
   decision is a rendering decision only: the backend enforces each operation's
   Permission on its own. The four signed-in pages
   are children of one layout route, `SignedInShell` (`src/pages/signed-in-shell.tsx`),
-  which owns the header, the back link and Sign out. Each page is one entry in
+  which owns the header, the page's one error line, the back link and Sign out.
+  Each page is one entry in
   `SIGNED_IN_PAGES` (`src/pages/signed-in-pages.tsx`: path, element, permissions,
   title, back link, width), so a new signed-in page is one entry; a failed or CSRF-expired
-  Sign out keeps the session and shows an error line. The outermost element is
+  Sign out keeps the session and reports its line to that one error line. The outermost element is
   `ErrorBoundary`: a render error anywhere
   below shows a generic "Something went wrong" fallback with a reload action,
   logs to `console.error` only, and never puts the error's message or stack in

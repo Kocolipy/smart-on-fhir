@@ -8,15 +8,14 @@ import {
   deferred,
   holding,
   json,
-  renderAsSession,
   UNREACHABLE,
   type Answers,
 } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
-import { usePageStatus } from "@/auth/page-status";
 
 import type { Connector, ConnectorToken, IssuedToken } from "./accounts-api";
 import { Connectors } from "./connectors";
+import { renderInLayout } from "./signed-in-shell.testHelpers";
 
 /** Every Permission less those named. */
 const without = (...lacking: Permission[]) =>
@@ -59,26 +58,21 @@ const connectorAt = `/api/admin/connectors/${CONNECTOR_ID}`;
 const tokenAt = `${connectorAt}/tokens/${TOKEN_ID}`;
 
 /**
- * The page the panel sits on, reduced to what it shares with the panel: the
- * one page status, and the error line that renders it. The panel has no line
- * of its own, so its failures show here. The Accounts suite renders the panel
- * on the real page.
+ * The panel, for a session holding `permissions` — by default every one — alone
+ * on the Accounts path inside the real signed-in layout, which owns the page's
+ * one error line. The panel has no line of its own, so its failures show on
+ * the layout's. The Accounts suite renders the panel on the real page.
  */
-function PanelPage() {
-  const status = usePageStatus();
-  return (
-    <>
-      {status.error ? <p role="alert">{status.error}</p> : null}
-      <Connectors status={status} />
-    </>
-  );
-}
-
-/** The panel, for a session holding `permissions` — by default every one. */
 const renderConnectors = (
   answers: Answers,
   permissions: readonly Permission[] = EVERY_PERMISSION,
-) => renderAsSession(<PanelPage />, holding(permissions), { answers });
+) =>
+  renderInLayout(
+    [{ element: <Connectors />, path: "/accounts" }],
+    "/accounts",
+    holding(permissions),
+    answers,
+  );
 
 const section = (name: string) => within(screen.getByRole("region", { name: `Connector ${name}` }));
 
@@ -114,7 +108,8 @@ describe("Connectors by Permission", () => {
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    // The layout's Sign out is the only control on the page.
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Sign out"]);
   });
 
   it("requests no listing without connector:read", async () => {
@@ -124,9 +119,10 @@ describe("Connectors by Permission", () => {
   });
 
   it("renders no panel at all without connector:read", async () => {
-    const { container } = await renderConnectors(oneActiveToken, []);
+    await renderConnectors(oneActiveToken, []);
 
-    expect(container).toBeEmptyDOMElement();
+    // Not its heading, its loading note, its listing or its empty note.
+    expect(screen.queryByText(/connector/i)).not.toBeInTheDocument();
   });
 });
 
