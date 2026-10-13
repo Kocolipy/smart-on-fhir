@@ -221,10 +221,8 @@ mode="$1"; shift || true
 case "$mode" in
   fast)
     echo "== fast gate (${#FAST_GATE[@]} classes) =="
-    # IFS is set inside the command substitution's subshell only, to join the
-    # list with commas; the script's own IFS is never changed.
-    # nosemgrep: bash.lang.security.ifs-tampering.ifs-tampering
-    joined=$(IFS=,; echo "${FAST_GATE[*]+"${FAST_GATE[*]}"}")
+    joined=$(printf '%s,' "${FAST_GATE[@]+"${FAST_GATE[@]}"}")
+    joined="${joined%,}"
     log=$(mktemp "${TMPDIR:-/tmp}/fast-gate.XXXXXX")
     status=0
     run_tests "$joined" 2>&1 | tee "$log" || status=$?
