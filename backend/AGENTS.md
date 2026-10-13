@@ -31,6 +31,17 @@ Run the gate as part of finishing the work, not as a separate pre-commit step. A
 
 Changes to Redis-backed session persistence require an integration-level check against Redis; the controller tests use servlet mocks and do not exercise Redis.
 
+### Test suite policy
+
+The inner loop under the baseline gate. `README.md` ("Test layers") holds the layers and their measured times; `scripts/test-gates.sh` holds the lists.
+
+- Production authority: the Spring Boot service started by `BackendApplication` on PostgreSQL and Redis is the only path tests certify. Deprecated paths: none. Tests that pin a retired surface as gone (the `XSRF-TOKEN` cookie, the old disable/enable endpoints) are production coverage and stay.
+- Default verification: `./scripts/test-gates.sh fast` (24s, no Docker, zero known failures) after every edit; `./scripts/test-gates.sh subsystem <package>` for the boundary you touched; `./scripts/test-gates.sh broad` (230s, zero known failures) before a push. The baseline gate stays the completion criterion.
+- New tests: a class joins the fast gate's explicit list only when it starts no Spring context and no container and reads no environment value; the subsystem gates select by package, so they need no edit.
+- Environment: the Surefire forks drop every `.env.example` key (`excludedEnvironmentVariables` in `pom.xml`), so a shell that sourced `.env` runs the same tests as a clean one. Add a new runtime variable there when you add it to `.env.example`. Epic is faked on loopback (`FakeEpic`); a test that reaches a real host is a defect.
+- Removal standard: a broken test is corrected with source authority or removed with `git rm`, recoverable from history; skip markers and `@Disabled` stay out of the tree.
+- Ledger: suite-shaping changes (deletions, gate edits, measured runtimes) go in `README.md` "Test layers" with numbers from tool output.
+
 ### Full-context tests
 
 A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration; each context boots once and gets its own migrated Postgres database and Redis database on containers the JVM shares (`ContainerTestConfiguration` holds the mechanism). Joining an existing configuration costs a new class nothing; differing from all of them costs a boot. Write a new class to join:

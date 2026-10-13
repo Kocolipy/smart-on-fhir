@@ -270,6 +270,13 @@
               file, and one with no statistics yet runs in file-system order. That
               order already left only a 5s gap between the forks when measured; this guards
               against a long class landing late in the queue, not against today's tail.
+
+              The test JVMs never see the developer's runtime settings: every key in
+              .env.example, plus the yaml placeholders it leaves out, is stripped from
+              the fork's environment, so a shell that sourced .env (scripts/lib.sh does
+              for `make dev`) runs the same tests as a clean one. Spring's relaxed
+              binding maps APP_* and SPRING_* onto properties even with no placeholder.
+              Docker and Testcontainers variables are left alone on purpose.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -278,6 +285,46 @@
                     <forkCount>${forkCount}</forkCount>
                     <reuseForks>true</reuseForks>
                     <runOrder>balanced</runOrder>
+                    <!-- One element per name: a comma list keeps the line breaks in its values. -->
+                    <excludedEnvironmentVariables>
+                        <excludedEnvironmentVariable>SERVER_PORT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>SESSION_TIMEOUT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>SESSION_COOKIE_SECURE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>REDIS_HOST</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>REDIS_PORT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>REDIS_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_URL</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_USERNAME</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>LOG_FILE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>LOG_STRUCTURED_FORMAT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>SPRING_PROFILES_ACTIVE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_ENVIRONMENT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_BOOTSTRAP_USERNAME</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_BOOTSTRAP_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_LOCKOUT_MAX_ATTEMPTS</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_SESSION_ABSOLUTE_LIFETIME</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DEV_FIXTURES_ENABLED</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DEV_FIXTURES_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_AUDIT_POOL_SIZE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_AUDIT_POOL_TIMEOUT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_AUDIT_RETENTION_PERIOD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_AUDIT_RETENTION_SCHEDULE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DORMANCY_LOCKOUT_WINDOW</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DORMANCY_ROLE_REVOCATION_WINDOW</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_ENABLED</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CLIENT_ID</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CLIENT_KEY</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CLIENT_KEY_ID</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CLIENT_NEXT_KEY</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CLIENT_NEXT_KEY_ID</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_CONNECT_TIMEOUT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_READ_TIMEOUT</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_FHIR_BASE</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_OAUTH_ISSUER</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_REDIRECT_URI</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_EPIC_MFA_EVIDENCE_REQUIRED</excludedEnvironmentVariable>
+                    </excludedEnvironmentVariables>
                 </configuration>
             </plugin>
             <plugin>
