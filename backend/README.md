@@ -655,6 +655,33 @@ access. Mutation testing with PIT is a conditional gate on top of it.
 `AGENTS.md` is the authority on what each gate covers, when PIT runs and with
 which mutators, and when a surviving mutant may be accepted.
 
+### Test layers
+
+Faster checks for the edit loop. None replaces the baseline gate.
+
+| Layer          | Command                                    | Needs                    | 
+| -------------- | ------------------------------------------ | ------------------------ | 
+| Fast           | `./scripts/test-gates.sh fast`             | JDK only                 | 
+| Subsystem      | `./scripts/test-gates.sh subsystem <name>` | Docker                   | 
+| All subsystems | `./scripts/test-gates.sh subsystems`       | Docker                   | 
+| Broad          | `./scripts/test-gates.sh broad`            | Docker                   | 
+| Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network | 
+
+The fast gate is an explicit class list in the script: every test class that
+starts no Spring context and no container. Its run fails if the log shows
+either, so a class that grows a `@SpringBootTest` has to move out. Subsystem
+names are the test packages (`arch`, `auth`, `scim`, `audit`, `authorization`,
+`contract`, `observability`, `counter`, `lifecycle`, `scheduling`, `web`);
+`BackendApplicationTests`, at the package root, runs only in the broad gate.
+
+The test JVMs drop every `.env.example` key from their environment
+(`excludedEnvironmentVariables` in `pom.xml`), so the results do not depend on
+what the shell exported.
+
+Live layers, run by hand and never by a gate: `npm run test:e2e` in
+`frontend/`, `make integration-test` and `make epic-integration-test` from the
+repository root, and the Semgrep registry download inside `./scripts/semgrep.sh`.
+
 Build the deployable container, with the SPA in it, from the repository root:
 
 ```bash
