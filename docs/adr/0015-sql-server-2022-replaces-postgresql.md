@@ -9,10 +9,12 @@ engine-neutral preparation on PostgreSQL (#62–#66), the verification spikes (#
 and the switchover (#68–#72). Until the switchover merges, the backend still runs
 on PostgreSQL, and this ADR describes the target, not the running system.
 
-Some decisions below depend on verification spikes that have not yet run (V1–V6,
-listed under "Open verification points"). Where a spike's fallback would change a
-decision, the decision says so; a failed spike amends this ADR rather than being
-absorbed silently in code.
+Some decisions below depended on verification spikes (V1–V6). The spikes ran on
+2026-10-12 against a SQL Server 2022 container. The table under "Open verification
+points" is the one summary of their verdicts, and "Verified behaviour" holds the
+evidence. No decision's fallback was taken; V2 added one binding rule, under
+"Storage is UTC only". A failed spike amends this ADR rather than being absorbed
+silently in code.
 
 This ADR will supersede in part ADR 0004 (how the audit trail's append-only rule is
 enforced in the database; the fail-closed/fail-open axis is unchanged) and ADR 0005
@@ -148,11 +150,10 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   across every filter combination. The listing is a low-volume administrative
   read, so the compile cost does not matter. Both stay whole constant statements.
 - **The scheduled job lock keeps its per-job rows** (ADR 0005), taken with
-  `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of `FOR UPDATE SKIP LOCKED`. This
-  depends on spike V3; if `READPAST` does not skip a held row under read-committed
-  snapshot, the lock becomes `sp_getapplock` with a zero timeout per job name, and
-  this ADR and ADR 0005 are amended accordingly. The seed lock becomes
-  `sp_getapplock` on a fixed resource name, transaction-owned.
+  `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of `FOR UPDATE SKIP LOCKED`. Spike
+  V3 verified that `READPAST` skips a held row under read-committed snapshot
+  without waiting, so the `sp_getapplock` fallback is not needed. The seed lock
+  becomes `sp_getapplock` on a fixed resource name, transaction-owned.
 - **`audit_events` is clustered on `(occurred_at, id)`**, with a non-clustered
   primary key on `id`. A random-UUID clustered key fragments on every insert into
   the highest-volume table, while retention deletes by `occurred_at` and the
@@ -252,7 +253,16 @@ exists.
 - **Storage is UTC only.** RDS keeps its UTC default time zone, stated explicitly;
   Hibernate writes every timestamp at offset `+00:00`; no column default uses
   `SYSDATETIMEOFFSET()` or `GETDATE()`; reads normalize to `Instant`; the API
-  renders `Z`.
+  renders `Z`. Hand-written JDBC binds every timestamp as an `OffsetDateTime` at
+  `ZoneOffset.UTC`, never as a `java.sql.Timestamp`. This rule is not a fallback:
+  V2 passed, and the rule was added from evidence V2 recorded. The driver sends a
+  `Timestamp` as the JVM-local wall clock in a `datetime2`, and SQL Server reads
+  that wall clock as UTC when it compares it with a `DATETIMEOFFSET`. A bound
+  `Timestamp` is therefore off by the JVM's zone offset unless the JVM runs in UTC.
+  Today the audit retention cutoff and the audit listing's time bounds bind
+  `Timestamp.from(…)`, so the switchover changes both. Reads may use
+  `getObject(…, OffsetDateTime.class)` or `getTimestamp(…)`, which both return
+  the right instant. The driver refuses `getObject(…, Instant.class)`.
 - **The RDS CA trust store is driver-scoped.** Only the SQL Server connection uses
   it, through the JDBC URL's `trustStore`, with its password from Secrets Manager.
   The JVM's default trust store stays untouched for the identity provider, JWKS
@@ -301,9 +311,31 @@ lands:
   merges, operations confirms that no alert or dashboard keys on them, or updates
   them.
 - **Case-insensitive SQL comparisons** use SQL Server's `LOWER` under the
-  `BIN2_UTF8` collation. Whether it matches Java's `toLowerCase(Locale.ROOT)` for
-  non-ASCII text is spike V4; any difference found is added here before the
-  switchover merges.
+  `BIN2_UTF8` collation, and spike V4 found that it does not always match Java's
+  `toLowerCase(Locale.ROOT)`. The SCIM filters, sorts and sort keys that lower-case
+  both sides (`userName`, `name.*`, `displayName`, `preferredLanguage`, `locale`,
+  `timezone`, `emails.value`, `emails.type`, `groups.display`, `members.display`,
+  `meta.*`) therefore treat these characters as case-sensitive:
+  - ASCII, Latin-1, Latin Extended-A and -B, the modern Greek and Cyrillic
+    alphabets, full-width Latin and the circled letters lower-case as Java does.
+  - 582 upper-case code points stay unchanged under `LOWER` although Java
+    lower-cases them. Among them are the Kelvin, Ohm and Angstrom signs
+    (U+212A, U+2126, U+212B), capital sharp s (U+1E9E), Georgian Mtavruli, Cherokee,
+    Latin Extended-C and -D, Cyrillic Extended-B, and the supplementary-plane
+    scripts such as Deseret, Osage and Adlam. A filter `eq "𐐨"` therefore does not
+    match a stored `𐐀`.
+  - Three Greek upsilon-with-hook symbols (U+03D2–U+03D4) are lower-cased by
+    `LOWER`, but not by Java.
+  - `LOWER` maps U+0130 (İ) to `i`, while Java maps it to `i` followed by U+0307.
+  - `LOWER` has no final-sigma rule: `ΟΔΟΣ` lower-cases to `οδοσ`, where Java gives
+    `οδος`.
+
+  The full list, by code point, is under "Verified behaviour". The İ and final
+  sigma results are the same as PostgreSQL's today. Against the suite's
+  PostgreSQL image, 515 of the code points are new differences, and 26 (the
+  circled letters) now match Java where PostgreSQL did not. Case-insensitive
+  uniqueness is unaffected, because it compares the application-normalized
+  columns.
 
 SCIM `userName` keeps following RFC 7643 and the identity provider's format, not
 the Standalone standard's alphanumeric-only rule. That is a pre-existing deviation,
@@ -324,16 +356,18 @@ unchanged by this move, and is recorded in ADR 0012.
 
 ### Open verification points
 
-These spikes run first on the switchover; each names what changes if it fails.
+These spikes ran before the switchover, on 2026-10-12. Each names what would have
+changed if it had failed. The verdict column points to the evidence under
+"Verified behaviour".
 
-| #   | Question                                                                                                              | If it fails                                                                        |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    |
-| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      |
-| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    |
-| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          |
+| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                                 |
+| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass; bind timestamps as UTC `OffsetDateTime`            |
+| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                     |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes"      |
+| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged                    |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2; about 2 GB more memory than today |
 
 ## Consequences
 
@@ -371,3 +405,237 @@ and the test matrix for good, for a deployment that will only ever run one.
 
 **Azure SQL Database or Managed Instance.** Out of scope: the deployment is on AWS,
 and RDS keeps it managed and AWS-native.
+
+## Verified behaviour
+
+Spikes V1–V6 ran on 2026-10-12. Each ran on a throwaway harness outside the
+repository, so none of that code merges. The pinned versions were:
+
+- **Image.** `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, image
+  `sha256:4402d880dd4c…` (amd64). `@@VERSION` reported Microsoft SQL Server 2022
+  RTM-CU27 (KB5104824), 16.0.4295.3, Developer Edition.
+- **Libraries.** What the backend's Spring Boot 4.1.1 BOM resolves: mssql-jdbc
+  `13.4.0.jre11` ("Microsoft JDBC Driver 13.4 for SQL Server 13.4.0.0") and
+  Hibernate ORM `7.4.5.Final`, which selected `org.hibernate.dialect.SQLServerDialect`
+  at version 16.0. Java 25, with the JVM zone left at the host's `Asia/Singapore`, so
+  a zone-dependent result could not pass by accident.
+- **Database.** Created the way this ADR decides:
+  `CREATE DATABASE … COLLATE Latin1_General_100_BIN2_UTF8`, then
+  `COMPATIBILITY_LEVEL = 160`, `READ_COMMITTED_SNAPSHOT ON` and
+  `ALLOW_SNAPSHOT_ISOLATION ON`. `sys.databases` read back
+  `Latin1_General_100_BIN2_UTF8 160 1 ON`.
+- **Schema.** A T-SQL rendering of today's `V1`, with `UNIQUEIDENTIFIER`,
+  `DATETIMEOFFSET(6)`, `BIT`, `VARBINARY(64)`, `VARCHAR(4n)` and `VARCHAR(MAX)`, and
+  the token permissions in their child table.
+
+### V1: schema validation accepts the mapped types
+
+All ten entities of the backend, copied unchanged, booted a Spring context with
+`spring.jpa.hibernate.ddl-auto=validate` and no other Hibernate setting. The one
+exception was `ScimConnectorTokenEntity.permissions`, the `text[]` column, which was
+marked `@Transient` because it moves to the child table. Validation accepted
+`DATETIMEOFFSET(6)` for `Instant`, `UNIQUEIDENTIFIER` for `UUID`, `BIT` for
+`boolean` and `VARBINARY` for `byte[]`.
+
+As a negative control, the same context against a copy whose
+`scim_connectors.created_at` was `DATETIME2(6)` failed with `Schema validation:
+wrong column type encountered in column [created_at] in table [scim_connectors];
+found [datetime2 (Types#TIMESTAMP)], but expecting [datetimeoffset(7)
+(Types#TIMESTAMP_UTC)]`. Validation compares the type and not the precision, so
+`(6)` passes.
+
+An entity persisted through Hibernate was stored at offset 0, although the JVM zone
+was `+08:00`. It read back equal, and the UUID's server text matched Java's (no
+byte-order swap):
+
+```text
+stored    = {id_text=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0, created_text=2026-10-12T09:30:01.123456Z, offset_minutes=0, display_name=ünïcødé 𐐷}
+read back = 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 2026-10-12T09:30:01.123456Z ünïcødé 𐐷
+byte[] {1, 2, 3, 0xFF} stored as 0x010203FF
+```
+
+### V2: the driver round-trips `OffsetDateTime` and `UUID`
+
+These ran over plain JDBC with `setObject` and `getObject(…, type)`:
+
+```text
+setObject(UUID) stored 0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0; getObject(UUID.class) = 0f1e2d3c-…-a5b4c3d2e1f0, equals = true
+setObject(OffsetDateTime …Z)      -> getObject(OffsetDateTime.class) = 2026-10-12T09:30:01.123456Z
+setObject(OffsetDateTime …+08:00) -> stored offset 480 minutes; reads back as …17:30:01.123456+08:00, the same instant
+setObject(…01.123456789Z)         -> stored …01.123457Z (rounded to the column's microseconds, as PostgreSQL also rounds)
+WHERE u = setObject(UUID) finds a row bound as CAST(? AS UNIQUEIDENTIFIER): count = 1
+setNull(Types.NULL), and a JdbcTemplate null UUID argument -> NULL; getObject(UUID.class) on NULL = null
+getObject() without a type returns the UUID as an upper-case String
+getObject(…, Instant.class) -> SQLServerException: The conversion to class java.time.Instant is unsupported.
+```
+
+Hand-written JDBC therefore binds and reads `UUID` directly, and the string
+fallback is not needed. A neighbouring check on `java.sql.Timestamp`, the type
+the audit adapters bind today, found a zone-dependent bind. The row held
+`09:30:00Z`, and the query was `WHERE t < ?` with a cutoff one minute **earlier**,
+so it should return 0:
+
+```text
+JVM zone Asia/Singapore: setTimestamp(Timestamp.from(cutoff)) -> 1  (wrong)   setObject(OffsetDateTime UTC) -> 0
+JVM zone UTC:            setTimestamp(Timestamp.from(cutoff)) -> 0           setObject(OffsetDateTime UTC) -> 0
+Timestamp.from(2026-10-12T09:30:00Z) arrives as datetime2; as datetimeoffset = 2026-10-12T17:30:00Z
+```
+
+The driver property `datetimeParameterType=datetimeoffset` did not change the
+result. `getTimestamp(…).toInstant()` on a `DATETIMEOFFSET` returned the right
+instant in both zones. "Storage is UTC only" above records the rule that follows.
+
+### V3: `READPAST` skips a held job-lock row under read-committed snapshot
+
+There were two connections, both at `READ COMMITTED` (`sys.dm_exec_sessions`
+reported level 2), on the RCSI database. Each ran `SELECT job_name FROM
+scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST) WHERE job_name = ?` inside an
+open transaction:
+
+```text
+A locks dormancy:                                [dormancy] in 47 ms
+B tries dormancy while A holds it:               [] in 3 ms
+B plain count of dormancy while A holds it:      [1] in 4 ms
+B tries audit-retention while A holds dormancy:  [audit-retention] in 3 ms
+lock held: KEY U GRANT, PAGE IU GRANT, OBJECT IX GRANT (each session)
+A committed
+B tries dormancy after A ended:                  [dormancy] in 4 ms
+A tries dormancy while B now holds it:           [] in 2 ms
+B rolled back, A tries again:                    [dormancy] in 2 ms
+missing job row:                                 [] in 3 ms; count [0] in 5 ms
+```
+
+A held row returns nothing immediately, without blocking. The row returns once the
+holder ends, whether it commits or rolls back. Another job's row is not skipped.
+`ScheduledJobLockAdapter`'s plain-count follow-up does not wait for the lock, so it
+still tells a held row from a missing one. ADR 0005 needs no amendment.
+
+### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
+
+Every Unicode scalar value except U+0000 (1,112,063 code points) was stored as a
+one-code-point string in a `VARCHAR(16)` column with the database collation. Each
+one came back byte-identical. Each was then compared with
+`String.toLowerCase(Locale.ROOT)` on Java 25:
+
+```text
+code points Java lower-cases = 1460; SQL LOWER changes = 881
+LOWER(varchar) differs from LOWER(nvarchar) for 0
+LOWER(varchar) != Java for 586
+kinds = {SQL leaves unchanged, Java lowers = 582; SQL lowers, Java leaves unchanged = 3; both lower, differently = 1}
+```
+
+A bound `nvarchar` parameter, as `ScimQuerySql` binds its values, gives the same
+results as the column. The differences by code point (a run marked "even" or "odd"
+covers every second code point):
+
+| Block                     | Code points                                                                                                                                                                                                                                                                  | Count | `LOWER`                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------- |
+| Latin Extended-A          | U+0130                                                                                                                                                                                                                                                                       | 1     | `i`, where Java gives `i` U+0307 |
+| Greek                     | U+0370, U+0372, U+0376, U+037F, U+03CF, U+03F4                                                                                                                                                                                                                               | 6     | unchanged                        |
+| Greek                     | U+03D2–U+03D4                                                                                                                                                                                                                                                                | 3     | lowers; Java leaves unchanged    |
+| Cyrillic Supplement       | U+0514–U+052E (even)                                                                                                                                                                                                                                                         | 14    | unchanged                        |
+| Georgian                  | U+10C7, U+10CD                                                                                                                                                                                                                                                               | 2     | unchanged                        |
+| Cherokee                  | U+13A0–U+13F5                                                                                                                                                                                                                                                                | 86    | unchanged                        |
+| Cyrillic Extended-C       | U+1C89                                                                                                                                                                                                                                                                       | 1     | unchanged                        |
+| Georgian Extended         | U+1C90–U+1CBA, U+1CBD–U+1CBF                                                                                                                                                                                                                                                 | 46    | unchanged                        |
+| Latin Extended Additional | U+1E9E, U+1EFA–U+1EFE (even)                                                                                                                                                                                                                                                 | 4     | unchanged                        |
+| Letterlike Symbols        | U+2126, U+212A, U+212B                                                                                                                                                                                                                                                       | 3     | unchanged                        |
+| Glagolitic                | U+2C2F                                                                                                                                                                                                                                                                       | 1     | unchanged                        |
+| Latin Extended-C          | U+2C6D–U+2C70, U+2C72, U+2C7E, U+2C7F                                                                                                                                                                                                                                        | 7     | unchanged                        |
+| Coptic                    | U+2CEB, U+2CED, U+2CF2                                                                                                                                                                                                                                                       | 3     | unchanged                        |
+| Cyrillic Extended-B       | U+A640–U+A66C (even), U+A680–U+A69A (even)                                                                                                                                                                                                                                   | 37    | unchanged                        |
+| Latin Extended-D          | U+A722–U+A72E (even), U+A732–U+A76E (even), U+A779–U+A77D (odd), U+A77E–U+A786 (even), U+A78B, U+A78D, U+A790, U+A792, U+A796–U+A7AA (even), U+A7AB–U+A7AE, U+A7B0–U+A7B4, U+A7B6–U+A7C4 (even), U+A7C5–U+A7C7, U+A7C9, U+A7CB, U+A7CC, U+A7D0, U+A7D6–U+A7DC (even), U+A7F5 | 90    | unchanged                        |
+| Deseret                   | U+10400–U+10427                                                                                                                                                                                                                                                              | 40    | unchanged                        |
+| Osage                     | U+104B0–U+104D3                                                                                                                                                                                                                                                              | 36    | unchanged                        |
+| Vithkuqi                  | U+10570–U+1057A, U+1057C–U+1058A, U+1058C–U+10592, U+10594, U+10595                                                                                                                                                                                                          | 35    | unchanged                        |
+| Old Hungarian             | U+10C80–U+10CB2                                                                                                                                                                                                                                                              | 51    | unchanged                        |
+| Garay                     | U+10D50–U+10D65                                                                                                                                                                                                                                                              | 22    | unchanged                        |
+| Warang Citi               | U+118A0–U+118BF                                                                                                                                                                                                                                                              | 32    | unchanged                        |
+| Medefaidrin               | U+16E40–U+16E5F                                                                                                                                                                                                                                                              | 32    | unchanged                        |
+| Adlam                     | U+1E900–U+1E921                                                                                                                                                                                                                                                              | 34    | unchanged                        |
+
+Whole strings, bound as parameters:
+
+```text
+ΟΔΟΣ ΣΑΣ -> οδοσ σασ   (Java: οδος σας; no final-sigma rule)
+İSTANBUL -> istanbul   (Java: i̇stanbul)
+ẞ -> ẞ   𐐀𐐁 -> 𐐀𐐁   𞤀 -> 𞤀   Ა -> Ა   Ꭰ -> Ꭰ                     (Java lowers each)
+ı, ß, ǅ ǈ ǋ ǲ, ﬀ ﬁ, Ⅻ, Ⓐ, Ａ, ÀÉÎÕÜ, ĀĂĄ, ПРИВЕТ, ΑΒΓ, STRASSE   (match Java)
+```
+
+For reference, `lower()` on today's test image (`postgres:18.6-alpine`, libc
+provider, `en_US.utf8`) differs from Java on 97 code points, and the two lists
+share 71 of them. The 26 circled letters U+24B6–U+24CF differ on PostgreSQL
+only, and 515 code points differ on SQL Server only. PostgreSQL also gives
+`οδοσ` and `i` for the two context cases. A second run on fresh containers
+reproduced the 586.
+
+The fallback chosen is to document the differences. They are listed under
+"Observable changes". Uniqueness already compares application-normalized columns,
+and no other comparison is moved onto them.
+
+### V5: Hibernate reports the constraint and index name
+
+Each case went through `EntityManager`: a native insert, and an entity persist plus
+flush. Spring's JPA dialect translated it:
+
+```text
+2627 uq_scim_users_normalized_user_name (native):
+  DataIntegrityViolationException
+    <- org.hibernate.exception.ConstraintViolationException constraintName=uq_scim_users_normalized_user_name kind=UNIQUE
+    <- SQLServerException errorCode=2627 sqlState=23000 "Violation of UNIQUE KEY constraint 'uq_scim_users_normalized_user_name'. … The duplicate key value is (alice)."
+  IntegrityViolations.violates(…) = true (also with the name upper-cased)
+2627 uq_scim_groups_normalized_display_name (native):          constraintName=uq_scim_groups_normalized_display_name, violates = true
+2627 uq_scim_connector_tokens_lookup_id (entity persist+flush): constraintName=uq_scim_connector_tokens_lookup_id, violates = true
+2601 uq_scim_user_emails_one_primary (filtered unique index):
+    <- ConstraintViolationException constraintName=uq_scim_user_emails_one_primary kind=UNIQUE
+    <- SQLServerException errorCode=2601 "Cannot insert duplicate key row in object 'dbo.scim_user_emails' with unique index 'uq_scim_user_emails_one_primary'. …"
+  violates = true
+```
+
+`IntegrityViolations` works unchanged, so its case-insensitive name comparison
+needs no change, provided the T-SQL `V1` keeps the constraint names. Both messages
+quote the refused value, as lm-19 already assumes.
+
+### V6: test container cost at `forkCount` 2
+
+These are wall-clock measurements on a 24-vCPU, 47 GB WSL2 host, not the 20-core,
+5.9 GB VM in the `pom.xml` comment. The start time runs from `docker run` to the
+first successful `sqlcmd` query:
+
+| Measurement                                                                           | SQL Server 2022                                                     | PostgreSQL 18.6 (today)         |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------- |
+| Container start, one at a time                                                        | 6.7–7.0 s (3 runs); 12.2–12.5 s in an earlier set of 3              | 1.6–2.5 s (6 runs)              |
+| Container start, two at once (`forkCount` 2)                                          | 11.5 s and 11.5 s; 12.2 s and 12.4 s earlier                        | —                               |
+| Memory per container, idle after start                                                | 0.90 GB                                                             | 0.17 GB                         |
+| Peak per container: 14 contexts created and migrated, then a 1.1M-row insert and scan | 1.17–1.19 GB (no limit); 0.82 GB (`--memory 2g`)                    | 0.17 GB (14 contexts)           |
+| Per-context database (create, set options, migrate)                                   | 0.97–1.14 s (create 0.54–0.66, options 0.23–0.27, schema 0.19–0.27) | 0.24 s (create 0.13, `V1` 0.11) |
+
+- **Memory.** SQL Server is far below its limit in this workload. Two
+  containers need about 2 GB more than today's two PostgreSQL containers. A 2 GB
+  container limit is SQL Server's documented minimum. Under it, the pair started
+  in 13.8 s and 13.9 s, about 1.5 s slower than without a limit, and the
+  per-context work was no slower. A 1.5 GB limit still reached "ready for client
+  connections".
+- **Per-context work.** One run set the snapshot options on `model`, so that new
+  databases inherit them. It was not faster (1.06 s create, 0.37 s schema).
+- **Projection.** Each fork starts its own containers once and creates about 14
+  databases (27 contexts across two forks). The forks run in parallel, so the
+  gate grows by about (11.5 − 2.3) s + 14 × (1.0 − 0.24) s ≈ **20 s**. Query cost
+  inside the tests is not included, because it can only be measured once the
+  adapters run on SQL Server; the switchover records the suite's runtime before
+  and after, as Consequences requires.
+- **Today's gate.** On this host, `./scripts/verify.sh` took 268 s wall-clock.
+  Maven reported `Total time: 04:11 min` for `clean verify`, with 4464 tests and
+  28 context starts. The rest was the Semgrep scan. That projects to roughly
+  290 s on SQL Server, about 7% more. No other session's containers ran during
+  that gate (at most 6 containers, which were the gate's own two sets of Postgres,
+  Redis and Ryuk). The load average, including the gate itself, averaged 3.8 and
+  peaked at 5.3 on 24 vCPUs. The SQL Server timings above ran with at most one
+  other session's Postgres and Redis set alive. An earlier gate run on 2026-10-12,
+  with six other sessions' containers alive, took 532 s.
+
+The fork count stays 2. The memory the switchover's local-development
+documentation states must cover the extra ~2 GB. On a VM as small as the
+`pom.xml` comment's 5.9 GB, that is tight, and is the case for raising the
+documented WSL memory rather than lowering the fork count.
