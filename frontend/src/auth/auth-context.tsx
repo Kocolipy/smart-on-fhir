@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import * as authApi from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
@@ -9,25 +9,43 @@ import { sessionEndReasonFor } from "./sign-in-reason";
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Every change of session goes through one of these, which forget the CSRF
   // token in the same step; nothing here reaches the token itself.
-  const { end, session, signIn } = useSessionTransitions();
-  const { signInReason, status, user } = session;
+  const { checkFailed, end, recheck, session, signIn } = useSessionTransitions();
+  // Bumped by a retry, so the check below runs again under the same rules.
+  const [checkRun, setCheckRun] = useState(0);
 
+  /**
+   * The session check, on mount and on every retry. Only a `401` makes the
+   * visitor a Guest; a check that did not answer leaves the session unknown,
+   * neither routing to login nor forgetting the token, because a live session
+   * may still stand — and signing in again would end the User's other sessions.
+   */
   useEffect(() => {
     let active = true;
-    void authApi
-      .getCurrentUser()
-      .then((currentUser) => {
-        if (!active) return;
-        if (currentUser) signIn(currentUser);
-        else end(null);
-      })
-      .catch(() => {
-        if (active) end(null);
-      });
+    void authApi.getCurrentUser().then((outcome) => {
+      if (!active) return;
+      switch (outcome.kind) {
+        case "signed-in":
+          signIn(outcome.user);
+          return;
+        case "guest":
+          end(null);
+          return;
+        case "forbidden":
+        case "csrf-expired":
+        case "failed":
+          checkFailed(outcome);
+      }
+    });
     return () => {
       active = false;
     };
-  }, [end, signIn]);
+  }, [checkFailed, checkRun, end, signIn]);
+
+  /** Checks an unknown session again: `checking` until the new check settles. */
+  const retrySessionCheck = useCallback(() => {
+    recheck();
+    setCheckRun((run) => run + 1);
+  }, [recheck]);
 
   /**
    * Ends the session the backend has already refused.
@@ -78,13 +96,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (outcome.kind === "signed-out") end(null);
         return outcome;
       },
-      signInReason,
+      retrySessionCheck,
       signOutForInactivity,
-      status,
-      user,
+      // The whole session, so what each status carries stays with it.
+      ...session,
     }),
-    [end, expireSession, signIn, signInReason, signOutForInactivity, status, user],
+    [end, expireSession, retrySessionCheck, session, signIn, signOutForInactivity],
   );
+  const { user } = session;
 
   return (
     <AuthContext.Provider value={value}>

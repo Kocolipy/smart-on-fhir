@@ -76,10 +76,6 @@ class AuditEventRecordingIntegrationTests {
 
     private static final String ALL_EVENTS = "SELECT * FROM audit_events";
 
-    private static final String AUDIT_COLUMNS =
-            "SELECT column_name FROM information_schema.columns"
-            + " WHERE table_name = 'audit_events'";
-
     private static final String DELETE_ALL_EVENTS = "DELETE FROM audit_events";
 
     private static final String ASSUME_RETENTION_ROLE =
@@ -383,17 +379,39 @@ class AuditEventRecordingIntegrationTests {
      * The table has no column a readable identifier could be written into in the
      * first place. Asserted against the deployed schema rather than the entity, so
      * a column added by a migration without a mapping is caught too.
+     *
+     * <p>The one shape a credential word may name is a stable id: {@code token_id} and
+     * {@code replacement_token_id} name the connector token an event concerns, and are
+     * {@code uuid} columns, into which no token value, digest or name can be written. Any
+     * other column naming a credential, or a credential-named column of any other type,
+     * fails here.
      */
     @Test
     void theAuditTableHasNoColumnThatCouldHoldACredential() {
-        List<String> columns = jdbc.queryForList(AUDIT_COLUMNS, String.class);
+        List<Map<String, Object>> columns = jdbc.queryForList(AUDIT_COLUMN_TYPES);
+        List<String> named = columns.stream()
+                .map(column -> (String) column.get("column_name"))
+                .toList();
+        List<String> credentialNamedNonIds = columns.stream()
+                .filter(column -> CREDENTIAL_WORD.matcher(
+                        (String) column.get("column_name")).find())
+                .filter(column -> !(((String) column.get("column_name")).endsWith("_id")
+                        && "uuid".equals(column.get("data_type"))))
+                .map(column -> (String) column.get("column_name"))
+                .toList();
 
-        assertThat(columns).isNotEmpty();
-        assertThat(columns).noneSatisfy(column -> assertThat(column).containsAnyOf(
-                "username", "user_name", "password", "secret", "token", "bearer",
-                "credential", "cookie", "hash"));
-        assertThat(columns).contains("actor_id", "subject_id", "resource_id");
+        assertThat(named).contains("actor_id", "subject_id", "resource_id", "token_id");
+        assertThat(credentialNamedNonIds).isEmpty();
     }
+
+    /** The audit table's columns with their types, from the deployed schema. */
+    private static final String AUDIT_COLUMN_TYPES =
+            "SELECT column_name, data_type FROM information_schema.columns"
+            + " WHERE table_name = 'audit_events'";
+
+    /** A word a column that could hold a credential or a readable identifier would carry. */
+    private static final java.util.regex.Pattern CREDENTIAL_WORD = java.util.regex.Pattern.compile(
+            "username|user_name|password|secret|token|bearer|credential|cookie|hash");
 
     // Authorization refusals
 

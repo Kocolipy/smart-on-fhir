@@ -1,5 +1,6 @@
 package com.example.backend.scim.application;
 
+import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.Permission;
@@ -7,7 +8,9 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
+import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.ScimConnector;
@@ -21,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -57,6 +61,7 @@ public class ConnectorAdministrationService {
 
     private final ScimConnectorRepository connectors;
     private final ScimConnectorTokenRepository tokens;
+    private final ConnectorTokenLocks tokenLocks;
     private final ScimExternalIdRepository aliases;
     private final AuditTrail audit;
     private final SecureRandom random;
@@ -65,12 +70,14 @@ public class ConnectorAdministrationService {
     public ConnectorAdministrationService(
             ScimConnectorRepository connectors,
             ScimConnectorTokenRepository tokens,
+            ConnectorTokenLocks tokenLocks,
             ScimExternalIdRepository aliases,
             AuditTrail audit,
             SecureRandom random,
             Clock clock) {
         this.connectors = connectors;
         this.tokens = tokens;
+        this.tokenLocks = tokenLocks;
         this.aliases = aliases;
         this.audit = audit;
         this.random = random;
@@ -120,14 +127,20 @@ public class ConnectorAdministrationService {
     public void delete(UUID connectorId, UUID actorId) {
         ScimConnector connector = requireLive(connectorId);
         Instant now = clock.instant();
-        int revoked = tokens.revokeAllForConnector(connectorId, now);
+        // Which tokens the revocation below takes down, read first so each event can name its
+        // token: every one this connector holds that is not revoked already.
+        List<UUID> takenDown = tokens.findByConnectorIdOrderedByIssuedAtDesc(connectorId).stream()
+                .filter(held -> !held.isRevoked())
+                .map(ScimConnectorToken::id)
+                .toList();
+        tokens.revokeAllForConnector(connectorId, now);
         aliases.deleteAllForConnector(connectorId);
         connectors.save(connector.deleted(now));
         // The connector's own event carries the actor; the per-token events do not,
         // so the trail reads as one administrative act with the credentials it took
         // down rather than as several independent revocations.
-        for (int token = 0; token < revoked; token++) {
-            audit.append(new Audited.ConnectorTokenRevoked(null, connectorId));
+        for (UUID revokedId : takenDown) {
+            audit.append(new Audited.ConnectorTokenRevoked(null, connectorId, revokedId));
         }
         audit.append(new Audited.ConnectorDeleted(actorId, connectorId));
         succeeded(Operation.CONNECTOR_DELETE, Type.DELETION);
@@ -162,7 +175,7 @@ public class ConnectorAdministrationService {
         if (!permissions.heldWithin(held)) {
             audit.append(new Audited.ConnectorTokenIssueRefused(
                     actorId, connectorId, permissions.values()));
-            escalationRefused(Operation.CONNECTOR_TOKEN_ISSUE);
+            refused(Operation.CONNECTOR_TOKEN_ISSUE);
             throw new ConnectorTokenEscalationException();
         }
         Instant now = clock.instant();
@@ -176,7 +189,8 @@ public class ConnectorAdministrationService {
                 now,
                 now.plus(validLifetime));
         tokens.save(issued);
-        audit.append(new Audited.ConnectorTokenIssued(actorId, connectorId, permissions.values()));
+        audit.append(new Audited.ConnectorTokenIssued(
+                actorId, connectorId, issued.id(), permissions.values()));
         succeeded(Operation.CONNECTOR_TOKEN_ISSUE, Type.CREATION);
         return disclose(issued, minted.presentedValue());
     }
@@ -213,17 +227,25 @@ public class ConnectorAdministrationService {
             Duration overlap,
             UUID actorId,
             Set<Permission> held) {
+        tokenLocks.lockToken(tokenId);
         ScimConnectorToken existing = requireToken(tokenId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
                 requested == null ? existing.permissions().values() : requested);
         ScimConnector connector = requireLive(existing.connectorId());
+        Instant now = clock.instant();
+        Optional<ConnectorTokenRotationRefusal> refusal = existing.rotationRefusal(now);
+        if (refusal.isPresent()) {
+            audit.append(new Audited.ConnectorTokenNotRotatable(
+                    actorId, connector.id(), existing.id(), auditReason(refusal.get())));
+            refused(Operation.CONNECTOR_TOKEN_ROTATE);
+            throw new ConnectorTokenNotRotatableException();
+        }
         if (!permissions.heldWithin(held)) {
             audit.append(new Audited.ConnectorTokenRotateRefused(
-                    actorId, connector.id(), permissions.values()));
-            escalationRefused(Operation.CONNECTOR_TOKEN_ROTATE);
+                    actorId, connector.id(), existing.id(), permissions.values()));
+            refused(Operation.CONNECTOR_TOKEN_ROTATE);
             throw new ConnectorTokenEscalationException();
         }
-        Instant now = clock.instant();
 
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         ScimConnectorToken replacement = ScimConnectorToken.issue(
@@ -240,7 +262,7 @@ public class ConnectorAdministrationService {
                 replacement.id()));
 
         audit.append(new Audited.ConnectorTokenRotated(
-                actorId, connector.id(), permissions.values()));
+                actorId, connector.id(), existing.id(), replacement.id(), permissions.values()));
         succeeded(Operation.CONNECTOR_TOKEN_ROTATE, Type.CHANGE);
         return disclose(replacement, minted.presentedValue());
     }
@@ -251,16 +273,30 @@ public class ConnectorAdministrationService {
      * <p>Idempotent: a token already revoked keeps its original revocation time and
      * nothing is written, but the event is still recorded — an administrator
      * revoking a credential twice is a thing worth being able to see.
+     *
+     * <p>Locks the token before reading it, as a rotation does: the revocation writes the whole
+     * row back from what it read, so a rotation committed in between would otherwise be undone.
      */
     @Transactional
     public void revokeToken(UUID tokenId, UUID actorId) {
+        tokenLocks.lockToken(tokenId);
         ScimConnectorToken existing = requireToken(tokenId);
         ScimConnectorToken revoked = existing.revoked(clock.instant());
         if (revoked != existing) {
             tokens.save(revoked);
         }
-        audit.append(new Audited.ConnectorTokenRevoked(actorId, existing.connectorId()));
+        audit.append(new Audited.ConnectorTokenRevoked(
+                actorId, existing.connectorId(), existing.id()));
         succeeded(Operation.CONNECTOR_TOKEN_REVOKE, Type.DELETION);
+    }
+
+    /** The audit trail's spelling of why a token can no longer be rotated. */
+    private static AuditAdministrativeRefusal auditReason(ConnectorTokenRotationRefusal refusal) {
+        return switch (refusal) {
+            case REVOKED -> AuditAdministrativeRefusal.TOKEN_REVOKED;
+            case ALREADY_ROTATED -> AuditAdministrativeRefusal.TOKEN_ALREADY_ROTATED;
+            case EXPIRED -> AuditAdministrativeRefusal.TOKEN_EXPIRED;
+        };
     }
 
     private ScimConnector requireLive(UUID connectorId) {
@@ -322,11 +358,12 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * Records that a token issue or rotation was refused as an escalation, at {@code WARN}: the
-     * action and the outcome, never which Permissions — those are the audit trail's to name, and
-     * a log line listing them would be a map of who may mint what.
+     * Records that a token issue or rotation was refused — as an escalation, or a rotation of a
+     * token that can no longer be rotated — at {@code WARN}: the action and the outcome, never
+     * which token, why, or which Permissions. Those are the audit trail's to name, and a log line
+     * listing Permissions would be a map of who may mint what.
      */
-    private static void escalationRefused(Operation operation) {
+    private static void refused(Operation operation) {
         LogEvent.refused(log, operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED).log();
     }
 }

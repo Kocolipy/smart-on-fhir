@@ -6,8 +6,7 @@
  * redirect carries — is decided in one function that needs no router to test.
  */
 
-import type { Permission } from "./api";
-import type { AuthStatus } from "./auth-context-value";
+import type { Permission, SessionCheckFailure } from "./api";
 import { holdsAny } from "./permissions";
 import type { SessionEndReason, SignInReasonState } from "./sign-in-reason";
 
@@ -41,10 +40,27 @@ export interface SessionRouteState extends SignInReasonState {
   from?: string;
 }
 
+/**
+ * `unchecked` is the start-up check that did not answer: the session is
+ * unknown, so the route is neither rendered nor left — a redirect to login
+ * would treat a live session as a Guest's. It carries what the check came to,
+ * for the line that says so.
+ */
 export type SessionRoute =
   | { kind: "pending" }
+  | { kind: "unchecked"; failure: SessionCheckFailure }
   | { kind: "render" }
   | { kind: "redirect"; to: string; state?: SessionRouteState };
+
+/**
+ * The session as routing reads it: its status, with what that status carries —
+ * an unanswered check its failure, a Guest the sign-in reason it began with
+ * (`null` for a cold visit). The auth state's `Session` is one.
+ */
+export type RoutedSession =
+  | { status: "checking" | "authenticated" }
+  | { checkFailure: SessionCheckFailure; status: "unchecked" }
+  | { signInReason: SessionEndReason | null; status: "guest" };
 
 export interface SessionRouteInput {
   /** The session carries the change-required flag and is confined to the change. */
@@ -56,9 +72,7 @@ export interface SessionRouteInput {
   returnTo?: string;
   /** The authenticated session's Permissions, when they are known. */
   permissions?: readonly Permission[];
-  /** Why the current `guest` status began, or `null` for a cold visit. */
-  signInReason: SessionEndReason | null;
-  status: AuthStatus;
+  session: RoutedSession;
 }
 
 export function resolveSessionRoute({
@@ -67,12 +81,13 @@ export function resolveSessionRoute({
   permissions,
   requires,
   returnTo,
-  signInReason,
-  status,
+  session,
 }: SessionRouteInput): SessionRoute {
-  if (status === "checking") return { kind: "pending" };
+  if (session.status === "checking") return { kind: "pending" };
+  if (session.status === "unchecked") return { failure: session.checkFailure, kind: "unchecked" };
 
-  if (status === "guest") {
+  if (session.status === "guest") {
+    const { signInReason } = session;
     if (requires === "guest") return { kind: "render" };
     // A change, or the lockout a change ran into, ends the session for good,
     // so the page it was made from is no destination to replay: the next

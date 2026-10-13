@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
-import type { Permission } from "./api";
+import { Button } from "@/components/ui/button";
+
+import type { Permission, SessionCheckFailure } from "./api";
 import { useAuthState } from "./auth-context-value";
+import { sessionCheckMessage } from "./session-action-copy";
 import {
   resolveSessionRoute,
   type SessionRequirement,
@@ -18,6 +21,28 @@ function CheckingSession() {
   );
 }
 
+/**
+ * The one view for a session check that did not answer: a single line saying
+ * so, and a way to check again under the same rules. Nothing protected
+ * renders and nobody is sent to login, because the session is unknown, not
+ * ended.
+ */
+function UncheckedSession({ failure }: { failure: SessionCheckFailure }) {
+  const { retrySessionCheck } = useAuthState();
+  return (
+    <div className="grid min-h-svh place-items-center">
+      <div className="flex flex-col items-center gap-3">
+        <p className="text-sm text-destructive" role="alert">
+          {sessionCheckMessage(failure)}
+        </p>
+        <Button onClick={retrySessionCheck} type="button" variant="outline">
+          Check again
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SessionRoute({
   children,
   requires,
@@ -25,23 +50,24 @@ function SessionRoute({
   children: ReactNode;
   requires: SessionRequirement;
 }) {
-  const { signInReason, status, user } = useAuthState();
+  const session = useAuthState();
   const location = useLocation();
   const carried = location.state as SessionRouteState | null;
 
   const route = resolveSessionRoute({
-    passwordChangeRequired: user?.passwordChangeRequired === true,
+    passwordChangeRequired: session.user?.passwordChangeRequired === true,
     pathname: location.pathname,
-    permissions: user?.permissions,
+    permissions: session.user?.permissions,
     requires,
     returnTo: carried?.from,
-    signInReason,
-    status,
+    session,
   });
 
   switch (route.kind) {
     case "pending":
       return <CheckingSession />;
+    case "unchecked":
+      return <UncheckedSession failure={route.failure} />;
     case "render":
       return children;
     case "redirect":

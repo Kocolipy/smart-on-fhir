@@ -52,7 +52,7 @@ class AuditEventReadAdapter implements AuditEventReader {
             SELECT id, occurred_at, operation, outcome, actor_id, subject_id, resource_type,
                    resource_id, changed_paths, status_class, error_code, http_method, http_path,
                    request_id, result_count, filter_shape, role_name, permissions, login_method,
-                   mfa_factor
+                   mfa_factor, token_id, replacement_token_id
               FROM audit_events
             """ + FILTER + """
              ORDER BY occurred_at DESC, id DESC
@@ -95,7 +95,10 @@ class AuditEventReadAdapter implements AuditEventReader {
     }
 
     private static AuditEvent event(ResultSet row) throws SQLException {
-        return new AuditEvent(
+        // A false positive of be-audit-sensitive-value: `token_id` and `replacement_token_id` are
+        // uuid columns holding a connector token's stable id, never its value or digest
+        // (AuditEventRecordingIntegrationTests holds the column types).
+        return new AuditEvent( // nosemgrep: be-audit-sensitive-value
                 row.getObject("id", UUID.class),
                 row.getTimestamp("occurred_at").toInstant(),
                 AuditOperation.valueOf(row.getString("operation")),
@@ -115,7 +118,9 @@ class AuditEventReadAdapter implements AuditEventReader {
                 row.getString("role_name"),
                 paths(row.getString("permissions")),
                 row.getString("login_method"),
-                row.getString("mfa_factor"));
+                row.getString("mfa_factor"),
+                row.getObject("token_id", UUID.class),
+                row.getObject("replacement_token_id", UUID.class));
     }
 
     /** The persistence adapter stores "nothing changed" as null, so null reads back as empty. */

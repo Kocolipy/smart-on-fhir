@@ -1,10 +1,36 @@
 import { createContext, useContext } from "react";
 
-import type { AuthUser, LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
+import type {
+  AuthUser,
+  LoginOutcome,
+  LogoutOutcome,
+  PasswordChangeOutcome,
+  SessionCheckFailure,
+} from "./api";
 import type { SessionEndReason } from "./sign-in-reason";
 
+/**
+ * What the SPA knows about the visitor's session, changed only as a whole by
+ * the session transitions. Each status carries exactly what it has, so nothing
+ * can read a field its status does not give:
+ *
+ * - `checkFailure` is what the start-up check came to, on `unchecked` only — a
+ *   check that did not answer, so the session is unknown, not ended, and the
+ *   visitor is no Guest. The route guards say so rather than send them to login.
+ * - `signInReason` is why the current `guest` status began — an Expired
+ *   session, an Idle sign-out, a password change or the lockout a change ran
+ *   into — or `null` for a cold visit, a logout or a refused login. The route
+ *   guards carry it to the login page.
+ * - `user` is the signed-in User, on `authenticated` only.
+ */
+export type Session =
+  | { checkFailure: null; signInReason: null; status: "checking"; user: null }
+  | { checkFailure: SessionCheckFailure; signInReason: null; status: "unchecked"; user: null }
+  | { checkFailure: null; signInReason: null; status: "authenticated"; user: AuthUser }
+  | { checkFailure: null; signInReason: SessionEndReason | null; status: "guest"; user: null };
+
 /** The session status: what the SPA currently knows about the visitor's session. */
-export type AuthStatus = "checking" | "authenticated" | "guest";
+export type AuthStatus = Session["status"];
 
 /**
  * What a page may read about the session. Why a Guest is one is not here: the
@@ -43,16 +69,14 @@ export interface AuthContextValue {
   user: AuthUser | null;
 }
 
-/** The context value including the session controls only `src/auth` may drive. */
-export interface AuthContextState extends AuthContextValue {
+/** The session controls only `src/auth` may drive. */
+export interface AuthControls {
   expireSession: () => void;
   /**
-   * Why the current `guest` status began — an Expired session, an Idle
-   * sign-out, a password change or the lockout a change ran into — or `null`
-   * for a cold visit, a logout or a refused login.
-   * Read by the route guards, which carry it to the login page.
+   * Checks an unknown session again, under the start-up check's rules: `ok`
+   * signs in, `401` makes a Guest, anything else leaves it unknown.
    */
-  signInReason: SessionEndReason | null;
+  retrySessionCheck: () => void;
   /**
    * Ends an idle session: logs out on the backend, forgets the CSRF token and
    * clears the auth state, recording why for the login page. Resolves once the
@@ -60,6 +84,13 @@ export interface AuthContextState extends AuthContextValue {
    */
   signOutForInactivity: () => Promise<void>;
 }
+
+/**
+ * The context value including the session controls only `src/auth` may drive,
+ * and the whole `Session` — so a reader that narrows on `status` gets what that
+ * status carries.
+ */
+export type AuthContextState = Omit<AuthContextValue, "status" | "user"> & AuthControls & Session;
 
 export const AuthContext = createContext<AuthContextState | null>(null);
 

@@ -24,8 +24,9 @@ _Avoid_: frontend route
 ### Sessions
 
 **Session status**:
-What the SPA knows about the current session: `checking`, `authenticated` or
-`guest`.
+What the SPA knows about the current session: `checking`, `unchecked`,
+`authenticated` or `guest`. `unchecked` is a start-up check that did not
+answer: the session is unknown, not ended, and the visitor is no Guest.
 
 **Guest**:
 A person with no authenticated session, and the session status that names them.

@@ -1,6 +1,7 @@
 package com.example.backend.scim.domain;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -78,6 +79,25 @@ public record ScimConnectorToken(
     /** Whether this token has been revoked, however long ago. */
     public boolean isRevoked() {
         return revokedAt != null;
+    }
+
+    /**
+     * Why this token can no longer be rotated at {@code now}, or empty when it can: a rotation
+     * replaces a live credential once. A revoked token is refused first, then one already
+     * rotated, then one whose expiry has passed — an expiry reached at exactly {@code now}
+     * included, as {@link #isUsable} reads it.
+     */
+    public Optional<ConnectorTokenRotationRefusal> rotationRefusal(Instant now) {
+        if (isRevoked()) {
+            return Optional.of(ConnectorTokenRotationRefusal.REVOKED);
+        }
+        if (replacedByTokenId != null) {
+            return Optional.of(ConnectorTokenRotationRefusal.ALREADY_ROTATED);
+        }
+        if (!now.isBefore(expiresAt)) {
+            return Optional.of(ConnectorTokenRotationRefusal.EXPIRED);
+        }
+        return Optional.empty();
     }
 
     /**

@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, CHECKING, signedIn } from "@/auth/auth-context.testHelpers";
 import type { Permission } from "@/auth/api";
 import { apiFetch } from "@/lib/http";
 
@@ -19,21 +20,9 @@ const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
 const reset = () => screen.getByRole("button", { name: "Reset" });
 
-const auth: AuthContextState = {
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: ["counter:read", "counter:write"],
-    username: "ada",
-  },
-};
+const auth: AuthContextState = authState(
+  signedIn({ permissions: ["counter:read", "counter:write"] }),
+);
 
 /**
  * Answers every request with `result`, as `apiFetch` would classify it. The
@@ -52,7 +41,7 @@ function resolveWith(result: object) {
 /** The page as a session holding exactly these Permissions sees it. */
 const holding = (permissions: Permission[]): AuthContextState => ({
   ...auth,
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
+  ...signedIn({ permissions }),
 });
 
 function resolveOnceWith(result: object) {
@@ -158,8 +147,8 @@ describe("Showcase", () => {
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
-  it("renders safely while authenticated user details are unavailable", () => {
-    renderShowcase({ ...auth, user: null });
+  it("renders safely while the session's user details are unavailable", () => {
+    renderShowcase({ ...auth, ...CHECKING });
     // No session details, so no Permission: nothing is offered and nothing is asked for.
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();

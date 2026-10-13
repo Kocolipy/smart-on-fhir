@@ -341,6 +341,11 @@ already decoded rather than re-proving the decoder.
 A suite that renders the whole app over a stubbed `fetch` (`src/App.test.tsx`)
 wraps its stub in `stubFetchWithCsrf()` from `src/lib/http.testHelpers.ts`, which
 answers the token endpoint so the stub sees only the requests the test is about.
+A suite that hands a page or hook an `AuthContext` value builds it with
+`authState()` from `src/auth/auth-context.testHelpers.ts`, over one of its
+sessions (`signedIn({ permissions })`, `guest()`, `CHECKING`, `unchecked()`),
+rather than spelling out every field: a field added to the auth state then
+changes one builder, not every suite.
 A page that renders a `<Link>` needs a router in the test too — wrap it in
 `MemoryRouter`, as `accounts.test.tsx` does, or the link throws on a null router
 context.

@@ -43,7 +43,7 @@ describe("useSessionTransitions", () => {
     const { result } = renderHook(() => useSessionTransitions());
 
     expect(snapshot(result.current)).toEqual({
-      session: { signInReason: null, status: "checking", user: null },
+      session: { checkFailure: null, signInReason: null, status: "checking", user: null },
       tokensForgotten: 0,
     });
   });
@@ -56,7 +56,7 @@ describe("useSessionTransitions", () => {
     act(() => result.current.signIn(USER));
 
     expect(snapshot(result.current)).toEqual({
-      session: { signInReason: null, status: "authenticated", user: USER },
+      session: { checkFailure: null, signInReason: null, status: "authenticated", user: USER },
       tokensForgotten: 1,
     });
   });
@@ -69,7 +69,7 @@ describe("useSessionTransitions", () => {
       act(() => result.current.end(reason));
 
       expect(snapshot(result.current)).toEqual({
-        session: { signInReason: reason, status: "guest", user: null },
+        session: { checkFailure: null, signInReason: reason, status: "guest", user: null },
         tokensForgotten: 1,
       });
     },
@@ -81,7 +81,7 @@ describe("useSessionTransitions", () => {
     act(() => result.current.end(null));
 
     expect(snapshot(result.current)).toEqual({
-      session: { signInReason: null, status: "guest", user: null },
+      session: { checkFailure: null, signInReason: null, status: "guest", user: null },
       tokensForgotten: 1,
     });
   });
@@ -94,18 +94,51 @@ describe("useSessionTransitions", () => {
     act(() => result.current.end(null));
 
     expect(snapshot(result.current)).toEqual({
-      session: { signInReason: null, status: "guest", user: null },
+      session: { checkFailure: null, signInReason: null, status: "guest", user: null },
       tokensForgotten: 1,
+    });
+  });
+
+  // A check that did not answer changed no session, so the token it may still
+  // be worth is kept: forgetting it would be a session-end transition.
+  it.each(["forbidden", "csrf-expired", "failed"] as const)(
+    "a check that came back %s leaves the session unknown, recording why, with the token kept",
+    (kind) => {
+      const { result } = renderHook(() => useSessionTransitions());
+
+      act(() => result.current.checkFailed({ kind }));
+
+      expect(snapshot(result.current)).toEqual({
+        session: { checkFailure: { kind }, signInReason: null, status: "unchecked", user: null },
+        tokensForgotten: 0,
+      });
+    },
+  );
+
+  it("checking again returns an unknown session to checking, with the token kept", () => {
+    const { result } = renderHook(() => useSessionTransitions());
+    act(() => result.current.checkFailed({ kind: "failed" }));
+
+    act(() => result.current.recheck());
+
+    expect(snapshot(result.current)).toEqual({
+      session: { checkFailure: null, signInReason: null, status: "checking", user: null },
+      tokensForgotten: 0,
     });
   });
 
   it("keeps each transition the same function across renders", () => {
     const { rerender, result } = renderHook(() => useSessionTransitions());
-    const { end, signIn } = result.current;
+    const { checkFailed, end, recheck, signIn } = result.current;
 
     rerender();
 
     // Compared by identity: `toEqual` would call any two functions equal.
-    expect([result.current.end === end, result.current.signIn === signIn]).toEqual([true, true]);
+    expect([
+      result.current.checkFailed === checkFailed,
+      result.current.end === end,
+      result.current.recheck === recheck,
+      result.current.signIn === signIn,
+    ]).toEqual([true, true, true, true]);
   });
 });

@@ -1,5 +1,6 @@
 package com.example.backend.scim.infrastructure.persistence;
 
+import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -17,17 +18,30 @@ import org.springframework.stereotype.Repository;
  * and Group adapters, and {@code ScimWriteEffectsApplier}. The adapters therefore take no lock of
  * their own, and the bulk version advance {@link RepresentationChange} issues touches only rows
  * already held here, so the order it updates them in cannot matter.
+ *
+ * <p>Also the one place a connector token's row lock is taken ({@link ConnectorTokenLocks}), so
+ * every lock statement the scim slice issues is issued here. A token write takes no resource lock
+ * and a SCIM write no token lock, so the token lock needs no place in the resource order.
  */
 @Repository
-class ScimWriteLockAdapter implements ScimWriteLocks {
+class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorTokenLocks {
 
     private final ScimResourceJpaRepository resources;
     private final ScimGroupMemberJpaRepository memberships;
+    private final ScimConnectorTokenJpaRepository tokens;
 
     ScimWriteLockAdapter(
-            ScimResourceJpaRepository resources, ScimGroupMemberJpaRepository memberships) {
+            ScimResourceJpaRepository resources,
+            ScimGroupMemberJpaRepository memberships,
+            ScimConnectorTokenJpaRepository tokens) {
         this.resources = resources;
         this.memberships = memberships;
+        this.tokens = tokens;
+    }
+
+    @Override
+    public void lockToken(UUID tokenId) {
+        tokens.lockById(tokenId);
     }
 
     @Override

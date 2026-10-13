@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -103,7 +103,7 @@ async function signedIn(
   current: authApi.AuthUser = user(),
   page: ReactNode = <p>Accounts page</p>,
 ) {
-  api.getCurrentUser.mockResolvedValue(current);
+  api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: current });
   render(
     <MemoryRouter initialEntries={["/accounts"]}>
       <AuthProvider>
@@ -171,7 +171,7 @@ describe("IdleSignOut", () => {
     });
 
     it("times the clock by the login response's figure too", async () => {
-      api.getCurrentUser.mockResolvedValue(null);
+      api.getCurrentUser.mockResolvedValue({ kind: "guest" });
       api.login.mockResolvedValue({ kind: "signed-in", user: user(120) });
       render(
         <MemoryRouter>
@@ -528,6 +528,68 @@ describe("IdleSignOut", () => {
       });
 
       expect(screen.getByText("Accounts page")).toBeInTheDocument();
+    });
+
+    it.each([
+      ["failed", "Unable to sign out. Please try again. You are still signed in."],
+      ["csrf-expired", "Your security token expired. Please try again. You are still signed in."],
+    ] as const)(
+      "says in the dialog that the User is still signed in when a requested sign-out comes back %s",
+      async (kind, line) => {
+        await signedIn();
+        await advance(WARN_AT_MS);
+        api.logout.mockResolvedValue({ kind });
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+        });
+
+        expect(within(warning()!).getByRole("alert").textContent).toBe(line);
+      },
+    );
+
+    it("opens with no error line", async () => {
+      await signedIn();
+      await advance(WARN_AT_MS);
+
+      expect(within(warning()!).queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("offers Sign out again after one that failed, and withdraws its line on the next try", async () => {
+      await signedIn();
+      await advance(WARN_AT_MS);
+      api.logout.mockResolvedValueOnce({ kind: "failed" });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      });
+      api.logout.mockReturnValueOnce(new Promise(() => undefined));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      });
+
+      expect(within(warning()!).queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("shows the requested sign-out in progress while its logout is out", async () => {
+      await signedIn();
+      await advance(WARN_AT_MS);
+      api.logout.mockReturnValue(new Promise(() => undefined));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      });
+
+      expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
+    });
+
+    it("still ends the session at the limit when the inactivity logout fails", async () => {
+      await signedIn();
+      api.logout.mockResolvedValue({ kind: "failed" });
+
+      await advance(LIMIT_MS);
+
+      expectSignedOutForInactivity();
     });
   });
 

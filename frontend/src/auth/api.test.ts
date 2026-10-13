@@ -23,21 +23,29 @@ describe("auth API", () => {
   it("treats an unauthenticated session check as a guest", async () => {
     resolveWith({ kind: "unauthenticated" });
 
-    await expect(getCurrentUser()).resolves.toBeNull();
+    await expect(getCurrentUser()).resolves.toEqual({ kind: "guest" });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/me", {}, expect.any(Function));
   });
 
   it("returns the authenticated user", async () => {
     resolveWith({ kind: "ok", data: { permissions: [], username: "ada" } });
 
-    await expect(getCurrentUser()).resolves.toEqual({ permissions: [], username: "ada" });
+    await expect(getCurrentUser()).resolves.toEqual({
+      kind: "signed-in",
+      user: { permissions: [], username: "ada" },
+    });
   });
 
-  it.each([{ kind: "csrf-expired" }, { kind: "failed", status: 503 }])(
-    "rejects a failed session check for $kind",
-    async (result) => {
+  it.each([
+    ["an authorization refusal", { kind: "forbidden" }, { kind: "forbidden" }],
+    ["a CSRF token that could not be fetched", { kind: "csrf-expired" }, { kind: "csrf-expired" }],
+    ["a server failure", { kind: "failed", status: 503 }, { kind: "failed" }],
+    ["a transport failure", { kind: "failed" }, { kind: "failed" }],
+  ])(
+    "resolves %s on the session check as its own outcome, claiming no verdict",
+    async (_name, result, outcome) => {
       resolveWith(result);
-      await expect(getCurrentUser()).rejects.toThrow("Unable to check the current session.");
+      await expect(getCurrentUser()).resolves.toEqual(outcome);
     },
   );
 
@@ -94,12 +102,6 @@ describe("auth API", () => {
   ])("resolves %s on logout as its own outcome", async (_name, result, outcome) => {
     resolveWith(result);
     await expect(logout()).resolves.toEqual(outcome);
-  });
-
-  it("reports an authorization refusal on the session check as permission denied", async () => {
-    resolveWith({ kind: "forbidden" });
-
-    await expect(getCurrentUser()).rejects.toThrow(/^You don't have permission to do this\.$/);
   });
 
   // A 403 that survived the transport's re-fetch-and-retry: the session the

@@ -65,7 +65,8 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            assertThat(versions).containsExactly("1");
+            // V2: audit events name the connector token they concern.
+            assertThat(versions).containsExactly("1", "2");
         }
     }
 }

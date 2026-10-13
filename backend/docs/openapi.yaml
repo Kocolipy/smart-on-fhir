@@ -1025,12 +1025,20 @@ paths:
         rotated with `permissions`.
 
         The overlap ends at the EARLIER of the requested window and the expiry the
-        old token already had, capped at 14 days. Three consequences worth
-        stating: a request longer than 14 days is clamped rather than refused; an
+        old token already had, capped at 14 days. Two consequences worth stating:
+        a request longer than 14 days is clamped rather than refused; and an
         overlap longer than the token had left ends at the token's own expiry, so
-        rotation can never lengthen a token's life; and a second rotation cannot
-        undo the first one's shortening. `overlapDays` absent or zero ends the old
-        token at this instant.
+        rotation can never lengthen a token's life. `overlapDays` absent or zero
+        ends the old token at this instant.
+
+        **A token is rotated once.** Only a live token that has not been rotated
+        may be: one that is revoked, has expired, or already has a replacement is
+        refused `409`, and nothing is minted or written. The token's row is locked
+        before that is decided, so of two concurrent rotations of one token exactly
+        one mints a replacement and the other is refused `409` as already rotated.
+        The refusal is audited (`CONNECTOR_TOKEN_ROTATE`, `FAILURE`, with
+        `errorCode` `TOKEN_REVOKED`, `TOKEN_ALREADY_ROTATED` or `TOKEN_EXPIRED`,
+        checked in that order) naming the token in `tokenId`.
 
         The response discloses the replacement's plaintext once, under
         `Cache-Control: no-store`, exactly as issue does.
@@ -1054,6 +1062,12 @@ paths:
           $ref: "#/components/responses/TokenPermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+        "409":
+          description: |
+            The token can no longer be rotated: it is revoked, has expired, or was
+            rotated already — the second of two concurrent rotations of one token
+            included. Nothing was minted or written. No body; the listing shows
+            which state the token is in.
       requestBody:
         required: false
         content:
@@ -1070,7 +1084,9 @@ paths:
         a token that never existed gets.
 
         Idempotent — a token already revoked keeps its original revocation time
-        and nothing is written, though the attempt is still audited.
+        and nothing is written, though the attempt is still audited, naming the
+        token in `tokenId`. The token's row is locked first, as for a rotation, so
+        a revocation never writes back a token a concurrent rotation changed.
       operationId: revokeConnectorToken
       security:
         - sessionCookie: [connector:token]
@@ -3345,8 +3361,8 @@ components:
           enum: [User, Group, ScimConnector, "User,Group"]
           description: |
             `ScimConnector` for connector and token lifecycle events, named by the
-            connector's id rather than the token's; `User,Group` for a base
-            `/.search`.
+            connector's id — a token event names its token beside it, in
+            `tokenId`; `User,Group` for a base `/.search`.
         resourceId:
           type: [string, "null"]
           format: uuid
@@ -3434,6 +3450,23 @@ components:
             or — once `APP_EPIC_MFA_EVIDENCE_REQUIRED` is on — the RFC 8176 factor
             the `id_token`'s `amr` named. `null` for every other event, a password
             Login's included, and for a login recorded before the factor was.
+        tokenId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The connector token a `CONNECTOR_TOKEN_ISSUE`, `CONNECTOR_TOKEN_ROTATE`
+            or `CONNECTOR_TOKEN_REVOKE` concerns, by its stable id — the token
+            issued, rotated or revoked, or the one a refused rotation addressed.
+            Never the token's value. The connector stays the event's `subjectId`
+            and `resourceId`. `null` for every other event, for a refused issue
+            (which addressed no token), and for an event recorded before tokens
+            were named.
+        replacementTokenId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The token a successful `CONNECTOR_TOKEN_ROTATE` minted to replace
+            `tokenId`, by its stable id. `null` for every other event.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]

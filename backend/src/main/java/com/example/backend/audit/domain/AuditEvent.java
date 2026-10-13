@@ -61,6 +61,12 @@ import java.util.UUID;
  *                      {@code idp-attested} while the Epic organisation's MFA is attested, or the
  *                      factor its {@code amr} named — rendered from {@link AuditMfaFactor}, or
  *                      {@code null} for every other event, a password Login's included
+ * @param tokenId       the stable id of the connector token a token event concerns — the one
+ *                      issued, rotated or revoked, or the one a refused rotation addressed — or
+ *                      {@code null} for every other event and a refused issue, which addressed
+ *                      none. An id, never the token's value or digest
+ * @param replacementTokenId the stable id of the token a rotation minted to replace
+ *                      {@code tokenId}, or {@code null} for every other event
  */
 public record AuditEvent(
         UUID id,
@@ -82,17 +88,19 @@ public record AuditEvent(
         String role,
         List<String> permissions,
         String loginMethod,
-        String mfaFactor) {
+        String mfaFactor,
+        UUID tokenId,
+        UUID replacementTokenId) {
 
     /**
      * A SCIM connector, as the audit trail names it.
      *
-     * <p>A token lifecycle event carries this type and the CONNECTOR's id, not the
-     * token's. The connector is what an administrator investigates and what
-     * survives a rotation; a token id identifies a credential that may already be
-     * gone, and grouping a connector's history by it would split one integration's
-     * story across every token it ever held. Which token an event is about is the
-     * operation plus the timestamp, on a stream that is append-only.
+     * <p>A token lifecycle event carries this type and the CONNECTOR's id as its subject and
+     * resource. The connector is what an administrator investigates and what survives a
+     * rotation, and grouping a connector's history by a token id would split one
+     * integration's story across every token it ever held. Which token an event is about is
+     * named beside it, in {@link #tokenId} (and, on a rotation, {@link #replacementTokenId}),
+     * so two rotations of one token — or a refusal of a token already gone — can be told apart.
      */
     public static final String CONNECTOR_RESOURCE_TYPE = "ScimConnector";
 
@@ -141,8 +149,8 @@ public record AuditEvent(
     }
 
     /**
-     * An event that names neither Permissions nor a login method, which is every event but a
-     * token's issue or rotation and a login's.
+     * An event that names no Permissions, no login method and no token, which is every event
+     * but a token's and a login's.
      */
     public AuditEvent(
             UUID id,
@@ -164,6 +172,6 @@ public record AuditEvent(
             String role) {
         this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
                 changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
-                filterShape, role, List.of(), null, null);
+                filterShape, role, List.of(), null, null, null, null);
     }
 }

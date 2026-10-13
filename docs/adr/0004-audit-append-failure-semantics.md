@@ -13,6 +13,7 @@ events run fail-open, and so does the record of a post-commit session revocation
 whose transaction has already committed (`AuditTrailService`). How a failing
 session store answers, on every revocation trigger, is the 2026-10-10 addendum below;
 where the rule is expressed — once, from each event's kind — is the 2026-10-12
+addendum; which connections a fail-open append commits on is the 2026-10-13
 addendum.
 
 To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
@@ -179,3 +180,66 @@ records the failure run when the run held attempts, and — when a lock stood �
 
 ADRs 0013 and 0014 name `AuditTrail.recordLoginRefusal`, the method of the time; it
 is now the `Audited.LoginRefusal` event, recorded under the same terms.
+
+## Addendum (2026-10-13): Fail-open appends commit on a pool of their own
+
+Architecture review 2026-10-11 (second pass) suspected, and the investigation
+confirmed, that the fail-open path could starve the connection pool. A fail-open
+append ran `PROPAGATION_REQUIRES_NEW` on the main JPA transaction manager, and
+`REQUIRES_NEW` keeps the caller's connection checked out while it opens another,
+so every fail-open append inside an open transaction needed a **second**
+connection from the same pool. A refusal is recorded while its caller holds one:
+`LoginAttemptService.recordFailure` holds its connection and the User row's lock
+(the failure run's `UPDATE`) while it appends `LOGIN_FAILURE` and `LOCKOUT_SET`,
+and the password change and the SCIM User and Group writes append their refusals
+while holding write locks. With Hikari's defaults (10 connections, 30 s) and
+Tomcat's 200 threads, ten overlapping failed Logins — reachable before sign-in —
+held the whole pool, each waited 30 s for a connection none of them would give
+back, the `CannotCreateTransactionException` was swallowed by the fail-open path
+(the event lost behind an alert), and every other request failed meanwhile.
+`audit_events` has no foreign keys, so the append could not self-deadlock; it
+could only wait.
+
+**Decision: fail-open appends — `Audited.Refused` and `Audited.Committed` — commit
+on a dedicated, small audit append pool**, and never take a connection from the
+main pool:
+
+- The pool (`AuditAppendPoolConfig`) is two connections by default, with a 2 s
+  connection timeout, both configurable (`APP_AUDIT_POOL_SIZE`,
+  `APP_AUDIT_POOL_TIMEOUT`; `backend/README.md`). The size is bounded to two or
+  three: a configuration outside that fails startup. It has no credentials of its
+  own: it reads the main pool's URL, username, password and `connection-init-sql`
+  off the main pool, so an append runs as the same login and the same runtime role
+  (`SET ROLE backend_app`) as every other statement.
+- An append is one JDBC `INSERT` on an auto-committing connection
+  (`IsolatedAuditEventPersistenceAdapter`, behind the `IsolatedAuditEventRepository`
+  port): a transaction of its own by construction, with no transaction manager to
+  join. It commits independently of the caller exactly as `REQUIRES_NEW` did, so a
+  caller that rolls back keeps its refusal on record, and the caller's commit
+  cannot carry it.
+- The pool's beans are not default candidates, so Boot's auto-configuration still
+  creates the main pool and the one, primary, JPA transaction manager, and every
+  other bean is still given the main pool.
+- **Fail-closed (`Audited.Accepted`) appends are unchanged**: they join the
+  caller's transaction on the main pool, so a change this service cannot account
+  for still does not happen.
+
+The semantics are unchanged: a fail-open append still commits independently of
+its caller, and a failure — a pool that cannot hand out a connection within its
+timeout included — still raises `OperationalAlerts.auditAppendFailed` and is
+swallowed. `AuditTrailServiceTests.everyKindOfEventFailsAsAdr0004Decides` holds
+the axis kind by kind; `AuditAppendPoolStarvationIntegrationTests` holds the fix:
+with every main-pool connection held by a transaction that used it, a fail-open
+append from inside one of them completes well inside the main pool's timeout and
+its event is in the trail. It failed before the change, the append waiting out the
+main pool's timeout and the event lost.
+
+**Rejected alternatives.** Deferring the append to after completion keeps the
+caller's connection checked out all the same — the wait just moves. A
+`PROPAGATION_NESTED` savepoint shares the caller's connection, but loses the event
+when the caller's transaction rolls back, which is the fail-open guarantee.
+A bigger main pool only moves the threshold the attack has to reach.
+
+The cost: two more connections per instance against the database's connection
+limit, and a second place a database outage is felt — a fail-open append fails
+after 2 s rather than 30 s, and the request it rides answers sooner for it.

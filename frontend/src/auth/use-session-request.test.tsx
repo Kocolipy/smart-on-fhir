@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "@/lib/http";
 
 import { AuthContext, type AuthContextState } from "./auth-context-value";
+import { authState, signedIn } from "./auth-context.testHelpers";
 import { useSessionRequest } from "./use-session-request";
 
 vi.mock("@/lib/http", async (importOriginal) => ({
@@ -14,21 +15,7 @@ vi.mock("@/lib/http", async (importOriginal) => ({
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-const state: AuthContextState = {
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: [],
-    username: "ada",
-  },
-};
+const state: AuthContextState = authState(signedIn());
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <AuthContext.Provider value={state}>{children}</AuthContext.Provider>

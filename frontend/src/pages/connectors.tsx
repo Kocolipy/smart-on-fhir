@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { usePageStatus } from "@/auth/page-status";
+import type { PageStatus } from "@/auth/page-status";
 import { holds } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
@@ -76,6 +76,13 @@ function failureMessages(what: string): RefusalMessages {
     default: `${what} failed. Please try again.`,
   };
 }
+
+/**
+ * A rotation's `409`: the token is no longer one a rotation may replace. The
+ * re-read after it shows which — revoked, expired, or replaced already.
+ */
+const NOT_ROTATABLE_MESSAGE =
+  "Refused: the token can no longer be rotated — it was revoked, has expired or was already rotated.";
 
 function TokenDisclosure({
   disclosure,
@@ -338,14 +345,14 @@ interface ConnectorActions {
  * the connector held — and the listing is the only answer that states all of
  * that at once.
  *
- * The listing and every mutation report to the panel's one error line, where
- * the latest failure shows: a mutation starting withdraws the listing's, its
- * own refusal replaces it, and the re-read after it — reporting later still —
- * replaces that in turn when it fails too.
+ * The listing and every mutation report to the page's one error line — the
+ * Accounts page's `status`, which its Users and Groups report to as well — where
+ * the latest failure shows: a mutation starting withdraws every standing one,
+ * its own refusal replaces it, and the re-read after it — reporting later still
+ * — replaces that in turn when it fails too.
  */
-function useConnectors() {
+function useConnectors(status: PageStatus) {
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
-  const status = usePageStatus();
   const listing = useGatedRead(CONNECTORS, {
     failureMessage: "Unable to load the connectors. Please try again.",
     status,
@@ -385,12 +392,15 @@ function useConnectors() {
           args: [connector.id, token.id],
           ...mutationOptions("Revoking the token"),
         }),
-      onRotate: (token) =>
+      onRotate: (token) => {
+        const options = mutationOptions("Rotating the token");
         void write.run(ROTATE_TOKEN, {
           args: [connector.id, token.id],
-          ...mutationOptions("Rotating the token"),
+          ...options,
+          messages: { ...options.messages, 409: NOT_ROTATABLE_MESSAGE },
           onOk: disclose,
-        }),
+        });
+      },
     };
   };
 
@@ -399,7 +409,6 @@ function useConnectors() {
     create,
     disclosure,
     dismiss: () => setDisclosure(null),
-    error: status.error,
     pending: write.pending,
     view: listing.view,
   };
@@ -455,10 +464,14 @@ function CreateConnectorForm({
  * and revoking a token — and the backend refuses each independently. A token
  * may carry only Permissions the session holds itself; the backend refuses
  * anything more, so the form offers nothing more.
+ *
+ * Renders no error line of its own: it is a panel of the Accounts page, whose
+ * one line its listing and mutations report to through `status`
+ * (ARCHITECTURE.md, "a page's single error line").
  */
-export function Connectors() {
+export function Connectors({ status }: { status: PageStatus }) {
   const { user } = useAuth();
-  const { actionsFor, create, disclosure, dismiss, error, pending, view } = useConnectors();
+  const { actionsFor, create, disclosure, dismiss, pending, view } = useConnectors(status);
   const may: May = (request) => holds(user, request.permission);
   const grantable = TOKEN_PERMISSIONS.filter((permission) => holds(user, permission));
 
@@ -474,11 +487,6 @@ export function Connectors() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {error ? (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
         {disclosure ? <TokenDisclosure disclosure={disclosure} onDismiss={dismiss} /> : null}
         {may(CREATE_CONNECTOR) ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
         {/* A failed re-read keeps the connectors last read on screen, under the

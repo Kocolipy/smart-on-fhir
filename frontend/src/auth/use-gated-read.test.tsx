@@ -7,6 +7,7 @@ import { FORBIDDEN_MESSAGE } from "@/lib/http";
 
 import type { Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
+import { authState as buildAuthState, signedIn } from "./auth-context.testHelpers";
 import type { ReadDeclaration } from "./declarations";
 import { usePageStatus, useStatusReporter } from "./page-status";
 import { useGatedRead } from "./use-gated-read";
@@ -37,16 +38,7 @@ let sent: { path: string; answer: (response: Response) => void }[];
 const expireSession = vi.fn();
 
 function authState(permissions: Permission[]): AuthContextState {
-  return {
-    changePassword: vi.fn(),
-    expireSession,
-    login: vi.fn(),
-    logout: vi.fn(),
-    signInReason: null,
-    signOutForInactivity: vi.fn(),
-    status: "authenticated",
-    user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
-  };
+  return buildAuthState(signedIn({ permissions }), { expireSession });
 }
 
 interface Options {

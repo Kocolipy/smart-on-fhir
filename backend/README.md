@@ -433,6 +433,32 @@ different facts. The job is serialized on its own `audit-retention` row in
 on the same cron one run deletes, and the others end `job-end` with
 `event.reason: lock-held` and delete nothing.
 
+### Audit append pool
+
+| Variable                 | Default | Meaning                                                            |
+| ------------------------ | ------- | ------------------------------------------------------------------ |
+| `APP_AUDIT_POOL_SIZE`    | `2`     | Connections in the pool fail-open audit appends commit on (2 or 3) |
+| `APP_AUDIT_POOL_TIMEOUT` | `2s`    | How long such an append waits for one before alerting (≥ `250ms`)  |
+
+A refusal's audit event — a rejected Login, a refused SCIM write, a refused
+token rotation — and a post-commit Session revocation's are appended
+**fail-open**, in a transaction of their own (ADR 0004). They commit on a small
+pool of their own, never on the main one: a refusing request still holds its
+main-pool connection (a rejected Login holds the User row's lock too), so an
+append that needed a second connection from the same pool would, under enough
+overlapping refusals, wait out the pool's timeout for a connection none of them
+would release. Accepted (fail-closed) events still join their request's
+transaction on the main pool.
+
+The pool has **no credentials of its own** and no URL setting: it opens its
+connections with the main datasource's URL, username and password
+(`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`) and runs the same
+`connection-init-sql`, so appends run as `backend_app` like every other
+statement. It starts lazily, on the first fail-open append. An append that
+cannot get a connection within the timeout is lost behind the `ERROR`
+`audit.append` alert, as any failed fail-open append is. The pool is named
+`audit-append` in Hikari's log lines.
+
 ### Operational telemetry
 
 | Variable                 | Default   | Meaning                                                |

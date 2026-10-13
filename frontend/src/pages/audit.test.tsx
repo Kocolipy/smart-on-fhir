@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Permission } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, signedIn } from "@/auth/auth-context.testHelpers";
 import { apiFetch } from "@/lib/http";
 
 import { AUDIT_EVENTS_PATH } from "./audit-api";
@@ -17,21 +17,7 @@ vi.mock("@/lib/http", async (importOriginal) => ({
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-const auth: AuthContextState = {
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: ["audit:read"] as Permission[],
-    username: "ada",
-  },
-};
+const auth: AuthContextState = authState(signedIn({ permissions: ["audit:read"] }));
 
 const EVENT_1 = {
   id: "e-1",
@@ -206,10 +192,7 @@ describe("Audit", () => {
   });
 
   it("sends no request for a session lacking audit:read", () => {
-    renderAudit({
-      ...auth,
-      user: { ...auth.user!, permissions: [] },
-    });
+    renderAudit({ ...auth, ...signedIn({ permissions: [] }) });
 
     expect(apiFetchMock).not.toHaveBeenCalled();
   });
@@ -474,7 +457,7 @@ describe("Audit", () => {
     });
 
     it("names no total for a session lacking audit:read", () => {
-      renderAudit({ ...auth, user: { ...auth.user!, permissions: [] } });
+      renderAudit({ ...auth, ...signedIn({ permissions: [] }) });
 
       expect(pager()).toHaveTextContent(/^Page 1$/);
     });

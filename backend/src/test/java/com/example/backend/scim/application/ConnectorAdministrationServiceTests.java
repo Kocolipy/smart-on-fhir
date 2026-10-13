@@ -2,15 +2,19 @@ package com.example.backend.scim.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.InMemoryConnectorTokenLocks;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
@@ -62,6 +66,8 @@ class ConnectorAdministrationServiceTests {
 
     private final MutableClock clock = new MutableClock(NOW);
 
+    private final InMemoryConnectorTokenLocks tokenLocks = new InMemoryConnectorTokenLocks();
+
     private ConnectorAdministrationService service;
 
     private UUID adminId;
@@ -74,7 +80,7 @@ class ConnectorAdministrationServiceTests {
         // more, so the Group port is not part of this test's arrangement.
         adminId = users.given(ScimIdentities.user(ADMIN)).id();
         service = new ConnectorAdministrationService(
-                connectors, tokens, aliases, audit, new SecureRandom(), clock);
+                connectors, tokens, tokenLocks, aliases, audit, new SecureRandom(), clock);
     }
 
     @Nested
@@ -154,8 +160,13 @@ class ConnectorAdministrationServiceTests {
         @Test
         void deletion_records_the_delete_and_one_revocation_per_token_it_took_down() {
             ConnectorSummary connector = service.create("Okta", adminId);
-            service.issueToken(connector.id(), TokenPermissions.READ, null, adminId, TokenPermissions.ALL);
-            service.issueToken(connector.id(), TokenPermissions.ALL, null, adminId, TokenPermissions.ALL);
+            IssuedConnectorToken first = service.issueToken(
+                    connector.id(), TokenPermissions.READ, null, adminId, TokenPermissions.ALL);
+            IssuedConnectorToken second = service.issueToken(
+                    connector.id(), TokenPermissions.ALL, null, adminId, TokenPermissions.ALL);
+            IssuedConnectorToken alreadyRevoked = service.issueToken(
+                    connector.id(), TokenPermissions.ALL, null, adminId, TokenPermissions.ALL);
+            service.revokeToken(alreadyRevoked.tokenId(), adminId);
             audit.reset();
 
             service.delete(connector.id(), adminId);
@@ -165,6 +176,10 @@ class ConnectorAdministrationServiceTests {
                         assertThat(event.actorId()).isNull();
                         assertThat(event.subjectId()).isEqualTo(connector.id());
                     });
+            assertThat(audit.events(Audited.ConnectorTokenRevoked.class))
+                    .extracting(Audited.ConnectorTokenRevoked::revokedId)
+                    .as("each revocation names the token it took down")
+                    .containsExactlyInAnyOrder(first.tokenId(), second.tokenId());
             assertThat(audit.of(AuditOperation.CONNECTOR_DELETE)).singleElement()
                     .satisfies(event -> {
                         assertThat(event.actorId()).isEqualTo(adminId);
@@ -326,15 +341,130 @@ class ConnectorAdministrationServiceTests {
             assertThat(old.expiresAt()).isEqualTo(old.originalExpiresAt());
         }
 
+        /**
+         * A second rotation of one token is refused outright, so it can neither give the old
+         * token time back nor mint a second live replacement.
+         */
         @Test
         void a_second_rotation_cannot_give_the_old_token_time_back() {
             IssuedConnectorToken original = issuedReadWriteToken();
             service.rotateToken(original.tokenId(), null, Duration.ofDays(1), adminId, TokenPermissions.ALL);
 
-            service.rotateToken(original.tokenId(), null, Duration.ofDays(14), adminId, TokenPermissions.ALL);
+            assertThatThrownBy(() -> service.rotateToken(
+                            original.tokenId(), null, Duration.ofDays(14), adminId, TokenPermissions.ALL))
+                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
 
             assertThat(tokens.findById(original.tokenId()).orElseThrow().expiresAt())
                     .isEqualTo(NOW.plus(Duration.ofDays(1)));
+        }
+
+        /**
+         * A token that is revoked, has expired, or was already rotated is no longer one a rotation
+         * may replace: refused, with nothing minted and nothing written.
+         */
+        @Test
+        void a_revoked_token_is_not_rotated_and_nothing_is_written() {
+            IssuedConnectorToken issued = issuedReadWriteToken();
+            service.revokeToken(issued.tokenId(), adminId);
+            List<ScimConnectorToken> before = tokens.all();
+            int writesBefore = tokens.saves();
+
+            assertThatThrownBy(() -> service.rotateToken(
+                            issued.tokenId(), null, null, adminId, TokenPermissions.ALL))
+                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
+
+            assertThat(List.of(tokens.all(), tokens.saves())).containsExactly(before, writesBefore);
+        }
+
+        @Test
+        void an_expired_token_is_not_rotated() {
+            IssuedConnectorToken issued = issuedReadWriteToken();
+            clock.advanceBy(ConnectorTokenPolicy.DEFAULT_LIFETIME);
+
+            assertThatThrownBy(() -> service.rotateToken(
+                            issued.tokenId(), null, null, adminId, TokenPermissions.ALL))
+                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
+        }
+
+        /** A token one instant short of its expiry is still live, and still rotatable. */
+        @Test
+        void a_token_at_the_last_instant_of_its_life_is_still_rotated() {
+            IssuedConnectorToken issued = issuedReadWriteToken();
+            clock.advanceBy(ConnectorTokenPolicy.DEFAULT_LIFETIME.minusNanos(1));
+
+            assertThat(service.rotateToken(issued.tokenId(), null, null, adminId, TokenPermissions.ALL)
+                            .tokenId())
+                    .isNotEqualTo(issued.tokenId());
+        }
+
+        /**
+         * Each refusal is audited as one, naming the connector, the token addressed and why — and
+         * which of the three applies follows from the token: revoked first, then replaced, then
+         * expired.
+         */
+        @Test
+        void a_refused_rotation_is_audited_naming_the_token_and_why() {
+            IssuedConnectorToken revoked = issuedReadWriteToken();
+            service.revokeToken(revoked.tokenId(), adminId);
+            IssuedConnectorToken rotated = issuedReadWriteToken();
+            service.rotateToken(rotated.tokenId(), null, Duration.ofDays(1), adminId, TokenPermissions.ALL);
+            IssuedConnectorToken expired = issuedReadWriteToken();
+            clock.advanceBy(ConnectorTokenPolicy.DEFAULT_LIFETIME);
+            audit.reset();
+
+            for (IssuedConnectorToken refused : List.of(revoked, rotated, expired)) {
+                assertThatThrownBy(() -> service.rotateToken(
+                                refused.tokenId(), null, null, adminId, TokenPermissions.ALL))
+                        .isInstanceOf(ConnectorTokenNotRotatableException.class);
+            }
+
+            assertThat(audit.events(Audited.ConnectorTokenNotRotatable.class))
+                    .extracting(Audited.ConnectorTokenNotRotatable::actorId,
+                            Audited.ConnectorTokenNotRotatable::connectorId,
+                            Audited.ConnectorTokenNotRotatable::rotatedId,
+                            Audited.ConnectorTokenNotRotatable::reason)
+                    .containsExactly(
+                            tuple(adminId, revoked.connectorId(), revoked.tokenId(),
+                                    AuditAdministrativeRefusal.TOKEN_REVOKED),
+                            tuple(adminId, rotated.connectorId(), rotated.tokenId(),
+                                    AuditAdministrativeRefusal.TOKEN_ALREADY_ROTATED),
+                            tuple(adminId, expired.connectorId(), expired.tokenId(),
+                                    AuditAdministrativeRefusal.TOKEN_EXPIRED));
+            assertThat(audit.events()).as("nothing but the refusals")
+                    .allMatch(Audited.ConnectorTokenNotRotatable.class::isInstance);
+        }
+
+        /** A revoked token that was also rotated is refused as revoked: revocation reads first. */
+        @Test
+        void a_rotated_token_revoked_since_is_refused_as_revoked() {
+            IssuedConnectorToken original = issuedReadWriteToken();
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(1), adminId, TokenPermissions.ALL);
+            service.revokeToken(original.tokenId(), adminId);
+            audit.reset();
+
+            assertThatThrownBy(() -> service.rotateToken(
+                            original.tokenId(), null, null, adminId, TokenPermissions.ALL))
+                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
+
+            assertThat(audit.events(Audited.ConnectorTokenNotRotatable.class))
+                    .extracting(Audited.ConnectorTokenNotRotatable::reason)
+                    .containsExactly(AuditAdministrativeRefusal.TOKEN_REVOKED);
+        }
+
+        /**
+         * Rotation and revocation each lock the token they address before reading it, so a second
+         * writer waits for the first and then reads what it committed.
+         * {@code ConnectorTokenRotationRaceIntegrationTests} holds the race itself on Postgres.
+         */
+        @Test
+        void rotation_and_revocation_each_lock_the_token_they_address() {
+            IssuedConnectorToken rotated = issuedReadWriteToken();
+            IssuedConnectorToken revoked = issuedReadWriteToken();
+
+            service.rotateToken(rotated.tokenId(), null, null, adminId, TokenPermissions.ALL);
+            service.revokeToken(revoked.tokenId(), adminId);
+
+            assertThat(tokenLocks.requests()).containsExactly(rotated.tokenId(), revoked.tokenId());
         }
 
         @Test
@@ -371,6 +501,24 @@ class ConnectorAdministrationServiceTests {
                         assertThat(event.actorId()).isEqualTo(adminId);
                         assertThat(event.subjectId()).isEqualTo(original.connectorId());
                     });
+        }
+
+        /** Issue, rotation and revocation each name the token they concern by its stable id. */
+        @Test
+        void each_token_event_names_the_token_it_concerns() {
+            IssuedConnectorToken original = issuedReadWriteToken();
+            IssuedConnectorToken replacement = service.rotateToken(
+                    original.tokenId(), null, Duration.ofDays(1), adminId, TokenPermissions.ALL);
+            service.revokeToken(replacement.tokenId(), adminId);
+
+            assertThat(List.of(
+                            audit.events(Audited.ConnectorTokenIssued.class).getLast().issuedId(),
+                            audit.events(Audited.ConnectorTokenRotated.class).getLast().rotatedId(),
+                            audit.events(Audited.ConnectorTokenRotated.class).getLast()
+                                    .replacementId(),
+                            audit.events(Audited.ConnectorTokenRevoked.class).getLast().revokedId()))
+                    .containsExactly(original.tokenId(), original.tokenId(),
+                            replacement.tokenId(), replacement.tokenId());
         }
 
         @Test
@@ -559,6 +707,36 @@ class ConnectorAdministrationServiceTests {
                                     .doesNotContain("group:");
                         });
             }
+        }
+    }
+
+    /**
+     * A rotation of a token that can no longer be rotated is one {@code WARN} record of the
+     * refused rotation, naming neither the token nor why — the audit trail names both.
+     */
+    @Test
+    void a_rotation_refused_as_not_rotatable_is_one_warn_record_naming_no_token() {
+        ConnectorSummary connector = service.create("Okta", adminId);
+        IssuedConnectorToken issued = service.issueToken(
+                connector.id(), TokenPermissions.ALL, null, adminId, TokenPermissions.ALL);
+        service.revokeToken(issued.tokenId(), adminId);
+        try (CapturedLog log = CapturedLog.attach()) {
+            assertThatThrownBy(() -> service.rotateToken(
+                    issued.tokenId(), null, null, adminId, TokenPermissions.ALL))
+                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
+
+            assertThat(log.withAction(
+                            Level.TRACE, LogEvent.LOCAL_ACTION, "scim.connector.token.rotate"))
+                    .singleElement()
+                    .satisfies(record -> {
+                        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(CapturedLog.fields(record))
+                                .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                                .containsEntry(LogEvent.TYPE, List.of("admin", "denied"));
+                        assertThat(record.getFormattedMessage() + CapturedLog.fields(record))
+                                .doesNotContain(issued.tokenId().toString())
+                                .doesNotContain("REVOKED");
+                    });
         }
     }
 
@@ -756,6 +934,10 @@ class ConnectorAdministrationServiceTests {
                 assertThat(event.detail()).isEqualTo(
                         "PERMISSION_ESCALATION group:read,group:write,user:read,user:write");
             });
+            assertThat(audit.events(Audited.ConnectorTokenRotateRefused.class))
+                    .extracting(Audited.ConnectorTokenRotateRefused::rotatedId)
+                    .as("the refusal names the token the rotation addressed")
+                    .containsExactly(original.tokenId());
         }
 
         @Test

@@ -1,5 +1,5 @@
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
-import { apiFetch, FORBIDDEN_MESSAGE, type ApiResult } from "@/lib/http";
+import { apiFetch, type ApiResult } from "@/lib/http";
 
 /**
  * Every Permission the backend grants: the closed set its `Permission` enum
@@ -72,27 +72,48 @@ const decodeUser = jsonDecoder((body: unknown): AuthUser => {
  */
 export const ME_PATH = "/api/auth/me";
 
-export async function getCurrentUser(): Promise<AuthUser | null> {
-  const result = await apiFetch(ME_PATH, {}, decodeUser);
-  switch (result.kind) {
-    case "ok":
-      return result.data;
-    case "unauthenticated":
-      return null;
-    case "forbidden":
-      throw new Error(FORBIDDEN_MESSAGE);
-    case "csrf-expired":
-    case "failed":
-      throw new Error("Unable to check the current session.");
-  }
-}
-
 /**
  * The outcomes a session action shares with every request: an authorization
  * refusal, a CSRF token that could not be fetched, and any other failure. None
  * of them changes the session.
  */
 type RequestFailure = { kind: "forbidden" } | { kind: "csrf-expired" } | { kind: "failed" };
+
+/**
+ * What the start-up session check came to. Every request outcome resolves to
+ * one of these; none throws.
+ *
+ * - `signed-in` — the browser already holds a signed-in session, as `user`.
+ * - `guest` — `401`: there is no signed-in session. The only verdict that
+ *   makes the visitor a Guest.
+ * - `forbidden`, `csrf-expired`, `failed` — the check did not answer, so the
+ *   session is unknown, not ended: a `5xx` or a network error says nothing
+ *   about whether a live session stands, and treating it as a Guest would send
+ *   a signed-in User to login, where signing in again ends their other sessions
+ *   (One session per User).
+ *
+ * What a check that did not answer says is `session-action-copy.ts`'s.
+ */
+export type SessionCheckOutcome =
+  { kind: "signed-in"; user: AuthUser } | { kind: "guest" } | RequestFailure;
+
+/** A session check that reached no verdict: the session is unknown. */
+export type SessionCheckFailure = Exclude<SessionCheckOutcome, { kind: "signed-in" | "guest" }>;
+
+/** Asks the backend whose session the browser holds, if anyone's. */
+export async function getCurrentUser(): Promise<SessionCheckOutcome> {
+  const result = await apiFetch(ME_PATH, {}, decodeUser);
+  switch (result.kind) {
+    case "ok":
+      return { kind: "signed-in", user: result.data };
+    case "unauthenticated":
+      return { kind: "guest" };
+    case "forbidden":
+    case "csrf-expired":
+    case "failed":
+      return { kind: result.kind };
+  }
+}
 
 /**
  * What a login came to. Every request outcome resolves to one of these; none

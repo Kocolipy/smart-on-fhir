@@ -19,6 +19,20 @@ interface ScimConnectorTokenJpaRepository
     List<ScimConnectorTokenEntity> findByConnectorIdOrderByIssuedAtDesc(UUID connectorId);
 
     /**
+     * Locks this token's row {@code FOR UPDATE} until the transaction ends, and reports whether it
+     * exists.
+     *
+     * <p>Called only by {@link ScimWriteLockAdapter}, the one place the scim slice takes a lock;
+     * {@code ArchitectureTest} holds that. Native and returning the id alone, so it loads no
+     * entity: the read after it is the transaction's first of the token, and sees what the
+     * previous lock holder committed — a rotation that waited here then finds the token replaced.
+     * SQL Server takes the same lock with {@code WITH (UPDLOCK, ROWLOCK)} (ADR 0015).
+     */
+    @Query(value = "SELECT id FROM scim_connector_tokens WHERE id = :id FOR UPDATE",
+            nativeQuery = true)
+    List<UUID> lockById(@Param("id") UUID id);
+
+    /**
      * Revokes every not-yet-revoked token of one connector in one statement, and
      * returns how many rows that was.
      *

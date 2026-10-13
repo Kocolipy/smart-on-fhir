@@ -5,6 +5,7 @@ import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.ConnectorTokenEscalationException;
+import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.application.UnknownConnectorException;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
@@ -261,5 +262,16 @@ public class AdminConnectorController {
     @ExceptionHandler(ConnectorTokenEscalationException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public void escalation() {
+    }
+
+    /**
+     * A rotation of a token that is revoked, has expired or was rotated already — the second of
+     * two concurrent rotations of one token included. {@code 409}, bodiless: the request is
+     * well-formed and the caller may rotate tokens, but this token's state forbids it, and the
+     * listing shows which state that is. Already audited, naming the token and why, by the service.
+     */
+    @ExceptionHandler(ConnectorTokenNotRotatableException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public void notRotatable() {
     }
 }

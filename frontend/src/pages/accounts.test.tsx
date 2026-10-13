@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { authState, guest, signedIn } from "@/auth/auth-context.testHelpers";
 import type { Permission } from "@/auth/api";
 import { apiFetch } from "@/lib/http";
 
@@ -39,21 +40,7 @@ const EVERY_PERMISSION: Permission[] = [
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-const auth: AuthContextState = {
-  changePassword: vi.fn(),
-  expireSession: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signInReason: null,
-  signOutForInactivity: vi.fn(),
-  status: "authenticated",
-  user: {
-    idleTimeoutSeconds: 900,
-    passwordChangeRequired: false,
-    permissions: EVERY_PERMISSION,
-    username: "ada",
-  },
-};
+const auth: AuthContextState = authState(signedIn({ permissions: EVERY_PERMISSION }));
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -415,12 +402,7 @@ describe("Accounts", () => {
     });
     renderAccounts({
       ...auth,
-      user: {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        permissions: EVERY_PERMISSION,
-        username: "root",
-      },
+      ...signedIn({ permissions: EVERY_PERMISSION, username: "root" }),
     });
 
     expect(await screen.findByRole("rowheader", { name: /^root/ })).toBeInTheDocument();
@@ -596,7 +578,7 @@ describe("Accounts", () => {
     routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
     renderAccounts({
       ...auth,
-      user: { ...auth.user!, username: "" },
+      ...signedIn({ permissions: EVERY_PERMISSION, username: "" }),
     });
 
     expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
@@ -604,7 +586,7 @@ describe("Accounts", () => {
 
   it("shows no view at all without a signed-in user, whose Permissions are unknown", () => {
     routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
-    renderAccounts({ ...auth, user: null });
+    renderAccounts({ ...auth, ...guest() });
 
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
@@ -757,7 +739,7 @@ describe("Accounts by Permission", () => {
   /** The page as a session holding exactly these Permissions sees it. */
   const holding = (permissions: Permission[]): AuthContextState => ({
     ...auth,
-    user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
+    ...signedIn({ permissions }),
   });
 
   /** Every request the page issued, by path. */

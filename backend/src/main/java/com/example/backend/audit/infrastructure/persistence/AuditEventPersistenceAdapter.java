@@ -52,11 +52,13 @@ class AuditEventPersistenceAdapter implements AuditEventRepository {
                 event.role(),
                 joinPaths(event.permissions()),
                 event.loginMethod(),
-                event.mfaFactor()));
+                event.mfaFactor(),
+                event.tokenId(),
+                event.replacementTokenId()));
     }
 
     /** An empty list is stored as null, so "nothing changed" — or "none named" — is one value. */
-    private static String joinPaths(List<String> paths) {
+    static String joinPaths(List<String> paths) {
         return paths.isEmpty() ? null : String.join(PATH_SEPARATOR, paths);
     }
 }
