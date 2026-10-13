@@ -13,6 +13,7 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -61,7 +62,8 @@ class LoginAttemptServiceTests {
                 new RecordingOperationalAlerts());
         attempts = new LoginAttemptService(
                 users,
-                new LoginStateService(users, revocation, new LockoutPolicy(3), audit, clock),
+                LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(3), audit, clock),
                 revocation,
                 audit);
         users.given(ScimIdentities.user("ada"));

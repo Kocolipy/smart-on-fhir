@@ -11,6 +11,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.config.SecurityConfig;
@@ -58,7 +59,7 @@ class PasswordChangeServiceTests {
             transaction,
             audit,
             new RecordingOperationalAlerts());
-    private final LoginStateService loginState = new LoginStateService(
+    private final LoginStateService loginState = LoginStateModules.over(
             users, revocation, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
     private final LoginAttemptService attempts =
             new LoginAttemptService(users, loginState, revocation, audit);

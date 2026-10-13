@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -94,7 +95,8 @@ class RefusalTimingEquivalenceTests {
                 new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock),
+                LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(5), audit, clock),
                 revocation,
                 audit);
         login = new LoginService(

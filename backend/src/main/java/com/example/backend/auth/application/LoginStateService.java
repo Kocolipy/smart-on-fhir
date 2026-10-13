@@ -11,9 +11,11 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 
@@ -98,8 +100,35 @@ import org.springframework.stereotype.Service;
  * not one of these writes: the state this hands back rides the profile's own row write, which
  * writes only the columns that differ.
  *
+ * <h2>Serialization</h2>
+ *
+ * <p>Every event that writes the login state is serialized here, so no caller decides whether to
+ * lock: each takes the User's resource lock through {@link ScimWriteLocks} and decides from the
+ * state re-read under it ({@link ScimUserRepository#findLoginState}), never from the copy of the
+ * User it was handed. That copy names the User — its id, and the reservation marker the Bootstrap
+ * Admin's exemption is read off, neither of which a write changes — and nothing else is taken
+ * from it. Two events on one User therefore end as one serial order of them would:
+ *
+ * <ul>
+ *   <li>N parallel failures against a User one short of the limit impose exactly one Lockout,
+ *       audited once and revoking once; the attempts behind it find the User locked and are not
+ *       counted, so the run ends at the limit — the cap spec C6 allows, and the rule that a
+ *       locked User's attempts neither count nor deepen it ({@code /docs/domain-rules.md});
+ *   <li>parallel failures below the limit are each counted;
+ *   <li>an Unlock racing a failure ends either locked-then-lifted or cleared-then-counted, never
+ *       with a lock lifted that the Unlock did not see.
+ * </ul>
+ *
+ * <p>The re-read is a statement of its own because the lock cannot always come first: a Login
+ * must find its User by name before it can name the row, so the transaction may already hold an
+ * older copy, which an ordinary lookup by id would hand back. A caller already holding the lock —
+ * the password change, the dormancy job's batch in canonical order — loses nothing: taking a row
+ * the transaction holds waits for nobody. {@code LoginStateSerializationIntegrationTests} proves
+ * the guarantee against a real database; the in-memory stores cannot.
+ *
  * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
- * commits with it. Counting is still triggered explicitly from the Login and password-change paths
+ * commits with it, and the lock is held until it does. Counting is still triggered explicitly
+ * from the Login and password-change paths
  * ({@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}); nothing here listens for
  * events.
  */
@@ -138,18 +167,25 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     private final ScimUserRepository users;
+    private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
     private final LockoutPolicy policy;
     private final AuditTrail audit;
     private final Clock clock;
 
+    /**
+     * @param locks takes the User's resource lock before each event decides, so every write of
+     *              the login state is serialized here rather than by its caller
+     */
     public LoginStateService(
             ScimUserRepository users,
+            ScimWriteLocks locks,
             SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
+        this.locks = locks;
         this.sessions = sessions;
         this.policy = policy;
         this.audit = audit;
@@ -167,9 +203,11 @@ public class LoginStateService implements ScimUserLoginState {
     /**
      * A refused password Login or password-change attempt against {@code user}: counts it, and on a
      * newly imposed Lockout audits it and revokes every Session of the User after the commit.
+     * Counted on the run stored under the User's lock, so a parallel failure is never lost and
+     * only the one that reaches the limit imposes the Lockout.
      */
     public void failureCounted(ScimUser user) {
-        ScimLoginState before = user.login();
+        ScimLoginState before = stateUnderLock(user);
         ScimLoginState after = user.isExemptFromLockout()
                 ? before.withFailureCounted()
                 : before.withFailureRecorded(policy, clock.instant());
@@ -188,7 +226,7 @@ public class LoginStateService implements ScimUserLoginState {
      * nobody replaces stay live for as long as somebody keeps logging in with it (ADR 0008).
      */
     public void credentialVerified(ScimUser user, LoginKind kind) {
-        ScimLoginState before = user.login();
+        ScimLoginState before = stateUnderLock(user);
         writeFailureRun(user, before, before.withFailureRunCleared());
         if (!confines(kind, before)) {
             users.recordAuthentication(user.id(), clock.instant());
@@ -206,7 +244,7 @@ public class LoginStateService implements ScimUserLoginState {
      *     in which case the basis is not moved
      */
     public Optional<Instant> passwordChanged(ScimUser user, String passwordHash) {
-        ScimLoginState before = user.login();
+        ScimLoginState before = stateUnderLock(user);
         writeFailureRun(user, before, before.withFailureRunCleared());
         Instant now = clock.instant();
         if (users.completePasswordChange(user.id(), passwordHash, now).isEmpty()) {
@@ -225,7 +263,7 @@ public class LoginStateService implements ScimUserLoginState {
      * @return the state the Unlock left, and whether it required a change
      */
     public Unlock unlocked(ScimUser user) {
-        ScimLoginState before = user.login();
+        ScimLoginState before = stateUnderLock(user);
         ScimLoginState after = before.withFailureRunCleared();
         writeFailureRun(user, before, after);
         boolean attemptsCleared = before.failedLoginAttempts() > 0;
@@ -253,7 +291,7 @@ public class LoginStateService implements ScimUserLoginState {
      * @return the state the forced change left, and whether it imposed a change
      */
     public ForcedChange passwordChangeForced(ScimUser user) {
-        ScimLoginState before = user.login();
+        ScimLoginState before = stateUnderLock(user);
         if (before.isPasswordChangeRequired()) {
             return new ForcedChange(before, false);
         }
@@ -269,15 +307,15 @@ public class LoginStateService implements ScimUserLoginState {
      * Whether the User is due is the job's {@code DormancyVerdict}, not this; the job's audit
      * event and Session revocation follow only a lock this imposed.
      *
-     * <p>The lock is stored only where none stands by the write — the one place that is checked,
-     * because only the write can see a lock the login path imposed after the job's read. That read
-     * does not serialize with the login path, so a failure lock imposed in between is kept rather
-     * than overwritten.
+     * <p>Decided on the state stored under the User's lock, which the job already holds as part
+     * of its batch, so a failure lock the login path committed before it is kept rather than
+     * overwritten. The store's own compare-and-set ({@link ScimUserRepository#imposeLock}) says
+     * whether the lock was imposed, and refuses to overwrite a standing one whatever this read.
      *
      * @return whether this imposed the lock
      */
     public boolean dormancyLocked(ScimUser user, Instant now) {
-        ScimLoginState locked = user.login().withDormancyLock(now);
+        ScimLoginState locked = stateUnderLock(user).withDormancyLock(now);
         return users.imposeLock(user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
     }
 
@@ -337,10 +375,21 @@ public class LoginStateService implements ScimUserLoginState {
     @Override
     public void dormantFixtureReset(
             ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
-        ScimLoginState before = fixture.login();
+        ScimLoginState before = stateUnderLock(fixture);
         writeFailureRun(fixture, before, before.withFailureRunCleared());
         users.completePasswordChange(fixture.id(), passwordHash, now);
         users.resetDormancyBasis(fixture.id(), now.minus(dormantFor));
+    }
+
+    /**
+     * Takes {@code user}'s resource lock and reads its login state as stored under it: the one
+     * state every event decides from. The caller's copy is used only for a User gone by the read,
+     * whose writes then match no row — the outcome a deletion committed just after the event
+     * would have had.
+     */
+    private ScimLoginState stateUnderLock(ScimUser user) {
+        locks.lock(List.of(user.id()));
+        return users.findLoginState(user.id()).orElse(user.login());
     }
 
     /** Writes the run and the lock when the decision changed either, and nothing otherwise. */

@@ -1,5 +1,6 @@
 package com.example.backend.scim.infrastructure.persistence;
 
+import com.example.backend.scim.infrastructure.persistence.entity.ScimLoginStateValue;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimUserEntity;
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +26,26 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
 
     /** The User the deployment reserves under this name, or empty before seeding has run. */
     Optional<ScimUserEntity> findByResource_ReservedName(String reservedName);
+
+    /**
+     * The User's login columns as the row holds them, or empty when no User has that id.
+     *
+     * <p>Selected column by column into a new value rather than as the entity, and that is the
+     * point: an entity the persistence context already manages is handed back as the context holds
+     * it, whatever the row says now, while scalar columns are read from the result set. So a
+     * caller that read the User before taking its lock still decides from the committed row.
+     */
+    @Query("""
+            select new com.example.backend.scim.infrastructure.persistence.entity.ScimLoginStateValue(
+                       u.login.passwordHash,
+                       u.login.failedLoginAttempts,
+                       u.login.lockedAt,
+                       u.login.lockCause,
+                       u.login.lastAuthenticatedAt,
+                       u.login.passwordChangeRequiredSince)
+              from ScimUserEntity u
+             where u.resourceId = :id""")
+    Optional<ScimLoginStateValue> findLoginState(@Param("id") UUID id);
 
     /**
      * Writes the failure run, the lock instant and the lock's cause, and nothing else.

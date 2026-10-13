@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestRoleMappings;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -106,7 +107,8 @@ class LoginLockoutTests {
                 audit,
                 new RecordingOperationalAlerts());
         LoginStateService loginState =
-                new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock);
+                LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(5), audit, clock);
         LoginAttemptService attempts =
                 new LoginAttemptService(users, loginState, revocation, audit);
         login = new LoginService(

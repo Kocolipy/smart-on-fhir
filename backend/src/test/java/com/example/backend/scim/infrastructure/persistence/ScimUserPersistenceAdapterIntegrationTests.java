@@ -107,9 +107,10 @@ class ScimUserPersistenceAdapterIntegrationTests {
     }
 
     /**
-     * The resource lock the SCIM write holds does not cover the User row, so a Login can record
-     * its authentication between the write's locked read and its replacement. The replacement is
-     * given the basis as read, older than the one just committed; it must not write it back.
+     * The store does not rely on every writer of the User row taking the resource lock: a
+     * dormancy basis recorded between the write's locked read and its replacement — here by a
+     * transaction that took no lock — survives. The replacement is given the basis as read, older
+     * than the one just committed; it must not write it back.
      */
     @Test
     void aReplacementKeepsADormancyBasisALoginRecordedAfterTheLockedRead() {
@@ -128,6 +129,29 @@ class ScimUserPersistenceAdapterIntegrationTests {
         });
 
         assertThat(read(stored.id()).lastAuthenticatedAt()).isEqualTo(LATER);
+    }
+
+    /**
+     * The login-state module's read under the lock answers with the committed row, not the copy
+     * its transaction read before the lock: a failure another transaction committed in between is
+     * the state the module must decide from.
+     */
+    @Test
+    void theLoginStateIsReadFromTheRowAndNotFromACopyReadEarlierInTheTransaction() {
+        ScimUser stored = store(ScimIdentities.user(unique("adapter-fresh")),
+                new ScimLoginState("hash", 1, null, null, EARLIER, LATER));
+
+        ScimLoginState reread = inTransaction(() -> {
+            users.findById(stored.id()).orElseThrow();
+            inNewTransaction(() -> {
+                users.updateLoginState(stored.id(),
+                        new ScimLoginState("hash", 2, null, null, EARLIER, null));
+                return null;
+            });
+            return users.findLoginState(stored.id()).orElseThrow();
+        });
+
+        assertThat(reread).isEqualTo(new ScimLoginState("hash", 2, null, null, EARLIER, LATER));
     }
 
     /** The lock is stored with the cause given, and the failure run is not written. */

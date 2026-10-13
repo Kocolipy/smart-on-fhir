@@ -29,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  * run, the Lockout, the dormancy basis — is not decided here: each method reports the event to
  * {@link LoginStateService}, which decides the new state, writes it through the SCIM User port's
  * narrow operations and, on a newly imposed Lockout, audits it and schedules the revocation of
- * every Session. Each path here then records only its own events. Every revocation — the
+ * every Session. It also serializes each of those writes itself, under the User's lock, so the
+ * User this finds — by name, before any lock — is only the subject it reports, never the state
+ * the module decides from. Each path here then records only its own events. Every revocation — the
  * lockout's, and an accepted login's one-session-per-User sweep — goes through
  * {@link SessionRevocationService}, which audits and logs it under its cause.
  *

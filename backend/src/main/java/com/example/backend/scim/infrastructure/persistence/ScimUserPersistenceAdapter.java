@@ -188,6 +188,12 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 .map(ScimUserPersistenceAdapter::toDomain);
     }
 
+    /** The login columns by a projection, which no managed copy of the User can answer. */
+    @Override
+    public Optional<ScimLoginState> findLoginState(UUID id) {
+        return users.findLoginState(id).map(ScimUserPersistenceAdapter::loginStateOf);
+    }
+
     /**
      * Writes the authentication-state columns alone, leaving the resource row untouched.
      *
@@ -377,22 +383,23 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                         .map(email -> new ScimEmail(
                                 email.getValue(), email.getType(), email.isPrimary()))
                         .toList());
-        ScimLoginStateValue login = entity.getLogin();
         return new ScimUser(
                 resource.getId(),
                 profile,
-                new ScimLoginState(
-                        login.getPasswordHash(),
-                        login.getFailedLoginAttempts(),
-                        login.getLockedAt(),
-                        login.getLockCause() == null
-                                ? null
-                                : LockCause.valueOf(login.getLockCause()),
-                        login.getLastAuthenticatedAt(),
-                        login.getPasswordChangeRequiredSince()),
+                loginStateOf(entity.getLogin()),
                 ReservedResourceName.ofStoredValue(resource.getReservedName()).orElse(null),
                 resource.getVersion(),
                 resource.getCreatedAt(),
                 resource.getLastModifiedAt());
+    }
+
+    private static ScimLoginState loginStateOf(ScimLoginStateValue login) {
+        return new ScimLoginState(
+                login.getPasswordHash(),
+                login.getFailedLoginAttempts(),
+                login.getLockedAt(),
+                login.getLockCause() == null ? null : LockCause.valueOf(login.getLockCause()),
+                login.getLastAuthenticatedAt(),
+                login.getPasswordChangeRequiredSince());
     }
 }

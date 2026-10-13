@@ -11,6 +11,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.LoginStateService.LoginKind;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
@@ -23,12 +24,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -58,6 +61,7 @@ class LoginStateServiceTests {
     private final PendingCommit transaction = new PendingCommit();
     private final MutableClock clock = new MutableClock(NOW);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
+    private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
 
     private LoginStateService loginState = moduleDeferringTo(transaction);
 
@@ -172,6 +176,129 @@ class LoginStateServiceTests {
         event.report.accept(loginState, stored);
 
         assertThat(users.require("ada").login()).isEqualTo(expected);
+    }
+
+    // ---- serialization: the lock, and the state read under it -------------------------------
+
+    /**
+     * Every event takes the User's lock itself, so no caller decides whether its write is
+     * serialized with the others (spec C6).
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Event.class)
+    void everyEventTakesTheUsersLock(Event event) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        event.report.accept(loginState, stored);
+
+        assertThat(locks.requests()).containsExactly(Set.of(stored.id()));
+    }
+
+    @Test
+    void theDormantFixtureResetTakesTheFixturesLock() {
+        ScimUser fixture = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        loginState.dormantFixtureReset(fixture, "fixture-hash", NOW, Duration.ofDays(91));
+
+        assertThat(locks.requests()).containsExactly(Set.of(fixture.id()));
+    }
+
+    static Stream<Arguments> staleCopies() {
+        return Stream.of(
+                row("a failure counts on the stored run, so a parallel one is not lost",
+                        Event.FAILURE_COUNTED, false, run(LIMIT - 1),
+                        new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null)),
+                row("a failure on a User locked since the copy was read imposes nothing",
+                        Event.FAILURE_COUNTED, false, locked(LockCause.FAILURES),
+                        locked(LockCause.FAILURES)),
+                row("the Bootstrap Admin's failure counts on the stored run",
+                        Event.FAILURE_COUNTED, true, run(LIMIT - 1),
+                        new ScimLoginState("hash", LIMIT, null, null, EARLIER, null)),
+                row("a Login clears a run counted since the copy was read",
+                        Event.PASSWORD_LOGIN, false, run(2),
+                        new ScimLoginState("hash", 0, null, null, NOW, null)),
+                row("a Login is confined by a flag set since the copy was read",
+                        Event.PASSWORD_LOGIN, false, flaggedWithRun(0),
+                        flaggedWithRun(0)),
+                row("a password change clears a run counted since the copy was read",
+                        Event.PASSWORD_CHANGED, false, run(2),
+                        new ScimLoginState("new-hash", 0, null, null, NOW, null)),
+                row("an Unlock lifts a lock imposed since the copy was read",
+                        Event.UNLOCKED, false, locked(LockCause.FAILURES),
+                        new ScimLoginState("hash", 0, null, null, NOW, NOW)),
+                row("a forced change keeps a flag set since the copy was read",
+                        Event.PASSWORD_CHANGE_FORCED, false, flaggedWithRun(0),
+                        flaggedWithRun(0)));
+    }
+
+    /**
+     * Each event decides from the state stored when it holds the lock, not from the copy its
+     * caller read before: every copy here shows a clean record, and the stored state does not.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("staleCopies")
+    void eachEventDecidesFromTheStoredStateAndNotTheCopyItWasHanded(String rule, Event event,
+            boolean bootstrapAdmin, ScimLoginState storedState, ScimLoginState expected) {
+        ScimUser user = ScimIdentities.userWithLoginState("ada", storedState);
+        ScimUser stored = bootstrapAdmin
+                ? users.createReserved(user, ReservedResourceName.BOOTSTRAP_ADMIN)
+                : users.given(user);
+
+        event.report.accept(loginState, staleCopyOf(stored));
+
+        assertThat(users.require("ada").login()).isEqualTo(expected);
+    }
+
+    /** The Unlock's answer is the decision made on the stored state, not on the copy. */
+    @Test
+    void anUnlockReportsTheStoredLockItLiftedAndNotTheCopysLackOfOne() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState(
+                "ada", locked(LockCause.DORMANCY)));
+
+        LoginStateService.Unlock decided = loginState.unlocked(staleCopyOf(stored));
+
+        assertThat(List.of(Optional.ofNullable(decided.lifted()), decided.changeRequired(),
+                decided.attemptsCleared()))
+                .containsExactly(Optional.of(LockCause.DORMANCY), true, true);
+    }
+
+    /** The forced change's answer is the decision made on the stored state, not on the copy. */
+    @Test
+    void aForcedChangeOfAUserFlaggedSinceTheCopyWasReadImposesNothing() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", flaggedWithRun(0)));
+
+        assertThat(loginState.passwordChangeForced(staleCopyOf(stored)).imposed()).isFalse();
+    }
+
+    /** The fixture reset clears a run and a lock stored since its copy was read. */
+    @Test
+    void theDormantFixtureResetClearsTheStoredRunAndLock() {
+        ScimUser fixture = users.given(ScimIdentities.userWithLoginState("ada",
+                new ScimLoginState("chosen-hash", 2, EARLIER, LockCause.DORMANCY, EARLIER, null)));
+
+        loginState.dormantFixtureReset(
+                staleCopyOf(fixture), "fixture-hash", NOW, Duration.ofDays(91));
+
+        assertThat(users.require("ada").login()).isEqualTo(new ScimLoginState(
+                "fixture-hash", 0, null, null, NOW.minus(Duration.ofDays(91)), null));
+    }
+
+    /**
+     * A User deleted before the lock was granted has no stored state to re-read, so the event is
+     * decided on the copy its caller read, and its writes match no row.
+     */
+    @Test
+    void anUnlockOfAUserGoneByTheLockAnswersFromTheCopyItWasHanded() {
+        ScimUser gone = ScimIdentities.userWithLoginState("ada", run(2));
+
+        LoginStateService.Unlock decided = loginState.unlocked(gone);
+
+        assertThat(decided.state()).isEqualTo(run(0));
+    }
+
+    /** {@code user} as a caller might hold it from before a concurrent write: a clean record. */
+    private static ScimUser staleCopyOf(ScimUser user) {
+        return ScimIdentities.withActive(user, user.profile().active(), run(0));
     }
 
     // ---- the directory's events: what a SCIM write leaves ------------------------------------
@@ -380,8 +507,8 @@ class LoginStateServiceTests {
     }
 
     /**
-     * A lock the login path imposed between the job's read and its write is kept: the module
-     * decided from the read, and the store refuses to overwrite a lock that stands.
+     * A lock the login path imposed after the job's read is kept with its cause: the module
+     * decides from the stored state, and the store refuses to overwrite a lock that stands.
      */
     @Test
     void aFailureLockImposedAfterTheJobsReadIsKeptWithItsCause() {
@@ -595,6 +722,7 @@ class LoginStateServiceTests {
     private LoginStateService moduleDeferringTo(AfterCommit afterCommit) {
         return new LoginStateService(
                 users,
+                locks,
                 new SessionRevocationService(
                         sessions, afterCommit, audit, new RecordingOperationalAlerts()),
                 new LockoutPolicy(LIMIT),

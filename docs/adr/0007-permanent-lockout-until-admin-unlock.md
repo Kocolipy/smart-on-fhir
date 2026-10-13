@@ -66,3 +66,17 @@ what Unlock means on the Accounts page and what Unlock does to the credential.
   each cost exactly one Argon2id verification; `RefusalTimingEquivalenceTests`
   counts them. The refusal's audit reason is unchanged: `ACCOUNT_LOCKED` or
   `ACCOUNT_DISABLED`, whatever the password.
+- 2026-10-13 (architecture review 2026-10-13, B18; spec C6): counting is atomic.
+  Before this, a failure computed the run from a read taken without a lock and
+  wrote the absolute count, so parallel wrong guesses each read the same run:
+  more guesses got through than the limit allows, each could impose and audit
+  its own Lockout, and an Unlock racing a failure could be overwritten. Only the
+  password change locked the User first. Now the login-state module
+  (`LoginStateService`) serializes every login-state write itself: it takes the
+  User's resource lock and decides from the state re-read under it, so callers
+  no longer decide whether to lock. The run is capped at the limit — attempts
+  against a locked User are not counted, as before — so N parallel failures at
+  limit − 1 end with exactly one Lockout, one `LOCKOUT_SET`, one revocation, and
+  `failed_login_attempts` equal to the limit. The Bootstrap Admin's run is
+  serialized the same way and still never locks.
+  `LoginStateSerializationIntegrationTests` proves it against a real database.
