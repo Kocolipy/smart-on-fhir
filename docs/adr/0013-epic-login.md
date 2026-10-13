@@ -562,6 +562,7 @@ FHIR API is called yet.
   belong to a later ticket. An expired access token reports so by the
   injected clock (`EpicTokenSet.isExpired`). Expiry ends nothing: the refresh token
   and the `id_token` stay with the session.
+
 - **Only on a successful Epic Login, and only under the signed-in id.** The login
   filter's authorized-client repository is `EpicTokenHandOff.REPOSITORY`, which
   holds the authorized client on the callback request alone. Once
@@ -586,6 +587,7 @@ FHIR API is called yet.
   arise for tokens written once at sign-in and only read after. The attribute is
   Java-serialized like every other session attribute. The type holds only
   strings, an instant and a sorted set of strings.
+
 - **Retrieval** is the `EpicTokens` port, `forSession(sessionId)` →
   `Optional<EpicTokenSet>`. Its adapter (`EpicTokensAdapter`) finds the session
   through Spring Session's repository without touching its last-access time, and
@@ -595,6 +597,15 @@ FHIR API is called yet.
   session's next request. So the same policy is applied on the same clock, and
   nothing is handed out once the lifetime is over, even if no request has ended
   the session yet.
+
+  **The port has no production caller yet, deliberately.** Only tests read it
+  until the FHIR / token-refresh work lands. #24 asked for the read path
+  explicitly, and the port is that read path, kept so the later feature reads
+  the tokens through it rather than through the session attribute. One adapter
+  and no caller is therefore the intended state for now, not a seam left over.
+  The FHIR / token-refresh ticket that first calls `forSession` is the one that
+  takes this note out.
+
 - **Storage is bounded by the remaining absolute lifetime.** The store expires a
   session its idle bound after its last request, and every request renews that.
   Near the lifetime's end, the idle bound alone would keep a session stored past
