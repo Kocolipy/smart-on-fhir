@@ -10,6 +10,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -22,7 +23,6 @@ import com.example.backend.auth.application.LoginOutcome.Unavailable;
 import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginDecision;
-import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
@@ -110,7 +110,7 @@ class LoginCompletionTests {
                 new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new LoginStateService(
+                LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
                 revocation,
                 audit);

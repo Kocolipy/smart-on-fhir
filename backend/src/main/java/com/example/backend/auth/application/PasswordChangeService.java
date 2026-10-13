@@ -102,6 +102,9 @@ public class PasswordChangeService {
     @Transactional(noRollbackFor = {
             CurrentPasswordRejectedException.class, PasswordPolicyViolationException.class})
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
+        // Not for the login-state writes, which LoginStateService serializes itself: this service
+        // decides on its own read (refuseStanding, the current password), so the lock comes first
+        // to keep that read from going stale before the module's write.
         writeLocks.lock(List.of(userId));
         ScimUser user = users.findById(userId)
                 .orElseThrow(CurrentPasswordRejectedException::new);

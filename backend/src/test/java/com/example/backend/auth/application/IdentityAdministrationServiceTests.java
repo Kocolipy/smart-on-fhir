@@ -13,6 +13,7 @@ import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.observability.LogEvent;
@@ -84,7 +85,8 @@ class IdentityAdministrationServiceTests {
     private final IdentityAdministrationService service = new IdentityAdministrationService(
             users,
             groups,
-            new LoginStateService(users, revocation, new LockoutPolicy(5), audit, clock),
+            LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(5), audit, clock),
             revocation,
             audit);
 

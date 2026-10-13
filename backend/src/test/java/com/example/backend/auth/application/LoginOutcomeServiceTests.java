@@ -13,6 +13,7 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -73,7 +74,8 @@ class LoginOutcomeServiceTests {
     private final LoginOutcomeService outcomes = new LoginOutcomeService(
             new LoginAttemptService(
                     users,
-                    new LoginStateService(users, revocation, new LockoutPolicy(5), audit,
+                    LoginStateModules.over(
+                            users, revocation, new LockoutPolicy(5), audit,
                             new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
                     revocation,
                     audit),

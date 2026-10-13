@@ -764,6 +764,13 @@ the User's own row as `failed_login_attempts`. A login the backend accepts ends
 the run and returns the count to zero; a login it rejects lengthens it, and so
 does a wrong current password on the self-service password change. An unknown
 username has no run, because nothing is recorded for a name that names no User.
+Concurrent events on one User — failures, a Login, a password change, an Unlock,
+the dormancy lock — are serialized on the User's lock, each deciding from the run
+as the one before it left it, so none is lost and they end as some serial order of
+them would. The run is **capped at the limit**: of N failures racing on a User one
+short of it, exactly one imposes the Lockout and is audited as `LOCKOUT_SET`, and
+the rest find the User locked and are not counted (below), so
+`failed_login_attempts` ends at the limit rather than at limit + N − 1.
 
 **Lockout** — the state a User enters for one of two causes, closing it to
 logins **permanently**: its failure run reaches the configured limit

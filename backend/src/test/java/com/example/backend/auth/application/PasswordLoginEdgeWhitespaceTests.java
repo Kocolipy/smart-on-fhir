@@ -6,6 +6,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -63,7 +64,8 @@ class PasswordLoginEdgeWhitespaceTests {
                 new InMemoryAccountSessions(), new PendingCommit(), audit,
                 new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(users,
-                new LoginStateService(users, revocation, new LockoutPolicy(5), audit,
+                LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(5), audit,
                         new MutableClock(NOW)),
                 revocation, audit);
         login = new LoginService(

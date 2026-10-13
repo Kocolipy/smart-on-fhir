@@ -12,6 +12,7 @@ import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -72,7 +73,7 @@ class EpicLoginDecisionTests {
                 new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                new LoginStateService(
+                LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
                 revocation,
                 audit);

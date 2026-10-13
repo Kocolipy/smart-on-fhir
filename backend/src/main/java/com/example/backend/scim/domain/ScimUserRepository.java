@@ -58,11 +58,11 @@ public interface ScimUserRepository {
      * decision ({@link ScimUserLoginState#afterReplacement}), made by the caller from the User it read under
      * the resource lock.
      *
-     * <p>Writes only what differs from that read. The login path writes the failure run and the
-     * dormancy basis on this row without taking the resource lock, so a full-row write carrying
-     * the values read at the start of a SCIM write could erase a change made in between; writing
-     * only the changed columns leaves an unchanged component to the login path alone. The failure
-     * run and the lock in {@code user} are never stored here at all.
+     * <p>Writes only what differs from that read. The login-state module now writes the failure
+     * run and the dormancy basis on this row under the same resource lock, so a change cannot
+     * land between the read and this write; writing only the changed columns still keeps the
+     * store from depending on that, so an unchanged component is left to the module's writes
+     * alone. The failure run and the lock in {@code user} are never stored here at all.
      *
      * @return empty when no live User has that id
      * @throws DuplicateUserNameException when the new {@code userName} is held by another live
@@ -92,6 +92,19 @@ public interface ScimUserRepository {
 
     /** The User the deployment reserves under this name, or empty before seeding has run. */
     Optional<ScimUser> findByReservedName(ReservedResourceName reservedName);
+
+    /**
+     * The login state of the live User with this id as the database holds it, or empty — read by
+     * a statement of its own, never served from a copy of the User the calling transaction read
+     * earlier.
+     *
+     * <p>The login-state module's read under the User's resource lock ({@link ScimWriteLocks}).
+     * Its callers may have read the User before the lock was granted — a Login has to find the
+     * User by name before it can name the row to lock — so a re-read that could hand back that
+     * earlier copy would decide from the state a concurrent writer has since replaced, which is
+     * the lost update the lock exists to prevent.
+     */
+    Optional<ScimLoginState> findLoginState(UUID id);
 
     /**
      * Writes only the authentication-state columns of a User that already exists.
@@ -147,10 +160,11 @@ public interface ScimUserRepository {
      * and writes nothing else. The lock and its cause are the login-state module's decision; this
      * stores them.
      *
-     * <p>Conditional in the statement itself, a compare-and-set rather than a rule: the caller
-     * decided from a read the login path does not serialize with, so a lock imposed in between is
-     * kept with its own cause, and the failure run the login path writes without the resource
-     * lock is never written here at all. Not a SCIM attribute: the version does not move.
+     * <p>Conditional in the statement itself, a compare-and-set rather than a rule: a lock that
+     * stands by the write is kept with its own cause whatever the caller read, so the store does
+     * not depend on the caller having serialized with the login path — though the login-state
+     * module, its one caller, does. The failure run is never written here at all. Not a SCIM
+     * attribute: the version does not move.
      *
      * @return whether this call stored the lock
      */

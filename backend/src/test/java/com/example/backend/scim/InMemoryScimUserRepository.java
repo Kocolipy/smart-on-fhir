@@ -30,13 +30,21 @@ import java.util.UUID;
  *
  * <ul>
  *   <li>{@link #updateLoginState} writes the login columns ONLY and does not advance the
- *       version. A fake that replaced the whole row would hide the lost update the narrow
- *       port prevents, and one that bumped the version would hide that a failed login must
- *       not move a connector's ETag.
+ *       version. A fake that replaced the whole row would let a failed login revert a profile
+ *       attribute or a credential written since the login's read, and one that bumped the
+ *       version would hide that a failed login must not move a connector's ETag.
  *   <li>{@link #create} refuses a reservation and {@link #createReserved} applies one, so a
  *       test cannot accidentally mint a protected resource through the provisioning path —
  *       which is the guarantee the real adapter makes by passing a literal null.
  * </ul>
+ *
+ * <p>What it does NOT model is concurrency. Every call here completes before the next begins, so
+ * two writers can never both read a state and then each write a decision made from it: the
+ * lost update between parallel failed logins, or between an Unlock and a failure, cannot occur
+ * here, and a test against this store proves nothing about it. The login-state module prevents
+ * it by taking the User's lock ({@link InMemoryScimWriteLocks}, which takes none) and deciding
+ * from {@link #findLoginState}; that is proven against a real database by
+ * {@code LoginStateSerializationIntegrationTests}.
  */
 public final class InMemoryScimUserRepository implements ScimUserRepository {
 
@@ -142,6 +150,12 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         replace(new ScimUser(current.id(), ScimIdentities.profile(userName, current.profile().active()),
                 current.login(), current.reservedName(), current.version(),
                 current.createdAt(), current.lastModifiedAt()), current.lastModifiedAt());
+    }
+
+    /** The stored state: there is no earlier copy here for a re-read to be served from. */
+    @Override
+    public Optional<ScimLoginState> findLoginState(UUID id) {
+        return findById(id).map(ScimUser::login);
     }
 
     @Override

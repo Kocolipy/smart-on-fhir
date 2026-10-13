@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
+import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimWriteLocks;
@@ -141,7 +142,8 @@ class AuthControllerTests {
                 audit,
                 new RecordingOperationalAlerts());
         LoginStateService loginState =
-                new LoginStateService(users, revocation, new LockoutPolicy(3), audit, clock);
+                LoginStateModules.over(
+                        users, revocation, new LockoutPolicy(3), audit, clock);
         LoginAttemptService attempts =
                 new LoginAttemptService(users, loginState, revocation, audit);
         LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
