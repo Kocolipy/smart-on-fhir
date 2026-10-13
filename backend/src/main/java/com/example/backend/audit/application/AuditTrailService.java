@@ -5,12 +5,12 @@ import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.audit.domain.IsolatedAuditEventRepository;
 import com.example.backend.audit.domain.OperationalAlerts;
 import java.time.Clock;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -34,19 +34,22 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       {@link Audited.Committed} one, recorded after its change committed. The original outcome
  *       must stand: turning a refused login's bare {@code 401} into a {@code 500} because the
  *       trail is unavailable would tell an attacker something about the state of the service. The
- *       append runs in a transaction of its own ({@code PROPAGATION_REQUIRES_NEW}) so its rollback
- *       cannot take the caller's with it, and its failure raises an operational alert instead of
- *       propagating.
+ *       append commits in a transaction of its own, on a connection of its own from the dedicated
+ *       audit append pool ({@link IsolatedAuditEventRepository}), so its rollback cannot take the
+ *       caller's with it, the caller's cannot take it, and it never waits for a connection of the
+ *       main pool a refusing caller may be holding. Its failure raises an operational alert
+ *       instead of propagating.
  * </ul>
  *
- * <p>Both are {@link TransactionTemplate}s rather than {@code @Transactional} methods: a
- * self-invocation does not pass through the proxy, so an annotation on a helper here would be
- * silently ignored — and one on {@link #append} could not say both things at once.
+ * <p>The fail-closed one is a {@link TransactionTemplate} rather than a {@code @Transactional}
+ * method: a self-invocation does not pass through the proxy, so an annotation on a helper here
+ * would be silently ignored — and one on {@link #append} could not say both things at once.
  */
 @Service
 public class AuditTrailService implements AuditTrail {
 
     private final AuditEventRepository events;
+    private final IsolatedAuditEventRepository isolatedEvents;
     private final AuditRequestContext requests;
     private final OperationalAlerts alerts;
     private final Clock clock;
@@ -58,23 +61,19 @@ public class AuditTrailService implements AuditTrail {
      */
     private final TransactionTemplate joinedAppend;
 
-    /** Runs a fail-open append in a transaction of its own. */
-    private final TransactionTemplate isolatedAppend;
-
     public AuditTrailService(
             AuditEventRepository events,
+            IsolatedAuditEventRepository isolatedEvents,
             AuditRequestContext requests,
             OperationalAlerts alerts,
             Clock clock,
             PlatformTransactionManager transactionManager) {
         this.events = events;
+        this.isolatedEvents = isolatedEvents;
         this.requests = requests;
         this.alerts = alerts;
         this.clock = clock;
         this.joinedAppend = new TransactionTemplate(transactionManager);
-        this.isolatedAppend = new TransactionTemplate(transactionManager);
-        this.isolatedAppend.setPropagationBehavior(
-                TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -89,8 +88,9 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Appends in a transaction of its own and swallows a failure, having raised an operational
-     * alert for it.
+     * Appends in a transaction of its own, on the audit append pool, and swallows a failure,
+     * having raised an operational alert for it — a pool that cannot hand out a connection
+     * within its short timeout included.
      *
      * <p>{@link RuntimeException} and not {@link Throwable}: a persistence failure arrives as one,
      * and an {@link Error} means the process is in a state where continuing to serve the request
@@ -98,7 +98,7 @@ public class AuditTrailService implements AuditTrail {
      */
     private void appendRaisingAlertOnFailure(AuditEvent row) {
         try {
-            isolatedAppend.executeWithoutResult(status -> events.append(row));
+            isolatedEvents.append(row);
         } catch (RuntimeException appendFailed) {
             alerts.auditAppendFailed(row.operation(), appendFailed.getClass());
         }

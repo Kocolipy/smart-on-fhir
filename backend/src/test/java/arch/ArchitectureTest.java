@@ -845,6 +845,29 @@ public class ArchitectureTest {
             .because("one module locks a SCIM write's rows, in one order, so no two writers can"
                     + " each hold a row the other waits for");
 
+    /**
+     * A connector token's row lock has the same owner as a SCIM write's:
+     * {@code ScimWriteLockAdapter}, through the {@code ConnectorTokenLocks} port. A rotation and a
+     * revocation take it before reading the token, so a second rotation of one token waits for the
+     * first and is refused, rather than both minting a live replacement. One adapter issuing every
+     * lock statement keeps the token lock and the resource locks from growing orders of their own.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_write_lock_module_locks_connector_tokens =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is ScimConnectorTokenJpaRepository.lockById",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("lockById")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scim.infrastructure.persistence"
+                                                    + ".ScimConnectorTokenJpaRepository")))
+            .allowEmptyShould(true)
+            .because("one module takes the scim slice's locks, a connector token's included, so a"
+                    + " rotation's lock is taken the one way, before the token is read");
+
     /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =
             "com.example.backend.auth.application.LoginStateService";

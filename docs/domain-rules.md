@@ -352,8 +352,16 @@ chosen, a longer one is refused rather than silently clamped. Rotation mints a
 replacement carrying the old token's Permissions, or the ones it is given, with a
 fresh full lifetime and brings the old token's expiry **forward**
 to the end of an overlap window of at most 14 days, never past the expiry the old
-token already had; a second rotation therefore cannot undo the first one's
-shortening. Revocation and expiry are immediate and indistinguishable to the
+token already had. **A token is rotated once**: only a live token with no
+replacement may be, so rotating one that is revoked, has expired or was already
+rotated is refused `409` — nothing minted, nothing written — and audited as a
+failed `CONNECTOR_TOKEN_ROTATE` with `TOKEN_REVOKED`, `TOKEN_ALREADY_ROTATED` or
+`TOKEN_EXPIRED` (read in that order). The token's row is locked before that is
+decided, so of two concurrent rotations of one token exactly one mints a live
+replacement and the other is refused as already rotated; a revocation takes the
+same lock and stays idempotent. Every token event names the token it concerns by
+its stable id beside the connector — a rotation the rotated token and its
+replacement — and never its value. Revocation and expiry are immediate and indistinguishable to the
 connector: the only credential refusals the interface makes are a bare `Bearer`
 challenge when no credential was presented, `invalid_token` for a malformed,
 unknown, expired or revoked one or one whose connector is deleted, and

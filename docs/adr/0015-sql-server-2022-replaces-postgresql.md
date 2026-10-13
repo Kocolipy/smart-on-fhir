@@ -91,6 +91,24 @@ are one record.
   of `backend_audit_retention` only. `SET ROLE` and `SET LOCAL ROLE` are removed:
   the server enforces each login's privileges, and there is no session
   impersonation that could leak between pooled uses of one connection.
+- **The audit append pool needs its own role switch** (added 2026-10-13). Since ADR
+  0004's 2026-10-13 addendum, fail-open audit appends commit on a second, small
+  pool of their own (`AuditAppendPoolConfig`). On PostgreSQL it takes the request
+  pool's URL, login and `connection-init-sql` off the request pool, so
+  `SET ROLE backend_app` reaches it by copy. SQL Server has no `SET ROLE`, so the copy carries
+  no role, and the switchover must give this pool its role explicitly: it connects
+  as the **app login** — the request pool's, a member of `backend_app` only — from
+  the same secret, never as the owner login. The configuration test that pins the
+  request pool's login covers this pool too, and lm-16's metrics name it beside
+  the `app` and `retention` pools.
+- **A connector token's row lock moves with the SCIM resource locks** (added
+  2026-10-13). A rotation and a revocation lock the token's row before reading it
+  (`ScimConnectorTokenJpaRepository.lockById`, `SELECT … FOR UPDATE`, taken only by
+  `ScimWriteLockAdapter`), so of two concurrent rotations exactly one mints a
+  replacement. It locks one row by primary key, so it needs no order; on SQL Server
+  it becomes `WITH (UPDLOCK, ROWLOCK)`, and must still be the transaction's first
+  read of the token for the waiting rotation to see the first one's replacement
+  under read-committed snapshot.
 - **Database creation options are set by whatever creates the database** (the
   deployed bootstrap, the local init, the test container), never by Flyway:
   `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run inside a migration

@@ -430,6 +430,8 @@ class ApiContractFixtureTests {
                     "{\"permissions\":[]}"), 400);
             JsonNode rotated = json(t.expect(t.json(t.csrf(t.post(rotate)).cookie(admin),
                     "{\"overlapDays\":0}"), 201));
+            // The token is rotated now: a second rotation of it is refused, not a second mint.
+            t.expect(t.json(t.csrf(t.post(rotate)).cookie(admin), "{}"), 409);
             t.expect(t.json(t.csrf(t.post(rotate)).cookie(user), "{}"), 403);
             t.expect(t.json(t.csrf(t.post(rotate)), "{}"), 401);
             t.expect(t.json(t.csrf(t.post(tokens + "/" + UUID.randomUUID() + "/rotate"))

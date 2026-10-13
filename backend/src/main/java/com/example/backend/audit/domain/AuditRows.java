@@ -65,8 +65,27 @@ final class AuditRows {
     }
 
     /**
+     * The connector tokens a token event concerns, by their stable ids: the one it is about, and,
+     * on a rotation, the replacement minted for it.
+     *
+     * @param concerned   the token issued, rotated or revoked, or the one a refused rotation
+     *                    addressed; {@code null} when no token was addressed (a refused issue)
+     * @param replacement the token a rotation minted, or {@code null} for every other event
+     */
+    record Tokens(UUID concerned, UUID replacement) {
+
+        /** What every event but a token's names: no token at all. */
+        static final Tokens NONE = new Tokens(null, null);
+
+        /** One token, and no replacement. */
+        static Tokens one(UUID concerned) {
+            return new Tokens(concerned, null);
+        }
+    }
+
+    /**
      * The fields only some events fill: a bulk read's count and filter shape, a Role, a token's
-     * Permissions, and a Login's method and MFA factor.
+     * Permissions and ids, and a Login's method and MFA factor.
      */
     private record Particulars(
             Integer resultCount,
@@ -74,14 +93,15 @@ final class AuditRows {
             String role,
             List<String> permissions,
             String loginMethod,
-            String mfaFactor) {
+            String mfaFactor,
+            Tokens tokens) {
 
         /** What every other event fills: nothing. */
         static final Particulars NONE =
-                new Particulars(null, null, null, NO_PERMISSIONS, null, null);
+                new Particulars(null, null, null, NO_PERMISSIONS, null, null, Tokens.NONE);
 
         static Particulars role(String role) {
-            return new Particulars(null, null, role, NO_PERMISSIONS, null, null);
+            return new Particulars(null, null, role, NO_PERMISSIONS, null, null, Tokens.NONE);
         }
     }
 
@@ -136,7 +156,7 @@ final class AuditRows {
             Audited.Stamp stamp, Change change, AuditLoginMethod method, AuditMfaFactor factor) {
         return row(stamp, stamp.requests().current(), change, AuditEvent.USER_RESOURCE_TYPE,
                 change.subjectId(), new Particulars(null, null, null, NO_PERMISSIONS,
-                        method.value(), factor == null ? null : factor.value()));
+                        method.value(), factor == null ? null : factor.value(), Tokens.NONE));
     }
 
     /**
@@ -155,17 +175,20 @@ final class AuditRows {
     }
 
     /**
-     * A token issue or rotation, granted or refused: named by the connector, carrying the
-     * Permissions the token was given or asked for, by their sorted wire spelling.
+     * A token issue, rotation or revocation, granted or refused: named by the connector as subject
+     * and resource and by the tokens it concerns, carrying the Permissions the token was given or
+     * asked for, by their sorted wire spelling — none for a revocation.
      *
-     * @param change the issue or rotation, whose subject is the connector
+     * @param change the event, whose subject is the connector
+     * @param tokens the token it concerns and, on a rotation, its replacement
      */
-    static AuditEvent token(Audited.Stamp stamp, Change change, Set<Permission> permissions) {
+    static AuditEvent token(
+            Audited.Stamp stamp, Change change, Tokens tokens, Set<Permission> permissions) {
         return row(stamp, stamp.requests().current(), change, AuditEvent.CONNECTOR_RESOURCE_TYPE,
                 change.subjectId(), new Particulars(null, null, null,
                         permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value)
                                 .toList(),
-                        null, null));
+                        null, null, tokens));
     }
 
     /**
@@ -182,7 +205,7 @@ final class AuditRows {
         return row(stamp, stamp.requests().current(),
                 Change.success(operation, connectorId, null, Audited.NO_PATHS), resourceType, null,
                 new Particulars(resultCount, filter == null ? null : filter.render(), null,
-                        NO_PERMISSIONS, null, null));
+                        NO_PERMISSIONS, null, null, Tokens.NONE));
     }
 
     /**
@@ -246,7 +269,10 @@ final class AuditRows {
             String resourceType,
             UUID resourceId,
             Particulars particulars) {
-        return new AuditEvent(
+        // A false positive of be-audit-sensitive-value: `particulars.tokens()` carries a connector
+        // token's stable UUID id, never its value or digest — no event holds a String, so none
+        // could be handed one — and naming the token by id is what a token event must do.
+        return new AuditEvent( // nosemgrep: be-audit-sensitive-value
                 stamp.id(),
                 stamp.occurredAt(),
                 change.operation(),
@@ -266,6 +292,8 @@ final class AuditRows {
                 particulars.role(),
                 particulars.permissions(),
                 particulars.loginMethod(),
-                particulars.mfaFactor());
+                particulars.mfaFactor(),
+                particulars.tokens().concerned(),
+                particulars.tokens().replacement());
     }
 }

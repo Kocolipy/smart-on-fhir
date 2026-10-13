@@ -23,6 +23,7 @@ import com.example.backend.audit.domain.AuditSeededResource;
 import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
+import com.example.backend.audit.domain.IsolatedAuditEventRepository;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.authorization.domain.Permission;
@@ -67,12 +68,25 @@ class AuditTrailServiceTests {
 
     private static final UUID GROUP = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
+    /** A connector's credential, by its stable id: the one issued, and later rotated. */
+    private static final UUID ISSUED = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+    /** The credential that replaced {@link #ISSUED} in a rotation. */
+    private static final UUID REPLACEMENT =
+            UUID.fromString("55555555-5555-5555-5555-555555555555");
+
     private final RecordingRepository events = new RecordingRepository();
     private final RecordingAlerts alerts = new RecordingAlerts();
     private final AuditRequestContext requests =
             () -> new AuditRequest("POST", "/api/admin/accounts/{id}/unlock", "req-1");
 
+    /**
+     * One recorder for both appends, so the forced failure reaches either semantics alike; which
+     * one an event took is {@link #aFailOpenAppendCommitsOnTheAuditPoolAndOpensNoTransactionOfTheCallers}'s
+     * and {@link #aFailClosedAppendJoinsTheCallersTransaction}'s to tell apart.
+     */
     private final AuditTrail trail = new AuditTrailService(
+            events,
             events,
             requests,
             alerts,
@@ -682,10 +696,10 @@ class AuditTrailServiceTests {
     @Test
     void aTokenIssueAndRotationRecordThePermissionsGranted() {
         // An EnumSet iterates in declaration order (user:write first), not name order.
-        trail.append(new Audited.ConnectorTokenIssued(ACTOR, GROUP,
+        trail.append(new Audited.ConnectorTokenIssued(ACTOR, GROUP, ISSUED,
                 EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ)));
         trail.append(new Audited.ConnectorTokenRotated(
-                ACTOR, GROUP, Set.of(Permission.GROUP_WRITE)));
+                ACTOR, GROUP, ISSUED, REPLACEMENT, Set.of(Permission.GROUP_WRITE)));
 
         assertThat(events.appended).hasSize(2);
         AuditEvent issued = events.appended.get(0);
@@ -713,13 +727,66 @@ class AuditTrailServiceTests {
         assertThat(rotated.changedPaths()).containsExactly("expiresAt", "replacedByTokenId");
     }
 
+    /**
+     * Each token event names the token it concerns by its stable id: the issued one, the rotated
+     * one beside its replacement, and the revoked one. Only a rotation names a replacement.
+     */
+    @Test
+    void aTokenEventNamesTheTokenItConcerns() {
+        trail.append(new Audited.ConnectorTokenIssued(ACTOR, GROUP, ISSUED, Set.of()));
+        trail.append(new Audited.ConnectorTokenRotated(
+                ACTOR, GROUP, ISSUED, REPLACEMENT, Set.of()));
+        trail.append(new Audited.ConnectorTokenRevoked(ACTOR, GROUP, REPLACEMENT));
+
+        assertThat(events.appended)
+                .extracting(AuditEvent::tokenId, AuditEvent::replacementTokenId)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(ISSUED, null),
+                        org.assertj.core.groups.Tuple.tuple(ISSUED, REPLACEMENT),
+                        org.assertj.core.groups.Tuple.tuple(REPLACEMENT, null));
+    }
+
+    /** No other event names a token: a connector's own events and every other kind leave both empty. */
+    @Test
+    void anEventAboutNoTokenNamesNone() {
+        trail.append(new Audited.ConnectorCreated(ACTOR, GROUP));
+        trail.append(new Audited.ConnectorTokenIssueRefused(ACTOR, GROUP, Set.of()));
+        trail.append(new Audited.Logout(SUBJECT));
+
+        assertThat(events.appended)
+                .extracting(AuditEvent::tokenId, AuditEvent::replacementTokenId)
+                .containsOnly(org.assertj.core.groups.Tuple.tuple(null, null));
+    }
+
+    /**
+     * A rotation refused because the token can no longer be rotated: a failure on the rotation,
+     * naming the connector, the token addressed and why — revoked, expired or already rotated —
+     * and changing nothing.
+     */
+    @Test
+    void aRotationOfATokenThatIsNoLongerRotatableIsRecordedAsARefusalNamingTheToken() {
+        trail.append(new Audited.ConnectorTokenNotRotatable(
+                ACTOR, GROUP, ISSUED, AuditAdministrativeRefusal.TOKEN_ALREADY_ROTATED));
+
+        AuditEvent refused = events.only();
+        assertThat(List.<Object>of(refused.operation(), refused.outcome(), refused.errorCode(),
+                        refused.statusClass(), refused.resourceType()))
+                .containsExactly(AuditOperation.CONNECTOR_TOKEN_ROTATE, AuditOutcome.FAILURE,
+                        "TOKEN_ALREADY_ROTATED", "client_error", AuditEvent.CONNECTOR_RESOURCE_TYPE);
+        assertThat(Arrays.asList(refused.actorId(), refused.subjectId(), refused.resourceId(),
+                        refused.tokenId(), refused.replacementTokenId()))
+                .containsExactly(ACTOR, GROUP, GROUP, ISSUED, null);
+        assertThat(refused.changedPaths()).isEmpty();
+        assertThat(refused.permissions()).isEmpty();
+    }
+
     /** A refused escalation names the connector and the Permissions requested, and changes nothing. */
     @Test
     void aRefusedEscalationRecordsThePermissionsRequested() {
         trail.append(new Audited.ConnectorTokenIssueRefused(ACTOR, GROUP,
                 EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ)));
         trail.append(new Audited.ConnectorTokenRotateRefused(
-                ACTOR, GROUP, Set.of(Permission.USER_READ)));
+                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ)));
 
         assertThat(events.appended).hasSize(2);
         for (AuditEvent refused : events.appended) {
@@ -739,6 +806,9 @@ class AuditTrailServiceTests {
         assertThat(events.appended.get(1).operation())
                 .isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
         assertThat(events.appended.get(1).permissions()).containsExactly("user:read");
+        assertThat(events.appended).extracting(AuditEvent::tokenId)
+                .as("a rotation addressed a token, an issue none")
+                .containsExactly(null, ISSUED);
     }
 
     /** The refusal is already the caller's 403: fail-open, with an alert, like every refusal. */
@@ -749,13 +819,16 @@ class AuditTrailServiceTests {
         trail.append(new Audited.ConnectorTokenIssueRefused(
                 ACTOR, GROUP, Set.of(Permission.USER_READ)));
         trail.append(new Audited.ConnectorTokenRotateRefused(
-                ACTOR, GROUP, Set.of(Permission.USER_READ)));
+                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ)));
+        trail.append(new Audited.ConnectorTokenNotRotatable(
+                ACTOR, GROUP, ISSUED, AuditAdministrativeRefusal.TOKEN_REVOKED));
         assertThatThrownBy(() -> trail.append(new Audited.ConnectorTokenIssued(
-                ACTOR, GROUP, Set.of(Permission.USER_READ))))
+                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ))))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(alerts.raised).containsExactly(
-                AuditOperation.CONNECTOR_TOKEN_ISSUE, AuditOperation.CONNECTOR_TOKEN_ROTATE);
+                AuditOperation.CONNECTOR_TOKEN_ISSUE, AuditOperation.CONNECTOR_TOKEN_ROTATE,
+                AuditOperation.CONNECTOR_TOKEN_ROTATE);
     }
 
     // Every recorder, field by field: an append removed or a field built wrong fails here
@@ -765,7 +838,7 @@ class AuditTrailServiceTests {
     void theConnectorLifecycleEventsNameTheConnectorAndWhatChanged() {
         trail.append(new Audited.ConnectorCreated(ACTOR, GROUP));
         trail.append(new Audited.ConnectorDeleted(ACTOR, GROUP));
-        trail.append(new Audited.ConnectorTokenRevoked(null, GROUP));
+        trail.append(new Audited.ConnectorTokenRevoked(null, GROUP, ISSUED));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
                 AuditOperation.CONNECTOR_CREATE, AuditOperation.CONNECTOR_DELETE,
@@ -1028,6 +1101,8 @@ class AuditTrailServiceTests {
             Map.entry(Audited.ConnectorTokenRotated.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ConnectorTokenIssueRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.ConnectorTokenRotateRefused.class, Semantics.FAIL_OPEN),
+            // A rotation of a revoked, expired or already rotated token: already a 409.
+            Map.entry(Audited.ConnectorTokenNotRotatable.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.ConnectorTokenRevoked.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ScimUserCreated.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ScimUserCreateRejected.class, Semantics.FAIL_OPEN),
@@ -1181,7 +1256,8 @@ class AuditTrailServiceTests {
         assertThat(alerts.failures).containsExactly(IllegalArgumentException.class);
     }
 
-    private static final class RecordingRepository implements AuditEventRepository {
+    private static final class RecordingRepository
+            implements AuditEventRepository, IsolatedAuditEventRepository {
 
         private final List<AuditEvent> appended = new ArrayList<>();
         private RuntimeException failure;
@@ -1229,34 +1305,34 @@ class AuditTrailServiceTests {
      * the exception escapes, and a real manager would only add a database.
      */
     /**
-     * A fail-open append runs in a transaction of its own, not the caller's.
+     * A fail-open append goes to the audit append pool and nowhere else: it asks the caller's
+     * transaction manager for nothing — no {@code REQUIRES_NEW}, which would hold the caller's
+     * connection while waiting for a second one from the same pool — and the joined repository
+     * receives nothing.
      *
-     * <p>The behavioural claim — the row outlives a caller that rolls back — is
-     * asserted against real Postgres in
-     * {@code AuditAppendOnlyIntegrationTests.aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack}.
-     * That test cannot reach this constructor under mutation testing: the service is
-     * a singleton built once while the Spring context boots, so PIT attributes the
-     * constructor's coverage to whichever test method happened to trigger the boot
-     * and runs only that one. Hence this unit-level assertion on the propagation the
-     * template actually asks for — the only form in which the wiring is visible to a
-     * mutation of the constructor.
+     * <p>The behavioural claims — the row outlives a caller that rolls back, and an append beats a
+     * main pool every connection of which is held — are asserted against real Postgres in
+     * {@code AuditAppendOnlyIntegrationTests.aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack}
+     * and {@code AuditAppendPoolStarvationIntegrationTests}. Neither can reach this constructor
+     * under mutation testing: the service is a singleton built once while the Spring context
+     * boots, so PIT attributes the constructor's coverage to whichever test method happened to
+     * trigger the boot and runs only that one. Hence this unit-level assertion on the wiring.
      */
     @Test
-    void aFailOpenAppendAsksForATransactionOfItsOwn() {
+    void aFailOpenAppendCommitsOnTheAuditPoolAndOpensNoTransactionOfTheCallers() {
         RecordingTransactionManager transactions = new RecordingTransactionManager();
+        RecordingRepository joined = new RecordingRepository();
+        RecordingRepository pool = new RecordingRepository();
         AuditTrail isolated = new AuditTrailService(
-                events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+                joined, pool, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
 
         isolated.append(new Audited.LoginFailure(
                 SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
 
-        assertThat(transactions.definitions)
-                .as("the fail-open append's transaction definitions")
-                .singleElement()
-                .satisfies(definition -> assertThat(definition.getPropagationBehavior())
-                        .as("PROPAGATION_REQUIRES_NEW, so the caller's rollback cannot "
-                                + "take the audit row with it")
-                        .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+        assertThat(List.of(transactions.definitions.size(), joined.appended.size(),
+                        pool.appended.size()))
+                .as("transactions asked of the caller's manager, rows joined, rows on the pool")
+                .containsExactly(0, 0, 1);
     }
 
     /**
@@ -1267,8 +1343,9 @@ class AuditTrailServiceTests {
     @Test
     void aFailClosedAppendJoinsTheCallersTransaction() {
         RecordingTransactionManager transactions = new RecordingTransactionManager();
+        RecordingRepository pool = new RecordingRepository();
         AuditTrail joined = new AuditTrailService(
-                events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+                events, pool, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
 
         joined.append(new Audited.Logout(SUBJECT));
 
@@ -1278,6 +1355,9 @@ class AuditTrailServiceTests {
                 .satisfies(definition -> assertThat(definition.getPropagationBehavior())
                         .as("PROPAGATION_REQUIRED, so the append rolls back with the caller's change")
                         .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRED));
+        assertThat(List.of(events.appended.size(), pool.appended.size()))
+                .as("rows joined, rows on the audit pool")
+                .containsExactly(1, 0);
     }
 
     /** Records the transaction definitions it is asked for, and does nothing else. */

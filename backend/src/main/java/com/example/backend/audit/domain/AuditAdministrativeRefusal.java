@@ -46,5 +46,17 @@ public enum AuditAdministrativeRefusal {
      * itself. Refused so that {@code connector:token} cannot mint a credential more powerful than
      * whoever holds it; the event names the Permissions that were asked for.
      */
-    PERMISSION_ESCALATION
+    PERMISSION_ESCALATION,
+
+    /** A connector token rotation addressing a token that has been revoked. */
+    TOKEN_REVOKED,
+
+    /**
+     * A connector token rotation addressing a token that has already been rotated — the loser of
+     * two concurrent rotations of one token included. Only one replacement may ever be live.
+     */
+    TOKEN_ALREADY_ROTATED,
+
+    /** A connector token rotation addressing a token whose expiry has passed. */
+    TOKEN_EXPIRED
 }

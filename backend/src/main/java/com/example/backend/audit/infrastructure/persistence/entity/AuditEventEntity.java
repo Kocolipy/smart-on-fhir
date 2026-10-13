@@ -105,6 +105,14 @@ public class AuditEventEntity {
     @Column(name = "mfa_factor", updatable = false)
     private String mfaFactor;
 
+    /** The connector token a token event concerns, by its stable id; null for anything else. */
+    @Column(name = "token_id", updatable = false)
+    private UUID tokenId;
+
+    /** The token a rotation minted to replace {@link #tokenId}; null for anything else. */
+    @Column(name = "replacement_token_id", updatable = false)
+    private UUID replacementTokenId;
+
     protected AuditEventEntity() {
     }
 
@@ -128,7 +136,9 @@ public class AuditEventEntity {
             String roleName,
             String permissions,
             String loginMethod,
-            String mfaFactor) {
+            String mfaFactor,
+            UUID tokenId,
+            UUID replacementTokenId) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -149,6 +159,8 @@ public class AuditEventEntity {
         this.permissions = permissions;
         this.loginMethod = loginMethod;
         this.mfaFactor = mfaFactor;
+        this.tokenId = tokenId;
+        this.replacementTokenId = replacementTokenId;
     }
 
     /*

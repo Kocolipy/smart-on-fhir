@@ -259,10 +259,11 @@ public sealed interface Audited {
 
     // ---- Connectors and their tokens ---------------------------------------------------------
     //
-    // Every event here names the CONNECTOR by its id and never the token, and none can be handed a
-    // token value: the plaintext is a String, and no event holds one. A connector or token change
-    // is fail-closed for the reason the administrative account writes are: a credential this
-    // service cannot say who minted is worse than a failed mint an administrator retries.
+    // Every event here names the CONNECTOR as its subject and resource, and a token event also
+    // names the token it concerns by the token's stable id — never its value: the plaintext is a
+    // String, and no event holds one. A connector or token change is fail-closed for the reason
+    // the administrative account writes are: a credential this service cannot say who minted is
+    // worse than a failed mint an administrator retries.
 
     /** A connector created. */
     record ConnectorCreated(UUID actorId, UUID connectorId) implements Accepted {
@@ -290,8 +291,11 @@ public sealed interface Audited {
     /**
      * A token minted for a connector, with the Permissions it carries — the question an
      * administrator reading the trail is asking of a credential.
+     *
+     * @param issuedId the minted token's stable id
      */
-    record ConnectorTokenIssued(UUID actorId, UUID connectorId, Set<Permission> granted)
+    record ConnectorTokenIssued(
+            UUID actorId, UUID connectorId, UUID issuedId, Set<Permission> granted)
             implements Accepted {
 
         /**
@@ -303,16 +307,24 @@ public sealed interface Audited {
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.token(stamp, AuditRows.Change.success(
-                    AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, PATHS), granted);
+                    AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, PATHS),
+                    AuditRows.Tokens.one(issuedId), granted);
         }
     }
 
     /**
      * A connector's token replaced, the old one ending at the overlap, with the Permissions the
      * replacement carries.
+     *
+     * @param rotatedId     the stable id of the token rotated, which now ends at the overlap
+     * @param replacementId the stable id of the token minted to replace it
      */
-    record ConnectorTokenRotated(UUID actorId, UUID connectorId, Set<Permission> granted)
-            implements Accepted {
+    record ConnectorTokenRotated(
+            UUID actorId,
+            UUID connectorId,
+            UUID rotatedId,
+            UUID replacementId,
+            Set<Permission> granted) implements Accepted {
 
         /** Rotation shortens the old token and records which token replaced it. */
         public static final List<String> PATHS = List.of("expiresAt", "replacedByTokenId");
@@ -320,7 +332,8 @@ public sealed interface Audited {
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.token(stamp, AuditRows.Change.success(
-                    AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, PATHS), granted);
+                    AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, PATHS),
+                    new AuditRows.Tokens(rotatedId, replacementId), granted);
         }
     }
 
@@ -339,38 +352,70 @@ public sealed interface Audited {
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.token(stamp, AuditRows.Change.refusal(
                     AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId,
-                    AuditAdministrativeRefusal.PERMISSION_ESCALATION), requested);
+                    AuditAdministrativeRefusal.PERMISSION_ESCALATION), AuditRows.Tokens.NONE,
+                    requested);
         }
     }
 
-    /** A rotation refused for the reason, and on the terms, an issue is. */
-    record ConnectorTokenRotateRefused(UUID actorId, UUID connectorId, Set<Permission> requested)
+    /**
+     * A rotation refused for the reason, and on the terms, an issue is.
+     *
+     * @param rotatedId the stable id of the token the rotation addressed
+     */
+    record ConnectorTokenRotateRefused(
+            UUID actorId, UUID connectorId, UUID rotatedId, Set<Permission> requested)
             implements Refused {
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.token(stamp, AuditRows.Change.refusal(
                     AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId,
-                    AuditAdministrativeRefusal.PERMISSION_ESCALATION), requested);
+                    AuditAdministrativeRefusal.PERMISSION_ESCALATION),
+                    AuditRows.Tokens.one(rotatedId), requested);
+        }
+    }
+
+    /**
+     * A rotation refused because the token it addressed can no longer be rotated: it was revoked,
+     * has expired, or was rotated already — the second of two concurrent rotations of one token
+     * among them. Nothing was minted and nothing written; the caller is already receiving a
+     * {@code 409}, so the append is fail-open.
+     *
+     * @param rotatedId the stable id of the token the rotation addressed
+     * @param reason    which of the three it was: {@code TOKEN_REVOKED}, {@code TOKEN_EXPIRED} or
+     *                  {@code TOKEN_ALREADY_ROTATED}
+     */
+    record ConnectorTokenNotRotatable(
+            UUID actorId, UUID connectorId, UUID rotatedId, AuditAdministrativeRefusal reason)
+            implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.token(stamp, AuditRows.Change.refusal(
+                    AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, reason),
+                    AuditRows.Tokens.one(rotatedId), Set.of());
         }
     }
 
     /**
      * A connector token revoked.
      *
-     * @param actorId the administrator who revoked it, or {@code null} when the revocation was
-     *                part of deleting the connector — that event carries the actor, and repeating
-     *                it here would suggest two separate administrative acts
+     * @param actorId   the administrator who revoked it, or {@code null} when the revocation was
+     *                  part of deleting the connector — that event carries the actor, and
+     *                  repeating it here would suggest two separate administrative acts
+     * @param revokedId the stable id of the token revoked
      */
-    record ConnectorTokenRevoked(UUID actorId, UUID connectorId) implements Accepted {
+    record ConnectorTokenRevoked(UUID actorId, UUID connectorId, UUID revokedId)
+            implements Accepted {
 
         /** Revocation touches one column. */
         public static final List<String> PATHS = List.of("revokedAt");
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.connector(
-                    stamp, AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, PATHS);
+            return AuditRows.token(stamp, AuditRows.Change.success(
+                    AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, PATHS),
+                    AuditRows.Tokens.one(revokedId), Set.of());
         }
     }
 
