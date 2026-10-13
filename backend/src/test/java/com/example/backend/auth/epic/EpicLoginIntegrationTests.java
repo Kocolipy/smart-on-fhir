@@ -83,7 +83,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * nothing else in this context depends on it.
  *
  * <p>Epic on a bad day is the same fake told to stall, answer {@code 5xx} or rotate its key
- * (D23, D24, D26). The outbound timeouts are 3 seconds here, well short of the fake's 8-second
+ * (D23, D24, D26). The outbound timeouts are 1 second here, well short of the fake's 8-second
  * stall; the waits before D26's JWKS refetches are recorded rather than slept. Discovery and
  * Epic's keys are kept across tests, as they are across Logins: each test's fake signs with a key
  * of its own, so a test's first Login finds its key by a refetch, and a test about the JWKS counts

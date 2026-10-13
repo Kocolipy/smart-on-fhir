@@ -19,8 +19,7 @@ ones you will reach for.
 
 ## Toolchain pins
 
-Every toolchain version is pinned in the repo, so a developer's machine and CI
-resolve the same one:
+Every toolchain version is pinned in the repo, so every machine resolves the same one:
 
 | Tool  | Pinned in                                                       | Enforced by                                                                 |
 | ----- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |

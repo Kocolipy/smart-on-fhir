@@ -28,8 +28,8 @@ npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers
 ```
 
 `npm run test:mutation` is a whole-repo Stryker run — far too slow for an
-implementation loop, so it belongs to CI. Reach for scoped Stryker instead, which
-"Testing" below specifies as a conditional gate.
+implementation loop, so it is run deliberately, outside the loop. In the loop,
+reach for scoped Stryker, which "Testing" below specifies as a conditional gate.
 
 ## Architecture
 

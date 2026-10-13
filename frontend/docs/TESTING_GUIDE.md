@@ -14,7 +14,7 @@
 | `npm run test:e2e`      | Playwright against `npm run dev`                      | once an implementation is complete    |
 | `npm run test:security` | Semgrep, local ruleset                                | once an implementation is complete    |
 | `npx fallow audit`      | dead code / complexity / duplication in the changeset | once an implementation is complete    |
-| `npm run test:mutation` | Stryker over the whole repo                           | CI only                               |
+| `npm run test:mutation` | Stryker over the whole repo                           | deliberately, outside the loop        |
 | scoped Stryker          | Stryker over the source one test covers               | after writing or changing a unit test |
 
 The baseline gate, the conditional gates and their triggers are in AGENTS.md
@@ -110,8 +110,8 @@ rm src/lib/violation.ts test/e2e/unrouted.spec.ts
 
 ## Mutation testing
 
-`npm run test:mutation` runs Stryker over the whole repo — CI only, far too
-slow for an implementation loop. The in-loop run is scoped, and `--mutate` names
+`npm run test:mutation` runs Stryker over the whole repo — far too slow for
+an implementation loop, so it is run deliberately, outside it. The in-loop run is scoped, and `--mutate` names
 the **source** the test covers, never the test file:
 
 ```bash
@@ -357,7 +357,7 @@ Playwright auto-waits and auto-retries every web-first assertion (`toBeVisible`,
 timing hacks:
 
 - **No `page.waitForTimeout()`.** A fixed sleep is a race — too short on a
-  loaded CI box, wasted time otherwise. Assert the end state; the assertion
+  loaded machine, wasted time otherwise. Assert the end state; the assertion
   waits exactly as long as needed.
 - **No `waitForLoadState("networkidle")`.** Wait for a concrete landmark
   element instead.

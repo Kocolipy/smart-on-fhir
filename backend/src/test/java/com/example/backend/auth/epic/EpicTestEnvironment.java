@@ -115,9 +115,10 @@ final class EpicTestEnvironment implements BeforeEachCallback, AfterEachCallback
 
     /**
      * Registers this environment's Epic Login settings, the issuer naming this environment's fake.
-     * The outbound timeouts are 3 seconds: long enough that a fake Epic answering normally is never
-     * cut off on a loaded machine, and well short of the fake's 8-second
-     * {@link FakeEpic#STALL_FOR}, so a stalled Epic always times out before it answers.
+     * The outbound timeouts are 1 second: a fake Epic on the loopback answers in milliseconds, so
+     * one answering normally is never cut off, and the fake's 8-second {@link FakeEpic#STALL_FOR}
+     * is far past it, so a stalled Epic always times out before it answers. Each timeout case
+     * waits the full second, so this value is most of those cases' cost.
      */
     void register(DynamicPropertyRegistry registry) {
         epicLoginSettings(registry, "http://localhost:" + port + "/oauth2",
@@ -125,8 +126,8 @@ final class EpicTestEnvironment implements BeforeEachCallback, AfterEachCallback
         if (nextKey != null) {
             nextKeyOn(registry, () -> EpicTestKeys.pem(nextKey));
         }
-        registry.add("app.epic.connect-timeout", () -> "3s");
-        registry.add("app.epic.read-timeout", () -> "3s");
+        registry.add("app.epic.connect-timeout", () -> "1s");
+        registry.add("app.epic.read-timeout", () -> "1s");
         if (mfaEvidenceRequired) {
             registry.add("app.epic.mfa-evidence-required", () -> "true");
         }
