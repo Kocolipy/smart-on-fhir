@@ -1,46 +1,29 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { authState, guest, signedIn } from "@/auth/auth-context.testHelpers";
-import type { Permission } from "@/auth/api";
-import { apiFetch } from "@/lib/http";
+import { EVERY_PERMISSION } from "@/auth/auth-context.testHelpers";
+import {
+  bare,
+  deferred,
+  GUEST,
+  holding,
+  json,
+  renderAsSession,
+  UNREACHABLE,
+  type Answers,
+  type StartingSession,
+} from "@/auth/session-adapter.testHelpers";
 
 import { Accounts } from "./accounts";
 import type { GroupRow, UserRow } from "./accounts-api";
 
-vi.mock("@/lib/http", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/http")>()),
-  apiFetch: vi.fn(),
-}));
+const USERS = "GET /api/admin/accounts";
+const GROUPS = "GET /api/admin/groups";
+const CONNECTORS = "GET /api/admin/connectors";
 
-// The connector panel has its own suite, which pins what it offers by
-// Permission; here it stands in as a marker that says whether it was rendered,
-// rather than adding a third listing request to every test.
-vi.mock("./connectors", () => ({
-  Connectors: () => <p data-testid="connectors-panel" />,
-}));
-
-/** Every Permission, as a Superuser's session holds them. */
-const EVERY_PERMISSION: Permission[] = [
-  "audit:read",
-  "connector:read",
-  "connector:token",
-  "connector:write",
-  "counter:read",
-  "counter:write",
-  "group:read",
-  "group:write",
-  "ops:read",
-  "user:read",
-  "user:write",
-];
-
-const apiFetchMock = vi.mocked(apiFetch);
-
-const auth: AuthContextState = authState(signedIn({ permissions: EVERY_PERMISSION }));
+/** A Superuser's session, which sees every listing and every action on the page. */
+const SUPERUSER = holding(EVERY_PERMISSION);
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -70,47 +53,18 @@ const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
   ...overrides,
 });
 
-type Result = object | Promise<object>;
+const unlockGrace = `POST /api/admin/accounts/${GRACE_ID}/unlock`;
+const forceGrace = `POST /api/admin/accounts/${GRACE_ID}/force-password-change`;
 
 /**
- * Answers the two listing reads by path and every other request from a queue,
- * in order — so a test states what the listings hold and what each action
- * answers, not the order the page happens to issue its reads in. Each answer is
- * what `apiFetch` would hand back: which decoder each declaration names is
- * `accounts-api.test.ts`'s to prove, so an `ok` result's `data` is what that
- * decoder would return.
+ * The page as `session` sees it — every listing it may read answered empty
+ * unless `answers` says otherwise, the Connectors panel's included, since the
+ * page renders it for real.
  */
-function routeApi({
-  actions = [],
-  groups = { kind: "ok", data: [] },
-  users,
-}: {
-  actions?: Result[];
-  groups?: Result;
-  users: Result;
-}) {
-  const queue = [...actions];
-  apiFetchMock.mockImplementation(((path: string) => {
-    if (path === "/api/admin/accounts") return Promise.resolve(users);
-    if (path === "/api/admin/groups") return Promise.resolve(groups);
-    const next = queue.shift();
-    if (next === undefined) throw new Error(`unexpected request to ${path}`);
-    return Promise.resolve(next);
-  }) as never);
-}
-
-/** Every request the page sent, as path and init — the operation it named. */
-const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
-
-function renderAccounts(value: AuthContextState = auth) {
-  return render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter>
-        <Accounts />
-      </MemoryRouter>
-    </AuthContext.Provider>,
-  );
-}
+const renderAccounts = (answers: Answers, session: StartingSession = SUPERUSER) =>
+  renderAsSession(<Accounts />, session, {
+    answers: { [CONNECTORS]: json([]), [GROUPS]: json([]), [USERS]: json([]), ...answers },
+  });
 
 const usersTable = () => screen.getByRole("table", { name: "Users" });
 const groupsTable = () => screen.getByRole("table", { name: "Groups" });
@@ -128,30 +82,20 @@ const row = (name: string, table = usersTable()) =>
   );
 
 describe("Accounts", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-    vi.mocked(auth.expireSession).mockReset();
-    vi.mocked(auth.logout).mockReset();
-  });
-
   it("lists every User with its identity, standing, credential and history", async () => {
-    routeApi({
-      users: {
-        kind: "ok",
-        data: [
-          userRow({
-            displayName: "Grace Hopper",
-            groups: [
-              { displayName: "Engineering", id: "g1" },
-              { displayName: "Operators", id: "g2" },
-            ],
-            lastAuthenticatedAt: "2026-03-04T05:06:07Z",
-          }),
-          userRow({ admin: true, id: "ada-id", userName: "ada" }),
-        ],
-      },
+    const { requests } = await renderAccounts({
+      [USERS]: json([
+        userRow({
+          displayName: "Grace Hopper",
+          groups: [
+            { displayName: "Engineering", id: "g1" },
+            { displayName: "Operators", id: "g2" },
+          ],
+          lastAuthenticatedAt: "2026-03-04T05:06:07Z",
+        }),
+        userRow({ admin: true, id: "ada-id", userName: "ada" }),
+      ]),
     });
-    renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
     expect(
@@ -182,20 +126,16 @@ describe("Accounts", () => {
     expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
 
     expect(row("ada").getByText("Admin")).toBeInTheDocument();
-    expect(sent()).toContainEqual(["/api/admin/accounts", {}]);
+    expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/accounts" });
   });
 
   it("reports the states a directory and the login path can leave a User in", async () => {
-    routeApi({
-      users: {
-        kind: "ok",
-        data: [
-          userRow({ active: false, hasPassword: false, userName: "closed" }),
-          userRow({ id: "p", locked: true, passwordChangeRequired: true, userName: "penalised" }),
-        ],
-      },
+    await renderAccounts({
+      [USERS]: json([
+        userRow({ active: false, hasPassword: false, userName: "closed" }),
+        userRow({ id: "p", locked: true, passwordChangeRequired: true, userName: "penalised" }),
+      ]),
     });
-    renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: /^closed/ })).toBeInTheDocument();
     expect(row("closed").getByText("Inactive")).toBeInTheDocument();
@@ -207,17 +147,13 @@ describe("Accounts", () => {
   });
 
   it("says why each User is locked, so a forgotten password and an abandoned account differ", async () => {
-    routeApi({
-      users: {
-        kind: "ok",
-        data: [
-          userRow({ id: "f", locked: true, lockCause: "FAILURES", userName: "guessed" }),
-          userRow({ id: "d", locked: true, lockCause: "DORMANCY", userName: "dormant" }),
-          userRow({ id: "o", userName: "open" }),
-        ],
-      },
+    await renderAccounts({
+      [USERS]: json([
+        userRow({ id: "f", locked: true, lockCause: "FAILURES", userName: "guessed" }),
+        userRow({ id: "d", locked: true, lockCause: "DORMANCY", userName: "dormant" }),
+        userRow({ id: "o", userName: "open" }),
+      ]),
     });
-    renderAccounts();
 
     await screen.findByRole("rowheader", { name: /^dormant/ });
     expect(row("guessed").getByText("Locked: failed logins")).toBeInTheDocument();
@@ -228,17 +164,13 @@ describe("Accounts", () => {
   });
 
   it("lists every Group with its member count and marks the protected Admin group", async () => {
-    routeApi({
-      groups: {
-        kind: "ok",
-        data: [
-          groupRow({ adminGroup: true, displayName: "Admins", id: "a", memberCount: 1 }),
-          groupRow(),
-        ],
-      },
-      users: { kind: "ok", data: [userRow()] },
+    const { requests } = await renderAccounts({
+      [GROUPS]: json([
+        groupRow({ adminGroup: true, displayName: "Admins", id: "a", memberCount: 1 }),
+        groupRow(),
+      ]),
+      [USERS]: json([userRow()]),
     });
-    renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
     expect(row("Admins", groupsTable()).getByText("1")).toBeInTheDocument();
@@ -248,7 +180,7 @@ describe("Accounts", () => {
     expect(
       row("Engineering", groupsTable()).queryByText("Protected Admin group"),
     ).not.toBeInTheDocument();
-    expect(sent()).toContainEqual(["/api/admin/groups", {}]);
+    expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/groups" });
   });
 
   /**
@@ -257,18 +189,14 @@ describe("Accounts", () => {
    * nothing that could change a name, the active flag or a membership.
    */
   it("offers no control that could change what the directory owns", async () => {
-    routeApi({
-      groups: { kind: "ok", data: [groupRow({ adminGroup: true, displayName: "Admins" })] },
-      users: {
-        kind: "ok",
-        data: [
-          userRow({ locked: true }),
-          userRow({ active: false, id: "h", userName: "hopper" }),
-          userRow({ bootstrapAdmin: true, id: "r", userName: "root" }),
-        ],
-      },
+    await renderAccounts({
+      [GROUPS]: json([groupRow({ adminGroup: true, displayName: "Admins" })]),
+      [USERS]: json([
+        userRow({ locked: true }),
+        userRow({ active: false, id: "h", userName: "hopper" }),
+        userRow({ bootstrapAdmin: true, id: "r", userName: "root" }),
+      ]),
     });
-    renderAccounts();
 
     await screen.findByRole("rowheader", { name: /^grace/ });
     for (const table of [usersTable(), groupsTable()]) {
@@ -286,8 +214,7 @@ describe("Accounts", () => {
   });
 
   it("says Unlock is the only way a lockout ends and that it requires a password change", async () => {
-    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
-    renderAccounts();
+    await renderAccounts({ [USERS]: json([userRow({ locked: true })]) });
 
     const unlock = await screen.findByRole("button", { name: "Unlock grace" });
     const explanation =
@@ -299,62 +226,75 @@ describe("Accounts", () => {
   });
 
   it("ends a lockout by the User's stable id and shows the change it now requires", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: userRow({ locked: false, passwordChangeRequired: true }) }],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
+    const { requests } = await renderAccounts({
+      [unlockGrace]: json(userRow({ locked: false, passwordChangeRequired: true })),
+      [USERS]: json([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(sent()).toContainEqual([`/api/admin/accounts/${GRACE_ID}/unlock`, { method: "POST" }]);
+    expect(requests()).toContainEqual({
+      method: "POST",
+      path: `/api/admin/accounts/${GRACE_ID}/unlock`,
+    });
     expect(row("grace").getByText("Not locked")).toBeInTheDocument();
     expect(row("grace").getByText("Required")).toBeInTheDocument();
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
   it("forces a password change by the User's stable id", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: userRow({ passwordChangeRequired: true }) }],
-      users: { kind: "ok", data: [userRow()] },
+    const { requests } = await renderAccounts({
+      [forceGrace]: json(userRow({ passwordChangeRequired: true })),
+      [USERS]: json([userRow()]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(
       await screen.findByRole("button", { name: "Force password change for grace" }),
     );
 
-    expect(sent()).toContainEqual([
-      `/api/admin/accounts/${GRACE_ID}/force-password-change`,
-      { method: "POST" },
-    ]);
+    expect(requests()).toContainEqual({
+      method: "POST",
+      path: `/api/admin/accounts/${GRACE_ID}/force-password-change`,
+    });
     expect(row("grace").getByText("Required")).toBeInTheDocument();
     expect(
       row("grace").queryByRole("button", { name: "Force password change for grace" }),
     ).not.toBeInTheDocument();
   });
 
+  // The answer's row replaces the listed one only once it decodes: a row whose
+  // lock state contradicts itself is a failure, and the listing stands.
+  it("reports an action answered with a row that does not decode, and keeps the row", async () => {
+    await renderAccounts({
+      [unlockGrace]: json({ ...userRow(), lockCause: "DORMANCY" }),
+      [USERS]: json([userRow({ locked: true })]),
+    });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to unlock grace\. Please try again\.$/,
+    );
+    expect(row("grace").getByText("Locked: failed logins")).toBeInTheDocument();
+  });
+
   it("offers Unlock only while a lockout is in force", async () => {
-    routeApi({ users: { kind: "ok", data: [userRow()] } });
-    renderAccounts();
+    await renderAccounts({ [USERS]: json([userRow()]) });
 
     await screen.findByRole("rowheader", { name: /^grace/ });
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
   it("offers no forced change to a User with no password or one already flagged", async () => {
-    routeApi({
-      users: {
-        kind: "ok",
-        data: [
-          userRow({ hasPassword: false, userName: "nopass" }),
-          userRow({ id: "f", passwordChangeRequired: true, userName: "flagged" }),
-        ],
-      },
+    await renderAccounts({
+      [USERS]: json([
+        userRow({ hasPassword: false, userName: "nopass" }),
+        userRow({ id: "f", passwordChangeRequired: true, userName: "flagged" }),
+      ]),
     });
-    renderAccounts();
 
     await screen.findByRole("rowheader", { name: /^nopass/ });
     expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
@@ -366,24 +306,21 @@ describe("Accounts", () => {
    * it, so a differently-cased spelling still recognises its own row.
    */
   it("offers the signed-in Admin neither action on their own account", async () => {
-    routeApi({
-      users: { kind: "ok", data: [userRow({ admin: true, locked: true, userName: "ADA" })] },
+    await renderAccounts({
+      [USERS]: json([userRow({ admin: true, locked: true, userName: "ADA" })]),
     });
-    renderAccounts();
 
     await screen.findByRole("rowheader", { name: /^ADA/ });
     expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("shows the Bootstrap Admin with no lockout state and no Unlock", async () => {
-    routeApi({
-      users: {
-        kind: "ok",
-        // Locked is impossible for it; even a row claiming it renders no state.
-        data: [userRow({ admin: true, bootstrapAdmin: true, locked: true, userName: "root" })],
-      },
+    await renderAccounts({
+      // Locked is impossible for it; even a row claiming it renders no state.
+      [USERS]: json([
+        userRow({ admin: true, bootstrapAdmin: true, locked: true, userName: "root" }),
+      ]),
     });
-    renderAccounts();
 
     await screen.findByRole("rowheader", { name: /^root/ });
     const root = row("root");
@@ -397,13 +334,10 @@ describe("Accounts", () => {
   });
 
   it("does not offer the Bootstrap Admin a forced change on its own account", async () => {
-    routeApi({
-      users: { kind: "ok", data: [userRow({ bootstrapAdmin: true, userName: "root" })] },
-    });
-    renderAccounts({
-      ...auth,
-      ...signedIn({ permissions: EVERY_PERMISSION, username: "root" }),
-    });
+    await renderAccounts(
+      { [USERS]: json([userRow({ bootstrapAdmin: true, userName: "root" })]) },
+      holding(EVERY_PERMISSION, { username: "root" }),
+    );
 
     expect(await screen.findByRole("rowheader", { name: /^root/ })).toBeInTheDocument();
     expect(
@@ -412,20 +346,15 @@ describe("Accounts", () => {
   });
 
   it("disables every control while an action is in flight", async () => {
-    let finishAction: ((result: object) => void) | undefined;
-    routeApi({
-      actions: [
-        new Promise<object>((resolve) => {
-          finishAction = resolve;
-        }),
-      ],
-      users: {
-        kind: "ok",
-        data: [userRow({ locked: true }), userRow({ id: "h", locked: true, userName: "hopper" })],
-      },
+    const unlocking = deferred();
+    await renderAccounts({
+      [unlockGrace]: unlocking.answer,
+      [USERS]: json([
+        userRow({ locked: true }),
+        userRow({ id: "h", locked: true, userName: "hopper" }),
+      ]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
@@ -435,25 +364,19 @@ describe("Accounts", () => {
     expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Force password change for hopper" })).toBeDisabled();
 
-    await act(async () => {
-      finishAction?.({ kind: "ok", data: userRow() });
-    });
+    await unlocking.settle(json(userRow()));
     expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeEnabled();
   });
 
   it("reports a forced change refused for a User with no password to replace", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 409 }],
-      users: { kind: "ok", data: [userRow()] },
-    });
+    await renderAccounts({ [forceGrace]: bare(409), [USERS]: json([userRow()]) });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(
       await screen.findByRole("button", { name: "Force password change for grace" }),
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "Refused: grace has no password to replace.",
     );
     // The listing is untouched: the backend refused, so nothing changed.
@@ -461,35 +384,31 @@ describe("Accounts", () => {
   });
 
   it("reports a User that has since been removed", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 404 }],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
-    });
+    await renderAccounts({ [unlockGrace]: bare(404), [USERS]: json([userRow({ locked: true })]) });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "grace no longer exists. Reload the page for the current list.",
     );
   });
 
   it("reports a failed action with action-specific copy", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 503 }, { kind: "failed" }],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
+    await renderAccounts({
+      [forceGrace]: UNREACHABLE,
+      [unlockGrace]: bare(503),
+      [USERS]: json([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to unlock grace. Please try again.",
     );
 
     await user.click(screen.getByRole("button", { name: "Force password change for grace" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to force a password change for grace. Please try again.",
     );
   });
@@ -498,16 +417,12 @@ describe("Accounts", () => {
   // hook's generic 400 copy — the status the page's action-specific sentence
   // is written for.
   it("reports a 400 refusal with the action's own copy, not the hook's generic one", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 400 }],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
-    });
+    await renderAccounts({ [unlockGrace]: bare(400), [USERS]: json([userRow({ locked: true })]) });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to unlock grace. Please try again.",
     );
   });
@@ -516,37 +431,34 @@ describe("Accounts", () => {
   // use-gated-write.test.tsx; this page proves only its own copy and wiring.
 
   it("clears the previous error when the next action succeeds", async () => {
-    routeApi({
-      actions: [
-        { kind: "failed", status: 503 },
-        { kind: "ok", data: userRow() },
-      ],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
+    await renderAccounts({
+      [unlockGrace]: [bare(503), json(userRow())],
+      [USERS]: json([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Unlock grace" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("reports a refused action as permission denied and keeps the session", async () => {
-    routeApi({
-      actions: [{ kind: "forbidden" }],
-      users: { kind: "ok", data: [userRow({ locked: true })] },
+    const { requests, session } = await renderAccounts({
+      [unlockGrace]: bare(403),
+      [USERS]: json([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
-    renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/^You don't have permission to do this\.$/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^You don't have permission to do this\.$/,
+    );
     // The refused row is left as it was, and nothing ends the session.
     expect(screen.getByRole("button", { name: "Unlock grace" })).toBeEnabled();
-    expect(auth.expireSession).not.toHaveBeenCalled();
-    expect(auth.logout).not.toHaveBeenCalled();
+    expect(session().status).toBe("authenticated");
+    expect(requests()).not.toContainEqual(expect.objectContaining({ path: "/api/auth/logout" }));
   });
 
   /**
@@ -555,27 +467,25 @@ describe("Accounts", () => {
    * no name to compare it recognises no row as the caller's own.
    */
   it("treats no row as the caller's own when the session names no user", async () => {
-    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
-    renderAccounts({
-      ...auth,
-      ...signedIn({ permissions: EVERY_PERMISSION, username: "" }),
-    });
+    await renderAccounts(
+      { [USERS]: json([userRow({ locked: true })]) },
+      holding(EVERY_PERMISSION, { username: "" }),
+    );
 
     expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
-  it("shows no view at all without a signed-in user, whose Permissions are unknown", () => {
-    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
-    renderAccounts({ ...auth, ...guest() });
+  it("shows no view at all without a signed-in user, whose Permissions are unknown", async () => {
+    const { requests } = await renderAccounts({}, GUEST);
 
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
-    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Connectors" })).not.toBeInTheDocument();
+    expect(requests()).toEqual([]);
   });
 
   it("reports a failed Users read", async () => {
-    routeApi({ groups: { kind: "ok", data: [] }, users: { kind: "failed", status: 503 } });
-    renderAccounts();
+    await renderAccounts({ [USERS]: bare(503) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the users. Please try again.",
@@ -585,8 +495,7 @@ describe("Accounts", () => {
   });
 
   it("reports a failed Groups read", async () => {
-    routeApi({ groups: { kind: "failed", status: 503 }, users: { kind: "ok", data: [userRow()] } });
-    renderAccounts();
+    await renderAccounts({ [GROUPS]: bare(503), [USERS]: json([userRow()]) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the groups. Please try again.",
@@ -598,117 +507,126 @@ describe("Accounts", () => {
   // The error line shows the latest failure, so when both reads fail the one
   // that landed last is the one shown, whichever listing it was.
   it.each([
-    ["Users", "users", "Unable to load the users. Please try again."],
-    ["Groups", "groups", "Unable to load the groups. Please try again."],
+    ["Users", USERS, GROUPS, "Unable to load the users. Please try again."],
+    ["Groups", GROUPS, USERS, "Unable to load the groups. Please try again."],
   ] as const)(
     "shows the %s failure when both reads fail and it lands last",
-    async (_, last, copy) => {
-      let failLast!: () => void;
-      const lastFailure = new Promise<object>((resolve) => {
-        failLast = () => resolve({ kind: "failed", status: 503 });
-      });
-      const failed = { kind: "failed", status: 503 };
-      routeApi({
-        groups: last === "groups" ? lastFailure : failed,
-        users: last === "users" ? lastFailure : failed,
-      });
-      renderAccounts();
+    async (_, last, first, copy) => {
+      const lastFailure = deferred();
+      await renderAccounts({ [first]: bare(503), [last]: lastFailure.answer });
       await screen.findByRole("alert");
 
-      await act(async () => failLast());
+      await lastFailure.settle(bare(503));
 
       expect(screen.getByRole("alert").textContent).toBe(copy);
     },
   );
 
-  // Through the real transport and decoders, against a backend whose Users body
-  // has drifted from the contract. The Groups listing answers a valid body, so
-  // the same pipeline is shown rendering what does decode. Which drifts the
-  // decoder refuses is accounts-api.test.ts's and decode.test.ts's to say.
+  // Against a backend whose Users body has drifted from the contract. The
+  // Groups listing answers a valid body, so the same pipeline is shown
+  // rendering what does decode. Which drifts the decoder refuses is
+  // accounts-api.test.ts's and decode.test.ts's to say.
   it("reports a Users body with a renamed field and renders none of it", async () => {
-    const usersBody = [{ ...userRow(), userName: undefined, login: "grace" }];
-    const actual = await vi.importActual<typeof import("@/lib/http")>("@/lib/http");
-    apiFetchMock.mockImplementation(actual.apiFetch as never);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) =>
-        Promise.resolve(
-          input === "/api/admin/accounts" ? Response.json(usersBody) : Response.json([groupRow()]),
-        ),
-      ),
-    );
-    try {
-      renderAccounts();
+    await renderAccounts({
+      [GROUPS]: json([groupRow()]),
+      [USERS]: json([{ ...userRow(), userName: undefined, login: "grace" }]),
+    });
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /^Unable to load the users\. Please try again\.$/,
-      );
-      expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
-      expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
-      expect(screen.queryByText("grace")).not.toBeInTheDocument();
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to load the users\. Please try again\.$/,
+    );
+    expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
+    expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
+    expect(screen.queryByText("grace")).not.toBeInTheDocument();
   });
 
   it("says so when no User or Group is provisioned", async () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    renderAccounts();
+    await renderAccounts({});
 
     expect(await screen.findByText("No users are provisioned.")).toBeInTheDocument();
     expect(await screen.findByText("No groups are provisioned.")).toBeInTheDocument();
   });
 
   it("expires the auth state when the listing read is unauthenticated", async () => {
-    let finishLoading: ((result: object) => void) | undefined;
-    routeApi({
-      users: new Promise<object>((resolve) => {
-        finishLoading = resolve;
-      }),
+    const loading = deferred();
+    const { session } = await renderAccounts({
+      [GROUPS]: deferred().answer,
+      [USERS]: loading.answer,
     });
-    renderAccounts();
 
     expect(screen.getByText("Loading users…")).toBeInTheDocument();
     expect(screen.getByText("Loading groups…")).toBeInTheDocument();
 
-    await act(async () => {
-      finishLoading?.({ kind: "unauthenticated" });
-    });
+    await loading.settle(bare(401));
 
     // The page never renders this case: the session seam ends the session and
     // the route guard replaces this page on the same update.
-    expect(auth.expireSession).toHaveBeenCalledOnce();
+    expect(session()).toEqual({ signInReason: "expired", status: "guest" });
+  });
+});
+
+/**
+ * The page's single error line with every panel present: the Connectors panel
+ * reports to the page's status, so a failure of its read and one of another
+ * listing share one line, where the latest shows. A panel that made its own
+ * status would put a second line on the page.
+ */
+describe("Accounts with its Connectors panel", () => {
+  it.each([
+    ["Connectors", USERS, CONNECTORS, "Unable to load the connectors. Please try again."],
+    ["Users", CONNECTORS, USERS, "Unable to load the users. Please try again."],
+  ] as const)(
+    "shows one error line, the %s failure, when it lands after the other",
+    async (_, first, last, copy) => {
+      const firstFailure = deferred();
+      const lastFailure = deferred();
+      await renderAccounts({ [first]: firstFailure.answer, [last]: lastFailure.answer });
+
+      await firstFailure.settle(bare(503));
+      await lastFailure.settle(bare(503));
+
+      expect(screen.getAllByRole("alert").map((line) => line.textContent)).toEqual([copy]);
+    },
+  );
+
+  it("withdraws the Connectors failure from the line once an action starts", async () => {
+    await renderAccounts({
+      [CONNECTORS]: bare(503),
+      [unlockGrace]: deferred().answer,
+      [USERS]: json([userRow({ locked: true })]),
+    });
+    const user = userEvent.setup();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/connectors/);
+
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
 describe("Accounts by Permission", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  /** The page as a session holding exactly these Permissions sees it. */
-  const holding = (permissions: Permission[]): AuthContextState => ({
-    ...auth,
-    ...signedIn({ permissions }),
-  });
-
   /** Every request the page issued, by path. */
-  const requested = () => apiFetchMock.mock.calls.map(([path]) => path);
+  const paths = (requests: () => readonly { path: string }[]) => requests().map(({ path }) => path);
 
   // Without connector:read the panel renders nothing of its own; its suite pins that.
   it("shows an Account admin the Users and Groups", async () => {
-    routeApi({ users: { kind: "ok", data: [userRow({ locked: true, userName: "grace" })] } });
-    renderAccounts(holding(["group:read", "user:read", "user:write"]));
+    await renderAccounts(
+      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      holding(["group:read", "user:read", "user:write"]),
+    );
 
     expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connectors" })).not.toBeInTheDocument();
     // The actions its user:write allows.
     expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
   it("offers no Unlock or forced change without user:write", async () => {
-    routeApi({ users: { kind: "ok", data: [userRow({ locked: true, userName: "grace" })] } });
-    renderAccounts(holding(["user:read"]));
+    await renderAccounts(
+      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      holding(["user:read"]),
+    );
 
     expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
@@ -716,21 +634,19 @@ describe("Accounts by Permission", () => {
   });
 
   it("neither shows nor requests a view the session lacks the Permission for", async () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    renderAccounts(holding(["group:read"]));
+    const { requests } = await renderAccounts({}, holding(["group:read"]));
 
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
-    expect(requested()).toEqual(["/api/admin/groups"]);
+    expect(paths(requests)).toEqual(["/api/admin/groups"]);
   });
 
-  it("shows only the connector panel to a connector reader", () => {
-    routeApi({ users: { kind: "ok", data: [] } });
-    renderAccounts(holding(["connector:read"]));
+  it("shows only the connector panel to a connector reader", async () => {
+    const { requests } = await renderAccounts({}, holding(["connector:read"]));
 
-    expect(screen.getByTestId("connectors-panel")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Connectors" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
-    expect(requested()).toEqual([]);
+    expect(paths(requests)).toEqual(["/api/admin/connectors"]);
   });
 });

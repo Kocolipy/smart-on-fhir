@@ -312,7 +312,9 @@ that also pulls that gate's trigger runs both.
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture or Semgrep rule, suppressing a fallow finding, adding a file
 nothing imports, or writing or debugging an E2E spec. It has the per-command run
-table, the vitest setup and colocation rules, the completion criterion a unit
+table, the vitest setup and colocation rules, how a page suite renders through
+the session test adapter (`renderAsSession`, faking only `fetch`) rather than
+mocking `apiFetch` or the auth context, the completion criterion a unit
 test has to meet, why the arch suite reads sources through `node:fs` rather than
 `import.meta.glob`, the Stryker `--mutate` trap, how a new Playwright spec gets
 routed, the flakiness rules, and how to add a Semgrep rule and prove it fires.

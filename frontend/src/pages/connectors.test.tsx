@@ -1,44 +1,24 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
-import { authState, signedIn } from "@/auth/auth-context.testHelpers";
+import { EVERY_PERMISSION } from "@/auth/auth-context.testHelpers";
+import {
+  bare,
+  deferred,
+  holding,
+  json,
+  renderAsSession,
+  UNREACHABLE,
+  type Answers,
+} from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
 import { usePageStatus } from "@/auth/page-status";
-import { apiFetch } from "@/lib/http";
 
-import {
-  TOKEN_PERMISSIONS,
-  type Connector,
-  type ConnectorToken,
-  type IssuedToken,
-} from "./accounts-api";
-import { Accounts } from "./accounts";
+import type { Connector, ConnectorToken, IssuedToken } from "./accounts-api";
 import { Connectors } from "./connectors";
 
-vi.mock("@/lib/http", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/http")>()),
-  apiFetch: vi.fn(),
-}));
-
-const apiFetchMock = vi.mocked(apiFetch);
-
-const auth: AuthContextState = authState(signedIn());
-
-/**
- * Everything the panel can offer: its listing (connector:read), connector
- * management (connector:write), tokens (connector:token), and every token
- * Permission to grant, since a token may carry only what the session holds.
- */
-const EVERY_PERMISSION: readonly Permission[] = [
-  "connector:read",
-  "connector:write",
-  "connector:token",
-  ...TOKEN_PERMISSIONS,
-];
-
-/** Every Permission the panel can use, less those named. */
+/** Every Permission less those named. */
 const without = (...lacking: Permission[]) =>
   EVERY_PERMISSION.filter((permission) => !lacking.includes(permission));
 
@@ -74,32 +54,15 @@ const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
   ...overrides,
 });
 
-/**
- * Answers every listing read from `listings` in turn (the last one repeats) and
- * every other request from `actions`, in order, each as `apiFetch` would
- * classify it. Which decoder each declaration names is `accounts-api.test.ts`'s
- * to prove; here an `ok` result's `data` is what that decoder would return.
- */
-function routeApi({ actions = [], listings }: { actions?: object[]; listings: object[] }) {
-  const reads = [...listings];
-  const queue = [...actions];
-  apiFetchMock.mockImplementation(((path: string, init?: RequestInit) => {
-    if (path === "/api/admin/connectors" && (init?.method ?? "GET") === "GET") {
-      return Promise.resolve(reads.length > 1 ? reads.shift() : reads[0]);
-    }
-    const next = queue.shift();
-    if (next === undefined) throw new Error(`unexpected ${init?.method} ${path}`);
-    return Promise.resolve(next);
-  }) as never);
-}
-
-/** Every request the page sent, as path and init — the operation it named. */
-const sent = () => apiFetchMock.mock.calls.map(([path, init]) => [path, init]);
+const LISTING = "GET /api/admin/connectors";
+const connectorAt = `/api/admin/connectors/${CONNECTOR_ID}`;
+const tokenAt = `${connectorAt}/tokens/${TOKEN_ID}`;
 
 /**
  * The page the panel sits on, reduced to what it shares with the panel: the
  * one page status, and the error line that renders it. The panel has no line
- * of its own, so its failures show here.
+ * of its own, so its failures show here. The Accounts suite renders the panel
+ * on the real page.
  */
 function PanelPage() {
   const status = usePageStatus();
@@ -111,28 +74,19 @@ function PanelPage() {
   );
 }
 
-/** The panel, for a session holding `permissions` — by default all it can use. */
-function renderConnectors(permissions: readonly Permission[] = EVERY_PERMISSION) {
-  return render(
-    <AuthContext.Provider value={{ ...auth, ...signedIn({ permissions: [...permissions] }) }}>
-      <PanelPage />
-    </AuthContext.Provider>,
-  );
-}
+/** The panel, for a session holding `permissions` — by default every one. */
+const renderConnectors = (
+  answers: Answers,
+  permissions: readonly Permission[] = EVERY_PERMISSION,
+) => renderAsSession(<PanelPage />, holding(permissions), { answers });
 
 const section = (name: string) => within(screen.getByRole("region", { name: `Connector ${name}` }));
 
 describe("Connectors by Permission", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-  });
-
-  const oneActiveToken = () =>
-    routeApi({ listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }] });
+  const oneActiveToken = { [LISTING]: json([connector({ tokens: [token()] })]) };
 
   it("offers neither creating nor deleting a connector without connector:write", async () => {
-    oneActiveToken();
-    renderConnectors(without("connector:write"));
+    await renderConnectors(oneActiveToken, without("connector:write"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(screen.queryByLabelText("New connector name")).not.toBeInTheDocument();
@@ -143,8 +97,7 @@ describe("Connectors by Permission", () => {
   });
 
   it("offers no token issue, rotation or revocation without connector:token", async () => {
-    oneActiveToken();
-    renderConnectors(without("connector:token"));
+    await renderConnectors(oneActiveToken, without("connector:token"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     const okta = section("Okta");
@@ -157,8 +110,7 @@ describe("Connectors by Permission", () => {
   });
 
   it("still lists every connector and its tokens to a reader holding neither", async () => {
-    oneActiveToken();
-    renderConnectors(without("connector:write", "connector:token"));
+    await renderConnectors(oneActiveToken, without("connector:write", "connector:token"));
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
@@ -166,50 +118,36 @@ describe("Connectors by Permission", () => {
   });
 
   it("requests no listing without connector:read", async () => {
-    oneActiveToken();
-    renderConnectors([]);
+    const { requests } = await renderConnectors(oneActiveToken, []);
 
-    await act(async () => {});
-    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
   });
 
   it("renders no panel at all without connector:read", async () => {
-    oneActiveToken();
-    const { container } = renderConnectors([]);
+    const { container } = await renderConnectors(oneActiveToken, []);
 
-    await act(async () => {});
     expect(container).toBeEmptyDOMElement();
   });
 });
 
 describe("Connectors", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-  });
-
   it("lists every connector with its tokens' Permissions, dates and status", async () => {
-    routeApi({
-      listings: [
-        {
-          kind: "ok",
-          data: [
-            connector({
-              tokens: [
-                token(),
-                token({ active: false, id: "e0000000-x", permissions: ["user:read"] }),
-                token({
-                  active: false,
-                  id: "r0000000-x",
-                  permissions: [],
-                  revokedAt: "2026-02-03T00:00:00Z",
-                }),
-              ],
+    await renderConnectors({
+      [LISTING]: json([
+        connector({
+          tokens: [
+            token(),
+            token({ active: false, id: "e0000000-x", permissions: ["user:read"] }),
+            token({
+              active: false,
+              id: "r0000000-x",
+              permissions: [],
+              revokedAt: "2026-02-03T00:00:00Z",
             }),
           ],
-        },
-      ],
+        }),
+      ]),
     });
-    renderConnectors();
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     const okta = section("Okta");
@@ -240,29 +178,35 @@ describe("Connectors", () => {
     expect(screen.queryByLabelText("New token value")).not.toBeInTheDocument();
   });
 
+  // A token carrying a Permission no token may hold fails the whole listing on
+  // decode, so the panel shows its failure copy rather than a half-read token.
+  it("reports a listing whose token carries an unknown Permission, and lists none of it", async () => {
+    await renderConnectors({
+      [LISTING]: json([{ ...connector(), tokens: [{ ...token(), permissions: ["audit:read"] }] }]),
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to load the connectors\. Please try again\.$/,
+    );
+    expect(screen.queryByRole("heading", { name: "Okta" })).not.toBeInTheDocument();
+  });
+
   it("creates a connector and re-reads the listing", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: connector() }],
-      listings: [
-        { kind: "ok", data: [] },
-        { kind: "ok", data: [connector()] },
-      ],
+    const { requests } = await renderConnectors({
+      [LISTING]: [json([]), json([connector()])],
+      "POST /api/admin/connectors": json(connector()),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("New connector name"), "  Okta  ");
     await user.click(screen.getByRole("button", { name: "Create connector" }));
 
-    expect(sent()).toContainEqual([
-      "/api/admin/connectors",
-      {
-        body: JSON.stringify({ displayName: "Okta" }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      },
-    ]);
+    expect(requests()).toContainEqual({
+      body: { displayName: "Okta" },
+      method: "POST",
+      path: "/api/admin/connectors",
+    });
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByText("No tokens issued.")).toBeInTheDocument();
     expect(section("Okta").queryByRole("table")).not.toBeInTheDocument();
@@ -270,29 +214,18 @@ describe("Connectors", () => {
   });
 
   it("says it is loading until the listing arrives", async () => {
-    let finish: ((result: object) => void) | undefined;
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finish = resolve;
-      }) as never,
-    );
-    renderConnectors();
+    const listing = deferred();
+    await renderConnectors({ [LISTING]: listing.answer });
 
     expect(screen.getByText("Loading connectors…")).toBeInTheDocument();
-    await act(async () => {
-      finish?.({ kind: "ok", data: [] });
-    });
+    await listing.settle(json([]));
     expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
     expect(screen.queryByText("Loading connectors…")).not.toBeInTheDocument();
   });
 
   it("reports a failed create naming the connector", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 503 }],
-      listings: [{ kind: "ok", data: [] }],
-    });
+    await renderConnectors({ [LISTING]: json([]), "POST /api/admin/connectors": bare(503) });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.type(await screen.findByLabelText("New connector name"), "Okta");
     await user.click(screen.getByRole("button", { name: "Create connector" }));
@@ -305,32 +238,25 @@ describe("Connectors", () => {
   });
 
   it("does not submit a blank connector name", async () => {
-    routeApi({ listings: [{ kind: "ok", data: [] }] });
+    const { requests } = await renderConnectors({ [LISTING]: json([]) });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.type(await screen.findByLabelText("New connector name"), "   ");
     await user.click(screen.getByRole("button", { name: "Create connector" }));
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(requests()).toEqual([{ method: "GET", path: "/api/admin/connectors" }]);
   });
 
   it("deletes a connector", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: undefined }],
-      listings: [
-        { kind: "ok", data: [connector()] },
-        { kind: "ok", data: [] },
-      ],
+    const { requests } = await renderConnectors({
+      [LISTING]: [json([connector()]), json([])],
+      [`DELETE ${connectorAt}`]: bare(204),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
 
-    expect(apiFetchMock).toHaveBeenCalledWith(`/api/admin/connectors/${CONNECTOR_ID}`, {
-      method: "DELETE",
-    });
+    expect(requests()).toContainEqual({ method: "DELETE", path: connectorAt });
     expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
   });
 
@@ -340,15 +266,11 @@ describe("Connectors", () => {
    * state — dismissing it is final, and the re-read listing never carries it.
    */
   it("issues a token and discloses its value once", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: issued() }],
-      listings: [
-        { kind: "ok", data: [connector()] },
-        { kind: "ok", data: [connector({ tokens: [token()] })] },
-      ],
+    const { requests } = await renderConnectors({
+      [LISTING]: [json([connector()]), json([connector({ tokens: [token()] })])],
+      [`POST ${connectorAt}/tokens`]: json(issued()),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await screen.findByRole("heading", { name: "Okta" });
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
@@ -358,14 +280,11 @@ describe("Connectors", () => {
     await user.type(screen.getByLabelText("Lifetime in days for Okta (default 365)"), "30");
     await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
 
-    expect(sent()).toContainEqual([
-      `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
-      {
-        body: JSON.stringify({ lifetimeDays: 30, permissions: ["group:write", "user:read"] }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      },
-    ]);
+    expect(requests()).toContainEqual({
+      body: { lifetimeDays: 30, permissions: ["group:write", "user:read"] },
+      method: "POST",
+      path: `${connectorAt}/tokens`,
+    });
     const disclosure = await screen.findByRole("region", { name: "New token for Okta" });
     expect(within(disclosure).getByLabelText("New token value")).toHaveTextContent(
       "scim_plaintext_value_shown_once",
@@ -384,12 +303,11 @@ describe("Connectors", () => {
   });
 
   it("issues nothing until a Permission is chosen, then with the default lifetime", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: issued({ permissions: ["group:read"] }) }],
-      listings: [{ kind: "ok", data: [connector()] }],
+    const { requests } = await renderConnectors({
+      [LISTING]: json([connector()]),
+      [`POST ${connectorAt}/tokens`]: json(issued({ permissions: ["group:read"] })),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     const issue = await screen.findByRole("button", { name: "Issue token for Okta" });
     expect(issue).toBeDisabled();
@@ -405,18 +323,16 @@ describe("Connectors", () => {
     expect(issue).toBeEnabled();
     await user.click(issue);
 
-    expect(sent()).toContainEqual([
-      `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
-      expect.objectContaining({
-        body: JSON.stringify({ lifetimeDays: null, permissions: ["group:read"] }),
-      }),
-    ]);
+    expect(requests()).toContainEqual({
+      body: { lifetimeDays: null, permissions: ["group:read"] },
+      method: "POST",
+      path: `${connectorAt}/tokens`,
+    });
     expect(await screen.findByText("group:read · expires 2027-01-02")).toBeInTheDocument();
   });
 
   it("offers the issue form with no lifetime filled in, so the default stands", async () => {
-    routeApi({ listings: [{ kind: "ok", data: [connector()] }] });
-    renderConnectors();
+    await renderConnectors({ [LISTING]: json([connector()]) });
 
     expect(await screen.findByLabelText("Lifetime in days for Okta (default 365)")).toHaveAttribute(
       "value",
@@ -426,8 +342,7 @@ describe("Connectors", () => {
 
   /** A token may carry only what the session holds itself: the rest is shown, not offered. */
   it("offers only the Permissions the session holds", async () => {
-    routeApi({ listings: [{ kind: "ok", data: [connector()] }] });
-    renderConnectors(without("user:read", "user:write"));
+    await renderConnectors({ [LISTING]: json([connector()]) }, without("user:read", "user:write"));
 
     await screen.findByRole("heading", { name: "Okta" });
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
@@ -447,61 +362,45 @@ describe("Connectors", () => {
   });
 
   it("rotates a token and discloses the replacement once", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: issued({ presentedValue: "scim_rotated_value" }) }],
-      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    const { requests } = await renderConnectors({
+      [LISTING]: json([connector({ tokens: [token()] })]),
+      [`POST ${tokenAt}/rotate`]: json(issued({ presentedValue: "scim_rotated_value" })),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
 
-    expect(sent()).toContainEqual([
-      `/api/admin/connectors/${CONNECTOR_ID}/tokens/${TOKEN_ID}/rotate`,
-      { body: "{}", headers: { "Content-Type": "application/json" }, method: "POST" },
-    ]);
+    expect(requests()).toContainEqual({ body: {}, method: "POST", path: `${tokenAt}/rotate` });
     expect(await screen.findByLabelText("New token value")).toHaveTextContent("scim_rotated_value");
   });
 
   it("revokes a token and shows the re-read state", async () => {
-    routeApi({
-      actions: [{ kind: "ok", data: undefined }],
-      listings: [
-        { kind: "ok", data: [connector({ tokens: [token()] })] },
-        {
-          kind: "ok",
-          data: [
-            connector({ tokens: [token({ active: false, revokedAt: "2026-05-06T00:00:00Z" })] }),
-          ],
-        },
+    const { requests } = await renderConnectors({
+      [LISTING]: [
+        json([connector({ tokens: [token()] })]),
+        json([
+          connector({ tokens: [token({ active: false, revokedAt: "2026-05-06T00:00:00Z" })] }),
+        ]),
       ],
+      [`POST ${tokenAt}/revoke`]: bare(204),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      `/api/admin/connectors/${CONNECTOR_ID}/tokens/${TOKEN_ID}/revoke`,
-      { method: "POST" },
-    );
+    expect(requests()).toContainEqual({ method: "POST", path: `${tokenAt}/revoke` });
     expect(await screen.findByText("Revoked 2026-05-06")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("New token value")).not.toBeInTheDocument();
   });
 
   it("disables every control while a change is in flight", async () => {
-    let finish: ((result: object) => void) | undefined;
-    apiFetchMock.mockImplementation(((_path: string, init?: RequestInit) => {
-      if ((init?.method ?? "GET") === "GET") {
-        return Promise.resolve({ kind: "ok", data: [connector({ tokens: [token()] })] });
-      }
-      return new Promise((resolve) => {
-        finish = resolve;
-      });
-    }) as never);
+    const revoking = deferred();
+    await renderConnectors({
+      [LISTING]: json([connector({ tokens: [token()] })]),
+      [`POST ${tokenAt}/revoke`]: revoking.answer,
+    });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
 
@@ -513,7 +412,7 @@ describe("Connectors", () => {
     ]) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
-    finish?.({ kind: "ok", data: undefined });
+    await revoking.settle(bare(204));
     // Enabled again once the re-read after the change has answered.
     await vi.waitFor(() =>
       expect(screen.getByRole("button", { name: "Delete Okta" })).toBeEnabled(),
@@ -521,12 +420,11 @@ describe("Connectors", () => {
   });
 
   it("reports an out-of-range request as a refusal", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 400 }],
-      listings: [{ kind: "ok", data: [connector()] }],
+    await renderConnectors({
+      [LISTING]: json([connector()]),
+      [`POST ${connectorAt}/tokens`]: bare(400),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("checkbox", { name: /user:read/ }));
     await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
@@ -538,12 +436,11 @@ describe("Connectors", () => {
   });
 
   it("reports a connector that has since gone", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 404 }],
-      listings: [{ kind: "ok", data: [connector()] }],
+    await renderConnectors({
+      [LISTING]: json([connector()]),
+      [`DELETE ${connectorAt}`]: bare(404),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
 
@@ -555,12 +452,11 @@ describe("Connectors", () => {
   // The page names no 409 of its own, so this pins its own `default` over the
   // hook's generic 409 copy.
   it("reports a 409 refusal with the action's own default copy, not the hook's generic one", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 409 }],
-      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    await renderConnectors({
+      [LISTING]: json([connector({ tokens: [token()] })]),
+      [`POST ${tokenAt}/revoke`]: bare(409),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
 
@@ -570,12 +466,11 @@ describe("Connectors", () => {
   });
 
   it("reports a rotation refused because the token can no longer be rotated", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 409 }],
-      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    await renderConnectors({
+      [LISTING]: json([connector({ tokens: [token()] })]),
+      [`POST ${tokenAt}/rotate`]: bare(409),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
 
@@ -588,12 +483,12 @@ describe("Connectors", () => {
   // generically by use-gated-read.test.tsx and use-gated-write.test.tsx; this
   // page proves only its own default copy.
   it("reports any other failure with action-specific default copy", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 503 }, { kind: "failed" }],
-      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    await renderConnectors({
+      [LISTING]: json([connector({ tokens: [token()] })]),
+      [`POST ${tokenAt}/revoke`]: UNREACHABLE,
+      [`POST ${tokenAt}/rotate`]: bare(503),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -607,8 +502,7 @@ describe("Connectors", () => {
   });
 
   it("reports a failed listing read without claiming there are no connectors", async () => {
-    routeApi({ listings: [{ kind: "failed", status: 503 }] });
-    renderConnectors();
+    await renderConnectors({ [LISTING]: bare(503) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the connectors. Please try again.",
@@ -618,15 +512,11 @@ describe("Connectors", () => {
   });
 
   it("keeps the connectors on screen when the re-read after a change fails, and says so", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 500 }],
-      listings: [
-        { kind: "ok", data: [connector()] },
-        { kind: "failed", status: 503 },
-      ],
+    await renderConnectors({
+      [LISTING]: [json([connector()]), bare(503)],
+      [`DELETE ${connectorAt}`]: bare(500),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
 
@@ -639,76 +529,19 @@ describe("Connectors", () => {
   });
 
   it("withdraws a listing failure once a change starts, and shows the change's own", async () => {
-    routeApi({
-      actions: [{ kind: "failed", status: 500 }],
-      listings: [
-        { kind: "ok", data: [connector()] },
-        { kind: "failed", status: 503 },
-        { kind: "ok", data: [connector()] },
-      ],
+    await renderConnectors({
+      [LISTING]: [json([connector()]), bare(503), json([connector()])],
+      [`DELETE ${connectorAt}`]: bare(500),
     });
     const user = userEvent.setup();
-    renderConnectors();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
     // Delete fails (500) and the re-read fails too, so the alert shows the listing copy.
     await screen.findByText(/^Unable to load the connectors/);
-    routeApi({
-      actions: [{ kind: "failed", status: 500 }],
-      listings: [{ kind: "ok", data: [connector()] }],
-    });
     await user.click(screen.getByRole("button", { name: "Delete Okta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /^Deleting Okta failed\. Please try again\.$/,
     );
-  });
-});
-
-describe("Connectors on the Accounts page", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset();
-  });
-
-  /**
-   * The page as an administrator holding every Permission it uses sees it: the
-   * Users, Groups and Connectors listings, each answered from a promise the
-   * test settles, so the order the outcomes land in is the test's.
-   */
-  function renderAccounts() {
-    const settle: Record<string, (result: object) => void> = {};
-    apiFetchMock.mockImplementation(
-      ((path: string) =>
-        new Promise((resolve) => {
-          settle[path] = resolve;
-        })) as never,
-    );
-    render(
-      <AuthContext.Provider
-        value={{
-          ...auth,
-          ...signedIn({ permissions: [...EVERY_PERMISSION, "user:read", "group:read"] }),
-        }}
-      >
-        <Accounts />
-      </AuthContext.Provider>,
-    );
-    return (path: string, result: object) =>
-      act(async () => {
-        settle[path](result);
-        await Promise.resolve();
-      });
-  }
-
-  it("reports to the page's one error line, where the latest failure across Users and Connectors shows", async () => {
-    const answer = renderAccounts();
-
-    await answer("/api/admin/groups", { kind: "ok", data: [] });
-    await answer("/api/admin/accounts", { kind: "failed", status: 503 });
-    await answer("/api/admin/connectors", { kind: "failed", status: 503 });
-
-    expect(screen.getAllByRole("alert").map((line) => line.textContent)).toEqual([
-      "Unable to load the connectors. Please try again.",
-    ]);
   });
 });
