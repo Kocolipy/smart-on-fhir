@@ -1,9 +1,8 @@
-import { useState, type FormEvent } from "react";
+import type { FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 
-import { useAuth } from "@/auth/auth-context-value";
-import { loginMessage } from "@/auth/session-action-copy";
 import { signInNoticeFor } from "@/auth/sign-in-reason";
+import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -11,25 +10,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 const CLINICIANS_LINE = "Clinicians: open this application from Epic.";
 
 export function Login() {
-  const { login } = useAuth();
   const location = useLocation();
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  // Signed in, the guest route moves on; anything else is the line it hands back.
+  const { error, pending, run } = useSessionAction("login");
 
   // Why the Guest is here is the sign-in reason's to say, and where to go
   // afterwards is the guest route's: it reads the return destination and
   // redirects once the status changes.
   const notice = signInNoticeFor(location);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setSubmitting(true);
     const data = new FormData(event.currentTarget);
-    const outcome = await login(String(data.get("username")), String(data.get("password")));
-    // Signed in, the guest route moves on; anything else says what it came to.
-    if (outcome.kind !== "signed-in") setError(loginMessage(outcome));
-    setSubmitting(false);
+    void run(String(data.get("username")), String(data.get("password")));
   }
 
   return (
@@ -45,7 +38,7 @@ export function Login() {
               {notice}
             </p>
           ) : null}
-          <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="username">
                 Username
@@ -76,8 +69,8 @@ export function Login() {
                 {error}
               </p>
             ) : null}
-            <Button className="w-full" disabled={submitting} type="submit">
-              {submitting ? "Signing in…" : "Sign in"}
+            <Button className="w-full" disabled={pending} type="submit">
+              {pending ? "Signing in…" : "Sign in"}
             </Button>
           </form>
           <p className="mt-4 text-sm text-muted-foreground">{CLINICIANS_LINE}</p>

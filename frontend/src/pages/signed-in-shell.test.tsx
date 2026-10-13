@@ -33,8 +33,6 @@ function renderShell(auth: AuthContextState, path = "/showcase") {
 }
 
 const STILL_SIGNED_IN = /^Unable to sign out\. Please try again\. You are still signed in\.$/;
-const CSRF_EXPIRED_STILL_SIGNED_IN =
-  /^Your security token expired\. Please try again\. You are still signed in\.$/;
 const FAILED: LogoutOutcome = { kind: "failed" };
 
 const TOP_ALIGNED_WIDE = "mx-auto flex min-h-svh flex-col gap-6 p-8 max-w-6xl";
@@ -79,19 +77,9 @@ describe("SignedInShell", () => {
     expect(logout).toHaveBeenCalledOnce();
   });
 
-  // The session is already ended, and the guard replaces the shell on the same
-  // update; until then it claims nothing.
-  it("says nothing of a Sign out that signed the user out", async () => {
-    renderShell(
-      authWith(vi.fn<AuthContextState["logout"]>().mockResolvedValue({ kind: "signed-out" })),
-    );
-    await userEvent.setup().click(signOut());
-    expect({
-      alert: screen.queryByRole("alert"),
-      pending: screen.queryByRole("button", { name: "Signing out…" })?.hasAttribute("disabled"),
-    }).toEqual({ alert: null, pending: true });
-  });
-
+  // Running the Sign out — pending, which outcome signed out, its copy, the line
+  // withdrawn on the next try — is `use-session-action.test.tsx`'s; these prove
+  // the shell renders what it hands back.
   it("disables Sign out while the logout is in flight", async () => {
     renderShell(authWith(vi.fn(() => new Promise<LogoutOutcome>(() => {}))));
     await userEvent.setup().click(signOut());
@@ -103,14 +91,6 @@ describe("SignedInShell", () => {
     renderShell(authWith(logout));
     await userEvent.setup().click(signOut());
     expect(await screen.findByRole("alert")).toHaveTextContent(STILL_SIGNED_IN);
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
-  });
-
-  it("says a CSRF-expired Sign out left the user signed in", async () => {
-    const logout = vi.fn<AuthContextState["logout"]>().mockResolvedValue({ kind: "csrf-expired" });
-    renderShell(authWith(logout));
-    await userEvent.setup().click(signOut());
-    expect(await screen.findByRole("alert")).toHaveTextContent(CSRF_EXPIRED_STILL_SIGNED_IN);
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
@@ -135,19 +115,6 @@ describe("SignedInShell", () => {
   it("renders safely while the session's user details are unavailable", () => {
     renderShell({ ...authWith(vi.fn()), ...CHECKING });
     expect(screen.getByText(/^Signed in as\s*$/)).toBeInTheDocument();
-  });
-
-  it("clears the error line when Sign out is tried again", async () => {
-    const logout = vi
-      .fn<AuthContextState["logout"]>()
-      .mockResolvedValueOnce(FAILED)
-      .mockReturnValueOnce(new Promise<LogoutOutcome>(() => {}));
-    renderShell(authWith(logout));
-    const user = userEvent.setup();
-    await user.click(signOut());
-    await screen.findByRole("alert");
-    await user.click(signOut());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it.each([

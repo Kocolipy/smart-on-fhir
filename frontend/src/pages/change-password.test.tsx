@@ -180,6 +180,10 @@ describe("ChangePassword", () => {
     expectFieldsCleared();
   });
 
+  // The copy for every refusal is `use-session-action.test.tsx`'s and
+  // `session-action-copy.test.ts`'s; these prove the page clears the fields
+  // after one and that its line echoes neither value — the backend's own
+  // statement of a rule included.
   const refusals: [string, PasswordChangeOutcome, RegExp][] = [
     [
       "a 400 by the rule the backend names",
@@ -190,21 +194,6 @@ describe("ChangePassword", () => {
       "a 401 as a wrong current password",
       { kind: "current-password-rejected" },
       /^The current password is incorrect\.$/,
-    ],
-    [
-      "a persistent CSRF rejection as a token problem",
-      { kind: "csrf-expired" },
-      /^Your security token expired\. Please try again\.$/,
-    ],
-    [
-      "an authorization refusal as permission denied",
-      { kind: "forbidden" },
-      /^You don't have permission to do this\.$/,
-    ],
-    [
-      "any other failure as a retryable one",
-      { kind: "failed" },
-      /^Unable to change the password\. Please try again\.$/,
     ],
   ];
 
@@ -247,5 +236,36 @@ describe("ChangePassword", () => {
 
     finish?.({ kind: "changed" });
     expect(await screen.findByRole("button", { name: "Change password" })).toBeEnabled();
+  });
+
+  it("says the confirmation does not match in place of an earlier refusal", async () => {
+    const auth = flaggedAuth();
+    vi.mocked(auth.changePassword).mockResolvedValue({ kind: "current-password-rejected" });
+    renderPage(auth);
+    await fillAndSubmit();
+    await screen.findByRole("alert");
+
+    await fillAndSubmit("Something-Else-123");
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The new password and its confirmation do not match.",
+    );
+  });
+
+  it("withdraws the mismatch line when a matching submission starts", async () => {
+    const auth = flaggedAuth();
+    vi.mocked(auth.changePassword).mockReturnValue(new Promise(() => undefined));
+    renderPage(auth);
+    await fillAndSubmit("Something-Else-123");
+    // user-event keeps its own record of what it typed, which the page's
+    // `form.reset()` does not touch; clearing through it keeps the next fill matched.
+    const user = userEvent.setup();
+    for (const name of ["Current password", "New password", "Confirm new password"]) {
+      await user.clear(field(name));
+    }
+
+    await fillAndSubmit();
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

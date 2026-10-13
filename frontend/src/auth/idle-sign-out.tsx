@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 
 import { ME_PATH } from "./api";
 import { useAuthState } from "./auth-context-value";
-import { logoutMessage } from "./session-action-copy";
+import { useSessionAction } from "./use-session-action";
 import { useSessionRequest } from "./use-session-request";
 
 /** How long before the limit the warning opens: about a minute, per the session contract. */
@@ -121,7 +121,7 @@ function useIdleClock(limitMs: number, onIdle: () => void) {
 }
 
 export function IdleSignOut({ idleTimeoutSeconds }: { idleTimeoutSeconds: number }) {
-  const { logout, signOutForInactivity } = useAuthState();
+  const { signOutForInactivity } = useAuthState();
   const request = useSessionRequest();
   const onIdle = useCallback(() => void signOutForInactivity(), [signOutForInactivity]);
   const { markActive, warning } = useIdleClock(idleTimeoutSeconds * 1000, onIdle);
@@ -141,32 +141,23 @@ export function IdleSignOut({ idleTimeoutSeconds }: { idleTimeoutSeconds: number
     if (result.kind === "ok") markActive();
   }, [markActive, request]);
 
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState("");
-
   /**
-   * The User's own Sign out, on the shell's rule (ADR-0009): a logout that may
-   * have left the backend's session standing keeps it here too, and the dialog
-   * says so. A `signed-out` one has already ended the session, which unmounts
-   * this component. The limit's own sign-out is `onIdle`'s, which ends the
-   * session whatever the logout came to.
+   * The User's own Sign out, the same session action as the shell's
+   * (ADR-0009): a logout that may have left the backend's session standing
+   * keeps it here too, and the dialog shows the line it hands back. A
+   * `signed-out` one has already ended the session, which unmounts this
+   * component. The limit's own sign-out is `onIdle`'s, which ends the session
+   * whatever the logout came to.
    */
-  const signOut = useCallback(async () => {
-    setSigningOut(true);
-    setSignOutError("");
-    const outcome = await logout();
-    if (outcome.kind === "signed-out") return;
-    setSignOutError(logoutMessage(outcome));
-    setSigningOut(false);
-  }, [logout]);
+  const signOut = useSessionAction("logout");
 
   if (!warning) return null;
   return (
     <IdleWarning
-      onSignOut={() => void signOut()}
+      onSignOut={() => void signOut.run()}
       onStay={() => void stay()}
-      signOutError={signOutError}
-      signingOut={signingOut}
+      signOutError={signOut.error}
+      signingOut={signOut.pending}
       staying={staying}
     />
   );
@@ -181,8 +172,8 @@ function IdleWarning({
 }: {
   onSignOut: () => void;
   onStay: () => void;
-  /** What a Sign out that left the session standing said, or empty. */
-  signOutError: string;
+  /** What a Sign out that left the session standing said, or `null`. */
+  signOutError: string | null;
   signingOut: boolean;
   staying: boolean;
 }) {

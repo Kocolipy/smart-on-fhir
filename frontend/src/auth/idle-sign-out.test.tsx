@@ -530,43 +530,26 @@ describe("IdleSignOut", () => {
       expect(screen.getByText("Accounts page")).toBeInTheDocument();
     });
 
-    it.each([
-      ["failed", "Unable to sign out. Please try again. You are still signed in."],
-      ["csrf-expired", "Your security token expired. Please try again. You are still signed in."],
-    ] as const)(
-      "says in the dialog that the User is still signed in when a requested sign-out comes back %s",
-      async (kind, line) => {
-        await signedIn();
-        await advance(WARN_AT_MS);
-        api.logout.mockResolvedValue({ kind });
+    // Running the requested Sign out — pending, which outcome signed out, its
+    // copy, the line withdrawn on the next try — is `use-session-action.test.tsx`'s;
+    // these prove the dialog renders what it hands back.
+    it("says in the dialog that the User is still signed in when a requested sign-out fails", async () => {
+      await signedIn();
+      await advance(WARN_AT_MS);
+      api.logout.mockResolvedValue({ kind: "failed" });
 
-        await act(async () => {
-          fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-        });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      });
 
-        expect(within(warning()!).getByRole("alert").textContent).toBe(line);
-      },
-    );
+      expect(within(warning()!).getByRole("alert").textContent).toBe(
+        "Unable to sign out. Please try again. You are still signed in.",
+      );
+    });
 
     it("opens with no error line", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-
-      expect(within(warning()!).queryByRole("alert")).not.toBeInTheDocument();
-    });
-
-    it("offers Sign out again after one that failed, and withdraws its line on the next try", async () => {
-      await signedIn();
-      await advance(WARN_AT_MS);
-      api.logout.mockResolvedValueOnce({ kind: "failed" });
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
-      api.logout.mockReturnValueOnce(new Promise(() => undefined));
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
 
       expect(within(warning()!).queryByRole("alert")).not.toBeInTheDocument();
     });

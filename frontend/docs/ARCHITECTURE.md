@@ -42,9 +42,23 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   only place it lives: `loginMessage`, `logoutMessage`,
   `passwordChangeMessage` and `sessionCheckMessage`, each over the outcomes that
   leave the visitor on the page, with the two transport outcomes read through
-  the seam's `refusalMessage`. The Login page, the shell, the idle warning, the
-  Change password page and the route guards render what these return; none of
-  them catches.
+  the seam's `refusalMessage`. The session action (below) and the route guards
+  are their only readers.
+- `use-session-action.ts` — `useSessionAction`, the one way a page runs a
+  session action. It owns the steps every caller used to repeat: withdraw the
+  earlier line, hold the pending flag, await the outcome, then show nothing for
+  one that ended or started a session (`signed-in`, `signed-out`, `changed`,
+  `locked`; the guards move the visitor on) or else the line
+  `session-action-copy.ts` gives. Which login and logout outcomes those are is
+  decided there; for the password change it reads `sessionEndReasonFor`
+  (`sign-in-reason.ts`), the rule the provider ends the session by, rather than
+  repeating it. Pending clears once the action settles, whatever the outcome:
+  on one that moved the session the guard replaces the page on the same
+  update. The Login page, the shell's Sign out, the idle warning's Sign out and
+  the Change password page render its `pending` and `error`, as a page does a
+  gated write's; none of them reads an outcome or catches. `run` resolves
+  `"stayed"` or `"moved-on"`, which the Change password page reads to clear its
+  fields after a refusal.
 - `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
   reads. Which Permission a request requires is not here: it is declared on the
   endpoint (`declarations.ts`, below).
@@ -418,7 +432,7 @@ answer decides: a check that fails, or is refused, cannot tell the two apart,
 so it claims neither — reading it as a wrong password could hide a lockout —
 and the change resolves `failed`, leaving the session standing. Every
 refusal that leaves the session standing clears all three fields and shows the
-line `session-action-copy.ts` gives for it. The inputs are
+line `useSessionAction` hands back, from `session-action-copy.ts`. The inputs are
 uncontrolled, because React mirrors a controlled input's value into the DOM
 `value` attribute, and no message the page shows contains either value.
 
@@ -457,11 +471,12 @@ its own `ProtectedRoute` inside the shell. Sign out shows a pending state while 
 When the logout fails or comes back CSRF-expired, the auth context's `logout`
 resolves that outcome without ending anything, so the session stands and the
 CSRF token stays with it (ADR-0009: the token is forgotten only through the
-session transitions); the shell shows the outcome's copy (`logoutMessage`, which
-says the User is still signed in) in an error line. The idle warning's own Sign
-out button is a manual Sign out too, and follows the same rule: a pending state
-while the logout is out, and on a failed or CSRF-expired one the session stands
-and the dialog shows the same `logoutMessage` copy in an announced error line.
+session transitions); the shell shows the line `useSessionAction("logout")`
+hands back (`logoutMessage`, which says the User is still signed in) in an error
+line. The idle warning's own Sign out button is a manual Sign out too, run
+through the same session action, so it cannot follow a different rule: a pending
+state while the logout is out, and on a failed or CSRF-expired one the session
+stands and the dialog shows the same line in an announced error line.
 The Idle sign-out at the limit is a separate path and keeps its rule: a logout
 that fails still ends the session there.
 

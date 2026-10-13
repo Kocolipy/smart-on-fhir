@@ -60,7 +60,10 @@ each page's endpoints and Permissions; this list holds the rules.
   (`declarations.ts`), a page's single error line (`page-status.ts`), the copy
   for every session-action outcome (`session-action-copy.ts`: login, logout,
   the password change and the start-up session check each resolve to a closed
-  outcome and never throw, so their pages render that copy and never catch), the idle sign-out (see
+  outcome and never throw), the session action every page runs login, logout
+  and the password change through (`use-session-action.ts`: it owns the pending
+  flag, which outcomes end or start a session and so show nothing, and the line
+  for the rest, so its pages render what it hands back and never catch), the idle sign-out (see
   "Backend contract"), the session transitions (`session-transitions.ts`), the
   one place the auth state changes and the CSRF token is forgotten with it,
   and the sign-in reason (`sign-in-reason.ts`): why a
