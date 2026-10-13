@@ -228,9 +228,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginAttemptService.java": {
-    "mtime": 1791870268.9379222,
-    "seen": 1791873568.1373782,
-    "ast_hash": "e7869a4b997c5c882ca3544cc1c75436",
+    "mtime": 1791877627.9764988,
+    "seen": 1791877965.692706,
+    "ast_hash": "3e0ecf68e19b17a911af99cc282ba13d",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginIdentityService.java": {
@@ -246,9 +246,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordChangeService.java": {
-    "mtime": 1791854820.2807803,
-    "seen": 1791873568.1373844,
-    "ast_hash": "c2228b760c4066255031a5a5917cd3e4",
+    "mtime": 1791877627.9769063,
+    "seen": 1791877965.692915,
+    "ast_hash": "c50734f9c85793ec2499f8d7aa2aabd6",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordPolicyViolationException.java": {
@@ -996,9 +996,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimUserRepository.java": {
-    "mtime": 1791854820.281771,
-    "seen": 1791873568.1376436,
-    "ast_hash": "c01abf6b4e9ce9d1be0ebbcff9677d9b",
+    "mtime": 1791877627.9770935,
+    "seen": 1791877965.7035356,
+    "ast_hash": "2c144f4ff65b8fb6544a5472317447e2",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimUserSessions.java": {
@@ -1116,15 +1116,15 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/ScimUserJpaRepository.java": {
-    "mtime": 1791723364.1193373,
-    "seen": 1791873568.1376622,
-    "ast_hash": "7734e8f1f98afe2eac13b931eb81db6a",
+    "mtime": 1791877627.9773939,
+    "seen": 1791877965.7044358,
+    "ast_hash": "8c6a43adbb3106582725fd2094bf63a1",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/ScimUserPersistenceAdapter.java": {
-    "mtime": 1791854820.2823334,
-    "seen": 1791873568.1376626,
-    "ast_hash": "59c1b6fa8639afbbc782aafb30ef74f0",
+    "mtime": 1791877627.9775753,
+    "seen": 1791877965.7044365,
+    "ast_hash": "12599f46af9794f3f74a9affd3588360",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/entity/ScimConnectorEntity.java": {
@@ -1308,15 +1308,15 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/IdentityAdministrationServiceTests.java": {
-    "mtime": 1791788062.089749,
-    "seen": 1791873568.137718,
-    "ast_hash": "e9e2740a6460c631a6d091d449e6465e",
+    "mtime": 1791877627.978141,
+    "seen": 1791877965.7067978,
+    "ast_hash": "d2de5a89eb8dda3a63376996a48f6f49",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginAttemptServiceTests.java": {
-    "mtime": 1791715415.9042408,
-    "seen": 1791873568.1377187,
-    "ast_hash": "9da068d27e8a3296909ac53fa2fd78dc",
+    "mtime": 1791877627.9782848,
+    "seen": 1791877965.7067988,
+    "ast_hash": "4d97e0750be0eec53b16f80c6ec5d934",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginIdentityServiceTests.java": {
@@ -1326,21 +1326,21 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginLockoutTests.java": {
-    "mtime": 1791875204.0349636,
-    "seen": 1791876103.1300406,
-    "ast_hash": "2a7be7d557d2dcaf2e8857bd19ac7502",
+    "mtime": 1791877628.112879,
+    "seen": 1791877965.7068338,
+    "ast_hash": "333fd0965fa7f73e2d4ff9ce433f703a",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/PasswordChangeServiceTests.java": {
-    "mtime": 1791854820.2834637,
-    "seen": 1791873568.1377232,
-    "ast_hash": "65d38b2816df61bf94091408e65bd6fb",
+    "mtime": 1791877627.9789302,
+    "seen": 1791877965.7068367,
+    "ast_hash": "3694fc347065a56a393d1e5349df912a",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/RefusalTimingEquivalenceTests.java": {
-    "mtime": 1791870268.9392936,
-    "seen": 1791873568.137726,
-    "ast_hash": "224a22e95b064ac8e87987e0c70d4b69",
+    "mtime": 1791877627.9793088,
+    "seen": 1791877965.7068741,
+    "ast_hash": "9cf11cb4b36c71d13b136e8d6ef4a7ce",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/config/DormancyPolicyStartupTests.java": {
@@ -1380,9 +1380,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AuthControllerTests.java": {
-    "mtime": 1791875478.7784934,
-    "seen": 1791876103.130899,
-    "ast_hash": "a778723c159ebd93531b05f37eedc7c3",
+    "mtime": 1791877628.1131463,
+    "seen": 1791877965.7074623,
+    "ast_hash": "03d470dcea84f1c585ffe4c1249fc6f0",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/domain/AbsoluteSessionLifetimePolicyTests.java": {
@@ -1524,9 +1524,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/InMemoryScimUserRepository.java": {
-    "mtime": 1791870268.940316,
-    "seen": 1791873568.1378171,
-    "ast_hash": "041e22c7bd1f0660f79af19008dd88d0",
+    "mtime": 1791877627.9798992,
+    "seen": 1791877965.7112174,
+    "ast_hash": "8262d1295eaaa48632a2a52cec5fb4fe",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimConditionalWriteIntegrationTests.java": {
@@ -1542,8 +1542,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimConnectorLifecycleIntegrationTests.java": {
-    "mtime": 1791875515.0546286,
-    "seen": 1791876103.13528,
+    "mtime": 1791877628.1136706,
+    "seen": 1791877965.7114394,
     "ast_hash": "f51afd9e501fe177c34153043d80efaf",
     "semantic_hash": ""
   },
@@ -1578,8 +1578,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimQueryProtocolIntegrationTests.java": {
-    "mtime": 1791875512.6192346,
-    "seen": 1791876103.1355405,
+    "mtime": 1791877628.1139424,
+    "seen": 1791877965.7116647,
     "ast_hash": "694adb4608446c523cc82197cf7187f6",
     "semantic_hash": ""
   },
@@ -1620,8 +1620,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/application/ScimGroupServiceTests.java": {
-    "mtime": 1791875340.1010532,
-    "seen": 1791876103.1358418,
+    "mtime": 1791877628.1142168,
+    "seen": 1791877965.71194,
     "ast_hash": "b9f7153363a447b0fe4db1edb8b9b85c",
     "semantic_hash": ""
   },
@@ -1968,8 +1968,8 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/http.ts": {
-    "mtime": 1791875156.31029,
-    "seen": 1791876103.1397884,
+    "mtime": 1791877628.1143446,
+    "seen": 1791877965.7155027,
     "ast_hash": "7cd7c21a2e5907319fb071e28be8e494",
     "semantic_hash": ""
   },
@@ -1992,8 +1992,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts.test.tsx": {
-    "mtime": 1791875602.837015,
-    "seen": 1791876103.1399403,
+    "mtime": 1791877628.1145272,
+    "seen": 1791877965.715664,
     "ast_hash": "e9dfa9a7818f50c5da0858d5c5d8ac2a",
     "semantic_hash": ""
   },
@@ -2010,8 +2010,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/showcase.test.tsx": {
-    "mtime": 1791875614.634108,
-    "seen": 1791876103.1402411,
+    "mtime": 1791877628.1147685,
+    "seen": 1791877965.715987,
     "ast_hash": "82c4e18ff8df8ad23b69e423d798f747",
     "semantic_hash": ""
   },
@@ -2256,9 +2256,9 @@
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1791876048.8163307,
-    "seen": 1791876103.1416888,
-    "ast_hash": "3e45808a95e869a4b09c990033c4eeb9",
+    "mtime": 1791877925.9009948,
+    "seen": 1791877965.717242,
+    "ast_hash": "b36e9b93c000b149c3c4027f937f9d93",
     "semantic_hash": ""
   },
   "backend/compose.yaml": {
@@ -2556,8 +2556,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/connectors.test.tsx": {
-    "mtime": 1791875621.404583,
-    "seen": 1791876103.140092,
+    "mtime": 1791877628.1146674,
+    "seen": 1791877965.7158234,
     "ast_hash": "78745d3545318d44dcf5450c7edfb5c9",
     "semantic_hash": ""
   },
@@ -2760,9 +2760,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0007-permanent-lockout-until-admin-unlock.md": {
-    "mtime": 1791621655.1663392,
-    "seen": 1791873568.1379948,
-    "ast_hash": "7a5c45f6cf445a61c10c0e105d3f63a3",
+    "mtime": 1791877627.9802997,
+    "seen": 1791877965.71797,
+    "ast_hash": "048b7f84e0cda3a6c09a045457ae9d86",
     "semantic_hash": ""
   },
   "docs/adr/0008-no-password-change-grace-period.md": {
@@ -3360,9 +3360,9 @@
     "semantic_hash": ""
   },
   "docs/domain-rules.md": {
-    "mtime": 1791870268.9414337,
-    "seen": 1791873568.1380022,
-    "ast_hash": "cf5d08511fbb8be1d35f66ceed86d8f7",
+    "mtime": 1791877627.9807668,
+    "seen": 1791877965.7181628,
+    "ast_hash": "a9557089cc2dd2b7563917d15938328c",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/controller/ScimSchemaDocuments.java": {
@@ -3618,8 +3618,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ConnectorTokenPermissionsIntegrationTests.java": {
-    "mtime": 1791875518.5757778,
-    "seen": 1791876103.1348305,
+    "mtime": 1791877628.113496,
+    "seen": 1791877965.710925,
     "ast_hash": "f1ec1fa6918292061d4a2e5dc3570fe1",
     "semantic_hash": ""
   },
@@ -4074,8 +4074,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/EpicLoginIntegrationTests.java": {
-    "mtime": 1791875442.0043633,
-    "seen": 1791876103.131646,
+    "mtime": 1791877628.1133761,
+    "seen": 1791877965.7080548,
     "ast_hash": "e3f6ee92c195a03c90ac62865c52686d",
     "semantic_hash": ""
   },
@@ -4098,9 +4098,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/EpicLoginDecisionTests.java": {
-    "mtime": 1791715415.9036608,
-    "seen": 1791873568.1377175,
-    "ast_hash": "985cd1634262d0b22721d4cae43e285f",
+    "mtime": 1791877627.977909,
+    "seen": 1791877965.7067962,
+    "ast_hash": "2f39fb257ed60702a1efa8250d593e34",
     "semantic_hash": ""
   },
   "frontend/test/e2e/epic-launch.spec.ts": {
@@ -4452,9 +4452,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginOutcomeServiceTests.java": {
-    "mtime": 1791773686.4764233,
-    "seen": 1791873568.1377208,
-    "ast_hash": "f20de403fcf760f6ee05897fd68bcc50",
+    "mtime": 1791877627.9785714,
+    "seen": 1791877965.706835,
+    "ast_hash": "dbd9d65ecfc9676dbcb31c2f39118a05",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/config/LoginMetricsTests.java": {
@@ -4518,9 +4518,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/LoginCompletionTests.java": {
-    "mtime": 1791715415.9067068,
-    "seen": 1791873568.1377392,
-    "ast_hash": "2b39cdb753456c13bac9892c2fbfaa1b",
+    "mtime": 1791877627.979708,
+    "seen": 1791877965.7074997,
+    "ast_hash": "5342ebe7bc2c1348864267222827b2f0",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/DevFixtures.java": {
@@ -4656,8 +4656,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/signed-in-shell.test.tsx": {
-    "mtime": 1791875630.7343159,
-    "seen": 1791876103.1402848,
+    "mtime": 1791877628.1148877,
+    "seen": 1791877965.7160296,
     "ast_hash": "32e7b912cc96c1836799037fe1ee9e83",
     "semantic_hash": ""
   },
@@ -4782,9 +4782,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/PasswordLoginRenameTests.java": {
-    "mtime": 1791715415.9056504,
-    "seen": 1791873568.1377246,
-    "ast_hash": "66a2ef50811ccb8ffbb02bcf01382bc6",
+    "mtime": 1791877627.9791656,
+    "seen": 1791877965.7068393,
+    "ast_hash": "385a6e9f27dbe7e67020878dc3dcabb6",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/PasswordRefusalReasonTests.java": {
@@ -4794,15 +4794,15 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginStateService.java": {
-    "mtime": 1791800747.3553498,
-    "seen": 1791873568.137384,
-    "ast_hash": "65fda984fa2d3c8936d0dca7e3356c55",
+    "mtime": 1791877627.9767797,
+    "seen": 1791877965.6929138,
+    "ast_hash": "0ff3d554781fae619d9ff77b7240dc29",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginStateServiceTests.java": {
-    "mtime": 1791800747.3673713,
-    "seen": 1791873568.1377223,
-    "ast_hash": "9a6c9ae5bf65facccae6808ca37319f7",
+    "mtime": 1791877627.9787536,
+    "seen": 1791877965.706836,
+    "ast_hash": "09c8a3d0586b3c0b9c706594b96f4777",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/Lockout.java": {
@@ -4818,9 +4818,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/LoginStateModules.java": {
-    "mtime": 1791723364.1217816,
-    "seen": 1791873568.1377118,
-    "ast_hash": "0084ed397b3878c07d7a93a8182788e5",
+    "mtime": 1791877627.977688,
+    "seen": 1791877965.7065942,
+    "ast_hash": "1058f9dc34efb62fda8e47da8216f793",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/domain/LockoutTests.java": {
@@ -4836,9 +4836,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/infrastructure/persistence/ScimUserPersistenceAdapterIntegrationTests.java": {
-    "mtime": 1791854820.2861338,
-    "seen": 1791873568.1378722,
-    "ast_hash": "977d419041b09d2a2e6557b8751c168f",
+    "mtime": 1791877627.9801383,
+    "seen": 1791877965.7142057,
+    "ast_hash": "677c20dc577a0ea0895190a12c1d7df1",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/application/ScimRoleRevocationService.java": {
@@ -4980,9 +4980,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimWriteLocks.java": {
-    "mtime": 1791854820.2818456,
-    "seen": 1791873568.137648,
-    "ast_hash": "e67541654908634c38b6bdc678e57a63",
+    "mtime": 1791877627.9772544,
+    "seen": 1791877965.7037117,
+    "ast_hash": "c784d4fd8e779357ef01ad5fa03b9575",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/ScimWriteLockAdapter.java": {
@@ -4992,9 +4992,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/InMemoryScimWriteLocks.java": {
-    "mtime": 1791854820.2846901,
-    "seen": 1791873568.1378176,
-    "ast_hash": "d69ebb3345d75b55a4da3f82dd30fddd",
+    "mtime": 1791877627.980004,
+    "seen": 1791877965.7112186,
+    "ast_hash": "af5b297c3bf75a3d235c27adbf31c39c",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimWriteLockOrderIntegrationTests.java": {
@@ -5112,9 +5112,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/PasswordLoginEdgeWhitespaceTests.java": {
-    "mtime": 1791870268.939145,
-    "seen": 1791873568.137724,
-    "ast_hash": "57eb07bbd9da7bf6a2f6c19db8c35cd3",
+    "mtime": 1791877627.9790576,
+    "seen": 1791877965.7068384,
+    "ast_hash": "129d25dd6c483503d400f694277394c0",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/config/EpicIdentityClaimsTests.java": {
@@ -5133,6 +5133,12 @@
     "mtime": 1791872597.4819396,
     "seen": 1791873568.137319,
     "ast_hash": "8d62c4d46d6a71bdfc98eb8966d30a27",
+    "semantic_hash": ""
+  },
+  "backend/src/test/java/com/example/backend/auth/LoginStateSerializationIntegrationTests.java": {
+    "mtime": 1791877627.9777699,
+    "seen": 1791877965.706596,
+    "ast_hash": "295476436ca0d4aad5cf89cb36e8a978",
     "semantic_hash": ""
   }
 }
