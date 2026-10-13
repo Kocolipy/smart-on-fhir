@@ -302,9 +302,8 @@ exists.
   classified as ASCII-only (keeps `n`) or Unicode-capable (`4n`, or `VARCHAR(MAX)`
   where unbounded), Epic identity columns included, and is reviewed with the
   schema.
-- **First-login provisioning is race-safe.** A provisioning attempt that loses a
-  unique-constraint race rolls back and re-reads the existing User, so two
-  concurrent first Logins resolve to one User.
+- **No first-login insert to make race-safe.** Only SCIM provisions Users: Epic
+  Login never creates one (ADR 0013, no just-in-time provisioning).
 - **Database patching.** RDS applies minor versions automatically, and the pinned
   SQL Server image tag used locally and in tests is reviewed monthly. A repo-wide
   dependency-CVE gate is a separate concern, not part of this decision.
@@ -364,8 +363,8 @@ unchanged by this move, and is recorded in ADR 0012.
 - **Engine-neutral preparation lands on PostgreSQL first**, each change small,
   reviewable and releasable: edge-whitespace refusal, explicit membership deletes,
   the token permissions child table, separate logins and DataSources, out-of-process
-  migrations, the credentials/KMS/TLS/monitoring infrastructure, logging hardening,
-  and race-safe first-login provisioning. `V1` stays frozen meanwhile, so each schema
+  migrations, the credentials/KMS/TLS/monitoring infrastructure, and logging
+  hardening. `V1` stays frozen meanwhile, so each schema
   change is a new PostgreSQL migration.
 - **One integration branch then switches the engine**: driver, Flyway and
   Testcontainers modules; the T-SQL `V1`; the adapters; the tests; local

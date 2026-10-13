@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -1070,6 +1072,124 @@ final class ScimConformanceCases {
                             .isIn("invalidSyntax", "invalidValue");
                 }
                 t.assertUnchanged(kind, resource);
+            });
+        }
+    }
+
+    // ==== edge whitespace on the keys (ADR 0015) ==========================================
+
+    /**
+     * A key of {@code kind} — an attribute that is unique or looked up — with how a create or
+     * replacement body and a PATCH operation carry a value for it, and where it reads back.
+     */
+    private record Key(String attribute, String pointer,
+            BiFunction<Kind, String, String> body, UnaryOperator<String> op) {
+    }
+
+    /** A complete body of {@code kind} with each key at a fresh, unbordered default. */
+    private static String keyed(Kind kind, String userName, String displayName,
+            String emailValue, String emailType, String externalId) {
+        String alias = externalId == null ? "" : ",\"externalId\":\"" + externalId + "\"";
+        return kind == Kind.USER
+                ? """
+                  {"schemas":["%s"],"userName":"%s","displayName":"%s",\
+                  "emails":[{"value":"%s","type":"%s"}]%s}"""
+                        .formatted(USER_SCHEMA, userName, displayName, emailValue, emailType, alias)
+                : """
+                  {"schemas":["%s"],"displayName":"%s"%s}"""
+                        .formatted(GROUP_SCHEMA, displayName, alias);
+    }
+
+    private static List<Key> keys(Kind kind) {
+        Function<String, UnaryOperator<String>> replacing = attribute -> value -> """
+                {"op":"replace","path":"%s","value":"%s"}""".formatted(attribute, value);
+        Key displayName = new Key("displayName", "/displayName",
+                (k, v) -> keyed(k, name(), v, "ada@example.org", "work", null),
+                replacing.apply("displayName"));
+        Key externalId = new Key("externalId", "/externalId",
+                (k, v) -> keyed(k, name(), name(), "ada@example.org", "work", v),
+                replacing.apply("externalId"));
+        if (kind == Kind.GROUP) {
+            return List.of(displayName, externalId);
+        }
+        return List.of(
+                new Key("userName", "/userName",
+                        (k, v) -> keyed(k, v, "Conformance", "ada@example.org", "work", null),
+                        replacing.apply("userName")),
+                displayName,
+                new Key("emails.value", "/emails/0/value",
+                        (k, v) -> keyed(k, name(), "Conformance", v, "work", null),
+                        v -> """
+                             {"op":"replace","path":"emails","value":[{"value":"%s","type":"work"}]}"""
+                                .formatted(v)),
+                new Key("emails.type", "/emails/0/type",
+                        (k, v) -> keyed(k, name(), "Conformance", "ada@example.org", v, null),
+                        v -> """
+                             {"op":"replace","path":"emails","value":[{"value":"ada@example.org",\
+                             "type":"%s"}]}""".formatted(v)),
+                externalId);
+    }
+
+    /**
+     * Every key refuses a value with whitespace at either edge — leading, trailing, a trailing
+     * tab — on create, {@code PUT} and {@code PATCH}, with {@code 400 invalidValue} naming the
+     * attribute and never the value, and accepts whitespace inside it. A name ending in a tab is
+     * named for the control it holds, which it already refused; the edge rule names the rest.
+     */
+    static void edgeWhitespace(List<Fixture> all, Kind kind) {
+        String k = kind.resourceType();
+        List<Map.Entry<String, UnaryOperator<String>>> bordered = List.of(
+                Map.entry("a leading space", name -> " " + name),
+                Map.entry("a trailing space", name -> name + " "),
+                // A JSON escape, so the body is what a connector sends.
+                Map.entry("a trailing tab", name -> name + "\\t"));
+        for (Key key : keys(kind)) {
+            String attribute = key.attribute();
+            for (Map.Entry<String, UnaryOperator<String>> edge : bordered) {
+                boolean control = edge.getKey().endsWith("tab")
+                        && (attribute.equals("userName") || attribute.equals("displayName"));
+                String detail = control
+                        ? attribute + " must not contain control characters (U+0000 to U+001F,"
+                                + " U+007F)."
+                        : attribute + " must not begin or end with whitespace.";
+                String what = attribute + " with " + edge.getKey();
+                add(all, k + " 400 invalidValue: create with " + what, t -> {
+                    JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, kind.collection()),
+                            key.body().apply(kind, edge.getValue().apply(name()))),
+                            400, "invalidValue");
+                    assertThat(error.get("detail").asText()).isEqualTo(detail);
+                });
+                add(all, k + " 400 invalidValue: replace with " + what, t -> {
+                    Resource resource = t.create(kind);
+                    JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                                    .header(HttpHeaders.IF_MATCH, resource.etag()),
+                            key.body().apply(kind, edge.getValue().apply(name()))),
+                            400, "invalidValue");
+                    assertThat(error.get("detail").asText()).isEqualTo(detail);
+                    t.assertUnchanged(kind, resource);
+                });
+                add(all, k + " 400 invalidValue: patch with " + what, t -> {
+                    Resource resource = t.create(kind);
+                    JsonNode error = t.expectError(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                                    .header(HttpHeaders.IF_MATCH, resource.etag()),
+                            Kind.patch(key.op().apply(edge.getValue().apply(name())))),
+                            400, "invalidValue");
+                    assertThat(error.get("detail").asText()).isEqualTo(detail);
+                    t.assertUnchanged(kind, resource);
+                });
+            }
+            add(all, k + " 201: whitespace inside " + attribute + " is stored as sent", t -> {
+                String inner = name() + " b";
+                Resource resource = t.create(kind, key.body().apply(kind, inner));
+                assertThat(resource.body().at(key.pointer()).asText()).isEqualTo(inner);
+            });
+            add(all, k + " 200: a patch putting whitespace inside " + attribute + " is stored", t -> {
+                Resource resource = t.create(kind);
+                String inner = name() + " b";
+                JsonNode patched = json(t.expect(body(t.scim(HttpMethod.PATCH,
+                                kind.one(resource.id())).header(HttpHeaders.IF_MATCH, resource.etag()),
+                        Kind.patch(key.op().apply(inner))), 200));
+                assertThat(patched.at(key.pointer()).asText()).isEqualTo(inner);
             });
         }
     }

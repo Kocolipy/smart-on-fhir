@@ -154,6 +154,12 @@ A SCIM `PUT`, `PATCH` or `DELETE` carrying `If-Match`, applied only while the
 resource version still matches; optional, so a write without one is
 unconditional.
 
+**Edge whitespace**:
+Whitespace (any Unicode `White_Space` character) at the start or end of a key —
+a unique or looked-up User or Group attribute, a password Login's username, or an
+Epic `id_token`'s `iss` or `sub` — which is refused rather than trimmed.
+_Avoid_: padding, trailing spaces (the rule covers both edges and every kind of whitespace)
+
 **Practical SCIM protocol profile**:
 The part of SCIM 2.0 this application implements and advertises in discovery;
 everything outside it is refused rather than ignored.

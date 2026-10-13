@@ -149,6 +149,104 @@ class ScimAttributeLimitsTests {
         }
     }
 
+    /**
+     * The User attributes that are unique or looked up — the keys SQL Server would compare with
+     * trailing spaces ignored (ADR 0015) — and so refuse whitespace at either edge.
+     */
+    private static final Set<String> KEYS = Set.of("userName", "displayName", "emails.value",
+            "emails.type");
+
+    /**
+     * A key refuses a value beginning or ending with whitespace, naming the attribute and never
+     * the value; every other attribute keeps the whitespace it was sent. Whitespace other than a
+     * control is used so a name is refused for the edge, not for the control it would also hold.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("userAttributes")
+    void a_key_bordered_by_whitespace_is_refused_and_any_other_value_keeps_it(
+            String attribute, int limit, Function<String, ScimUserProfile> withValue) {
+        for (String bordered : List.of(" x", "x ", " x", "x　")) {
+            if (KEYS.contains(attribute)) {
+                assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(withValue.apply(bordered)))
+                        .as(bordered)
+                        .isInstanceOfSatisfying(ScimValueEdgeWhitespaceException.class, refused -> {
+                            assertThat(refused.attribute()).isEqualTo(attribute);
+                            assertThat(refused.getMessage()).isEqualTo(
+                                    attribute + " must not begin or end with whitespace.");
+                        });
+            } else {
+                assertThatCode(() -> ScimAttributeLimits.requireWithin(withValue.apply(bordered)))
+                        .as(bordered)
+                        .doesNotThrowAnyException();
+            }
+        }
+    }
+
+    /** A trailing tab is refused on every key: as a control in a name, as whitespace elsewhere. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("userAttributes")
+    void a_trailing_tab_is_refused_on_every_key(
+            String attribute, int limit, Function<String, ScimUserProfile> withValue) {
+        if (KEYS.contains(attribute)) {
+            assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(withValue.apply("x\t")))
+                    .isInstanceOfSatisfying(ScimAttributeValueException.class,
+                            refused -> assertThat(refused.attribute()).isEqualTo(attribute));
+        } else {
+            assertThatCode(() -> ScimAttributeLimits.requireWithin(withValue.apply("x\t")))
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("userAttributes")
+    void whitespace_inside_a_value_is_accepted_on_every_attribute(
+            String attribute, int limit, Function<String, ScimUserProfile> withValue) {
+        assertThatCode(() -> ScimAttributeLimits.requireWithin(withValue.apply("a b")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void a_group_display_name_bordered_by_whitespace_is_refused() {
+        for (String bordered : List.of(" g", "g ", " g", "g　")) {
+            assertThatThrownBy(() -> ScimAttributeLimits.requireGroupDisplayNameWithin(bordered))
+                    .as(bordered)
+                    .isInstanceOfSatisfying(ScimValueEdgeWhitespaceException.class, refused -> {
+                        assertThat(refused.attribute()).isEqualTo("displayName");
+                        assertThat(refused.getMessage())
+                                .isEqualTo("displayName must not begin or end with whitespace.");
+                    });
+        }
+        assertThatCode(() -> ScimAttributeLimits.requireGroupDisplayNameWithin("g h"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void an_external_id_bordered_by_whitespace_is_refused() {
+        for (String bordered : List.of(" x", "x ", "x\t", " x")) {
+            assertThatThrownBy(() -> ScimAttributeLimits.requireExternalIdWithin(bordered))
+                    .as(bordered)
+                    .isInstanceOfSatisfying(ScimValueEdgeWhitespaceException.class, refused -> {
+                        assertThat(refused.attribute()).isEqualTo("externalId");
+                        assertThat(refused.getMessage())
+                                .isEqualTo("externalId must not begin or end with whitespace.");
+                    });
+        }
+        assertThatCode(() -> ScimAttributeLimits.requireExternalIdWithin("x y"))
+                .doesNotThrowAnyException();
+    }
+
+    /** Every email is held to the rule, not only the first. */
+    @Test
+    void edge_whitespace_in_a_later_email_is_refused() {
+        ScimUserProfile secondBordered = profile("ada", ScimName.NONE, null, null, null, null,
+                List.of(new ScimEmail("ada@work.example", "work", true),
+                        new ScimEmail("ada@home.example ", "home", false)));
+
+        assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(secondBordered))
+                .isInstanceOfSatisfying(ScimValueEdgeWhitespaceException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("emails.value"));
+    }
+
     /** Characters are checked before length, so a long value with a NUL is named for the NUL. */
     @Test
     void a_value_both_too_long_and_holding_a_nul_is_refused_for_the_nul() {

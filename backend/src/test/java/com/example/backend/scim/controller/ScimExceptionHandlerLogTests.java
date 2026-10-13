@@ -22,6 +22,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimValueControlCharacterException;
+import com.example.backend.scim.domain.ScimValueEdgeWhitespaceException;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.ArrayList;
@@ -140,6 +141,12 @@ class ScimExceptionHandlerLogTests {
     }
 
     @Test
+    void edge_whitespace_in_a_key_is_invalid_value() {
+        assertRefusal(() -> handler.handle(new ScimValueEdgeWhitespaceException("externalId")),
+                Level.WARN, "invalidValue", 400);
+    }
+
+    @Test
     void a_refused_patch_is_mutability_or_no_target() {
         assertRefusal(() -> handler.handle(new ScimPatchRefusedException(
                         ScimPatchRefusedException.Reason.MUTABILITY, "id is read-only")),
@@ -219,6 +226,8 @@ class ScimExceptionHandlerLogTests {
         ScimValueControlCharacterException control = new ScimValueControlCharacterException(
                 "userName", ScimValueControlCharacterException.Forbidden.NUL);
         assertThat(detail(() -> handler.handle(control))).isEqualTo(control.getMessage());
+        assertThat(detail(() -> handler.handle(new ScimValueEdgeWhitespaceException("userName"))))
+                .isEqualTo("userName must not begin or end with whitespace.");
         assertThat(detail(() -> handler.handle(
                         new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN))))
                 .asString().startsWith("This User");

@@ -5,7 +5,6 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.Objects;
@@ -184,13 +183,13 @@ public class LoginAttemptService {
      * The identity behind a submitted name, looked up on the normalized form uniqueness is decided
      * on.
      *
-     * <p>A blank submission is nobody rather than an error: it reaches here only if the web adapter's
-     * validation was bypassed, and the honest answer is the same one an unknown name gets.
+     * <p>A name that can name no User — a blank one, which reaches here only if the web adapter's
+     * validation was bypassed, or one with whitespace at an edge — is nobody rather than an error,
+     * decided by the same rule the authentication's own lookup used
+     * ({@link LoginIdentityService#lookupKeyOf}) and before any lookup. So a failure for
+     * {@code ada } is never counted against {@code ada}, even on an engine that would match them.
      */
     private Optional<ScimUser> find(String username) {
-        if (username == null || username.isBlank()) {
-            return Optional.empty();
-        }
-        return users.findByNormalizedUserName(NormalizedUserName.of(username));
+        return LoginIdentityService.lookupKeyOf(username).flatMap(users::findByNormalizedUserName);
     }
 }

@@ -10,7 +10,8 @@ package com.example.backend.scim.domain;
  * a response built from it.
  */
 public abstract sealed class ScimAttributeValueException extends RuntimeException
-        permits ScimValueTooLongException, ScimValueControlCharacterException {
+        permits ScimValueTooLongException, ScimValueControlCharacterException,
+                ScimValueEdgeWhitespaceException {
 
     private final String attribute;
 

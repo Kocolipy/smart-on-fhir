@@ -619,7 +619,20 @@ class EpicProtocolIntegrationTests {
                 Arguments.of("another nonce", (Consumer<JWTClaimsSet.Builder>) claims ->
                         claims.claim("nonce", "a-nonce-we-never-sent")),
                 Arguments.of("no nonce", (Consumer<JWTClaimsSet.Builder>) claims ->
-                        claims.claim("nonce", null)));
+                        claims.claim("nonce", null)),
+                // ADR 0015: an identity claim with whitespace at an edge is an invalid token.
+                Arguments.of("a sub with a trailing space", (Consumer<JWTClaimsSet.Builder>)
+                        claims -> claims.subject("epic-subject ")),
+                Arguments.of("a sub with a leading space", (Consumer<JWTClaimsSet.Builder>)
+                        claims -> claims.subject(" epic-subject")),
+                Arguments.of("a sub ending in a tab", (Consumer<JWTClaimsSet.Builder>)
+                        claims -> claims.subject("epic-subject\t")),
+                Arguments.of("a sub ending in a no-break space",
+                        (Consumer<JWTClaimsSet.Builder>) claims ->
+                                claims.subject("epic-subject ")),
+                Arguments.of("our issuer with a trailing space",
+                        (Consumer<JWTClaimsSet.Builder>) claims ->
+                                claims.issuer(EPIC.fake().issuer() + " ")));
     }
 
     @ParameterizedTest(name = "an id_token with {0} is refused as INVALID_CLAIMS")

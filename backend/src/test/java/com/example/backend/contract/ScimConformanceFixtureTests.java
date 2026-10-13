@@ -206,6 +206,7 @@ class ScimConformanceFixtureTests {
         for (Kind kind : Kind.values()) {
             ScimConformanceCases.lifecycle(all, kind);
             ScimConformanceCases.errors(all, kind);
+            ScimConformanceCases.edgeWhitespace(all, kind);
             ScimConformanceCases.mutability(all, kind);
             ScimConformanceCases.pagination(all, kind);
             ScimConformanceCases.patchGrammar(all, kind);

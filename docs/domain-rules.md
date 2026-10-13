@@ -250,7 +250,8 @@ is audited once with no subject and its reason: Epic answering the callback with
 an OAuth error (`IDP_ERROR`), Epic's token endpoint refusing the code
 (`TOKEN_EXCHANGE_FAILED`), an `id_token` whose signature does not verify or is
 not RS256 (`INVALID_SIGNATURE`), one whose `iss`, `aud`, `azp`, `exp`, `iat`
-(30 seconds of clock skew either way) or `nonce` fails (`INVALID_CLAIMS`), and a
+(30 seconds of clock skew either way) or `nonce` fails, or whose `iss` or `sub`
+begins or ends with whitespace (see **Edge whitespace**) (`INVALID_CLAIMS`), and a
 `fhirUser` that is not a Practitioner of this deployment's FHIR base
 (`INVALID_FHIR_USER`).
 
@@ -398,6 +399,24 @@ Unicode NFKC and case folding, the mapping half of PRECIS UsernameCaseMapped
 mapped Group revokes the User's existing sessions so a stale login principal never
 survives a security change (see **Session revocation**). Failure
 runs and lockouts remain application-owned authentication behavior on the User.
+
+**Edge whitespace** — the keys, every User and Group attribute that is unique or
+looked up (`userName`, `displayName` of a User and of a Group, `emails[].value`,
+`emails[].type`, and `externalId`), refuse a value beginning or ending with
+whitespace: any Unicode `White_Space` character, the no-break and ideographic
+spaces as much as the space and the tab. A SCIM create, `PUT` or `PATCH` carrying
+one is refused whole with `400 invalidValue` naming the attribute, and nothing is
+trimmed, since a trimmed key is not the one the connector holds. Whitespace inside
+a key (`a b`) is accepted, and every other attribute keeps the whitespace it was
+sent. The same rule reaches authentication. A password Login whose username has
+edge whitespace is an unknown account, decided before any lookup: the same bare
+`401`, the same subject-less `LOGIN_FAILURE` (`UNKNOWN_ACCOUNT`) and count, and
+nothing recorded against the User the trimmed name would find. An Epic `id_token`
+whose `iss` or `sub` has edge whitespace is an invalid token (`INVALID_CLAIMS`).
+The reason is the engine, not the value: SQL Server ignores trailing spaces when it
+compares, so `alice` and `alice ` would collide or match there and not on
+PostgreSQL; refusing them keeps a key meaning the same on either
+(`docs/adr/0015-sql-server-2022-replaces-postgresql.md`).
 
 **Normalized SCIM storage** — the PostgreSQL representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
@@ -736,7 +755,9 @@ has no **lockout** at all; the
 `/api/auth/login` endpoint adds only the session, the CSRF token, and the bare
 `401`. Why the counting is recorded here rather than driven by Spring Security's
 authentication events is
-`docs/adr/0001-count-login-attempts-on-the-login-path.md`.
+`docs/adr/0001-count-login-attempts-on-the-login-path.md`. A username that begins
+or ends with whitespace names no User and is refused as an unknown one before any
+lookup (see **Edge whitespace**), so its failure lengthens no failure run.
 
 **Failure run** — the consecutive failures recorded against one User, counted on
 the User's own row as `failed_login_attempts`. A login the backend accepts ends

@@ -100,6 +100,22 @@ info:
     character (U+0000).` or `userName must not contain control characters (U+0000 to
     U+001F, U+007F).` A password is not stored as text and is not subject to this.
 
+    **Edge whitespace.** The keys — `userName`, `displayName` of a User and of a
+    Group, `emails[].value`, `emails[].type` and `externalId` of a User and of a
+    Group, every attribute that is unique or looked up — refuse a value that begins
+    or ends with whitespace: any Unicode `White_Space` character, the space and tab
+    and also the no-break, ideographic and other Unicode spaces, the line and
+    paragraph separators and NEL. Whitespace inside a key (`a b`) is accepted, and
+    every other attribute (`name.*`, `locale`, `timezone`, `preferredLanguage`)
+    keeps whatever whitespace it was sent. Nothing is trimmed: a trimmed key would
+    differ from the one the connector holds. The refusal is made like a length's — on
+    POST, PUT and PATCH, before anything is written, with `400 invalidValue`, audited
+    as `INVALID_VALUE` — and the `detail` names the attribute and never the value:
+    `externalId must not begin or end with whitespace.` A `userName` or
+    `displayName` ending in a tab or a newline holds a control and is refused for
+    that, as above. The rule keeps keys meaning the same whatever database stores
+    them, since SQL Server ignores trailing spaces when it compares.
+
     A write the database refuses for any other reason is a fault on this side, not a
     refusal of the request: `500` with a `ScimError` body, no `scimType` and a
     `detail` that names no cause. It is not listed on each operation, because no
@@ -209,7 +225,8 @@ paths:
         "401":
           description: |
             The login was refused. One response covers every reason — unknown
-            username, wrong password, an account locked after too many
+            username (a username beginning or ending with whitespace included,
+            which is treated as unknown before any lookup), wrong password, an account locked after too many
             consecutive failures, and a deactivated account — and carries no body,
             so it cannot be used to learn whether an account exists or whether it
             is locked. Consecutive refusals lock the account until an Admin unlocks
@@ -512,7 +529,8 @@ paths:
         is then redeemed once at Epic's token endpoint with the PKCE verifier and
         our `private_key_jwt` client assertion. The `id_token` is validated
         against Epic's JWKS — RS256 only; `iss`, `aud`, `azp`, `exp` and `iat`
-        with a 30-second skew; the `nonce`, in constant time — and its
+        with a 30-second skew; the `nonce`, in constant time; and neither `iss`
+        nor `sub` may begin or end with whitespace — and its
         `fhirUser` must be `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. The User
         whose `userName` equals that id exactly is signed in as password Login
         would sign it in — the same authorities, a rotated session id, the

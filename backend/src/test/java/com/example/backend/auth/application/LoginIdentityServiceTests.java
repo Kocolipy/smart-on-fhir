@@ -28,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -239,6 +241,19 @@ class LoginIdentityServiceTests {
     @Test
     void refusesABlankUsernameTheWayItRefusesAnUnknownOne() {
         assertThatThrownBy(() -> service.loadUserByUsername("   "))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    /**
+     * Blank without whitespace at an edge: an empty name has no edge at all, and U+001F is a
+     * control Java counts as blank and Unicode does not count as whitespace. Each is the unknown
+     * name it is, not a failure of normalization.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "\u001F"})
+    void refusesABlankUsernameWithNoEdgeWhitespaceTheWayItRefusesAnUnknownOne(String username) {
+        assertThatThrownBy(() -> service.loadUserByUsername(username))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("User not found");
     }
