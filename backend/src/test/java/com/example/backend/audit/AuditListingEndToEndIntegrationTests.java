@@ -22,10 +22,10 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.ServletContext;
-import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -154,7 +154,7 @@ class AuditListingEndToEndIntegrationTests {
 
     private void backdateCreation(UUID user, Duration ago) {
         jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?",
-                Timestamp.from(clock.instant().minus(ago)), user);
+                clock.instant().minus(ago).atOffset(ZoneOffset.UTC), user);
     }
 
     @Test

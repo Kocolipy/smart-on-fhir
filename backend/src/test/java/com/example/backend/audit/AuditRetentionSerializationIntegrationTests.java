@@ -6,9 +6,9 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.EcsLogCapture;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -133,7 +133,8 @@ class AuditRetentionSerializationIntegrationTests {
                     }));
             assertThat(rowLocked.await(30, TimeUnit.SECONDS)).isTrue();
             long agedOutBefore = jdbc.queryForObject(
-                    COUNT_AGED_OUT, Long.class, Timestamp.from(Instant.now().minus(policy.period())));
+                    COUNT_AGED_OUT, Long.class,
+                    Instant.now().minus(policy.period()).atOffset(ZoneOffset.UTC));
 
             Future<?> first = firstRunner.submit(retention);
             awaitFirstRunWaitingInsideItsDelete();
@@ -249,7 +250,7 @@ class AuditRetentionSerializationIntegrationTests {
 
     private UUID insertEventAt(Instant occurredAt) {
         UUID id = UUID.randomUUID();
-        jdbc.update(INSERT_EVENT, id, Timestamp.from(occurredAt));
+        jdbc.update(INSERT_EVENT, id, occurredAt.atOffset(ZoneOffset.UTC));
         return id;
     }
 

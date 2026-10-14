@@ -8,8 +8,8 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -219,12 +219,13 @@ class AuditListingIntegrationTests {
         UUID id = UUID.randomUUID();
         UUID subject = UUID.randomUUID();
         Instant at = base.plusSeconds(100);
-        jdbc.update(INSERT, id, Timestamp.from(at), "SCIM_USER_LIST", "SUCCESS", actorOnly, subject,
-                "User", subject, "active,password", "ok", "INVALID_VALUE", "GET", "/scim/v2/Users",
-                "req-123", 7, "userName eq ?");
+        jdbc.update(INSERT, id, at.atOffset(ZoneOffset.UTC), "SCIM_USER_LIST", "SUCCESS", actorOnly,
+                subject, "User", subject, "active,password", "ok", "INVALID_VALUE", "GET",
+                "/scim/v2/Users", "req-123", 7, "userName eq ?");
         UUID quiet = UUID.randomUUID();
-        jdbc.update(INSERT, quiet, Timestamp.from(at.minusSeconds(1)), "LOGIN_SUCCESS", "SUCCESS",
-                actorOnly, null, "User", null, null, "ok", null, null, null, null, null, null);
+        jdbc.update(INSERT, quiet, at.minusSeconds(1).atOffset(ZoneOffset.UTC), "LOGIN_SUCCESS",
+                "SUCCESS", actorOnly, null, "User", null, null, "ok", null, null, null, null, null,
+                null);
 
         JsonNode events = list("actorId=" + actorOnly).get("events");
 
@@ -290,8 +291,8 @@ class AuditListingIntegrationTests {
             String operation = failure ? "LOGIN_FAILURE" : "LOGIN_SUCCESS";
             String outcome = failure ? "FAILURE" : "SUCCESS";
             UUID resourceId = i % 3 == 0 ? resource : UUID.randomUUID();
-            jdbc.update(INSERT, id, Timestamp.from(at), operation, outcome, actor, resourceId,
-                    "User", resourceId, null, failure ? "client_error" : "ok",
+            jdbc.update(INSERT, id, at.atOffset(ZoneOffset.UTC), operation, outcome, actor,
+                    resourceId, "User", resourceId, null, failure ? "client_error" : "ok",
                     failure ? "BAD_CREDENTIALS" : null, "POST", "/api/auth/login",
                     "fixture-" + i, null, null);
             seeded.add(new Seeded(id, at, operation, outcome, resourceId));

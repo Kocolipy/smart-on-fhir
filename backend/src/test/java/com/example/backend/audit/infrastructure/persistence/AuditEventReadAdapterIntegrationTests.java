@@ -8,8 +8,8 @@ import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
@@ -82,7 +82,7 @@ class AuditEventReadAdapterIntegrationTests {
                 INSERT INTO audit_events (id, occurred_at, operation, outcome, actor_id,
                                           resource_type, changed_paths, status_class)
                 VALUES (?, ?, 'LOCKOUT_SET', 'SUCCESS', ?, 'User', ?, 'client_error')
-                """, id, Timestamp.from(occurredAt), actor, changedPaths);
+                """, id, occurredAt.atOffset(ZoneOffset.UTC), actor, changedPaths);
         return id;
     }
 }
