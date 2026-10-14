@@ -10,8 +10,11 @@ import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
+import com.example.backend.scheduling.RecordingTransactionManager;
+import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
@@ -42,6 +45,9 @@ class AuditRetentionServiceTests {
 
     private final InMemoryScheduledJobLock lock = new InMemoryScheduledJobLock();
 
+    private final ScheduledJobRunService runs =
+            new ScheduledJobRunService(lock, new RecordingTransactionManager());
+
     private CapturedLog log;
 
     @BeforeEach
@@ -58,7 +64,7 @@ class AuditRetentionServiceTests {
     void theCutoffIsTheConfiguredWindowBeforeNow() {
         CountingRetention retention = new CountingRetention(3, Duration.ZERO, clock);
         AuditRetentionService service = new AuditRetentionService(
-                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), lock, clock);
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
 
         assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 3));
         assertThat(retention.cutoff).isEqualTo(NOW.minus(Duration.ofDays(365)));
@@ -68,32 +74,21 @@ class AuditRetentionServiceTests {
     /**
      * A run that finds the job's lock held does nothing: it deletes nothing, writes no
      * summary, and reports itself skipped so the run's {@code job-end} says {@code lock-held}.
-     * The lock it asks for is this job's own, and no other job's being held stops it.
+     * The lock it asks for is this job's own.
      */
     @Test
     void aRunThatFindsTheLockHeldDeletesNothingAndReportsItSkipped() {
         CountingRetention retention = new CountingRetention(3, Duration.ZERO, clock);
         AuditRetentionService service = new AuditRetentionService(
-                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), lock, clock);
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
 
         assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(true, 0));
         assertThat(retention.calls).isZero();
         assertThat(log.withAction(
-                Level.INFO, LogEvent.LOCAL_ACTION, AuditRetentionService.OPERATION.local()))
+                Level.INFO, LogEvent.LOCAL_ACTION, Operation.AUDIT_RETENTION.local()))
                 .isEmpty();
         assertThat(lock.attempts()).containsExactly(ScheduledJob.AUDIT_RETENTION);
-    }
-
-    @Test
-    void anotherJobsLockBeingHeldDoesNotStopARetentionRun() {
-        CountingRetention retention = new CountingRetention(2, Duration.ZERO, clock);
-        AuditRetentionService service = new AuditRetentionService(
-                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), lock, clock);
-        lock.holdElsewhere(ScheduledJob.DORMANCY);
-
-        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 2));
-        assertThat(retention.calls).isEqualTo(1);
     }
 
     /**
@@ -104,11 +99,12 @@ class AuditRetentionServiceTests {
     void aScheduledRunThatFindsTheLockHeldEndsLockHeld() {
         AuditRetentionService service = new AuditRetentionService(
                 new CountingRetention(7, Duration.ZERO, clock),
-                new AuditRetentionPolicy(Duration.ofDays(120), null), lock, clock);
+                new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
         Runnable scheduled = new ScheduledJobMetrics(
                         new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
-                .instrumentLocked("audit-retention", AuditRetentionService.OPERATION,
+                .instrumentLocked(ScheduledJob.AUDIT_RETENTION.jobName(),
+                        ScheduledJob.AUDIT_RETENTION.operation(),
                         service::deleteAgedOutEvents);
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -132,7 +128,7 @@ class AuditRetentionServiceTests {
         CountingRetention retention =
                 new CountingRetention(7, Duration.ofMillis(250), clock);
         AuditRetentionService service = new AuditRetentionService(
-                retention, new AuditRetentionPolicy(Duration.ofDays(120), null), lock, clock);
+                retention, new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
 
         service.deleteAgedOutEvents();
 
@@ -154,10 +150,11 @@ class AuditRetentionServiceTests {
     void aScheduledRunIsJobStartTheSummaryAndJobEndUnderOneRunId() {
         AuditRetentionService service = new AuditRetentionService(
                 new CountingRetention(7, Duration.ofMillis(250), clock),
-                new AuditRetentionPolicy(Duration.ofDays(120), null), lock, clock);
+                new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
         Runnable scheduled = new ScheduledJobMetrics(
                         new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
-                .instrumentLocked("audit-retention", AuditRetentionService.OPERATION,
+                .instrumentLocked(ScheduledJob.AUDIT_RETENTION.jobName(),
+                        ScheduledJob.AUDIT_RETENTION.operation(),
                         service::deleteAgedOutEvents);
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -197,7 +194,7 @@ class AuditRetentionServiceTests {
         AuditRetentionService service = new AuditRetentionService(
                 new CountingRetention(0, Duration.ZERO, clock),
                 new AuditRetentionPolicy(null, null),
-                lock,
+                runs,
                 clock);
 
         service.deleteAgedOutEvents();
@@ -208,7 +205,7 @@ class AuditRetentionServiceTests {
 
     private ILoggingEvent onlyRunRecord() {
         List<ILoggingEvent> records = log.withAction(
-                Level.INFO, LogEvent.LOCAL_ACTION, AuditRetentionService.OPERATION.local());
+                Level.INFO, LogEvent.LOCAL_ACTION, Operation.AUDIT_RETENTION.local());
         assertThat(records).hasSize(1);
         return records.get(0);
     }

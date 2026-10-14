@@ -8,11 +8,13 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -32,8 +34,10 @@ import org.junit.jupiter.api.Test;
  * {@link LogEvent#jobScheduled}, which every {@link ScheduledJobSpec#of} reaches.
  *
  * <p>The call sites are read from the compiled production classes. A method needs, for every
- * operation it names — an {@link Operation} constant, or a {@code static final} field holding
- * one, as {@code DormancyService.OPERATION} does — the slot of every shape it calls. Within its
+ * operation it names — an {@link Operation} constant, a {@code static final} field holding
+ * one, or the operation a {@code static final} identity it reads carries, as a scheduled job's
+ * {@code ScheduledJob.AUDIT_RETENTION.operation()} does — the slot of every shape it calls.
+ * Within its
  * own top-level class, nested types included, the reading follows an operation two ways: into
  * a helper that takes an operation (the slots that helper's shapes write are the caller's), and
  * out of a method that returns one (the operations it can return are the caller's). An
@@ -101,7 +105,7 @@ class OperationMessagesTests {
                 .as("an operation a nested type chooses")
                 .contains(MessageSlot.REFUSED);
         assertThat(needs.get(Operation.AUDIT_RETENTION))
-                .as("an operation held in a static final field, and a job's schedule")
+                .as("an operation a job's identity carries, for its summary and its schedule")
                 .contains(MessageSlot.SUMMARY, MessageSlot.SCHEDULED);
     }
 
@@ -213,6 +217,11 @@ class OperationMessagesTests {
         return slots;
     }
 
+    /**
+     * The operations {@code unit} names: each {@code static final} {@link Operation} it reads,
+     * and, for each other {@code static final} value it reads — a job's {@code ScheduledJob}
+     * identity — the operation each no-argument accessor of that value's type it calls returns.
+     */
     private static Set<Operation> operationsNamed(JavaCodeUnit unit) {
         Set<Operation> operations = EnumSet.noneOf(Operation.class);
         for (JavaFieldAccess access : unit.getFieldAccesses()) {
@@ -220,23 +229,49 @@ class OperationMessagesTests {
                 continue;
             }
             access.getTarget().resolveMember()
-                    .filter(field -> field.getRawType().isEquivalentTo(Operation.class))
                     .filter(field -> field.getModifiers()
                             .containsAll(Set.of(JavaModifier.STATIC, JavaModifier.FINAL)))
-                    .map(OperationMessagesTests::valueOf)
-                    .ifPresent(operations::add);
+                    .ifPresent(field -> {
+                        if (field.getRawType().isEquivalentTo(Operation.class)) {
+                            operations.add((Operation) valueOf(field));
+                        } else {
+                            operations.addAll(operationsCarriedBy(unit, field));
+                        }
+                    });
         }
         return operations;
     }
 
-    /** The operation a {@code static final} field holds: an enum constant, or a field set to one. */
-    private static Operation valueOf(JavaField field) {
+    /** The operations the accessors {@code unit} calls on {@code field}'s type return for its value. */
+    private static Set<Operation> operationsCarriedBy(JavaCodeUnit unit, JavaField field) {
+        Set<Operation> operations = EnumSet.noneOf(Operation.class);
+        unit.getMethodCallsFromSelf().stream()
+                .map(call -> call.getTarget().resolveMember())
+                .flatMap(Optional::stream)
+                .filter(accessor -> accessor.getOwner().equals(field.getRawType()))
+                .filter(accessor -> accessor.getRawParameterTypes().isEmpty())
+                .filter(OperationMessagesTests::returnsAnOperation)
+                .forEach(accessor -> operations.add(invoke(accessor, valueOf(field))));
+        return operations;
+    }
+
+    /** The value a {@code static final} field holds. */
+    private static Object valueOf(JavaField field) {
         try {
             Field reflected = field.getOwner().reflect().getDeclaredField(field.getName());
             reflected.setAccessible(true);
-            return (Operation) reflected.get(null);
+            return reflected.get(null);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("cannot read " + field.getFullName(), e);
+        }
+    }
+
+    private static Operation invoke(JavaMethod accessor, Object target) {
+        try {
+            Method reflected = accessor.getOwner().reflect().getMethod(accessor.getName());
+            return (Operation) reflected.invoke(target);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("cannot call " + accessor.getFullName(), e);
         }
     }
 

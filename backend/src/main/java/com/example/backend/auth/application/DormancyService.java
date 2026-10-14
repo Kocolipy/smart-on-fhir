@@ -8,8 +8,8 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
-import com.example.backend.scheduling.domain.ScheduledJobLock;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -30,7 +30,6 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The dormancy job (ADR 0011): locks every User that has gone longer than the lockout window
@@ -62,8 +61,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <h2>What stops a User being processed twice</h2>
  *
  * <ul>
- *   <li>The job's lock ({@link ScheduledJobLock}) — a second run skips while one is in
- *       progress, on any instance.
+ *   <li>The job's lock ({@link ScheduledJob#DORMANCY}), which the module that runs a scheduled
+ *       job ({@link ScheduledJobRunService}) takes and holds for the whole run — a second run
+ *       skips while one is in progress, on any instance.
  *   <li>The resource locks and a second look. Both steps' candidates are found first, and then
  *       every Group and User either step may change is locked in one batch, through the SCIM write
  *       lock module ({@link ScimWriteLocks}) and in its one order — the order a connector's User
@@ -76,9 +76,12 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The Bootstrap Admin is never processed: both candidate queries exclude reserved Users, and
  * the exemption is checked again on the locked read.
  *
- * <p>One transaction per run. A failure on one User — an audit append that cannot commit, most of
- * all — rolls the whole run back and revokes nothing; the next run repeats it. That is the
- * fail-closed half of ADR 0004, and it keeps "locked but not recorded" impossible.
+ * <p>One transaction per run: the run's own, which {@link ScheduledJobRunService} opens on the
+ * primary data source and holds the job's lock in, and which every write here — the directory's
+ * {@code @Transactional} role revocation and the fail-closed audit appends included — joins. A
+ * failure on one User — an audit append that cannot commit, most of all — rolls the whole run back
+ * and revokes nothing; the next run repeats it. That is the fail-closed half of ADR 0004, and it
+ * keeps "locked but not recorded" impossible.
  *
  * <p>Logging: the run's start and end are {@code ScheduledJobMetrics}'s, the end carrying this
  * run's counts. Inside the run the only records are one per User changed, beside its audit
@@ -89,9 +92,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DormancyService {
 
-    /** The operation the job's own records — its schedule, start and end — are classified as. */
-    public static final Operation OPERATION = Operation.DORMANCY;
-
     private static final Logger log = LoggerFactory.getLogger(DormancyService.class);
 
     private final ScimUserRepository users;
@@ -100,7 +100,7 @@ public class DormancyService {
     private final ScimRoleRevocation roleRevocation;
     private final SessionRevocationService sessions;
     private final LoginStateService loginState;
-    private final ScheduledJobLock lock;
+    private final ScheduledJobRunService runs;
     private final DormancyPolicy policy;
     private final RoleMapping roleMapping;
     private final AuditTrail audit;
@@ -113,7 +113,7 @@ public class DormancyService {
             ScimRoleRevocation roleRevocation,
             SessionRevocationService sessions,
             LoginStateService loginState,
-            ScheduledJobLock lock,
+            ScheduledJobRunService runs,
             DormancyPolicy policy,
             RoleMapping roleMapping,
             AuditTrail audit,
@@ -124,7 +124,7 @@ public class DormancyService {
         this.roleRevocation = roleRevocation;
         this.sessions = sessions;
         this.loginState = loginState;
-        this.lock = lock;
+        this.runs = runs;
         this.policy = policy;
         this.roleMapping = roleMapping;
         this.audit = audit;
@@ -135,11 +135,13 @@ public class DormancyService {
      * One run: revokes the Roles of every User past the role-revocation window, then locks every
      * unlocked User past the lockout window — or skips when another run holds the job's lock.
      */
-    @Transactional
     public DormancyRun run() {
-        if (!lock.tryAcquire(ScheduledJob.DORMANCY)) {
-            return DormancyRun.skippedRun();
-        }
+        return runs.run(ScheduledJob.DORMANCY, this::runHoldingTheLock)
+                .orElseGet(DormancyRun::skippedRun);
+    }
+
+    /** The run's body, inside the run's transaction and under the job's lock. */
+    private DormancyRun runHoldingTheLock() {
         Instant now = clock.instant();
         List<ScimGroupMembership> revocationCandidates = groups.findDormantMemberships(
                 roleMapping.mappedGroupIds(), policy.roleRevocationCutoff(now));

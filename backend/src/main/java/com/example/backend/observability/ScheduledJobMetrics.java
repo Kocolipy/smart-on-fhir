@@ -55,9 +55,10 @@ import org.springframework.transaction.TransactionException;
  *       trigger never fires.
  * </ul>
  *
- * <p>{@code job} is the name the caller schedules it under, a constant from code. The
- * alert rules in {@code ops/prometheus/alerts.yaml} select on it, so renaming a job is a
- * change to those rules too.
+ * <p>{@code job} is the name the caller schedules it under — for a lock-serialized job, its
+ * {@code ScheduledJob} identity's name, the same as its lock row's. The alert rules in
+ * {@code ops/prometheus/alerts.yaml} select on it, so renaming a job is a change to those rules
+ * too.
  *
  * <h2>Log records</h2>
  *
@@ -135,8 +136,9 @@ public class ScheduledJobMetrics {
      * <p>A run's counts are reported once, by the run ({@link SkippableJobRun#counts}), and
      * written from there both as fields of its {@code job-end} record and onto the counters
      * declared for them. That happens only once the run has returned — after its transaction
-     * committed — and only for a run that did the work, so a run that failed, and so rolled
-     * back, or that skipped counts nothing.
+     * committed, which the scheduled-job run module guarantees by running each job in a
+     * transaction of its own that ends before it returns — and only for a run that did the
+     * work, so a run that failed, and so rolled back, or that skipped counts nothing.
      */
     public void schedule(ScheduledTaskRegistrar registrar, ScheduledJobSpec job) {
         Map<String, Counter> counters = new HashMap<>();

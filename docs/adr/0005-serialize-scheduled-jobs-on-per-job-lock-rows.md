@@ -77,6 +77,55 @@ guarantee the dormancy counters had before. The lock mechanism above is unchange
 A new scheduled job therefore needs a `ScheduledJob` lock member and its migration row, as
 before, plus one `ScheduledJobSpec`.
 
+## Amendment (2026-10-13): one module runs a serialized job
+
+The decision above holds only while three things line up: the transaction the lock
+is taken in, the data source the lock row is on, and how long that transaction
+lasts. Each job used to line them up itself, with `@Transactional` on its body,
+`tryAcquire` on the primary data source and its own skip. Two planned changes would
+have broken that silently: moving the retention job to a transaction manager of its
+own would have taken the lock in autocommit and released it at once, and one
+transaction per batch would have released it after the first batch.
+
+The scheduled-job run module, `ScheduledJobRunService` (`scheduling.application`),
+now owns that transaction. A job hands it its `ScheduledJob` and a body. The module
+opens the run's own transaction on the primary data source's transaction manager
+(`PROPAGATION_REQUIRES_NEW`, through a `TransactionTemplate` rather than an
+annotation), takes the lock in it, and reports a skip without running the body when
+another run holds it. Otherwise it runs the body inside that transaction and holds
+the lock until the body has returned or thrown. A body that throws rolls the run
+back. A transaction a body opens of its own — on another data source's
+transaction manager, or on the primary one with `PROPAGATION_REQUIRES_NEW` —
+commits inside the run's transaction and releases nothing. A per-batch commit on
+the primary data source therefore needs `REQUIRES_NEW`: a per-batch
+`@Transactional` with the default `REQUIRED` propagation joins the run's
+transaction instead, and nothing commits until the run does. The lock stays on
+the primary data source because only the application login holds grants on
+`scheduled_job_locks`.
+
+A job body never takes the lock itself. `ScheduledJobRunService` is the only caller
+of `ScheduledJobLock`, and `ArchitectureTest.only_the_scheduled_job_run_takes_a_job_lock`
+enforces that. The adapter remains the one place the engine's lock syntax is written,
+so ADR 0015's switch to `READPAST` changes the adapter and nothing that calls it.
+Neither the dormancy job nor the retention job is `@Transactional` any more. Both
+bodies still run inside the lock's transaction: dormancy is one transaction per run,
+and retention's `SET LOCAL ROLE` is local to it, assumed after the lock was taken as
+the application role.
+
+A job's identity is spelled once. `ScheduledJob` carries the name that is its lock
+row, its metrics' `job` tag and its `batch.job.name`, and also the `Operation` its
+records are classified as. The schedule configs and the services read both from it.
+The values are unchanged (`dormancy` and `audit-retention`, which the V1 migration
+and the alert rules name). `scheduling` therefore depends on `observability` for
+the `Operation` vocabulary (`ArchitectureTest.MODULE_DEPENDENCIES`).
+`observability` still depends on nothing, so `ScheduledJobSpec` keeps taking a name
+and an `Operation` rather than a `ScheduledJob`.
+
+A new job that must not overlap itself therefore needs a `ScheduledJob` member, with
+its name and `Operation`, and the migration row. Its service hands its body to
+`ScheduledJobRunService.run`, and its schedule config names it in a `ScheduledJobSpec`
+from that member.
+
 ## Alternatives considered
 
 **`pg_try_advisory_xact_lock(hashtext(name))`.** Same transaction scoping with no table. Not

@@ -1059,7 +1059,8 @@ backdated `dormant` fixture is locked without waiting for 04:00.
 
 **Scheduled job lock** — how the dormancy job and the audit retention job are
 serialized: each run takes its own job's row in `scheduled_job_locks` with
-`FOR UPDATE SKIP LOCKED` and holds it for the run's transaction. A second run of the
+`FOR UPDATE SKIP LOCKED` and holds it for the run's own transaction, which lasts the
+whole run, every batch included (ADR 0005). A second run of the
 same job, on any instance, skips; another job holds a different row and never waits. Inside a run, each User is
 re-read under its resource lock and decided again, so no User is processed twice.
 

@@ -119,6 +119,7 @@ FAST_GATE=(
   com/example/backend/observability/ScimRequestObservationConventionTests
   com/example/backend/observability/SessionHashTests
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
+  com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scim/application/ConnectorAdministrationServiceTests
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests

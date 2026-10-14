@@ -5,6 +5,7 @@ import com.example.backend.auth.application.DormancyService;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ScheduledJobSpec;
 import com.example.backend.observability.ServiceTimeZone;
+import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.domain.DormancyPolicy;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -32,13 +33,6 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     /** Daily at 04:00. */
     public static final String SCHEDULE = "0 0 4 * * *";
 
-    /**
-     * The {@code job} tag of the dormancy job's run metrics ({@link ScheduledJobMetrics}), and
-     * its {@code batch.job.name}. {@code ops/prometheus/alerts.yaml}'s {@code DormancyJobFailed}
-     * and {@code DormancyJobNotRunning} select on exactly this value.
-     */
-    static final String JOB = "dormancy";
-
     /** What the dormancy job does, on its startup record. */
     public static final String DESCRIPTION =
             "Locks every User that has not authenticated within the dormancy lockout window, and"
@@ -64,8 +58,13 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
+        // The job's one identity: its name is the job tag of its run metrics
+        // (ScheduledJobMetrics), its batch.job.name and its lock row, and
+        // ops/prometheus/alerts.yaml's DormancyJobFailed and DormancyJobNotRunning select on
+        // exactly that value.
         jobs.schedule(registrar, ScheduledJobSpec
-                .of(JOB, DormancyService.OPERATION, SCHEDULE, DESCRIPTION, dormancy::run)
+                .of(ScheduledJob.DORMANCY.jobName(), ScheduledJob.DORMANCY.operation(),
+                        SCHEDULE, DESCRIPTION, dormancy::run)
                 .startupField(DormancyLogFields.DORMANCY_LOCKOUT_WINDOW,
                         policy.lockoutWindow().toString())
                 .startupField(DormancyLogFields.DORMANCY_ROLE_REVOCATION_WINDOW,

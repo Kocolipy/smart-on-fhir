@@ -17,6 +17,8 @@ import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
+import com.example.backend.scheduling.RecordingTransactionManager;
+import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -469,14 +471,6 @@ class DormancyServiceTests {
         assertThat(lock.attempts()).containsExactly(ScheduledJob.DORMANCY);
     }
 
-    @Test
-    void anotherJobHoldingItsLockDoesNotStopThisOne() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
-
-        assertThat(job.run().locked()).containsExactly(ada.id());
-    }
-
     /** A second run finds nothing left to do: no write, no event. */
     @Test
     void aSecondRunDoesNotProcessTheSameUserAgain() {
@@ -626,7 +620,7 @@ class DormancyServiceTests {
                 new ScimRoleRevocationService(users, groups, sessions, audit, MAPPING),
                 sessions,
                 LoginStateModules.over(users, clock),
-                lock,
+                new ScheduledJobRunService(lock, new RecordingTransactionManager()),
                 policy,
                 MAPPING,
                 audit,
@@ -635,7 +629,9 @@ class DormancyServiceTests {
 
     private Runnable scheduled() {
         return new ScheduledJobMetrics(new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
-                .instrumentLocked("dormancy", DormancyService.OPERATION, job::run);
+                .instrumentLocked(ScheduledJob.DORMANCY.jobName(),
+                        ScheduledJob.DORMANCY.operation(),
+                        job::run);
     }
 
     private static List<JsonNode> onThisThread(EcsLogCapture ecs) {

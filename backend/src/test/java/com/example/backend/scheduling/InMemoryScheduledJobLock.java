@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The job lock, in memory, for a unit test of a scheduled job.
@@ -13,6 +14,10 @@ import java.util.Set;
  * <p>A test says which jobs another run is holding; every other job's lock is free. Keyed by job
  * rather than a single flag, so a test can show that one job's lock being held says nothing
  * about the other's.
+ *
+ * <p>Like the SQL adapter, it has nothing to hold a lock for outside a transaction, and refuses
+ * to be asked there: a test that reaches it with none open has found a run that would take the
+ * lock in autocommit and release it at once.
  */
 public final class InMemoryScheduledJobLock implements ScheduledJobLock {
 
@@ -32,6 +37,10 @@ public final class InMemoryScheduledJobLock implements ScheduledJobLock {
 
     @Override
     public boolean tryAcquire(ScheduledJob job) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "The " + job.jobName() + " lock was asked for outside a transaction");
+        }
         attempts.add(job);
         return !heldElsewhere.contains(job);
     }
