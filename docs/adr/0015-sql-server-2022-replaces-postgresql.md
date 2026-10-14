@@ -109,6 +109,30 @@ are one record.
   it becomes `WITH (UPDLOCK, ROWLOCK)`, and must still be the transaction's first
   read of the token for the waiting rotation to see the first one's replacement
   under read-committed snapshot.
+- **The SCIM resource lock order is the application's, not the engine's** (added
+  2026-10-14). A SCIM write locks every resource row it may advance before reading
+  any of them, in one canonical order, so two writers whose sets overlap serialize
+  instead of deadlocking. That order used to be
+  `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE`, which holds only because
+  PostgreSQL locks rows as the sort returns them; SQL Server under `UPDLOCK` locks
+  rows as the scan reads them, before the sort, so the same statement would
+  deadlock concurrent SCIM writes.
+  `ScimWriteLockAdapter` now sorts the set itself (`ScimWriteLocks.ORDER`,
+  `UUID#compareTo`) and locks one row by primary key per statement
+  (`ScimResourceJpaRepository.lockResource`), which no engine can reorder; on SQL
+  Server each becomes `WITH (UPDLOCK, ROWLOCK)` and the statement is otherwise
+  unchanged. The order deliberately matches neither engine's `uuid` sort, so a
+  statement that slid back to relying on one fails
+  `ScimWriteLockAdapterIntegrationTests` on PostgreSQL today. The cost is a round
+  trip per locked row — a rename of a Group with two hundred members takes two
+  hundred and one — accepted because a batched statement would be correct only on an
+  engine that locks in sort order, and ordered chunks reintroduce the engine's order
+  inside each chunk. This bullet supersedes the migration spec's §5.3 "Unchanged
+  code" entry for the SCIM resource lock (its "Conditional write row lock" row):
+  that query is changed code, not unchanged. The same row's
+  `UserCounterJpaRepository.findByUserIdForUpdate` is unaffected — one row by key
+  under `PESSIMISTIC_WRITE`, which Hibernate renders as
+  `WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`.
 - **Database creation options are set by whatever creates the database** (the
   deployed bootstrap, the local init, the test container), never by Flyway:
   `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run inside a migration

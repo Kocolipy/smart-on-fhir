@@ -830,9 +830,11 @@ public class ArchitectureTest {
     /**
      * A SCIM write's resource locks have one owner:
      * {@code scim.infrastructure.persistence.ScimWriteLockAdapter}, which takes every row a write
-     * needs in one canonical order before the write changes anything. A second place that locked
-     * resource rows would pick its own order, which is how a User DELETE and a Group PUT on a
-     * shared membership deadlocked: each locked its own subject first and the other's later.
+     * needs in one canonical order before the write changes anything — an order it decides itself
+     * and issues one single-row lock per resource in, so no engine can reorder it. A second place
+     * that locked resource rows would pick its own order, which is how a User DELETE and a Group
+     * PUT on a shared membership deadlocked: each locked its own subject first and the other's
+     * later.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_write_lock_module_locks_scim_resources =
@@ -840,9 +842,9 @@ public class ArchitectureTest {
             .that().doNotHaveFullyQualifiedName(
                     "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
             .should().callMethodWhere(DescribedPredicate.describe(
-                    "target is ScimResourceJpaRepository.lockInIdOrder",
+                    "target is ScimResourceJpaRepository.lockResource",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("lockInIdOrder")
+                            call.getName().equals("lockResource")
                                     && call.getTargetOwner().isAssignableTo(
                                             "com.example.backend.scim.infrastructure.persistence"
                                                     + ".ScimResourceJpaRepository")))

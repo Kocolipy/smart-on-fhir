@@ -111,6 +111,44 @@ class ScimWriteLockAdapterIntegrationTests {
     }
 
     /**
+     * The order is the module's, not the caller's and not the database's: a write whose later row
+     * another writer holds already holds the earlier one while it waits, whichever order it named
+     * them in. The two ids differ only in their first eight digits, where the two orders part: the
+     * module's puts {@code 80000000-…} first, Postgres's {@code uuid} order — unsigned bytes — puts
+     * {@code 7fffffff-…} first.
+     */
+    @Test
+    void resourcesAreTakenInTheModulesOrderWhateverOrderTheyAreNamedIn() throws Exception {
+        String tail = UUID.randomUUID().toString().substring(8);
+        UUID earlier = group(UUID.fromString("80000000" + tail), "Lock order earlier");
+        UUID later = group(UUID.fromString("7fffffff" + tail), "Lock order later");
+        CountDownLatch holding = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        Future<?> other = holders.submit(() -> inTransaction(() -> {
+            jdbc.queryForList(
+                    "SELECT id FROM scim_resources WHERE id = ? FOR UPDATE", UUID.class, later);
+            holding.countDown();
+            await(released);
+        }));
+        assertThat(holding.await(30, TimeUnit.SECONDS)).isTrue();
+
+        CountDownLatch release = new CountDownLatch(1);
+        Future<?> writer = holders.submit(() -> inTransaction(() -> {
+            writeLocks.lock(List.of(later, earlier));
+            await(release);
+        }));
+        try {
+            awaitAWaitingLock();
+            assertThat(held(List.of(earlier))).containsExactly(earlier);
+        } finally {
+            released.countDown();
+            other.get(30, TimeUnit.SECONDS);
+            release.countDown();
+            writer.get(30, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
      * A Group the User joined while this write waited for the User's lock — added by the writer
      * holding it — is held too, though it was not there when the write first read the User's
      * Groups.
@@ -218,8 +256,12 @@ class ScimWriteLockAdapterIntegrationTests {
     }
 
     private UUID group(String displayName, UUID... members) {
+        return group(UUID.randomUUID(), displayName, members);
+    }
+
+    private UUID group(UUID id, String displayName, UUID... members) {
         ScimGroup stored = new TransactionTemplate(transactionManager).execute(status ->
-                groups.create(ScimGroup.created(UUID.randomUUID(),
+                groups.create(ScimGroup.created(id,
                         displayName + " " + UUID.randomUUID().toString().substring(0, 8),
                         List.of(members).stream().map(ScimGroupMember::reference).toList(),
                         now())));

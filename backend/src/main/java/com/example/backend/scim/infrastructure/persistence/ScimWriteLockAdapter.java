@@ -76,13 +76,20 @@ class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorTokenLocks {
     }
 
     /**
-     * Nothing to lock, so no statement: the second batch of {@link #lockWithRelated} is empty on
-     * almost every write, and skipping it saves a round trip per write. An empty batch would lock
-     * nothing either way.
+     * One row per statement, in {@link ScimWriteLocks#ORDER}: each statement names one primary
+     * key, so no engine has a second row to reorder it against, and the order of the statements
+     * is the order of the locks. Nothing to lock, so no statement: the second batch of
+     * {@link #lockWithRelated} is empty on almost every write.
+     *
+     * <p>The cost is a round trip per row, which a Group with many members makes visible — a
+     * rename of a Group of two hundred locks two hundred and one rows. A batched statement would
+     * save those trips only where the engine locks in sort order, and splitting the set into
+     * ordered chunks would not help either: inside each chunk the order is the engine's again, and
+     * two writers whose sets overlap in one chunk deadlock as if there were no chunks. The trips
+     * are each an index lookup on a row nobody else holds, against a write that already reads the
+     * Group's membership and advances every member's version in the same transaction.
      */
     private void lockInOrder(Collection<UUID> ids) {
-        if (!ids.isEmpty()) {
-            resources.lockInIdOrder(ids);
-        }
+        ids.stream().sorted(ScimWriteLocks.ORDER).forEach(resources::lockResource);
     }
 }
