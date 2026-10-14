@@ -9,8 +9,11 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * No lock to take in memory: a single-threaded test has no second writer to exclude, and the
- * canonical order is the database's. Each request is recorded, so a test can assert a writer asked
+ * No lock to take in memory: a single-threaded test has no second writer to exclude, so there is
+ * no order to keep either — {@link ScimWriteLocks#ORDER} governs only locks a second writer could
+ * contend for, and the real adapter takes them in it
+ * ({@code ScimWriteLockAdapterIntegrationTests}). Each request is recorded, so a test can assert
+ * a writer asked
  * for the rows it promises to lock — the subject and the named resources, not the related rows
  * only the real module reads. That a granted lock actually excludes a second writer is the real
  * adapter's, proven only against a database ({@code ScimWriteLockAdapterIntegrationTests},

@@ -17,6 +17,7 @@ import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
+import com.example.backend.scim.domain.ScimWriteLocks;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -30,6 +31,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,12 +46,13 @@ import tools.jackson.databind.JsonNode;
  * A SCIM write the database really chooses as a deadlock's victim, and the retry ADR 0015's as-13
  * puts at its outermost transactional boundary.
  *
- * <p>The deadlock is forced rather than raced for. A User PUT locks the User and its Group in one
- * statement, in id order. A second connection, standing for another writer, first holds the row
- * the PUT locks second; once the PUT waits on it, the second connection asks for the row the PUT
- * already holds, and the two wait on each other. PostgreSQL resolves a deadlock by failing the
- * transaction whose wait has lasted the deadlock timeout first — the PUT's, which began waiting
- * before the other did — with SQLState {@code 40P01}.
+ * <p>The deadlock is forced rather than raced for. A User PUT locks the User and its Group one
+ * row at a time, in the lock module's order ({@link ScimWriteLocks#ORDER}). A second connection,
+ * standing for another writer, first holds the row the PUT locks second; once the PUT waits on
+ * it, the second connection asks for the row the PUT already holds, and the two wait on each
+ * other. PostgreSQL resolves a deadlock by failing the transaction whose wait has lasted the
+ * deadlock timeout first — the PUT's, which began waiting before the other did — with SQLState
+ * {@code 40P01}.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -110,9 +113,7 @@ class ScimDeadlockRetryIntegrationTests {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         UUID user = createUser("deadlock-retry-" + tag);
         UUID group = createGroup("Deadlock retry " + tag, List.of(user));
-        List<UUID> inLockOrder = jdbc.queryForList(
-                "SELECT id FROM scim_resources WHERE id IN (?, ?) ORDER BY id",
-                UUID.class, user, group);
+        List<UUID> inLockOrder = inLockOrder(user, group);
 
         CompletableFuture<Optional<ScimUserResource>> put;
         try (Connection other = anotherWriter()) {
@@ -153,9 +154,7 @@ class ScimDeadlockRetryIntegrationTests {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         UUID user = createUser("deadlock-repeat-" + tag);
         UUID group = createGroup("Deadlock repeat " + tag, List.of(user));
-        List<UUID> inLockOrder = jdbc.queryForList(
-                "SELECT id FROM scim_resources WHERE id IN (?, ?) ORDER BY id",
-                UUID.class, user, group);
+        List<UUID> inLockOrder = inLockOrder(user, group);
 
         CompletableFuture<Optional<ScimUserResource>> put;
         try (Connection other = anotherWriter()) {
@@ -192,6 +191,14 @@ class ScimDeadlockRetryIntegrationTests {
     }
 
     // ---- harness -----------------------------------------------------------------------------
+
+    /**
+     * The order the PUT takes these rows in — the lock module's own, so the test holds the right
+     * row on any engine rather than on whichever one sorts {@code uuid}s the module's way.
+     */
+    private static List<UUID> inLockOrder(UUID... ids) {
+        return Stream.of(ids).sorted(ScimWriteLocks.ORDER).toList();
+    }
 
     private List<JsonNode> retried() {
         return logs.records().stream()
