@@ -327,7 +327,10 @@ exists.
 - **A column inventory** accompanies the T-SQL `V1`: every `VARCHAR` column is
   classified as ASCII-only (keeps `n`) or Unicode-capable (`4n`, or `VARCHAR(MAX)`
   where unbounded), Epic identity columns included, and is reviewed with the
-  schema.
+  schema. The SCIM page query's `UNION ALL` casts a branch's text `NULL` to a
+  `VARCHAR` that must be at least as wide as the widest text column it is unioned
+  with — `VARCHAR(1024)` under the ×4 rule today — so widening a sort column means
+  widening that cast in `ScimQuerySql` too.
 - **No first-login insert to make race-safe.** Only SCIM provisions Users: Epic
   Login never creates one (ADR 0013, no just-in-time provisioning).
 - **Database patching.** RDS applies minor versions automatically, and the pinned
@@ -346,6 +349,11 @@ lands:
   `ew`) on attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
   compared values, because SQL Server pads the comparison.
+- **SCIM whitespace-only free text counts as absent.** `pr` and sorting treat an
+  empty string as no value (`<> ''`, `NULLIF(…, '')`), and under SQL Server's
+  padding a value of only spaces compares equal to `''`. A whitespace-only value
+  of an attribute that keeps its whitespace therefore fails `pr` and sorts as a
+  missing value, where PostgreSQL treats it as present.
 - **The UUID tie-break order changes.** Paging that ties on the sort key breaks the
   tie by resource `id` in SQL Server's `uniqueidentifier` order, not lexicographic
   order. Paging is still a total order; only which tied row comes first changes.
