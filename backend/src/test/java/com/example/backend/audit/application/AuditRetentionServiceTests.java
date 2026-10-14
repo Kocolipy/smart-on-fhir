@@ -3,12 +3,12 @@ package com.example.backend.audit.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.observability.EcsLogCapture;
+import com.example.backend.observability.JobRecord;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.ScheduledJobMetrics;
@@ -21,7 +21,6 @@ import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +28,8 @@ import org.springframework.core.env.StandardEnvironment;
 import tools.jackson.databind.JsonNode;
 
 /**
- * What one retention run reports.
+ * What one retention run reports, and what its scheduled run writes. The one summary line, with
+ * every field, is {@code AuditRetentionRunLogTests}'.
  *
  * <p>A retention job is the one thing in this service whose correct behaviour and
  * total failure look identical from outside: rows quietly disappearing and rows
@@ -66,14 +66,14 @@ class AuditRetentionServiceTests {
         AuditRetentionService service = new AuditRetentionService(
                 retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
 
-        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 3));
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 3, 1));
         assertThat(retention.cutoff).isEqualTo(NOW.minus(Duration.ofDays(365)));
         assertThat(lock.attempts()).containsExactly(ScheduledJob.AUDIT_RETENTION);
     }
 
     /**
      * A run that finds the job's lock held does nothing: it deletes nothing, writes no
-     * summary, and reports itself skipped so the run's {@code job-end} says {@code lock-held}.
+     * record, and reports itself skipped so the run's {@code job-end} says {@code lock-held}.
      * The lock it asks for is this job's own.
      */
     @Test
@@ -83,7 +83,7 @@ class AuditRetentionServiceTests {
                 retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
 
-        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(true, 0));
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(true, 0, 0));
         assertThat(retention.calls).isZero();
         assertThat(log.withAction(
                 Level.INFO, LogEvent.LOCAL_ACTION, Operation.AUDIT_RETENTION.local()))
@@ -93,7 +93,7 @@ class AuditRetentionServiceTests {
 
     /**
      * Run as it is scheduled, a run that finds the lock held is {@code job-start} and a
-     * {@code job-end} with reason {@code lock-held} — no summary between them.
+     * {@code job-end} with reason {@code lock-held} — nothing between them.
      */
     @Test
     void aScheduledRunThatFindsTheLockHeldEndsLockHeld() {
@@ -118,36 +118,38 @@ class AuditRetentionServiceTests {
     }
 
     /**
-     * The run's own record keeps what only the job knows — the rows it removed and the period
-     * it removed them by — and leaves the outcome and the duration to the run's
-     * {@code job-end}, which {@code ScheduledJobMetrics} writes around it. It is the run's
-     * summary, not its end, so it is classified {@code info}.
+     * What the run did is reported once, in its result — the audit events it deleted, in its
+     * one batch — for {@code ScheduledJobMetrics} to write as the run's {@code job-end}
+     * {@code record}. The service writes no record of its own.
      */
     @Test
-    void eachRunLogsItsDeletedRowCountAndPeriod() {
-        CountingRetention retention =
-                new CountingRetention(7, Duration.ofMillis(250), clock);
+    void theRunReportsItsDeletedEventsInOneBatchAndWritesNoRecordOfItsOwn() {
         AuditRetentionService service = new AuditRetentionService(
-                retention, new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
+                new CountingRetention(7, Duration.ZERO, clock),
+                new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
 
-        service.deleteAgedOutEvents();
+        assertThat(service.deleteAgedOutEvents().records())
+                .containsExactly(JobRecord.of("audit_event", "deleted", 7L, "batches", 1L));
+        assertThat(log.withAction(
+                Level.TRACE, LogEvent.LOCAL_ACTION, Operation.AUDIT_RETENTION.local()))
+                .isEmpty();
+    }
 
-        Map<String, Object> fields = CapturedLog.fields(onlyRunRecord());
-        assertThat(fields).containsEntry(AuditLogFields.RETENTION_DELETED_ROWS, 7L);
-        assertThat(fields).containsEntry(AuditLogFields.RETENTION_PERIOD, "PT2880H");
-        assertThat(fields).containsEntry(LogEvent.CATEGORY, List.of("batch"));
-        assertThat(fields).containsEntry(LogEvent.TYPE, List.of("info"));
-        assertThat(fields).doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
+    /** A failed run rolled back whole, so what it committed is nothing, in no batch. */
+    @Test
+    void aFailedRunCommittedNoEventInNoBatch() {
+        assertThat(AuditRetentionRun.committedByAFailedRun())
+                .containsExactly(JobRecord.of("audit_event", "deleted", 0L, "batches", 0L));
     }
 
     /**
      * Run as it is scheduled — through {@link ScheduledJobMetrics#instrumentLocked} — a run is
-     * {@code job-start}, this job's summary and {@code job-end}, all three under one
-     * {@code batch.job.run.id}; the next run has another. The end carries the duration the
-     * summary no longer does.
+     * {@code job-start} and its one summary line, the {@code job-end}, both under one
+     * {@code batch.job.run.id}; the next run has another. The end carries the deleted count
+     * and the duration.
      */
     @Test
-    void aScheduledRunIsJobStartTheSummaryAndJobEndUnderOneRunId() {
+    void aScheduledRunIsJobStartAndOneSummaryJobEndUnderOneRunId() {
         AuditRetentionService service = new AuditRetentionService(
                 new CountingRetention(7, Duration.ofMillis(250), clock),
                 new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
@@ -164,13 +166,13 @@ class AuditRetentionServiceTests {
             scheduled.run();
             List<JsonNode> second = onThisThread(ecs);
 
-            assertThat(first).extracting(record -> record.at("/message").asText()).containsExactly(
-                    "Scheduled job started", "Audit retention run complete", "Scheduled job completed");
+            assertThat(first).extracting(record -> record.at("/message").asText())
+                    .containsExactly("Scheduled job started", "Scheduled job completed");
             assertThat(first).extracting(record -> record.at("/batch/job/run/id").asText())
                     .doesNotContain("").containsOnly(first.getFirst().at("/batch/job/run/id").asText());
-            assertThat(first.get(1).at("/audit/retention/deleted_rows").asLong()).isEqualTo(7);
-            assertThat(first.get(2).at("/event/duration_ms").asLong()).isEqualTo(250);
-            assertThat(first.get(2).at("/app/event/action").asText()).isEqualTo("audit.retention");
+            assertThat(first.get(1).at("/record/0/deleted").asLong()).isEqualTo(7);
+            assertThat(first.get(1).at("/event/duration_ms").asLong()).isEqualTo(250);
+            assertThat(first.get(1).at("/app/event/action").asText()).isEqualTo("audit.retention");
             assertThat(second.getFirst().at("/batch/job/run/id").asText())
                     .isNotBlank()
                     .isNotEqualTo(first.getFirst().at("/batch/job/run/id").asText());
@@ -197,17 +199,7 @@ class AuditRetentionServiceTests {
                 runs,
                 clock);
 
-        service.deleteAgedOutEvents();
-
-        assertThat(CapturedLog.fields(onlyRunRecord()))
-                .containsEntry(AuditLogFields.RETENTION_DELETED_ROWS, 0L);
-    }
-
-    private ILoggingEvent onlyRunRecord() {
-        List<ILoggingEvent> records = log.withAction(
-                Level.INFO, LogEvent.LOCAL_ACTION, Operation.AUDIT_RETENTION.local());
-        assertThat(records).hasSize(1);
-        return records.get(0);
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 0, 1));
     }
 
     /**

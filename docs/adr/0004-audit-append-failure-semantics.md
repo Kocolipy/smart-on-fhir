@@ -14,7 +14,8 @@ whose transaction has already committed (`AuditTrailService`). How a failing
 session store answers, on every revocation trigger, is the 2026-10-10 addendum below;
 where the rule is expressed — once, from each event's kind — is the 2026-10-12
 addendum; which connections a fail-open append commits on is the 2026-10-13
-addendum; where a refused SCIM write is recorded is the second 2026-10-13 addendum.
+addendum; where a refused SCIM write is recorded is the second 2026-10-13 addendum;
+the SQLState the append-only trigger refuses with is the 2026-10-14 addendum.
 
 To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
 PostgreSQL), in the database enforcement these appends write into: the audit trail
@@ -282,3 +283,28 @@ appends through `AuditTrail` like every other caller. One consequence for the
 starvation analysis above: a SCIM write's refusal is now appended after its
 transaction has rolled back and released its connection and its write locks, so it
 no longer holds a main-pool connection while it waits for the audit append pool.
+
+## Addendum (2026-10-14): The append-only trigger refuses with a state of its own
+
+The trigger guarding `audit_events` raised its refusal as `insufficient_privilege`
+(`42501`), the state a missing grant raises — in V1, and still in V3, which moved the
+guard from a name check to role membership (#66, the superseding note under Status). A
+log reader classifies a database failure by its SQLState (ADR 0003, "The database
+category mapping"), and the two need different people: a permission refusal is
+`cert/auth`, this service's credential or rights to check, while the trigger's refusal
+is `database` — something tried to rewrite the audit trail — and must be investigated
+as that.
+
+`V4__audit_trigger_refusal_state.sql` replaces the trigger's function so it raises
+`triggered_data_change_violation` (`27000`), the SQL standard's class for a change a
+trigger refused. Its body is V3's, with only the error code changed: every `UPDATE`
+refused from every principal, a `DELETE` admitted only from a member of
+`backend_audit_retention` that does not administer it, the same message, the same
+return value, the same pinned `search_path` and the same trigger, since the function
+keeps its identity. The grants still refuse the app login's `UPDATE` and `DELETE`, and
+the retention login's `UPDATE`, first, with `42501`; what reaches the trigger is a
+principal the grants let through — the owner login, which owns the table — so the two
+refusals now carry different states.
+`DatabaseFailureLogIntegrationTests.anAuditTriggerRefusalIsADatabaseError` drives the
+real trigger, as the owner login. ADR 0015 classifies its T-SQL trigger's refusals the
+same way, as `database`.

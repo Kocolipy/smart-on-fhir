@@ -34,6 +34,8 @@ public final class ScheduledJobSpec {
     private final Map<String, Object> startupFields;
     private final List<RunCounter> counters;
 
+    private final List<JobRecord> committedOnFailure;
+
     private ScheduledJobSpec(
             String name,
             Operation operation,
@@ -41,7 +43,8 @@ public final class ScheduledJobSpec {
             String description,
             Supplier<? extends SkippableJobRun> task,
             Map<String, Object> startupFields,
-            List<RunCounter> counters) {
+            List<RunCounter> counters,
+            List<JobRecord> committedOnFailure) {
         this.name = name;
         this.operation = operation;
         this.cron = cron;
@@ -49,6 +52,7 @@ public final class ScheduledJobSpec {
         this.task = task;
         this.startupFields = startupFields;
         this.counters = counters;
+        this.committedOnFailure = committedOnFailure;
     }
 
     /**
@@ -64,14 +68,15 @@ public final class ScheduledJobSpec {
             String description,
             Supplier<? extends SkippableJobRun> task) {
         return new ScheduledJobSpec(
-                name, operation, cron, description, task, Map.of(), List.of());
+                name, operation, cron, description, task, Map.of(), List.of(), List.of());
     }
 
     /** This job with {@code field} on its startup record, after any added before it. */
     public ScheduledJobSpec startupField(String field, Object value) {
         Map<String, Object> fields = new LinkedHashMap<>(startupFields);
         fields.put(field, value);
-        return new ScheduledJobSpec(name, operation, cron, description, task, fields, counters);
+        return new ScheduledJobSpec(
+                name, operation, cron, description, task, fields, counters, committedOnFailure);
     }
 
     /**
@@ -81,7 +86,25 @@ public final class ScheduledJobSpec {
     public ScheduledJobSpec countedAs(String countField, String counter, String counterDescription) {
         List<RunCounter> all = new ArrayList<>(counters);
         all.add(new RunCounter(countField, counter, counterDescription));
-        return new ScheduledJobSpec(name, operation, cron, description, task, startupFields, all);
+        return new ScheduledJobSpec(
+                name, operation, cron, description, task, startupFields, all, committedOnFailure);
+    }
+
+    /**
+     * This job with what a run of it had committed when it failed, written as the failed
+     * {@code job-end}'s {@code record} array, as a run that did the work writes its own
+     * ({@link SkippableJobRun#records}). A failed run returns no report, so the job states it
+     * here.
+     *
+     * <p>This is what a run that failed before committing anything reports: every count at zero.
+     * What the body writes in the run's own transaction (the scheduled-job run module) is rolled
+     * back with it. A body whose writes commit in transactions of their own — on another pool, or
+     * per batch — reports each as it commits ({@link JobProgress#committed}), and a run that fails
+     * after one did reports that in place of this.
+     */
+    public ScheduledJobSpec committedOnFailure(List<JobRecord> committed) {
+        return new ScheduledJobSpec(name, operation, cron, description, task, startupFields,
+                counters, List.copyOf(committed));
     }
 
     String name() {
@@ -110,5 +133,9 @@ public final class ScheduledJobSpec {
 
     List<RunCounter> counters() {
         return counters;
+    }
+
+    List<JobRecord> committedOnFailure() {
+        return committedOnFailure;
     }
 }

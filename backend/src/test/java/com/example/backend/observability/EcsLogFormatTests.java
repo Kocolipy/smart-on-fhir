@@ -474,8 +474,8 @@ class EcsLogFormatTests {
             List<JsonNode> runRecords = logs.records().stream()
                     .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
                     .toList();
-            String trace = onlyRecordWithMessage("Audit retention run complete").at("/trace/id").asText();
-            String runId = onlyRecordWithMessage("Audit retention run complete")
+            String trace = onlyRecordWithMessage("Scheduled job completed").at("/trace/id").asText();
+            String runId = onlyRecordWithMessage("Scheduled job completed")
                     .at("/batch/job/run/id").asText();
             assertThat(trace).matches(TRACE_ID);
             assertThat(runId).isNotBlank();

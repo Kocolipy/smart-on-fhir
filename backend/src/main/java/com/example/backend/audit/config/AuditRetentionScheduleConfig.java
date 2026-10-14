@@ -1,6 +1,7 @@
 package com.example.backend.audit.config;
 
 import com.example.backend.audit.application.AuditLogFields;
+import com.example.backend.audit.application.AuditRetentionRun;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.ScheduledJobMetrics;
@@ -59,6 +60,7 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
                 .of(ScheduledJob.AUDIT_RETENTION.jobName(),
                         ScheduledJob.AUDIT_RETENTION.operation(), policy.schedule(),
                         RETENTION_DESCRIPTION, retention::deleteAgedOutEvents)
-                .startupField(AuditLogFields.RETENTION_PERIOD, policy.period().toString()));
+                .startupField(AuditLogFields.RETENTION_PERIOD, policy.period().toString())
+                .committedOnFailure(AuditRetentionRun.committedByAFailedRun()));
     }
 }

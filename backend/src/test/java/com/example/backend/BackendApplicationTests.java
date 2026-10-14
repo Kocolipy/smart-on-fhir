@@ -66,8 +66,9 @@ class BackendApplicationTests {
                 versions.add(rows.getString("version"));
             }
             // V2: audit events name the connector token they concern. V3: separate
-            // database logins replace the role switch.
-            assertThat(versions).containsExactly("1", "2", "3");
+            // database logins replace the role switch. V4: the append-only trigger
+            // refuses with a state of its own.
+            assertThat(versions).containsExactly("1", "2", "3", "4");
         }
     }
 }

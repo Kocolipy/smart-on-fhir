@@ -1,5 +1,6 @@
 package com.example.backend.web;
 
+import com.example.backend.observability.DatabaseFailureCategory;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.ErrorCategory;
@@ -118,7 +119,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static ResponseEntity<Object> fault(Exception fault, HttpStatusCode statusCode) {
         int status = statusCode.value();
-        LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status, ErrorCategory.APPLICATION,
+        LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status,
+                        DatabaseFailureCategory.of(fault),
                         Category.PROCESS, Type.ERROR)
                 .setCause(attached(fault))
                 .addKeyValue(LogEvent.REASON, fault.getClass().getSimpleName())

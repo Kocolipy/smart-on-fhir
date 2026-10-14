@@ -166,6 +166,30 @@ class ApiExceptionHandlerTests {
                 .isEqualTo(violation.getStackTrace());
     }
 
+    /**
+     * A data-access failure is the database's, so its {@code error.category} says so, while
+     * {@code error.code} stays the status the request was answered with (ADR 0015's mapping).
+     */
+    @Test
+    void aDataAccessFailureIsCategorisedAsADatabaseErrorUnderTheAnsweredStatus() {
+        handler.handleUnexpected(new DataIntegrityViolationException("refused",
+                new java.sql.SQLException("driver", "22001")));
+
+        assertThat(CapturedLog.fields(onlyRecord()))
+                .containsEntry(LogEvent.ERROR_CODE, 500)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "database");
+    }
+
+    /** The database refusing this service's own rights needs its configuration checked. */
+    @Test
+    void aPermissionRefusalIsCategorisedAsCertAuth() {
+        handler.handleUnexpected(new DataIntegrityViolationException("refused",
+                new java.sql.SQLException("driver", "42501")));
+
+        assertThat(CapturedLog.fields(onlyRecord()))
+                .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth");
+    }
+
     @Test
     void anyOtherExceptionIsAttachedAsItself() {
         IllegalArgumentException failure = new IllegalArgumentException("x");

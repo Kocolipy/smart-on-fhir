@@ -4,6 +4,8 @@ import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ProtectedResourceException;
@@ -154,6 +156,7 @@ public class ScimGroupService {
      * own — this one is already doomed.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public ScimGroupResource create(AuthenticatedConnector connector, NewScimGroup command) {
         ScimAttributeLimits.requireGroupDisplayNameWithin(command.displayName());
         ScimAttributeLimits.requireExternalIdWithin(command.externalId());
@@ -219,6 +222,7 @@ public class ScimGroupService {
      * {@code members} empties the Group, and the refusals below see that as the removal it is.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public Optional<ScimGroupResource> replace(
             AuthenticatedConnector connector,
             UUID id,
@@ -251,6 +255,7 @@ public class ScimGroupService {
      * because the User it must not mutate ends up as it started.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public Optional<ScimGroupResource> patch(
             AuthenticatedConnector connector,
             UUID id,
@@ -324,6 +329,7 @@ public class ScimGroupService {
      * failure.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public boolean delete(
             AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
         Optional<ScimGroup> stored = lockedForWrite(id, List.of());

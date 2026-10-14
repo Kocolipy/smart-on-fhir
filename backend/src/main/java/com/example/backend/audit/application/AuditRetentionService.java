@@ -2,26 +2,25 @@ package com.example.backend.audit.application;
 
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
-import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.JobProgress;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import java.time.Clock;
 import java.time.Instant;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Enforces the retention window: one pass that removes every event older than it.
+ * Enforces the retention window: one pass that removes every event older than it, in one
+ * delete statement — one batch, committed in a transaction of its own on the retention pool.
  *
- * <p>Each run reports what it did — how many rows it removed — because a retention
- * job is otherwise the one thing in the service whose correct behaviour and total
- * failure look identical from outside. A run that deletes nothing is logged too:
- * "nothing had aged out" and "the job has not run for a month" are different facts
- * and an operator needs to be able to tell them apart. The run's start, its end, how
- * long it took and whether it failed are {@code ScheduledJobMetrics}' to log, around
- * this record; scheduled through it, this record carries the run's
- * {@code batch.job.run.id}.
+ * <p>Each run reports what it did — how many rows it removed, in how many batches
+ * ({@link AuditRetentionRun}) — because a retention job is otherwise the one thing in the
+ * service whose correct behaviour and total failure look identical from outside. A run that
+ * deletes nothing reports too: "nothing had aged out" and "the job has not run for a month" are
+ * different facts and an operator needs to be able to tell them apart. The report is written
+ * once, by {@code ScheduledJobMetrics}, as the run's one summary line — its {@code job-end},
+ * with the outcome, {@code batch.job.status}, the {@code record} and the duration — so this
+ * service writes no record of its own, and no line per batch (ADR 0003, "Scheduled jobs").
  *
  * <h2>Serialization</h2>
  *
@@ -36,11 +35,14 @@ import org.springframework.stereotype.Service;
  * table lets delete — in a transaction of the retention pool's own, which the adapter opens. It
  * commits inside the run's transaction on the main pool and releases nothing: the lock is the
  * module's, held for the whole run whatever transactions the body opens of its own (ADR 0005).
+ *
+ * <p>So the delete has committed before the run's own transaction does, and a run can fail after
+ * it — when that transaction's commit fails. The run reports the committed batch as it commits
+ * ({@link JobProgress#committed}), so the failed run's line counts it rather than the nothing a
+ * run whose delete failed committed ({@link AuditRetentionRun#committedByAFailedRun}).
  */
 @Service
 public class AuditRetentionService {
-
-    private static final Logger log = LoggerFactory.getLogger(AuditRetentionService.class);
 
     private final AuditEventRetention retention;
     private final AuditRetentionPolicy policy;
@@ -69,14 +71,15 @@ public class AuditRetentionService {
                 .orElseGet(AuditRetentionRun::skippedRun);
     }
 
-    /** The run's body, inside the run's transaction and under the job's lock. */
+    /**
+     * The run's body, inside the run's transaction and under the job's lock: one delete
+     * statement, which is the run's one batch, reported committed once it returns.
+     */
     private AuditRetentionRun deleteHoldingTheLock() {
         Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
-        LogEvent.jobSummary(log, ScheduledJob.AUDIT_RETENTION.operation())
-                .addKeyValue(AuditLogFields.RETENTION_PERIOD, policy.period().toString())
-                .addKeyValue(AuditLogFields.RETENTION_DELETED_ROWS, deleted)
-                .log();
-        return new AuditRetentionRun(false, deleted);
+        AuditRetentionRun run = new AuditRetentionRun(false, deleted, 1);
+        JobProgress.committed(run.records());
+        return run;
     }
 }

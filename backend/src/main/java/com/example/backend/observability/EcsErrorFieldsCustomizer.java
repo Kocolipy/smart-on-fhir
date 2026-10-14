@@ -3,6 +3,7 @@ package com.example.backend.observability;
 import ch.qos.logback.classic.pattern.ThrowableProxyConverter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import java.util.List;
 import java.util.Set;
@@ -28,11 +29,17 @@ import org.springframework.boot.logging.structured.StructuredLoggingJsonMembersC
  * {@code error} object carrying all six fields. The three throwable fields are written as the
  * formatter writes them — the same accessors, and the stack trace from the same
  * {@link StackTracePrinter} or {@link ThrowableProxyConverter} the encoder holds — so a
- * record with an exception and no classification encodes byte-for-byte as it did before.
+ * record with an exception and no classification, and no SQL exception, encodes byte-for-byte
+ * as it did before.
  *
  * <p>The replacement is added under a placeholder name ({@link #PENDING}) and renamed to
  * {@code error} when written: a path filter sees a member's name as it was added, so the
  * filter that drops the formatter's {@code error} cannot see — and drop — this one.
+ *
+ * <p>The throwable's message and stack trace are written with every SQL exception's text
+ * redacted ({@link SqlExceptionRedaction}): this is the one place every structured record with
+ * an exception passes through, whoever logged it, so it is where that redaction holds for all
+ * of them.
  *
  * <p>Applied through {@code logging.structured.json.customizer} in {@code logging.yaml}, with
  * {@link EcsTimestampCustomizer}. See the 2026-10-02 (#94) addendum to
@@ -81,7 +88,7 @@ public final class EcsErrorFieldsCustomizer
                     .as(IThrowableProxy::getClassName);
             error.add("message", ILoggingEvent::getThrowableProxy)
                     .whenNotNull()
-                    .as(IThrowableProxy::getMessage);
+                    .as(EcsErrorFieldsCustomizer::message);
             error.add("stack_trace")
                     .when(event -> event.getThrowableProxy() != null)
                     .as(this::stackTrace);
@@ -117,12 +124,39 @@ public final class EcsErrorFieldsCustomizer
         return null;
     }
 
-    /** As Boot's formatter renders it: the configured printer, else the encoder's converter. */
+    /**
+     * The throwable's message as the record may carry it: redacted where it is, or quotes, an
+     * SQL exception's ({@link SqlExceptionRedaction}).
+     */
+    static @Nullable String message(IThrowableProxy proxy) {
+        return proxy instanceof ThrowableProxy live
+                ? SqlExceptionRedaction.redacted(live.getThrowable()).getMessage()
+                : proxy.getMessage();
+    }
+
+    /**
+     * As Boot's formatter renders it — the configured printer, else the encoder's converter —
+     * from the throwable as the record may carry it ({@link SqlExceptionRedaction}): every class
+     * and frame, and no SQL exception's text.
+     */
     String stackTrace(ILoggingEvent event) {
-        if (stackTracePrinter != null
-                && event.getThrowableProxy() instanceof ThrowableProxy proxy) {
-            return stackTracePrinter.printStackTraceToString(proxy.getThrowable());
+        if (event.getThrowableProxy() instanceof ThrowableProxy proxy) {
+            Throwable shown = SqlExceptionRedaction.redacted(proxy.getThrowable());
+            return stackTracePrinter != null
+                    ? stackTracePrinter.printStackTraceToString(shown)
+                    : throwableProxyConverter.convert(carrying(new ThrowableProxy(shown)));
         }
         return throwableProxyConverter.convert(event);
+    }
+
+    /**
+     * An event carrying {@code shown} as its throwable, for the converter to print. The
+     * converter reads nothing else of an event: Boot configures it with no evaluators, and its
+     * output is the throwable's alone.
+     */
+    static ILoggingEvent carrying(ThrowableProxy shown) {
+        LoggingEvent event = new LoggingEvent();
+        event.setThrowableProxy(shown);
+        return event;
     }
 }

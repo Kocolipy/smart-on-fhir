@@ -153,19 +153,20 @@ class AuditRetentionSerializationIntegrationTests {
             List<JsonNode> secondRun = onThread(secondThread);
 
             assertThat(firstRun).extracting(record -> record.at("/message").asText())
-                    .containsExactly("Scheduled job started", "Audit retention run complete",
-                            "Scheduled job completed");
-            assertThat(firstRun.get(1).at("/audit/retention/deleted_rows").asLong())
+                    .containsExactly("Scheduled job started", "Scheduled job completed");
+            assertThat(firstRun.get(1).at("/record/0/deleted").asLong())
                     .isEqualTo(agedOutBefore)
                     .isGreaterThanOrEqualTo(2);
-            assertThat(firstRun.get(2).at("/event/outcome").asText()).isEqualTo("success");
-            assertThat(firstRun.get(2).at("/event/reason").isMissingNode())
+            assertThat(firstRun.get(1).at("/batch/job/status").asText()).isEqualTo("completed");
+            assertThat(firstRun.get(1).at("/event/outcome").asText()).isEqualTo("success");
+            assertThat(firstRun.get(1).at("/event/reason").isMissingNode())
                     .as("the run that did the work has no skip reason").isTrue();
 
             assertThat(secondRun).extracting(record -> record.at("/message").asText())
                     .containsExactly("Scheduled job started",
                             "Scheduled job skipped: another run holds its lock");
             assertThat(secondRun.get(1).at("/event/reason").asText()).isEqualTo("lock-held");
+            assertThat(secondRun.get(1).at("/batch/job/status").asText()).isEqualTo("skipped");
             assertThat(secondRun.get(1).at("/event/outcome").asText()).isEqualTo("success");
             assertThat(secondRun.get(1).at("/batch/job/name").asText()).isEqualTo("audit-retention");
 
@@ -197,14 +198,13 @@ class AuditRetentionSerializationIntegrationTests {
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, agedOut)).isZero();
         assertThat(firstRun).extracting(record -> record.at("/message").asText())
-                .containsExactly("Scheduled job started", "Audit retention run complete",
-                        "Scheduled job completed");
-        assertThat(firstRun.get(1).at("/audit/retention/deleted_rows").asLong())
+                .containsExactly("Scheduled job started", "Scheduled job completed");
+        assertThat(firstRun.get(1).at("/record/0/deleted").asLong())
                 .isGreaterThanOrEqualTo(1);
+        assertThat(firstRun.get(1).at("/record/0/batches").asLong()).isEqualTo(1);
         assertThat(secondRun).extracting(record -> record.at("/message").asText())
                 .as("the first run's commit released the lock")
-                .containsExactly("Scheduled job started", "Audit retention run complete",
-                        "Scheduled job completed");
+                .containsExactly("Scheduled job started", "Scheduled job completed");
     }
 
     private Runnable theScheduledRetentionTask() {

@@ -86,7 +86,7 @@ class PlantedRecords {
                         Category.DATABASE, Type.ERROR)
                 .log();
         // ok: be-log-record-outside-log-event
-        LogEvent.jobSummary(log, Operation.AUDIT_RETENTION).log();
+        LogEvent.deadlockRetried(log, Operation.SCIM_WRITE).log();
         // ok: be-log-record-outside-log-event
         LogEvent.withError(LogEvent.refused(log, Operation.HTTP_REQUEST_REFUSAL,
                         Category.PROCESS, Type.DENIED), 400, ErrorCategory.DATA, false)
