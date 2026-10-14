@@ -17,10 +17,13 @@ instances.
 
 ## Run locally
 
-Start Redis and PostgreSQL:
+Copy `.env.example` to `.env`, then start Redis and PostgreSQL and create the
+local database logins (see [Database logins](#database-logins)):
 
 ```bash
-docker compose up -d redis postgres
+make infra-up        # from the repository root: both containers, then the logins
+# or, from backend/:
+docker compose up -d --wait redis postgres && ./scripts/local-db-logins.sh
 ```
 
 Start the application:
@@ -30,7 +33,9 @@ Start the application:
 ```
 
 Spring Boot does not read `.env` itself, so export it first (`make dev` from the
-repository root does). Without `APP_DEV_FIXTURES_ENABLED=true` and
+repository root does). It carries the three database logins, which have no
+defaults, and `SPRING_PROFILES_ACTIVE=local`, the profile that runs the
+migrations at startup. Without `APP_DEV_FIXTURES_ENABLED=true` and
 `APP_DEV_FIXTURES_PASSWORD` from it, startup refuses the shipped development
 role mapping, because the Groups it names do not exist; see
 [Role mapping](#role-mapping).
@@ -144,9 +149,9 @@ Copy `.env.example` to `.env` if your runtime loads dotenv files, or export the
 variables in your shell. The defaults connect to Redis at `localhost:6379`,
 PostgreSQL at `localhost:5432`, and expire sessions after 15 minutes of
 inactivity — the same value every environment uses, including deployed ones
-(`infra/infrastructure.yaml`), so the SPA can rely on a single window. Override
-`DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` in deployed
-environments.
+(`infra/infrastructure.yaml`), so the SPA can rely on a single window. The
+database credentials have no defaults at all: set the logins
+[Database logins](#database-logins) lists, in every environment.
 
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
@@ -367,7 +372,8 @@ make epic-launcher-up     # Postgres, Redis and the launcher on http://localhost
 make epic-launcher-down   # stops all three; `make infra-down` leaves the launcher up
 ```
 
-The launcher is plain `http`, so the backend must run in the **`dev` profile**,
+The launcher is plain `http`, so the backend must run in the **`dev` profile**
+(beside `local`, which runs the migrations),
 the only one that accepts `http` Epic URLs (D21). That profile alone also
 accepts the launcher's relative `fhirUser` (`Practitioner/{id}`); outside it,
 `fhirUser` must be the absolute `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. Never
@@ -376,7 +382,7 @@ these in place of the Epic lines in `.env`:
 
 | Variable                 | Value for the launcher                           |
 | ------------------------ | ------------------------------------------------ |
-| `SPRING_PROFILES_ACTIVE` | `dev`                                            |
+| `SPRING_PROFILES_ACTIVE` | `local,dev`                                      |
 | `APP_EPIC_ENABLED`       | `true`                                           |
 | `APP_EPIC_FHIR_BASE`     | `http://localhost:9009/v/r4/fhir`                |
 | `APP_EPIC_OAUTH_ISSUER`  | `http://localhost:9009/v/r4/fhir` (the same URL) |
@@ -452,9 +458,9 @@ transaction on the main pool.
 
 The pool has **no credentials of its own** and no URL setting: it opens its
 connections with the main datasource's URL, username and password
-(`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`) and runs the same
-`connection-init-sql`, so appends run as `backend_app` like every other
-statement. It starts lazily, on the first fail-open append. An append that
+(`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`), so appends run as
+the app login like every other request's statement, never as the owner login.
+It starts lazily, on the first fail-open append. An append that
 cannot get a connection within the timeout is lost behind the `ERROR`
 `audit.append` alert, as any failed fail-open append is. The pool is named
 `audit-append` in Hikari's log lines.
@@ -552,37 +558,100 @@ locked by the dormancy job once the lockout window has
 passed since its creation, last real login, reactivation or Unlock. The completed
 change moves the basis.
 
-### Audit trail database roles
+### Database logins
 
-The audit table is append-only, and that is a property of the database rather than
-of the code writing to it. The `V1` migration creates two roles:
+The service reaches PostgreSQL as **three logins**, each holding only its own
+privileges, and nothing switches role on a connection (ADR 0015, "Runtime
+model"; `NoRoleSwitchTest`, in the `arch` tests, holds that no source
+or configuration file issues `SET ROLE`):
 
-- **`backend_app`** — what every runtime connection assumes, through
-  `spring.datasource.hikari.connection-init-sql`. It holds full DML on the tables
-  whose lifecycle the application owns (the `scim_*` directory tables and
-  `user_counters`) and narrower grants where a table's rule is narrower:
-  `SELECT`/`INSERT` only on `scim_tombstones` and `audit_events`, no `UPDATE` on
-  `scim_user_password_history`, and `SELECT`/`UPDATE` only on
-  `scheduled_job_locks`, so the runtime role cannot remove the row a job
-  serializes on. An `UPDATE` or `DELETE` of a recorded event from application code
-  is refused by the server. The migration's `GRANT` statements are the exact list.
-- **`backend_audit_retention`** — holds `SELECT`/`UPDATE`/`DELETE` on `audit_events` and is
-  reserved for the retention job, which assumes it with a transaction-scoped
-  `SET LOCAL ROLE` and reverts on commit.
+| Login               | Variables                                                    | Used by                                                                     | Member of                 |
+| ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
+| **app login**       | `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | the main pool (`app`) and the audit append pool (`audit-append`)            | `backend_app`             |
+| **retention login** | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | the audit retention job's own pool (`retention`) and nothing else           | `backend_audit_retention` |
+| **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | — (owns the schema)       |
 
-Beside the grants the table carries a `BEFORE UPDATE OR DELETE` trigger that
-refuses the statement whatever role issues it, the owning role included, unless
-that role is the retention role. Grants say nothing about a connection that arrives
-as the owner — a console session, or a deployment that never set the runtime role —
-so the trigger is what makes append-only survive a misconfiguration.
+`DATABASE_URL` is the one database all three reach. **None of the six login variables
+has a default** — this repository is public — so a missing one fails startup.
+The test JVMs drop all of them (`pom.xml`).
 
-Because the runtime role cannot create tables, and does not exist until the
-migration that creates it has run, **Flyway connects separately**:
-`spring.flyway.user`/`password` default to the same `DATABASE_USERNAME` /
-`DATABASE_PASSWORD` credentials, giving migrations a connection outside the pool
-that keeps its privileges. Override them if your deployment migrates as a different
-role than it serves as. A later migration that adds a table the application writes
-must grant `backend_app` on it.
+- **`backend_app`** holds full DML on the tables whose lifecycle the application
+  owns (the `scim_*` directory tables and `user_counters`) and narrower grants
+  where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`
+  and `audit_events`, no `UPDATE` on `scim_user_password_history`, and
+  `SELECT`/`UPDATE` only on `scheduled_job_locks`, so the app login cannot remove
+  the row a job serializes on. An `UPDATE` or `DELETE` of a recorded event from
+  application code is refused by the server. The migrations' `GRANT` statements
+  are the exact list; a later migration that adds a table the application writes
+  must grant `backend_app` on it.
+- **`backend_audit_retention`** holds `SELECT`/`DELETE` on `audit_events` and
+  nothing else (its `UPDATE` grant was revoked by `V3`). Only the audit retention
+  adapter reaches the retention pool.
+
+Beside the grants the audit table carries a `BEFORE UPDATE OR DELETE` trigger
+that refuses **every** `UPDATE`, from every principal, and every `DELETE` unless
+the caller is a member of `backend_audit_retention` that does not administer it.
+That second half is what refuses the owner login, which owns the table — so the
+grants do not bind it — and holds the role `WITH ADMIN OPTION` only so it can
+grant it. Append-only therefore survives a console session or a misused owner
+credential. `AuditAppendOnlyIntegrationTests` connects as each login and asserts
+each refusal.
+
+The pools: the main pool binds every `spring.datasource.hikari.*` setting as
+before, and is named `app`; the retention pool holds two connections and binds
+its login from `app.datasource.retention.*`. Both wait at most 10 s for a
+connection, and both appear by name in the `db` health indicator
+(`dataSource`, `auditRetentionDataSource`) and in the `hikaricp_*` series
+(`pool="app"`, `pool="retention"`). The retention pool starts on first use — its
+first run, or the first health check.
+
+A retention run takes the scheduled job's lock on the main pool, as the app
+login, and holds it for the whole run; its deletes commit in transactions of the
+retention pool's own transaction manager inside that run (ADR 0005).
+
+#### Where migrations run
+
+Flyway runs as the owner login, and **only in the `local`, `test` and `migrate`
+profiles**; every other profile — a deployment's included — runs with it off,
+and `ddl-auto: validate` still fails startup on a schema that drifted.
+`MigrationProfilesTests` holds that, and that the deployed configuration reads no
+owner credential.
+
+- **A deployment** runs the **migrate step** before the service: the same JAR,
+  started at its migrate entry point, with no web server, and exits.
+
+  ```bash
+  java -Dloader.main=com.example.backend.database.config.MigrationStep \
+      -cp backend.jar org.springframework.boot.loader.launch.PropertiesLauncher
+  ```
+
+  It needs `DATABASE_URL`, `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`
+  and the two other logins' **names** (`DATABASE_USERNAME`,
+  `DATABASE_RETENTION_USERNAME`) — no other password. A failed migration exits
+  non-zero, and the deploy does not start the service (`/infra/README.md`,
+  "Migrate step"). The service is then given the app and retention logins only.
+
+- **Locally**, `SPRING_PROFILES_ACTIVE=local` (`.env.example`) migrates at
+  startup; **the tests** migrate each context's database as the owner login
+  (`ContainerTestConfiguration`).
+
+The migrations learn the app and retention logins' names as the placeholders
+`app_login` and `retention_login`, and `V3` makes each a member of its role,
+quoting the name. `MigrationLoginNames` refuses a name that does not match
+`^[a-z][a-z0-9_]{2,30}$`, or the two naming one login, before Flyway runs a
+statement.
+
+#### Local login setup
+
+Locally the owner login is the compose superuser (`backend`/`backend`), which
+already owns the `backend` database. The app and retention logins are created by
+`scripts/local-db-logins.sh` from the values in `.env` — `make infra-up` and the
+E2E runs call it once Postgres is healthy. It is idempotent: it creates a login
+that is missing and resets each one's password, so run it again after changing
+`.env`. With plain `docker compose up`, run it yourself before the first start.
+The roles come from `V1` and the memberships from `V3`, so the script grants
+nothing. A deployment creates all three logins with `infra/db-bootstrap.sh`
+instead.
 
 ### Session storage
 
@@ -671,7 +740,7 @@ The fast gate is an explicit class list in the script: every test class that
 starts no Spring context and no container. Its run fails if the log shows
 either, so a class that grows a `@SpringBootTest` has to move out. Subsystem
 names are the test packages (`arch`, `auth`, `scim`, `audit`, `authorization`,
-`contract`, `observability`, `counter`, `lifecycle`, `scheduling`, `web`);
+`contract`, `observability`, `counter`, `database`, `lifecycle`, `scheduling`, `web`);
 `BackendApplicationTests`, at the package root, runs only in the broad gate.
 
 The test JVMs drop every `.env.example` key from their environment
@@ -697,6 +766,18 @@ in `DormancyServiceTests`, `anotherJobsLockBeingHeldDoesNotStopARetentionRun` in
 `ScheduledJobRunIntegrationTests` (five tests) joins the shared context. The
 baseline gate after: `Tests run: 4813, Failures: 0, Errors: 0, Skipped: 0`, up from
 4803 on bc8bc92.
+
+Separate database logins, 2026-10-14 (#66): the test contexts now connect as the
+app and retention logins and migrate as the owner login (`ContainerTestConfiguration`),
+with `DatabaseLogins` for the tests that must speak as another principal. New:
+`DatabasePoolsIntegrationTests` (joins the shared context), `MigrationStepIntegrationTests`
+(starts three Flyway-only contexts of the migrate step, no service context),
+`DataSourceConfigTests` and `AuditRetentionPoolConfigTests` (application context
+runners, no container), and `MigrationLoginNamesTests`, `MigrationProfilesTests` and
+`NoRoleSwitchTest` (fast gate). The role-switch assertion
+`theDeployedConfigurationMakesTheRuntimeRoleTheApplicationsOwn` was removed with the
+switch it pinned. The baseline gate after: `Tests run: 4860, Failures: 0, Errors: 0,
+Skipped: 0`, up from 4813 on 3d54d0d; 2:24 min against 2:48.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

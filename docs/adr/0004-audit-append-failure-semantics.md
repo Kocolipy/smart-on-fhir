@@ -23,6 +23,19 @@ retention role assumed with `SET LOCAL ROLE` and a PL/pgSQL trigger. The
 fail-closed/fail-open axis this ADR decides is unchanged. The superseding note
 lands with the ticket that changes the mechanism.
 
+**Superseded in part (2026-10-14, #66): the role switch.** On PostgreSQL already,
+the role-switching mechanism is gone. Every statement this ADR's appends write runs
+as the **app login**, a member of `backend_app` only — the main pool and the audit
+append pool both connect as it, with no `connection-init-sql` — and the retention
+job deletes as the **retention login**, a member of `backend_audit_retention` only,
+on a pool of its own; nothing issues `SET ROLE` or `SET LOCAL ROLE`. The retention
+role keeps `SELECT, DELETE` (its `UPDATE` grant is revoked), and the trigger refuses
+every `UPDATE` from every principal and every `DELETE` unless the caller is a
+member of `backend_audit_retention` that does not administer it — so the owner
+login, which migrates out of process and is never held by the service, is refused
+too. Wherever this ADR or its addenda say "runtime role" or `SET ROLE backend_app`,
+read the app login. The T-SQL trigger is still ADR 0015's.
+
 ## Context
 
 The audit trail records what the application already does: accepted and refused
@@ -208,9 +221,10 @@ main pool:
   connection timeout, both configurable (`APP_AUDIT_POOL_SIZE`,
   `APP_AUDIT_POOL_TIMEOUT`; `backend/README.md`). The size is bounded to two or
   three: a configuration outside that fails startup. It has no credentials of its
-  own: it reads the main pool's URL, username, password and `connection-init-sql`
-  off the main pool, so an append runs as the same login and the same runtime role
-  (`SET ROLE backend_app`) as every other statement.
+  own: it reads the main pool's URL, username and password off the main pool, so
+  an append runs as the same login as every other statement — the app login,
+  since #66 (it copied `connection-init-sql` and so `SET ROLE backend_app` until
+  then; see the superseding note under Status).
 - An append is one JDBC `INSERT` on an auto-committing connection
   (`IsolatedAuditEventPersistenceAdapter`, behind the `IsolatedAuditEventRepository`
   port): a transaction of its own by construction, with no transaction manager to
@@ -268,4 +282,3 @@ appends through `AuditTrail` like every other caller. One consequence for the
 starvation analysis above: a SCIM write's refusal is now appended after its
 transaction has rolled back and released its connection and its write locks, so it
 no longer holds a main-pool connection while it waits for the audit append pool.
-
