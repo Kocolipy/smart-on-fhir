@@ -21,26 +21,25 @@ import org.springframework.data.repository.query.Param;
 interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UUID> {
 
     /**
-     * Locks these resource rows {@code FOR UPDATE} until the transaction ends, one at a time in
-     * ascending id order, and reports the ids that exist.
+     * Locks this one resource row {@code FOR UPDATE} until the transaction ends. The result is
+     * the statement's, not the caller's: the adapter ignores it, because a missing resource is
+     * the write's own 404 to find with its first read, and locking nothing is then harmless.
      *
      * <p>Called only by {@link ScimWriteLockAdapter}, the one place a SCIM write's locks are taken;
-     * {@code ArchitectureTest} holds that. The order is the statement's own: Postgres locks rows as
-     * the sort returns them, so every caller acquires in the database's {@code uuid} order — not
-     * {@link UUID#compareTo}'s, which compares signed halves and disagrees with it. That guarantee
-     * is Postgres's, not SQL's: an engine that locks rows as the scan reads them, before any sort
-     * (SQL Server under {@code UPDLOCK}, ADR 0015), takes them in access-path order whatever the
-     * {@code ORDER BY} says, so a switchover must re-establish the order here, the one place.
+     * {@code ArchitectureTest} holds that. One row by primary key, and so no order of its own: the
+     * order of a write's locks is the order the adapter issues these statements in, which it
+     * decides ({@code ScimWriteLocks.ORDER}). No engine can reorder a statement that locks a
+     * single row, so the guarantee holds whatever the database — on SQL Server the same lock is
+     * {@code WITH (UPDLOCK, ROWLOCK)} (ADR 0015).
      *
      * <p>The serialization point of a conditional write. A second writer holding the same
      * precondition blocks here until the first commits, and its next statement then reads the
      * version the first one produced, so its precondition fails instead of both writes
-     * succeeding. Native and returning ids alone, so it loads no entity: the reads after it are
+     * succeeding. Native and returning the id alone, so it loads no entity: the reads after it are
      * the transaction's first, and see what the previous lock holder committed.
      */
-    @Query(value = "SELECT id FROM scim_resources WHERE id IN (:ids) ORDER BY id FOR UPDATE",
-            nativeQuery = true)
-    List<UUID> lockInIdOrder(@Param("ids") Collection<UUID> ids);
+    @Query(value = "SELECT id FROM scim_resources WHERE id = :id FOR UPDATE", nativeQuery = true)
+    List<UUID> lockResource(@Param("id") UUID id);
 
     /**
      * Advances the version of every named resource and records when it changed.

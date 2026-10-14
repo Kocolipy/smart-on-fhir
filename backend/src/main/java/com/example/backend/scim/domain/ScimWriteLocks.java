@@ -1,11 +1,12 @@
 package com.example.backend.scim.domain;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.UUID;
 
 /**
  * Takes every resource lock a SCIM write needs, before the write reads or changes anything, in
- * the one canonical order: ascending resource id, as the database orders it.
+ * the one canonical order: {@link #ORDER}, which this module decides and every engine obeys.
  *
  * <h2>Why one order</h2>
  *
@@ -16,6 +17,16 @@ import java.util.UUID;
  * User DELETE racing a Group PUT on a shared membership deadlocked that way, as did the dormancy
  * job racing the DELETE. Every multi-row writer therefore locks its whole set here, sorted by
  * one rule, so no two of them can each hold a row the other still needs.
+ *
+ * <h2>Whose order</h2>
+ *
+ * <p>The module's, and that is the guarantee this interface makes: within one call, rows are
+ * locked one after another in {@link #ORDER}, whatever order the caller named them in and
+ * whatever database is underneath. The order is not left to a statement's {@code ORDER BY}: an
+ * engine that locks rows as its scan reads them, before any sort (SQL Server under
+ * {@code UPDLOCK}, ADR 0015), would take a batch in access-path order, and two writers would be
+ * back to holding what the other waits for. Every caller locks through this module, so any total
+ * order serves, provided there is exactly one.
  *
  * <h2>Which rows</h2>
  *
@@ -51,6 +62,19 @@ import java.util.UUID;
  * and its absence is the following read's to report.
  */
 public interface ScimWriteLocks {
+
+    /**
+     * The order every call takes its rows in: {@link UUID#compareTo}, Java's own.
+     *
+     * <p>Chosen because it is computed here and nowhere else, and deliberately not any engine's:
+     * it compares the two halves as signed numbers, so it disagrees with Postgres's {@code uuid}
+     * order (unsigned bytes) and with SQL Server's {@code uniqueidentifier} order (last byte group
+     * first) alike. A lock statement that slid back to the engine's sort therefore breaks the
+     * order on the database the tests run on today, not only after a switchover. Published so a
+     * test that must know which row a write takes second — to hold it from elsewhere — can ask
+     * the module rather than a query.
+     */
+    Comparator<UUID> ORDER = Comparator.naturalOrder();
 
     /** A User PUT, PATCH or DELETE: the User, and every Group it is a direct member of. */
     void lockUserWrite(UUID userId);
