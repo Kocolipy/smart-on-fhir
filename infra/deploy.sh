@@ -1,287 +1,203 @@
 #!/bin/bash
 
 # AWS CloudFormation Deployment Script for Spring Boot Backend
+#
+# Prompts for no password: every credential is generated into Secrets Manager
+# by the stack (infra/README.md, "Database credentials"). After the stack, it
+# creates the database logins (db-bootstrap.sh) and runs the post-deploy smoke
+# (smoke.sh), which fails the deploy on a leaked secret: the full smoke once the
+# JAR is deployed, and its leak check over the boot alone when it is not.
+# Never run with command tracing (bash -x): see lib.sh.
 
-set -e
+set -euo pipefail
 
 # Resolve paths so the script works from any working directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Function to print colored output
-print_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
-
-print_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+# shellcheck source=lib.sh source-path=SCRIPTDIR
+source "${SCRIPT_DIR}/lib.sh"
 
 # Check prerequisites
 check_prerequisites() {
     print_info "Checking prerequisites..."
-    
-    if ! command -v aws &> /dev/null; then
-        print_error "AWS CLI is not installed. Please install it first."
-        exit 1
-    fi
-    
+
+    local cmd
+    for cmd in aws jq curl ssh scp openssl base64; do
+        require_cmd "$cmd"
+    done
+    require_cmd psql "the PostgreSQL client, 15 or newer, creates the database logins"
+    require_psql_getenv
+
     if ! aws sts get-caller-identity &> /dev/null; then
         print_error "AWS CLI is not configured. Run 'aws configure' first."
         exit 1
     fi
-    
+
     print_info "Prerequisites check passed"
+}
+
+# The IAM principal deploying the stack administers its database key (and only
+# administers it). An assumed role's session ARN is turned into the role's ARN,
+# path included, which is what a key policy names.
+default_key_admin_arn() {
+    local caller role
+    caller=$(aws sts get-caller-identity --query Arn --output text)
+    case $caller in
+        arn:*:sts::*:assumed-role/*)
+            role=${caller#*:assumed-role/}
+            aws iam get-role --role-name "${role%%/*}" --query Role.Arn --output text
+            ;;
+        *) printf '%s\n' "$caller" ;;
+    esac
 }
 
 # Get user inputs
 get_inputs() {
     print_info "CloudFormation Stack Configuration"
     echo
-    
-    read -p "Enter stack name (default: spring-backend): " STACK_NAME
+
+    read -r -p "Enter stack name (default: spring-backend): " STACK_NAME
     STACK_NAME=${STACK_NAME:-spring-backend}
-    
+
     AWS_REGION="ap-southeast-1"
     print_info "Region set to: ap-southeast-1 (Singapore)"
-    
+
     # VPC Configuration (Required)
     echo
     print_info "VPC Configuration (Existing VPC Required)"
-    
-    read -p "Enter existing VPC ID (e.g., vpc-12345678): " VPC_ID
-    if [ -z "$VPC_ID" ]; then
-        print_error "VPC ID is required"
-        exit 1
-    fi
-    
-    read -p "Enter Public Subnet 1 ID (e.g., subnet-12345678): " PUBLIC_SUBNET_1_ID
-    if [ -z "$PUBLIC_SUBNET_1_ID" ]; then
-        print_error "Public Subnet 1 ID is required"
-        exit 1
-    fi
-    
-    read -p "Enter Public Subnet 2 ID (e.g., subnet-87654321): " PUBLIC_SUBNET_2_ID
-    if [ -z "$PUBLIC_SUBNET_2_ID" ]; then
-        print_error "Public Subnet 2 ID is required"
-        exit 1
-    fi
-    
-    read -p "Enter Private Subnet 1 ID (e.g., subnet-11111111): " PRIVATE_SUBNET_1_ID
-    if [ -z "$PRIVATE_SUBNET_1_ID" ]; then
-        print_error "Private Subnet 1 ID is required"
-        exit 1
-    fi
-    
-    read -p "Enter Private Subnet 2 ID (e.g., subnet-22222222): " PRIVATE_SUBNET_2_ID
-    if [ -z "$PRIVATE_SUBNET_2_ID" ]; then
-        print_error "Private Subnet 2 ID is required"
-        exit 1
-    fi
-    
+
+    read -r -p "Enter existing VPC ID (e.g., vpc-12345678): " VPC_ID
+    [ -n "$VPC_ID" ] || die "VPC ID is required"
+
+    read -r -p "Enter Public Subnet 1 ID (e.g., subnet-12345678): " PUBLIC_SUBNET_1_ID
+    [ -n "$PUBLIC_SUBNET_1_ID" ] || die "Public Subnet 1 ID is required"
+
+    read -r -p "Enter Public Subnet 2 ID (e.g., subnet-87654321): " PUBLIC_SUBNET_2_ID
+    [ -n "$PUBLIC_SUBNET_2_ID" ] || die "Public Subnet 2 ID is required"
+
+    read -r -p "Enter Private Subnet 1 ID (e.g., subnet-11111111): " PRIVATE_SUBNET_1_ID
+    [ -n "$PRIVATE_SUBNET_1_ID" ] || die "Private Subnet 1 ID is required"
+
+    read -r -p "Enter Private Subnet 2 ID (e.g., subnet-22222222): " PRIVATE_SUBNET_2_ID
+    [ -n "$PRIVATE_SUBNET_2_ID" ] || die "Private Subnet 2 ID is required"
+
     echo
     # EC2 Key Pair Configuration
     print_info "EC2 Key Pair Configuration"
-    read -p "Create new EC2 Key Pair? (y/n, default: y): " CREATE_KEY_PAIR
+    read -r -p "Create new EC2 Key Pair? (y/n, default: y): " CREATE_KEY_PAIR
     CREATE_KEY_PAIR=${CREATE_KEY_PAIR:-y}
-    
+
     if [[ $CREATE_KEY_PAIR =~ ^[Yy]$ ]]; then
         CREATE_KEY_PAIR_VALUE="true"
-        read -p "Enter Key Pair name (default: spring-backend-key): " KEY_NAME
+        read -r -p "Enter Key Pair name (default: spring-backend-key): " KEY_NAME
         KEY_NAME=${KEY_NAME:-spring-backend-key}
-        print_info "CloudFormation will create the key pair. Retrieve private key after deployment."
+        print_info "CloudFormation will create the key pair; this script retrieves its private key."
     else
         CREATE_KEY_PAIR_VALUE="false"
-        read -p "Enter existing Key Pair name: " KEY_NAME
-        if [ -z "$KEY_NAME" ]; then
-            print_error "Key Pair name is required"
-            exit 1
-        fi
+        read -r -p "Enter existing Key Pair name: " KEY_NAME
+        [ -n "$KEY_NAME" ] || die "Key Pair name is required"
     fi
-    
+
     echo
-    read -p "Enter EC2 instance type (default: t3.small): " INSTANCE_TYPE
+    read -r -p "Enter EC2 instance type (default: t3.small): " INSTANCE_TYPE
     INSTANCE_TYPE=${INSTANCE_TYPE:-t3.small}
-    if [ -z "$KEY_NAME" ]; then
-        print_error "Key pair name is required"
-        exit 1
-    fi
-    
-    read -p "Enter EC2 instance type (default: t3.small): " INSTANCE_TYPE
-    INSTANCE_TYPE=${INSTANCE_TYPE:-t3.small}
-    
-    read -p "Enter your IP for SSH access (e.g., 1.2.3.4/32): " SSH_LOCATION
+
+    read -r -p "Enter your IP for SSH access (e.g., 1.2.3.4/32): " SSH_LOCATION
     SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
-    
-    # Database configuration
+
+    # Database configuration. No password: the master user's is RDS-managed and
+    # the three logins' are generated, all in Secrets Manager.
     print_info "Database Configuration"
-    read -p "Enter database name (default: backend): " DB_NAME
+    read -r -p "Enter database name (default: backend): " DB_NAME
     DB_NAME=${DB_NAME:-backend}
-    
-    read -p "Enter database username (default: backend): " DB_USERNAME
-    DB_USERNAME=${DB_USERNAME:-backend}
-    
-    read -sp "Enter database password: " DB_PASSWORD
-    echo
-    if [ -z "$DB_PASSWORD" ]; then
-        print_error "Database password is required"
-        exit 1
-    fi
-    
-    read -p "Enter RDS instance class (default: db.t3.micro): " DB_INSTANCE_CLASS
+
+    read -r -p "Enter RDS instance class (default: db.t3.micro): " DB_INSTANCE_CLASS
     DB_INSTANCE_CLASS=${DB_INSTANCE_CLASS:-db.t3.micro}
-    
+
+    local default_admin
+    default_admin=$(default_key_admin_arn)
+    read -r -p "IAM principal administering the database KMS key (default: ${default_admin}): " KEY_ADMIN_ARN
+    KEY_ADMIN_ARN=${KEY_ADMIN_ARN:-$default_admin}
+
+    read -r -p "Email for database alarms (optional, confirm the email AWS sends): " ALARM_EMAIL
+
     # Redis configuration
     print_info "Redis Configuration"
-    read -p "Enter Redis node type (default: cache.t3.micro): " REDIS_NODE_TYPE
+    read -r -p "Enter Redis node type (default: cache.t3.micro): " REDIS_NODE_TYPE
     REDIS_NODE_TYPE=${REDIS_NODE_TYPE:-cache.t3.micro}
-    
-    read -sp "Enter Redis password (leave empty for no auth): " REDIS_PASSWORD
-    echo
-    
-    # Application configuration
+
+    # Application configuration. The Bootstrap Admin's password is generated into
+    # its secret; smoke.sh replaces it on the first deploy.
     print_info "Application Configuration"
-    read -p "Enter application ADMIN username (default: admin): " APP_BOOTSTRAP_USERNAME
+    read -r -p "Enter application ADMIN username (default: admin): " APP_BOOTSTRAP_USERNAME
     APP_BOOTSTRAP_USERNAME=${APP_BOOTSTRAP_USERNAME:-admin}
-    
-    read -sp "Enter application ADMIN password: " APP_BOOTSTRAP_PASSWORD
-    echo
-    if [ -z "$APP_BOOTSTRAP_PASSWORD" ]; then
-        print_error "Application ADMIN password is required"
-        exit 1
-    fi
 }
 
-# Create parameters file
+# Create parameters file. It holds no secret.
 create_parameters_file() {
     print_info "Creating parameters file..."
-    
-    cat > /tmp/cfn-parameters-${STACK_NAME}.json << EOF
-[
-  {
-    "ParameterKey": "VpcId",
-    "ParameterValue": "${VPC_ID}"
-  },
-  {
-    "ParameterKey": "PublicSubnet1Id",
-    "ParameterValue": "${PUBLIC_SUBNET_1_ID}"
-  },
-  {
-    "ParameterKey": "PublicSubnet2Id",
-    "ParameterValue": "${PUBLIC_SUBNET_2_ID}"
-  },
-  {
-    "ParameterKey": "PrivateSubnet1Id",
-    "ParameterValue": "${PRIVATE_SUBNET_1_ID}"
-  },
-  {
-    "ParameterKey": "PrivateSubnet2Id",
-    "ParameterValue": "${PRIVATE_SUBNET_2_ID}"
-  },
-  {
-    "ParameterKey": "CreateKeyPair",
-    "ParameterValue": "${CREATE_KEY_PAIR_VALUE}"
-  },
-  {
-    "ParameterKey": "KeyName",
-    "ParameterValue": "${KEY_NAME}"
-  },
-  {
-    "ParameterKey": "InstanceType",
-    "ParameterValue": "${INSTANCE_TYPE}"
-  },
-  {
-    "ParameterKey": "SSHLocation",
-    "ParameterValue": "${SSH_LOCATION}"
-  },
-  {
-    "ParameterKey": "DBName",
-    "ParameterValue": "${DB_NAME}"
-  },
-  {
-    "ParameterKey": "DBUsername",
-    "ParameterValue": "${DB_USERNAME}"
-  },
-  {
-    "ParameterKey": "DBPassword",
-    "ParameterValue": "${DB_PASSWORD}"
-  },
-  {
-    "ParameterKey": "DBInstanceClass",
-    "ParameterValue": "${DB_INSTANCE_CLASS}"
-  },
-  {
-    "ParameterKey": "RedisNodeType",
-    "ParameterValue": "${REDIS_NODE_TYPE}"
-  },
-  {
-    "ParameterKey": "RedisPassword",
-    "ParameterValue": "${REDIS_PASSWORD}"
-  },
-  {
-    "ParameterKey": "AppBootstrapUsername",
-    "ParameterValue": "${APP_BOOTSTRAP_USERNAME}"
-  },
-  {
-    "ParameterKey": "AppBootstrapPassword",
-    "ParameterValue": "${APP_BOOTSTRAP_PASSWORD}"
-  }
-]
-EOF
-    
-    print_info "Parameters file created at /tmp/cfn-parameters-${STACK_NAME}.json"
+
+    PARAMETERS_FILE="/tmp/cfn-parameters-${STACK_NAME}.json"
+    jq -n \
+        --arg VpcId "$VPC_ID" \
+        --arg PublicSubnet1Id "$PUBLIC_SUBNET_1_ID" \
+        --arg PublicSubnet2Id "$PUBLIC_SUBNET_2_ID" \
+        --arg PrivateSubnet1Id "$PRIVATE_SUBNET_1_ID" \
+        --arg PrivateSubnet2Id "$PRIVATE_SUBNET_2_ID" \
+        --arg CreateKeyPair "$CREATE_KEY_PAIR_VALUE" \
+        --arg KeyName "$KEY_NAME" \
+        --arg InstanceType "$INSTANCE_TYPE" \
+        --arg SSHLocation "$SSH_LOCATION" \
+        --arg DBName "$DB_NAME" \
+        --arg DBInstanceClass "$DB_INSTANCE_CLASS" \
+        --arg KeyAdminArn "$KEY_ADMIN_ARN" \
+        --arg AlarmEmail "$ALARM_EMAIL" \
+        --arg RedisNodeType "$REDIS_NODE_TYPE" \
+        --arg AppBootstrapUsername "$APP_BOOTSTRAP_USERNAME" \
+        '$ARGS.named | to_entries | map({ParameterKey: .key, ParameterValue: .value})' \
+        > "$PARAMETERS_FILE"
+
+    print_info "Parameters file created at ${PARAMETERS_FILE}"
 }
 
 # Deploy stack
 deploy_stack() {
     print_info "Deploying CloudFormation stack: ${STACK_NAME}"
-    
+
     aws cloudformation create-stack \
-        --stack-name ${STACK_NAME} \
-        --template-body file://${SCRIPT_DIR}/infrastructure.yaml \
-        --parameters file:///tmp/cfn-parameters-${STACK_NAME}.json \
+        --stack-name "${STACK_NAME}" \
+        --template-body "file://${SCRIPT_DIR}/infrastructure.yaml" \
+        --parameters "file://${PARAMETERS_FILE}" \
         --capabilities CAPABILITY_NAMED_IAM \
-        --region ${AWS_REGION}
-    
+        --region "${AWS_REGION}"
+
     print_info "Stack creation initiated. Waiting for completion..."
     print_warn "This may take 15-20 minutes..."
-    
+
     aws cloudformation wait stack-create-complete \
-        --stack-name ${STACK_NAME} \
-        --region ${AWS_REGION}
-    
+        --stack-name "${STACK_NAME}" \
+        --region "${AWS_REGION}"
+
     print_info "Stack created successfully!"
 }
 
 # Display outputs
 display_outputs() {
     print_info "Retrieving stack outputs..."
-    
-    OUTPUTS=$(aws cloudformation describe-stacks \
-        --stack-name ${STACK_NAME} \
-        --region ${AWS_REGION} \
-        --query 'Stacks[0].Outputs' \
-        --output json)
-    
-    EC2_IP=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="EC2PublicIP") | .OutputValue')
-    ALB_DNS=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="LoadBalancerDNS") | .OutputValue')
-    ALB_URL=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="LoadBalancerURL") | .OutputValue')
-    DB_ENDPOINT=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="DBEndpoint") | .OutputValue')
-    REDIS_ENDPOINT=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="RedisEndpoint") | .OutputValue')
-    SSH_COMMAND=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="SSHCommand") | .OutputValue')
-    KEY_RETRIEVE_CMD=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="GetPrivateKeyCommand") | .OutputValue')
-    
+
+    load_stack_outputs "${STACK_NAME}" "${AWS_REGION}"
+    EC2_IP=$(stack_output EC2PublicIP)
+    ALB_DNS=$(stack_output LoadBalancerDNS)
+    ALB_URL=$(stack_output LoadBalancerURL)
+    DB_ENDPOINT=$(stack_output DBEndpoint)
+    REDIS_ENDPOINT=$(stack_output RedisEndpoint)
+    SSH_COMMAND=$(stack_output SSHCommand)
+    KEY_RETRIEVE_CMD=$(stack_output GetPrivateKeyCommand)
+    ADMIN_SECRET_ARN=$(stack_output AppBootstrapSecretArn)
+    ALARM_TOPIC_ARN=$(stack_output AlarmTopicArn)
+
     echo
     print_info "=== Deployment Complete ==="
     echo
@@ -290,21 +206,16 @@ display_outputs() {
     echo "EC2 Instance IP (SSH): ${EC2_IP}"
     echo "Database Endpoint: ${DB_ENDPOINT}"
     echo "Redis Endpoint: ${REDIS_ENDPOINT}"
+    echo "Bootstrap Admin secret: ${ADMIN_SECRET_ARN}"
+    echo "Alarm topic: ${ALARM_TOPIC_ARN}"
     echo
-    
-    if [ "$CREATE_KEY_PAIR_VALUE" = "true" ]; then
-        echo "=== Retrieve Private Key ==="
-        echo "Run this command to get your private key:"
-        echo "${KEY_RETRIEVE_CMD}"
-        echo
-    fi
-    
+
     echo "SSH Command:"
     echo "  ${SSH_COMMAND}"
     echo
-    
+
     # Save to file
-    cat > ${STACK_NAME}-outputs.txt << EOF
+    cat > "${STACK_NAME}-outputs.txt" << EOF
 Stack Name: ${STACK_NAME}
 Region: ${AWS_REGION}
 Deployed: $(date)
@@ -314,6 +225,8 @@ Application URL: ${ALB_URL}
 EC2 Instance IP: ${EC2_IP}
 Database Endpoint: ${DB_ENDPOINT}
 Redis Endpoint: ${REDIS_ENDPOINT}
+Bootstrap Admin secret: ${ADMIN_SECRET_ARN}
+Alarm topic: ${ALARM_TOPIC_ARN}
 
 $(if [ "$CREATE_KEY_PAIR_VALUE" = "true" ]; then
 echo "Retrieve Private Key Command:"
@@ -324,44 +237,73 @@ fi)
 SSH Command:
 ${SSH_COMMAND}
 
-Next Steps:
-1. $(if [ "$CREATE_KEY_PAIR_VALUE" = "true" ]; then echo "Retrieve private key using command above"; else echo "Use existing key: ${KEY_NAME}.pem"; fi)
+Next Steps (deploy.sh does 1-3 when you answer yes to the JAR prompt):
+1. Database logins: ./db-bootstrap.sh ${STACK_NAME} ${AWS_REGION}
 2. Build the integrated JAR (SPA + backend), from the repo root: make package
    (equivalently: scripts/package.sh — 'cd backend && ./mvnw clean package' is
    backend-only and produces a JAR with no SPA)
-3. Verify the SPA is in the JAR: unzip -Z1 ../backend/target/backend-0.0.1-SNAPSHOT.jar BOOT-INF/classes/static/index.html
-4. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
-5. SSH to EC2: ${SSH_COMMAND}
-6. Move JAR: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
-7. Start service: sudo systemctl start backend && sudo systemctl enable backend
-8. Check logs: sudo journalctl -u backend -f
-9. Test via ALB: curl ${ALB_URL}/actuator/health (and curl ${ALB_URL}/ for the SPA)
+3. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
+   then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
+   and: sudo systemctl start backend && sudo systemctl enable backend
+4. Post-deploy smoke (health, TLS, SCIM, alarms, secret leaks): ./smoke.sh ${STACK_NAME} ${AWS_REGION}
+5. The Bootstrap Admin's password: aws secretsmanager get-secret-value --secret-id ${ADMIN_SECRET_ARN} --query SecretString --output text
 EOF
-    
+
     print_info "Outputs saved to ${STACK_NAME}-outputs.txt"
-    
-    echo
-    echo "=========================================="
-    echo "Next Steps:"
-    echo "=========================================="
-    echo "1. Review outputs in ${STACK_NAME}-outputs.txt"
-    if [ "$CREATE_KEY_PAIR_VALUE" = "true" ]; then
-        echo "2. Retrieve your private key (see command above)"
+}
+
+# The private key of a key pair CloudFormation created, written once, owner-only.
+retrieve_ssh_key() {
+    KEY_FILE="${SCRIPT_DIR}/${KEY_NAME}.pem"
+    export KEY_FILE
+    if [ -f "$KEY_FILE" ]; then
+        print_info "Using SSH key ${KEY_FILE}"
+        return 0
     fi
-    echo "3. Deploy your application JAR"
-    echo "4. Test via ALB URL: ${ALB_URL}"
-    echo
+    [ "$CREATE_KEY_PAIR_VALUE" = "true" ] ||
+        die "SSH key ${KEY_FILE} not found: place the existing key pair's private key there"
+
+    print_info "Retrieving the stack's SSH private key into ${KEY_FILE}"
+    (
+        umask 077
+        aws ssm get-parameter \
+            --name "/ec2/keypair/$(stack_output KeyPairId)" \
+            --with-decryption --query Parameter.Value --output text \
+            --region "${AWS_REGION}" > "$KEY_FILE"
+    )
+    chmod 400 "$KEY_FILE"
+}
+
+# The SSH daemon on a fresh instance answers a little after the stack completes.
+wait_for_ssh() {
+    local waited=0
+    until ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+        -o ConnectTimeout=10 "ec2-user@${EC2_IP}" true 2>/dev/null; do
+        ((waited < 300)) || die "the instance did not accept SSH within 300 s"
+        sleep 10
+        waited=$((waited + 10))
+    done
+}
+
+# Create the owner, app and retention logins in PostgreSQL.
+bootstrap_database() {
+    wait_for_ssh
+    "${SCRIPT_DIR}/db-bootstrap.sh" "${STACK_NAME}" "${AWS_REGION}"
 }
 
 # Prompt for JAR deployment
 prompt_jar_deployment() {
     echo
-    read -p "Do you want to deploy the application JAR now? (y/n): " DEPLOY_JAR
-    
+    read -r -p "Do you want to deploy the application JAR now? (y/n): " DEPLOY_JAR
+
     if [[ $DEPLOY_JAR =~ ^[Yy]$ ]]; then
         deploy_jar
+        "${SCRIPT_DIR}/smoke.sh" "${STACK_NAME}" "${AWS_REGION}"
     else
-        print_warn "Skipping JAR deployment. Deploy manually using the instructions in ${STACK_NAME}-outputs.txt"
+        # The boot's leak check needs no JAR: UserData, cloud-init logs, .env.
+        print_warn "Skipping JAR deployment; checking the boot for leaked secrets only"
+        "${SCRIPT_DIR}/smoke.sh" --leaks-only "${STACK_NAME}" "${AWS_REGION}"
+        print_warn "Deploy the JAR, then run ./smoke.sh ${STACK_NAME} ${AWS_REGION} for the full smoke; see ${STACK_NAME}-outputs.txt"
     fi
 }
 
@@ -407,16 +349,16 @@ deploy_jar() {
 
     print_info "Copying JAR to EC2 instance..."
 
-    scp -i "${SCRIPT_DIR}/${KEY_NAME}.pem" \
-        -o StrictHostKeyChecking=no \
-        ${JAR_FILE} \
-        ec2-user@${EC2_IP}:/tmp/backend.jar
+    scp -i "$KEY_FILE" \
+        -o StrictHostKeyChecking=accept-new \
+        "${JAR_FILE}" \
+        "ec2-user@${EC2_IP}:/tmp/backend.jar"
 
     print_info "Configuring and starting application..."
 
-    ssh -i "${SCRIPT_DIR}/${KEY_NAME}.pem" \
-        -o StrictHostKeyChecking=no \
-        ec2-user@${EC2_IP} << 'ENDSSH'
+    ssh -i "$KEY_FILE" \
+        -o StrictHostKeyChecking=accept-new \
+        "ec2-user@${EC2_IP}" << 'ENDSSH'
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
 sudo chown springboot:springboot /opt/backend/backend.jar
 sudo systemctl start backend
@@ -424,9 +366,8 @@ sudo systemctl enable backend
 sleep 5
 sudo systemctl status backend --no-pager
 ENDSSH
-    
+
     print_info "Application deployed and started!"
-    print_info "Check application health: curl ${APP_URL}/actuator/health"
 }
 
 # Main execution
@@ -436,14 +377,16 @@ main() {
     echo "Spring Boot Backend Infrastructure"
     echo "=========================================="
     echo
-    
+
     check_prerequisites
     get_inputs
     create_parameters_file
     deploy_stack
     display_outputs
+    retrieve_ssh_key
+    bootstrap_database
     prompt_jar_deployment
-    
+
     echo
     print_info "Deployment completed successfully!"
     print_info "Check ${STACK_NAME}-outputs.txt for connection details"

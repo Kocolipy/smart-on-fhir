@@ -48,28 +48,36 @@
     "ParameterValue": "backend"
   },
   {
-    "ParameterKey": "DBUsername",
-    "ParameterValue": "backend"
+    "ParameterKey": "DBMasterUsername",
+    "ParameterValue": "dbmaster"
   },
   {
-    "ParameterKey": "DBPassword",
-    "ParameterValue": "CHANGE_ME_SecureDBPassword123"
+    "ParameterKey": "DBOwnerLogin",
+    "ParameterValue": "backend_owner"
+  },
+  {
+    "ParameterKey": "DBAppLogin",
+    "ParameterValue": "backend_app_login"
+  },
+  {
+    "ParameterKey": "DBRetentionLogin",
+    "ParameterValue": "backend_retention_login"
+  },
+  {
+    "ParameterKey": "KeyAdminArn",
+    "ParameterValue": "arn:aws:iam::123456789012:role/YOUR_DEPLOY_ROLE"
+  },
+  {
+    "ParameterKey": "AlarmEmail",
+    "ParameterValue": ""
   },
   {
     "ParameterKey": "RedisNodeType",
     "ParameterValue": "cache.t3.micro"
   },
   {
-    "ParameterKey": "RedisPassword",
-    "ParameterValue": "CHANGE_ME_SecureRedisPassword123"
-  },
-  {
     "ParameterKey": "AppBootstrapUsername",
     "ParameterValue": "admin"
-  },
-  {
-    "ParameterKey": "AppBootstrapPassword",
-    "ParameterValue": "CHANGE_ME_SecureBootstrapPassword123"
   },
   {
     "ParameterKey": "AppEpicEnabled",

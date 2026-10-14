@@ -109,6 +109,15 @@ SPA in it. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache Redis
 in `ap-southeast-1`; details, parameters, and troubleshooting are in
 `infra/README.md`.
 
+`deploy.sh` prompts for no password: every database credential, and the
+application's own secrets, are generated into AWS Secrets Manager by the stack
+and read by the service at start. It then creates the database logins
+(`db-bootstrap.sh`) and, after shipping the JAR, runs the post-deploy smoke
+(`smoke.sh`) — health, TLS enforcement, a SCIM round trip, the database alarms,
+and a check that no secret value leaked onto the instance; without the JAR it
+still runs that leak check over the instance's boot. `infra/README.md`,
+"Database security", has the secrets, the KMS key, TLS and the monitoring.
+
 **Edge throttling is a deployment requirement.** The application has no
 request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
 `POST /api/auth/login`, and `POST /api/auth/change-password` per session.
@@ -120,5 +129,6 @@ throttling" section.
 
 The local deploy artefacts in `infra/` — a `parameters.json` copied from the
 template, `deploy.sh`'s `*-outputs.txt`, and the `*.pem` key you save — are
-gitignored. Set the application's env vars explicitly on the instance: the
-backend's `application.yaml` fallbacks are published defaults, not credentials.
+gitignored. The stack sets every application variable on the instance (secrets
+through Secrets Manager); never let it fall back to the backend's
+`application.yaml` defaults, which are published, not credentials.
