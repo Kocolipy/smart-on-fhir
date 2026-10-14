@@ -1,0 +1,4 @@
+# Gitignored, machine-local files a new worktree needs, copied from the main
+# checkout when a worktree is created. Gitignore syntax.
+graphify-out/.graphify_python
+backend/.env
