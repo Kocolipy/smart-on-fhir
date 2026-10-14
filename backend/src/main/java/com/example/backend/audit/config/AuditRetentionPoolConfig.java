@@ -1,10 +1,12 @@
 package com.example.backend.audit.config;
 
+import com.example.backend.database.ConnectionQualifiers;
+import com.example.backend.database.config.DatabaseConnections;
 import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,55 +29,43 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
  * app login's grants are; a retention run's deletes commit in transactions of this pool's own
  * transaction manager, inside the run's lock transaction (ADR 0005).
  *
- * <p><strong>Its own login, the main pool's database.</strong> The URL and driver are read off the
- * main pool; the username and password bind from {@code app.datasource.retention.*}
- * ({@code DATABASE_RETENTION_USERNAME} and {@code DATABASE_RETENTION_PASSWORD}, with no fallback),
- * and nothing is copied from the app login. Two connections at most, and a 10 s connection
- * timeout: the job is one statement at a time, once a day. The pool starts on its first use.
+ * <p><strong>Its own login, the main pool's database.</strong> The pool is the database
+ * connections module's pool for the retention login, so it reaches the database exactly as the
+ * main pool does; the login binds from {@code app.datasource.retention.*}
+ * ({@link AuditRetentionLoginProperties}, with no fallback), and nothing is copied from the app
+ * login. Two connections at most, and a 10 s connection timeout: the job is one statement at a
+ * time, once a day. The pool starts on its first use.
  */
 @Configuration
+@EnableConfigurationProperties(AuditRetentionLoginProperties.class)
 public class AuditRetentionPoolConfig {
 
     /** The pool's name in its metrics, its health entry and its log lines. */
     static final String POOL_NAME = "retention";
 
-    /**
-     * The qualifiers the retention adapter injects by. Spelled again there, since a configuration
-     * and a persistence adapter may not depend on each other.
-     */
-    static final String RETENTION_JDBC = "auditRetentionJdbcTemplate";
-
-    static final String RETENTION_TRANSACTIONS = "auditRetentionTransactionManager";
-
     static final int MAXIMUM_POOL_SIZE = 2;
 
     static final Duration CONNECTION_TIMEOUT = Duration.ofSeconds(10);
 
-    /**
-     * The pool, on the main pool's database; its login binds from
-     * {@code app.datasource.retention}.
-     *
-     * @param main the main pool, the one default {@link DataSource} — read for its URL and
-     *             driver, never used
-     */
+    /** The pool, for the retention login. */
     @Bean(defaultCandidate = false)
     @Qualifier(POOL_NAME)
-    @ConfigurationProperties("app.datasource.retention")
-    public HikariDataSource auditRetentionDataSource(HikariDataSource main) {
-        return SecondaryPools.onTheMainPoolsDatabase(
-                main, POOL_NAME, MAXIMUM_POOL_SIZE, CONNECTION_TIMEOUT);
+    public HikariDataSource auditRetentionDataSource(
+            DatabaseConnections connections, AuditRetentionLoginProperties login) {
+        return connections.pool(
+                POOL_NAME, login.login(), MAXIMUM_POOL_SIZE, CONNECTION_TIMEOUT);
     }
 
     /** The template the retention adapter deletes through, on this pool and no other. */
     @Bean(defaultCandidate = false)
-    @Qualifier(RETENTION_JDBC)
+    @Qualifier(ConnectionQualifiers.AUDIT_RETENTION_JDBC)
     public JdbcTemplate auditRetentionJdbcTemplate(@Qualifier(POOL_NAME) DataSource pool) {
         return new JdbcTemplate(pool);
     }
 
     /** The transactions the retention adapter's deletes commit in, on this pool. */
     @Bean(defaultCandidate = false)
-    @Qualifier(RETENTION_TRANSACTIONS)
+    @Qualifier(ConnectionQualifiers.AUDIT_RETENTION_TRANSACTIONS)
     public DataSourceTransactionManager auditRetentionTransactionManager(
             @Qualifier(POOL_NAME) DataSource pool) {
         return new DataSourceTransactionManager(pool);

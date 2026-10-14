@@ -104,6 +104,8 @@ FAST_GATE=(
   com/example/backend/contract/OpenApiContractTests
   com/example/backend/counter/controller/UserCounterControllerTests
   com/example/backend/counter/domain/UserCounterTests
+  com/example/backend/database/config/DatabaseConnectionsTests
+  com/example/backend/database/config/MigrationConnectionTests
   com/example/backend/database/config/MigrationLoginNamesTests
   com/example/backend/database/config/MigrationProfilesTests
   com/example/backend/lifecycle/config/ApplicationLifecycleLogTests

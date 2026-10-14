@@ -22,6 +22,13 @@ spring:
   # No credential has a fallback: this repository is public, so a deployment that
   # forgot one fails to start rather than signing in with a published password.
   # `spring.datasource.hikari.*` settings still bind to this pool.
+  #
+  # How a connection reaches the database is one module's (DatabaseConnections):
+  # this URL and its driver, and every driver property under
+  # `spring.datasource.hikari.data-source-properties` — TLS, the trust store, the
+  # login timeout — reach the main, audit append and retention pools alike, and
+  # the migrate step's owner connection (MigrationConnection). Set them there,
+  # never on one pool.
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME}
@@ -117,8 +124,9 @@ app:
   datasource:
     # The retention pool (AuditRetentionPoolConfig), as the RETENTION LOGIN: a
     # member of `backend_audit_retention` only, which may read and delete audit
-    # events and do nothing else. Used by the audit retention job alone, on the main
-    # pool's database; two connections, 10 s connection timeout. No fallback.
+    # events and do nothing else. Used by the audit retention job alone; it reaches
+    # the database as the main pool does, and only its login binds here (two
+    # connections, 10 s connection timeout). No fallback.
     retention:
       username: ${DATABASE_RETENTION_USERNAME}
       password: ${DATABASE_RETENTION_PASSWORD}
@@ -154,7 +162,7 @@ app:
 ---
 # Where migrations run: a local run, the test suite, and the one-shot migrate step
 # (MigrationStep). Flyway connects as the OWNER LOGIN, on a connection of its own
-# outside every pool, and learns the app and retention logins' NAMES (never their
+# outside every pool but opened with the pools' driver properties, and learns the app and retention logins' NAMES (never their
 # passwords) as placeholders: the migrations grant each its role, quoting the
 # name, after MigrationLoginNames has checked it against ^[a-z][a-z0-9_]{2,30}$.
 # The owner credential has no fallback and is read nowhere else. (The test

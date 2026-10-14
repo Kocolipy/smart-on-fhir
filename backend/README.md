@@ -462,9 +462,9 @@ would release. Accepted (fail-closed) events still join their request's
 transaction on the main pool.
 
 The pool has **no credentials of its own** and no URL setting: it opens its
-connections with the main datasource's URL, username and password
-(`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`), so appends run as
-the app login like every other request's statement, never as the owner login.
+connections as the main pool does, with the same URL, driver properties and app
+login (`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`), so appends run
+as the app login like every other request's statement, never as the owner login.
 It starts lazily, on the first fail-open append. An append that
 cannot get a connection within the timeout is lost behind the `ERROR`
 `audit.append` alert, as any failed fail-open append is. The pool is named
@@ -602,9 +602,17 @@ grant it. Append-only therefore survives a console session or a misused owner
 credential. `AuditAppendOnlyIntegrationTests` connects as each login and asserts
 each refusal.
 
-The pools: the main pool binds every `spring.datasource.hikari.*` setting as
-before, and is named `app`; the retention pool holds two connections and binds
-its login from `app.datasource.retention.*`. Both wait at most 10 s for a
+The pools: how each reaches the database is one module's, `DatabaseConnections`
+(`database.config`): the URL, the driver, and every driver property under
+`spring.datasource.hikari.data-source-properties` — where TLS, the trust store
+and the login timeout go once they leave the URL — reach the main, audit append
+and retention pools alike, and the migrate step's owner connection too
+(`MigrationConnection`). Set such a property there, for the service and the
+migrate step both, and never on one pool. A pool states only its name, login,
+size and connection timeout. The main pool binds every
+`spring.datasource.hikari.*` setting as before, and is named `app`; the retention
+pool holds two connections and binds its login, and only its login, from
+`app.datasource.retention.*`. Both wait at most 10 s for a
 connection, and both appear by name in the `db` health indicator
 (`dataSource`, `auditRetentionDataSource`) and in the `hikaricp_*` series
 (`pool="app"`, `pool="retention"`). The retention pool starts on first use — its
@@ -632,7 +640,9 @@ owner credential.
 
   It needs `DATABASE_URL`, `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`
   and the two other logins' **names** (`DATABASE_USERNAME`,
-  `DATABASE_RETENTION_USERNAME`) — no other password. A failed migration exits
+  `DATABASE_RETENTION_USERNAME`) — no other password — and whatever
+  `spring.datasource.hikari.data-source-properties.*` the service is given, so
+  its connection is opened as the pools' are. A failed migration exits
   non-zero, and the deploy does not start the service (`/infra/README.md`,
   "Migrate step"). The service is then given the app and retention logins only.
 
@@ -797,6 +807,18 @@ progress, and `LogEventTests` lost three with the retired `jobSummary` shape. Th
 baseline gate after: `Tests run: 4944, Failures: 0, Errors: 0, Skipped: 0`, up from
 4863 measured on a226ae1 (the entry above reads 4860), with 32 context starts, as on
 a226ae1, and Semgrep 0 findings; 7:00 min against 4:28.
+
+Database connections module, 2026-10-14 (architecture review B24): two classes
+join the fast gate — `DatabaseConnectionsTests` (11 tests) and
+`MigrationConnectionTests` (5) — and `EveryPoolConnectsAlikeTests` (3, an
+application context runner, no container) holds every pool to the main pool's
+driver properties. `MigrationStepIntegrationTests` gains one case (a driver
+property reaches the owner's connection), `AuditRetentionPoolConfigTests` gains
+two, and `AuditAppendPoolConfigTests` loses its connection-init-sql case to
+`EveryPoolConnectsAlikeTests`. Scoped PIT over the changed classes: 69 mutants,
+69 killed, line coverage 54/54. The baseline gate after: `Tests run: 4988,
+Failures: 0, Errors: 0, Skipped: 0`, up from 4967 on 98f8375, Semgrep 0
+findings, no context start added.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

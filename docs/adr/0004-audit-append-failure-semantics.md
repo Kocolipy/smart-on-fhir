@@ -222,7 +222,8 @@ main pool:
   connection timeout, both configurable (`APP_AUDIT_POOL_SIZE`,
   `APP_AUDIT_POOL_TIMEOUT`; `backend/README.md`). The size is bounded to two or
   three: a configuration outside that fails startup. It has no credentials of its
-  own: it reads the main pool's URL, username and password off the main pool, so
+  own: it is the database connections module's pool (`DatabaseConnections`) for
+  the main pool's login, reaching the database exactly as the main pool does, so
   an append runs as the same login as every other statement — the app login,
   since #66 (it copied `connection-init-sql` and so `SET ROLE backend_app` until
   then; see the superseding note under Status).

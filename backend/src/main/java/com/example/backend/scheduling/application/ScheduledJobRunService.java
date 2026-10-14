@@ -1,5 +1,6 @@
 package com.example.backend.scheduling.application;
 
+import com.example.backend.database.ConnectionQualifiers;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.util.Objects;
@@ -58,11 +59,11 @@ public class ScheduledJobRunService {
 
     /**
      * @param primary the primary data source's transaction manager — Boot's
-     *                {@code transactionManager}, the one the lock row's grants are on
+     *                {@link ConnectionQualifiers#MAIN_TRANSACTIONS}, the one the lock row's grants are on
      */
     public ScheduledJobRunService(
             ScheduledJobLock lock,
-            @Qualifier("transactionManager") PlatformTransactionManager primary) {
+            @Qualifier(ConnectionQualifiers.MAIN_TRANSACTIONS) PlatformTransactionManager primary) {
         this.lock = lock;
         this.runTransaction = new TransactionTemplate(primary);
         this.runTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);

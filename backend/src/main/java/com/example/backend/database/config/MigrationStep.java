@@ -22,10 +22,12 @@ import org.springframework.context.annotation.Import;
  * still fails its start on a schema that drifted.
  *
  * <p>Nothing of the service starts here. This class is not a configuration the service scans:
- * it imports Flyway's auto-configuration and the login-name check ({@link MigrationConfig}) and
- * nothing else, so there is no web server, no pool, no Redis, no seeding and no scheduled job —
- * only Flyway, on a connection of its own. The {@value #PROFILE} profile is what turns Flyway on
- * and gives it the database, the owner login and the placeholders ({@code application.yaml}).
+ * it imports Flyway's auto-configuration, the login-name check and the connection's driver
+ * properties ({@link MigrationConfig}) and nothing else, so there is no web server, no pool, no
+ * Redis, no seeding and no scheduled job — only Flyway, on a connection of its own, opened with
+ * the driver properties every pool's connections are ({@link MigrationConnection}). The
+ * {@value #PROFILE} profile is what turns Flyway on and gives it the database, the owner login and
+ * the placeholders ({@code application.yaml}).
  * Migrating happens while the context starts, so a failed migration, or a refused login name,
  * fails the start: {@link #main} then ends with the exception, and the process exits non-zero.
  * Otherwise {@link #main} closes the context and returns, and with nothing left running the
