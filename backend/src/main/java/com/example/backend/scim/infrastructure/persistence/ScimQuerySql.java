@@ -27,7 +27,20 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Translates a {@link ScimQuery} into PostgreSQL, with every literal bound.
+ * Translates a {@link ScimQuery} into SQL, with every literal bound.
+ *
+ * <p><strong>The common subset, with the engine words in one place.</strong> Every statement is
+ * written in SQL that both PostgreSQL and SQL Server 2022 (compatibility level 160) accept, so the
+ * protocol's semantics are proved on one engine before the move to the other (ADR 0015). Three
+ * constants at the top of the class are the only engine-specific text: the byte-order collation
+ * ({@link #BYTE_ORDER_COLLATION}) and the types a NULL is cast to where the union's other branch
+ * has a boolean ({@link #NULL_BOOLEAN_TYPE}) or a timestamp ({@link #NULL_TIMESTAMP_TYPE}).
+ * Everything else keeps to the subset: {@code OFFSET … ROWS FETCH NEXT … ROWS ONLY} rather than
+ * {@code LIMIT}; a {@code CASE} flag rather than {@code NULLS FIRST/LAST}; {@code CONCAT} rather
+ * than {@code ||}; {@code (1=1)} and {@code (1=0)} rather than boolean literals, which SQL Server
+ * lacks; and casts to {@code VARCHAR} with an explicit length rather than to {@code text}. A
+ * resource id rendered as text is lower-cased, because a driver may return a UUID's text in upper
+ * case and the API renders ids in lower case.
  *
  * <p><strong>No client text becomes statement text.</strong> The only strings concatenated
  * into a statement are the fixed fragments in this class, selected by exhaustive switches over
@@ -36,19 +49,47 @@ import java.util.UUID;
  * property: a literal never appears in the statement, whatever it contains.
  *
  * <p><strong>Two-valued logic.</strong> Every predicate this renders is TRUE or FALSE, never
- * NULL: comparisons are wrapped in {@code coalesce(..., FALSE)}, so an attribute with no value
- * fails a comparison instead of making it unknown, and SQL's {@code NOT NULL = NULL} never
- * leaks into {@code not (...)}. {@code ne} is rendered as {@code NOT (eq)}, which is the
- * domain's definition of it.
+ * NULL: each comparison is guarded as {@code (x IS NOT NULL AND x <op> :p)}, and the bound operand
+ * is never NULL, so an attribute with no value fails a comparison instead of making it unknown,
+ * and SQL's {@code NOT NULL = NULL} never leaks into {@code not (...)}. {@code ne} is rendered as
+ * {@code NOT (eq)}, which is the domain's definition of it.
  *
  * <p><strong>An attribute a type lacks has no value there.</strong> In a base search the same
  * filter is rendered once per resource type, and a path the type does not have — or one
  * qualified with the other type's schema — becomes the constant its absence implies:
- * {@code FALSE} for a comparison or {@code pr}, {@code TRUE} for {@code ne}.
+ * {@code (1=0)} for a comparison or {@code pr}, {@code NOT (1=0)} for {@code ne}.
  *
  * <p>One instance per statement pair: it accumulates the parameters as it renders.
  */
 final class ScimQuerySql {
+
+    // --- engine words: the only text in this class outside the common subset ---------------
+
+    /** The byte-order (code-point order) collation text sorts and range comparisons use. */
+    private static final String BYTE_ORDER_COLLATION = "\"C\"";
+
+    /** The SQL type a branch's NULL takes where the union's other branch has a boolean. */
+    private static final String NULL_BOOLEAN_TYPE = "boolean";
+
+    /** The SQL type a branch's NULL takes where the union's other branch has a timestamp. */
+    private static final String NULL_TIMESTAMP_TYPE = "timestamptz";
+
+    // --- common-subset constants: the same text on both engines -----------------------------
+
+    /**
+     * The type a branch's text NULL takes: a {@code VARCHAR} with an explicit length (SQL Server
+     * reads a bare {@code VARCHAR} in a cast as {@code VARCHAR(30)}), as wide as the widest text
+     * column a sort key reads — 256 code points, which SQL Server's UTF-8 {@code VARCHAR} stores
+     * in up to 1024 bytes. Both engines widen a union's column to its wider branch, so the NULL is
+     * never what narrows a value.
+     */
+    private static final String NULL_TEXT_TYPE = "VARCHAR(1024)";
+
+    /** A predicate that holds: SQL Server has no boolean literal, so a tautology stands in. */
+    private static final String ALWAYS = "(1=1)";
+
+    /** A predicate that never holds. */
+    private static final String NEVER = "(1=0)";
 
     private final Map<String, Object> parameters = new LinkedHashMap<>();
 
@@ -83,6 +124,9 @@ final class ScimQuerySql {
      * alone. Without one, {@code type_order} and {@code default_key} give the default order —
      * Users by normalized {@code userName}, then Groups by normalized {@code displayName} —
      * and {@code id} is still the last key.
+     *
+     * <p>For a page of at least one row: SQL Server rejects {@code FETCH NEXT 0 ROWS}, so a
+     * {@code count=0} request is answered without a page query.
      */
     String page(ScimQuery query) {
         ScimSort sort = query.sort();
@@ -97,15 +141,25 @@ final class ScimQuerySql {
         }
         // A requested sort is broken by id alone, as the spec states; the default order is Users
         // then Groups, each by its normalized unique name, with id last for completeness.
-        String order = sort == null
-                ? "q.type_order, q.default_key, "
-                : "q.sort_key" + (isText(sort) ? " COLLATE \"C\"" : "")
-                        + (sort.descending() ? " DESC NULLS FIRST" : " ASC NULLS LAST") + ", ";
+        String order = sort == null ? "q.type_order, q.default_key, " : sortOrder(sort);
         parameters.put("limit", query.page().count());
         parameters.put("offset", query.page().offset());
         return "SELECT q.id, q.kind FROM (" + String.join(" UNION ALL ", branches) + ") q"
                 + " ORDER BY " + order + "q.id"
-                + " LIMIT :limit OFFSET :offset";
+                + " OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
+    }
+
+    /**
+     * The requested sort's ORDER BY keys. A missing value sorts as if greater than every present
+     * one — last ascending, first descending — through a leading flag key in the sort's own
+     * direction, because the engines disagree on where a bare {@code NULL} sorts and only one of
+     * them has {@code NULLS FIRST/LAST}.
+     */
+    private static String sortOrder(ScimSort sort) {
+        String direction = sort.descending() ? " DESC" : " ASC";
+        return "CASE WHEN q.sort_key IS NULL THEN 1 ELSE 0 END" + direction + ", "
+                + "q.sort_key" + (isText(sort) ? " COLLATE " + BYTE_ORDER_COLLATION : "")
+                + direction + ", ";
     }
 
     /** Users before Groups, whatever order the query's set iterates in. */
@@ -136,7 +190,7 @@ final class ScimQuerySql {
     // --- predicates -------------------------------------------------------------------------
 
     private String where(ScimFilter filter, ScimResourceType type) {
-        return filter == null ? "TRUE" : predicate(filter, type, null);
+        return filter == null ? ALWAYS : predicate(filter, type, null);
     }
 
     /**
@@ -159,7 +213,7 @@ final class ScimQuerySql {
     private String valuePath(ValuePath valuePath, ScimResourceType type) {
         Optional<Attribute> attribute = attribute(valuePath.attribute(), type);
         if (attribute.isEmpty()) {
-            return "FALSE";
+            return NEVER;
         }
         ScimFilterPath parent = attribute.get().path();
         return "EXISTS (SELECT 1 FROM " + rows(parent) + " AND "
@@ -169,13 +223,13 @@ final class ScimQuerySql {
     private String presence(AttributeRef reference, ScimResourceType type, ScimFilterPath row) {
         Optional<Attribute> found = attribute(reference, type);
         if (found.isEmpty()) {
-            return "FALSE";
+            return NEVER;
         }
         Attribute attribute = found.get();
         ScimFilterPath path = attribute.path();
         if (path == ScimFilterPath.META) {
             // Every resource has meta; its sub-attributes are all rendered unconditionally.
-            return "TRUE";
+            return ALWAYS;
         }
         if (attribute.isComplex() && attribute.multiValued()) {
             return "EXISTS (SELECT 1 FROM " + rows(path) + ")";
@@ -218,7 +272,7 @@ final class ScimQuerySql {
         }
         Optional<Attribute> found = attribute(comparison.attribute(), type);
         if (found.isEmpty()) {
-            return "FALSE";
+            return NEVER;
         }
         Attribute attribute = found.get();
         ScimFilterPath path = attribute.path();
@@ -238,7 +292,7 @@ final class ScimQuerySql {
             Object bound = value instanceof Instant instant
                     ? OffsetDateTime.ofInstant(instant, ZoneOffset.UTC)
                     : value;
-            return "coalesce(" + expression + " " + symbol(operator) + " " + bind(bound) + ", FALSE)";
+            return valued(expression, expression + " " + symbol(operator) + " " + bind(bound));
         }
         String text = (String) value;
         String left = attribute.caseExact() ? expression : "lower(" + expression + ")";
@@ -249,14 +303,24 @@ final class ScimQuerySql {
                 default -> "%" + escapeLike(text);
             };
             String right = attribute.caseExact() ? bind(pattern) : "lower(" + bind(pattern) + ")";
-            return "coalesce(" + left + " LIKE " + right + " ESCAPE '\\', FALSE)";
+            return valued(expression, left + " LIKE " + right + " ESCAPE '\\'");
         }
         String right = attribute.caseExact() ? bind(text) : "lower(" + bind(text) + ")";
         if (operator.isOrdering()) {
             // A byte-order collation, so the answer does not depend on the database's locale.
-            return "coalesce((" + left + ") COLLATE \"C\" " + symbol(operator) + " " + right + ", FALSE)";
+            return valued(expression, "(" + left + ") COLLATE " + BYTE_ORDER_COLLATION + " "
+                    + symbol(operator) + " " + right);
         }
-        return "coalesce(" + left + " = " + right + ", FALSE)";
+        return valued(expression, left + " = " + right);
+    }
+
+    /**
+     * A comparison that is FALSE, never unknown, when the attribute has no value: the bound
+     * operand is never NULL, so once {@code expression} is known to be non-NULL the comparison is
+     * TRUE or FALSE, and {@code FALSE AND unknown} is FALSE. {@code NOT} of it is therefore TRUE.
+     */
+    private static String valued(String expression, String comparison) {
+        return "(" + expression + " IS NOT NULL AND " + comparison + ")";
     }
 
     private static String symbol(Operator operator) {
@@ -276,7 +340,8 @@ final class ScimQuerySql {
      * matches the text {@code 50%} rather than everything beginning with {@code 50}.
      */
     static String escapeLike(String value) {
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                .replace("[", "\\[");
     }
 
     private String bind(Object value) {
@@ -304,7 +369,7 @@ final class ScimQuerySql {
      */
     private String sortKey(ScimSort sort, ScimResourceType type) {
         if (sort == null) {
-            return "CAST(NULL AS text)";
+            return "CAST(NULL AS " + NULL_TEXT_TYPE + ")";
         }
         Optional<Attribute> found = attribute(sort.attribute(), type);
         if (found.isEmpty()) {
@@ -314,7 +379,8 @@ final class ScimQuerySql {
         ScimFilterPath path = attribute.path();
         String value = attribute.multiValued()
                 ? "(SELECT " + rowColumn(path) + " FROM " + rows(path.parent())
-                        + " ORDER BY " + firstValueOrder(path.parent()) + " LIMIT 1)"
+                        + " ORDER BY " + firstValueOrder(path.parent())
+                        + " OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY)"
                 : column(path, type);
         if (!attribute.isTextual()) {
             return value;
@@ -347,9 +413,9 @@ final class ScimQuerySql {
                 ? ScimResourceType.GROUP
                 : ScimResourceType.USER;
         return switch (ScimQueryVocabulary.of(other).find(path).orElseThrow().kind()) {
-            case BOOLEAN -> "boolean";
-            case DATE_TIME -> "timestamptz";
-            case STRING, REFERENCE, COMPLEX -> "text";
+            case BOOLEAN -> NULL_BOOLEAN_TYPE;
+            case DATE_TIME -> NULL_TIMESTAMP_TYPE;
+            case STRING, REFERENCE, COMPLEX -> NULL_TEXT_TYPE;
         };
     }
 
@@ -359,7 +425,7 @@ final class ScimQuerySql {
     private static String column(ScimFilterPath path, ScimResourceType type) {
         String resourcePath = type == ScimResourceType.USER ? "/Users/" : "/Groups/";
         return switch (path) {
-            case ID -> "CAST(r.id AS text)";
+            case ID -> idText("r.id");
             case EXTERNAL_ID -> "(SELECT x.external_id FROM scim_external_ids x"
                     + " WHERE x.resource_id = r.id AND x.connector_id = :connectorId)";
             case USER_NAME -> "u.user_name";
@@ -377,14 +443,23 @@ final class ScimQuerySql {
             case META_RESOURCE_TYPE -> "r.resource_type";
             case META_CREATED -> "r.created_at";
             case META_LAST_MODIFIED -> "r.last_modified_at";
-            case META_LOCATION -> "(CAST(:baseUri AS text) || '" + resourcePath + "' || CAST(r.id AS text))";
+            case META_LOCATION -> "CONCAT(:baseUri, '" + resourcePath + "', " + idText("r.id") + ")";
             // The strong ETag as rendered: the version in double quotes.
-            case META_VERSION -> "('\"' || CAST(r.version AS text) || '\"')";
+            case META_VERSION -> "CONCAT('\"', CAST(r.version AS VARCHAR(20)), '\"')";
             case NAME, EMAILS, EMAILS_VALUE, EMAILS_TYPE, EMAILS_PRIMARY, GROUPS, GROUPS_VALUE,
                     GROUPS_DISPLAY, GROUPS_REF, GROUPS_TYPE, MEMBERS, MEMBERS_VALUE,
                     MEMBERS_DISPLAY, MEMBERS_REF, MEMBERS_TYPE, META, PASSWORD ->
                     throw new IllegalArgumentException("not a single-valued column: " + path);
         };
+    }
+
+    /**
+     * A resource id as the API renders it: the canonical lower-case text of the UUID. Lower-cased
+     * explicitly because a driver may hand a UUID's text over in upper case, and an id compared in
+     * that case would match no filter value.
+     */
+    private static String idText(String column) {
+        return "lower(CAST(" + column + " AS VARCHAR(36)))";
     }
 
     /**
@@ -421,15 +496,15 @@ final class ScimQuerySql {
             case EMAILS_VALUE -> "e.value";
             case EMAILS_TYPE -> "e.type";
             case EMAILS_PRIMARY -> "e.is_primary";
-            case GROUPS_VALUE -> "CAST(gg.resource_id AS text)";
+            case GROUPS_VALUE -> idText("gg.resource_id");
             case GROUPS_DISPLAY -> "gg.display_name";
-            case GROUPS_REF -> "(CAST(:baseUri AS text) || '/Groups/' || CAST(gg.resource_id AS text))";
+            case GROUPS_REF -> "CONCAT(:baseUri, '/Groups/', " + idText("gg.resource_id") + ")";
             // No nested Groups, so every membership is direct.
             case GROUPS_TYPE -> "'direct'";
-            case MEMBERS_VALUE -> "CAST(mu.resource_id AS text)";
+            case MEMBERS_VALUE -> idText("mu.resource_id");
             // The label rendered for a member: its displayName, else its userName.
             case MEMBERS_DISPLAY -> "coalesce(mu.display_name, mu.user_name)";
-            case MEMBERS_REF -> "(CAST(:baseUri AS text) || '/Users/' || CAST(mu.resource_id AS text))";
+            case MEMBERS_REF -> "CONCAT(:baseUri, '/Users/', " + idText("mu.resource_id") + ")";
             // Every member is a User.
             case MEMBERS_TYPE -> "'User'";
             default -> throw new IllegalArgumentException("not a multi-valued sub-attribute: " + sub);
