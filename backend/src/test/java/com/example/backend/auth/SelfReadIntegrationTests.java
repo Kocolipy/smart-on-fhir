@@ -13,8 +13,8 @@ import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -284,9 +284,9 @@ class SelfReadIntegrationTests {
     }
 
     private Instant lastAuthenticatedAt(String userId) {
-        Timestamp stored = jdbc.queryForObject(
+        OffsetDateTime stored = jdbc.queryForObject(
                 "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?::uuid",
-                Timestamp.class, userId);
+                OffsetDateTime.class, userId);
         assertThat(stored).as("the login recorded an authentication").isNotNull();
         return stored.toInstant();
     }

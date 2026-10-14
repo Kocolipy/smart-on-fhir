@@ -34,9 +34,10 @@ import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -461,9 +462,9 @@ class DormancyIntegrationTests {
     @Test
     void theSeededBootstrapAdminIsExemptFromBothSteps() {
         UUID bootstrap = bootstrapAdmin();
-        Timestamp originalBasis = jdbc.queryForObject(
+        OffsetDateTime originalBasis = jdbc.queryForObject(
                 "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?",
-                Timestamp.class, bootstrap);
+                OffsetDateTime.class, bootstrap);
         backdateBasis(bootstrap, PAST_ROLE_REVOCATION.multipliedBy(2));
         sessions.open(bootstrap, "bootstrap-session");
         long version = version(bootstrap);
@@ -704,13 +705,13 @@ class DormancyIntegrationTests {
     /** Puts the User's last authentication {@code ago} before the clock — the clock stays put. */
     private void backdateBasis(UUID user, Duration ago) {
         jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?",
-                Timestamp.from(clock.instant().minus(ago)), user);
+                clock.instant().minus(ago).atOffset(ZoneOffset.UTC), user);
     }
 
     /** Puts a never-authenticated User's creation {@code ago} before the clock. */
     private void backdateCreation(UUID user, Duration ago) {
         jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?",
-                Timestamp.from(clock.instant().minus(ago)), user);
+                clock.instant().minus(ago).atOffset(ZoneOffset.UTC), user);
     }
 
     private UUID bootstrapAdmin() {
@@ -836,9 +837,9 @@ class DormancyIntegrationTests {
     }
 
     private Instant instant(String column, UUID user) {
-        Timestamp at = jdbc.queryForObject(
+        OffsetDateTime at = jdbc.queryForObject(
                 "SELECT " + column + " FROM scim_users WHERE resource_id = ?",
-                Timestamp.class, user);
+                OffsetDateTime.class, user);
         return at == null ? null : at.toInstant();
     }
 

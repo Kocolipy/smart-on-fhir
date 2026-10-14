@@ -20,9 +20,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -348,9 +349,14 @@ class ScimConnectorLifecycleIntegrationTests {
         rotateFirstToken(connectorId);
 
         assertOneEvent(AuditOperation.CONNECTOR_TOKEN_ROTATE, connectorId);
-        assertThat(jdbc.queryForList(TOKEN_ROWS, connectorId)).hasSize(2).allSatisfy(row ->
-                assertThat((java.sql.Timestamp) row.get("expires_at"))
-                        .isBeforeOrEqualTo((java.sql.Timestamp) row.get("original_expires_at")));
+        record Expiry(Instant current, Instant original) {}
+        assertThat(jdbc.query(TOKEN_ROWS, (row, rowNum) -> new Expiry(
+                        row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                        row.getObject("original_expires_at", OffsetDateTime.class).toInstant()),
+                connectorId))
+                .hasSize(2)
+                .allSatisfy(expiry ->
+                        assertThat(expiry.current()).isBeforeOrEqualTo(expiry.original()));
     }
 
     /**
@@ -371,9 +377,8 @@ class ScimConnectorLifecycleIntegrationTests {
 
         rotateFirstToken(connectorId);
 
-        Map<String, Object> rotatedAway =
-                jdbc.queryForMap(ROTATED_AWAY_TOKEN_ROW, connectorId);
-        Instant expiry = ((Timestamp) rotatedAway.get("expires_at")).toInstant();
+        Instant expiry = jdbc.queryForObject(ROTATED_AWAY_TOKEN_ROW, (row, rowNum) ->
+                row.getObject("expires_at", OffsetDateTime.class).toInstant(), connectorId);
         assertThat(expiry)
                 .as("seven requested days, not the rotation instant and not the issued year")
                 .isAfter(beforeRotation.plus(Duration.ofDays(6)))
@@ -569,7 +574,7 @@ class ScimConnectorLifecycleIntegrationTests {
     /** An alias pointing at a real resource row, which the foreign key now requires. */
     private void insertAliasForNewResource(UUID connectorId, String externalId) {
         UUID resourceId = UUID.randomUUID();
-        Timestamp now = Timestamp.from(Instant.now());
+        OffsetDateTime now = Instant.now().atOffset(ZoneOffset.UTC);
         jdbc.update(INSERT_RESOURCE, resourceId, now, now);
         jdbc.update(INSERT_ALIAS, connectorId, resourceId, externalId);
     }

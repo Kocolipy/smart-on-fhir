@@ -506,3 +506,35 @@ rules:
       - pattern: $REQUEST.getParameterValues(...)
       - pattern: $REQUEST.getCookies(...)
       - pattern: $REQUEST.getQueryString(...)
+
+  # ---------------------------------------------------------------------------
+  # Instants cross the JDBC seam in UTC.
+  #
+  # Only the bind is banned. Reading a column back through getTimestamp(...) or
+  # getObject(..., OffsetDateTime.class) returns the right instant on either
+  # engine (ADR 0015, spike V2), so neither is a finding.
+  # ---------------------------------------------------------------------------
+
+  - id: be-jdbc-timestamp-bind
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A java.sql.Timestamp is being built or bound. A Timestamp carries the JVM's
+      local wall clock, and SQL Server reads that wall clock as UTC when it
+      compares it with a DATETIMEOFFSET, so the bound instant is off by the JVM's
+      zone offset unless the JVM happens to run in UTC — retention would delete
+      early and the audit listing's bounds would shift on a developer's machine
+      while a UTC CI host stays green (ADR 0015, "Storage is UTC only"). Bind an
+      OffsetDateTime at ZoneOffset.UTC instead (`instant.atOffset(ZoneOffset.UTC)`,
+      with Types.TIMESTAMP_WITH_TIMEZONE where a type must be named), and compare
+      read-back values as Instants.
+    pattern-either:
+      - pattern: java.sql.Timestamp.from(...)
+      - pattern: Timestamp.from(...)
+      - pattern: new java.sql.Timestamp(...)
+      - pattern: new Timestamp(...)
+      - pattern: java.sql.Timestamp.valueOf(...)
+      - pattern: Timestamp.valueOf(...)
+      - pattern: $STATEMENT.setTimestamp(...)
+      - pattern: java.sql.Types.TIMESTAMP
+      - pattern: Types.TIMESTAMP

@@ -33,6 +33,10 @@ spring:
       # generating DDL, which is what `update`/`create*` would do here.
       ddl-auto: validate
     open-in-view: false
+    properties:
+      # Hibernate binds and reads every timestamp at UTC, whatever zone the JVM
+      # runs in (ADR 0015, "Storage is UTC only").
+      hibernate.jdbc.time_zone: UTC
   flyway:
     # Off in the service. The deployed service never holds the owner credential:
     # migrations run beforehand in the one-shot migrate step (`java -jar

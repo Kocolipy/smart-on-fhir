@@ -301,8 +301,10 @@ exists.
   `Timestamp` as the JVM-local wall clock in a `datetime2`, and SQL Server reads
   that wall clock as UTC when it compares it with a `DATETIMEOFFSET`. A bound
   `Timestamp` is therefore off by the JVM's zone offset unless the JVM runs in UTC.
-  Today the audit retention cutoff and the audit listing's time bounds bind
-  `Timestamp.from(…)`, so the switchover changes both. Reads may use
+  The audit retention cutoff and the audit listing's time bounds already bind an
+  `OffsetDateTime` at `ZoneOffset.UTC`, Hibernate's `jdbc.time_zone` is pinned to
+  UTC, and the `be-jdbc-timestamp-bind` Semgrep rule keeps new `Timestamp` binds
+  out, so the switchover changes neither. Reads may use
   `getObject(…, OffsetDateTime.class)` or `getTimestamp(…)`, which both return
   the right instant. The driver refuses `getObject(…, Instant.class)`.
 - **The RDS CA trust store is driver-scoped.** Only the SQL Server connection uses

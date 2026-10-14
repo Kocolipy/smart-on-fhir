@@ -28,9 +28,10 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -199,7 +200,7 @@ class AuditAppendOnlyIntegrationTests {
 
             // Read back from the database, not from the object the call returned: the
             // claim is that nothing was committed.
-            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, Timestamp.class,
+            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, OffsetDateTime.class,
                     target.id())).isNull();
             assertThat(allEvents()).isEmpty();
             // The revocation is deferred to after the commit, so a rollback never
@@ -221,7 +222,7 @@ class AuditAppendOnlyIntegrationTests {
         try {
             administration.forcePasswordChange(target.id(), idOf(ADMIN));
 
-            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, Timestamp.class,
+            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, OffsetDateTime.class,
                     target.id())).isNotNull();
             assertThat(rows(AuditOperation.PASSWORD_CHANGE_REQUIRE)).hasSize(1);
         } finally {
@@ -303,7 +304,7 @@ class AuditAppendOnlyIntegrationTests {
         assertThat(app.queryForObject(COUNT_EVENTS, Integer.class)).isNotNull();
 
         UUID inserted = UUID.randomUUID();
-        app.update(INSERT_EVENT, inserted, Timestamp.from(Instant.now()));
+        app.update(INSERT_EVENT, inserted, Instant.now().atOffset(ZoneOffset.UTC));
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, inserted)).isEqualTo(1);
     }
@@ -399,7 +400,7 @@ class AuditAppendOnlyIntegrationTests {
     @Test
     void theRetentionLoginMayNotInsertAnEvent() {
         assertThatThrownBy(() -> logins.retention().jdbc().update(
-                        INSERT_EVENT, UUID.randomUUID(), Timestamp.from(Instant.now())))
+                        INSERT_EVENT, UUID.randomUUID(), Instant.now().atOffset(ZoneOffset.UTC)))
                 .satisfies(failure -> assertThat(sqlStates(failure))
                         .contains(INSUFFICIENT_PRIVILEGE));
     }
@@ -441,7 +442,7 @@ class AuditAppendOnlyIntegrationTests {
     }
 
     private int insertEventAt(UUID id, Instant occurredAt) {
-        return jdbc.update(INSERT_EVENT, id, Timestamp.from(occurredAt));
+        return jdbc.update(INSERT_EVENT, id, occurredAt.atOffset(ZoneOffset.UTC));
     }
 
     private List<Map<String, Object>> rows(AuditOperation operation) {

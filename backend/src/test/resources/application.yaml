@@ -26,6 +26,9 @@ spring:
       # Inert unless a test arms it; see the class. Named here, for every context, so the tests
       # that interleave a commit into a read join the shared context instead of booting their own.
       hibernate.session_factory.statement_inspector: com.example.backend.scim.infrastructure.persistence.CommitBetweenStatements
+      # The main `application.yaml`'s pin, repeated because this file shadows it: the tests write
+      # and read timestamps at UTC as the deployed service does (ADR 0015, "Storage is UTC only").
+      hibernate.jdbc.time_zone: UTC
 
 app:
   auth:

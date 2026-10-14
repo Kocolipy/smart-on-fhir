@@ -26,8 +26,10 @@ import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
-import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -224,7 +226,7 @@ class PasswordChangeLifecycleIntegrationTests {
         // The stored state: flag cleared, version advanced, a redacted event.
         assertThat(jdbc.queryForObject(
                 "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?::uuid",
-                Timestamp.class, userId)).isNull();
+                OffsetDateTime.class, userId)).isNull();
         assertThat(scimVersion(userId)).isEqualTo(versionBefore + 1);
         assertThat(failedAttempts(userId)).isZero();
         List<Map<String, Object>> events = jdbc.queryForList(
@@ -384,7 +386,7 @@ class PasswordChangeLifecycleIntegrationTests {
         Cookie confined = logIn("lifecycle-settled", CONNECTOR_PASSWORD, null, true);
         assertThat(changePassword(confined, CONNECTOR_PASSWORD, NEW_PASSWORD)
                 .getResponse().getStatus()).isEqualTo(204);
-        assertThat(lastAuthenticatedAt(userId)).isEqualTo(Timestamp.from(clock.instant()));
+        assertThat(lastAuthenticatedAt(userId)).isEqualTo(clock.instant());
 
         assertThat(dormancy.run().locked())
                 .as("91 days since creation, but none since the change")
@@ -394,16 +396,16 @@ class PasswordChangeLifecycleIntegrationTests {
                 Boolean.class, userId)).isTrue();
 
         jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?::uuid",
-                Timestamp.from(clock.instant().minus(Duration.ofDays(1))), userId);
+                clock.instant().minus(Duration.ofDays(1)).atOffset(ZoneOffset.UTC), userId);
         logIn("lifecycle-settled", NEW_PASSWORD, "USER", false);
         assertThat(lastAuthenticatedAt(userId))
                 .as("an unconfined login moves the basis as before")
-                .isEqualTo(Timestamp.from(clock.instant()));
+                .isEqualTo(clock.instant());
     }
 
     private void backdateCreation(String userId, Duration ago) {
         jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?::uuid",
-                Timestamp.from(clock.instant().minus(ago)), userId);
+                clock.instant().minus(ago).atOffset(ZoneOffset.UTC), userId);
     }
 
     // ---- 4. one password acceptance behind both entry paths ---------------------------------
@@ -493,7 +495,7 @@ class PasswordChangeLifecycleIntegrationTests {
         Cookie session = logIn("lifecycle-rolled-back", NEW_PASSWORD, "USER", false);
         String hash = storedHash(userId);
         List<String> history = historyOf(userId);
-        Timestamp basis = lastAuthenticatedAt(userId);
+        Instant basis = lastAuthenticatedAt(userId);
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 
         transaction.executeWithoutResult(status -> {
@@ -715,10 +717,11 @@ class PasswordChangeLifecycleIntegrationTests {
         return send(request, session).getResponse().getStatus();
     }
 
-    private Timestamp lastAuthenticatedAt(String userId) {
-        return jdbc.queryForObject(
+    private Instant lastAuthenticatedAt(String userId) {
+        OffsetDateTime stored = jdbc.queryForObject(
                 "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?::uuid",
-                Timestamp.class, userId);
+                OffsetDateTime.class, userId);
+        return stored == null ? null : stored.toInstant();
     }
 
     private long scimVersion(String userId) {
