@@ -12,9 +12,8 @@ import org.springframework.stereotype.Repository;
  * Maps the fail-open append onto the dedicated audit pool, as one plain JDBC {@code INSERT}.
  *
  * <p>The {@link JdbcTemplate} is the audit append pool's ({@code AuditAppendPoolConfig}): two or
- * three connections of their own, opened with the main pool's URL, credentials and
- * {@code connection-init-sql}, so an append runs as the same runtime role and never takes a
- * connection from the main pool. The pool's connections auto-commit, so the one statement is a
+ * three connections of their own, opened with the main pool's URL and credentials, so an append
+ * runs as the same app login and never takes a connection from the main pool. The pool's connections auto-commit, so the one statement is a
  * transaction of its own — committed whatever the caller's transaction then does — with no
  * transaction manager to join, and none the caller's could leak into.
  *

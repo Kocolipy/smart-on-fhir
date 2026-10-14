@@ -43,7 +43,7 @@ candidate query and the write.
   connection.
 - A run is one transaction. A failure on one User rolls the whole run back, and the next run
   repeats it. That is the fail-closed half of ADR 0004.
-- The runtime role holds `SELECT, UPDATE` on the table, because `FOR UPDATE` requires it, and
+- The runtime role (`backend_app`, the app login's since #66) holds `SELECT, UPDATE` on the table, because `FOR UPDATE` requires it, and
   no `INSERT` or `DELETE`, so it cannot remove the row a job serializes on.
 - A new job that must not overlap itself needs a `ScheduledJob` member and a migration
   inserting its row.
@@ -53,6 +53,10 @@ candidate query and the write.
 The audit retention job takes the same lock, on its own `audit-retention` row, so
 two instances on the same cron no longer both run the delete. It takes the
 lock before assuming the retention role, as the application role, which holds the grant.
+(Since 2026-10-14, #66, there is no role to assume: the lock is taken on the main pool
+as the app login, which alone holds the grant, and the deletes run on the retention
+pool as the retention login, inside the lock's transaction — see the 2026-10-13
+amendment.)
 
 The port and adapter moved from `auth` to a shared `scheduling` module for it: `audit`
 may depend on no business module (`ArchitectureTest.MODULE_DEPENDENCIES`),
@@ -109,8 +113,11 @@ enforces that. The adapter remains the one place the engine's lock syntax is wri
 so ADR 0015's switch to `READPAST` changes the adapter and nothing that calls it.
 Neither the dormancy job nor the retention job is `@Transactional` any more. Both
 bodies still run inside the lock's transaction: dormancy is one transaction per run,
-and retention's `SET LOCAL ROLE` is local to it, assumed after the lock was taken as
-the application role.
+and retention's deletes run on the retention pool, as the retention login, in
+transactions of that pool's own transaction manager, which commit inside the run's
+lock transaction on the primary data source and release nothing (amended 2026-10-14,
+#66: until then retention issued `SET LOCAL ROLE` inside the lock's transaction,
+assumed after the lock was taken as the application role).
 
 A job's identity is spelled once. `ScheduledJob` carries the name that is its lock
 row, its metrics' `job` tag and its `batch.job.name`, and also the `Operation` its

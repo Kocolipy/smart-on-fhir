@@ -95,15 +95,15 @@ Parameters:
 
   DBOwnerLogin:
     Description: >-
-      The owner login, which owns the schema and runs the migrations (Flyway
-      in-process until #66 moves migrations out of process)
+      The owner login, which owns the schema and runs the migrations, in the
+      migrate step only (backend-migrate.service); the service never holds it
     Type: String
     Default: backend_owner
     AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
     ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
 
   DBAppLogin:
-    Description: The app login, a member of backend_app only (the service's pool from #66)
+    Description: The app login, a member of backend_app only (the service's main and audit append pools)
     Type: String
     Default: backend_app_login
     AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
@@ -112,7 +112,7 @@ Parameters:
   DBRetentionLogin:
     Description: >-
       The retention login, a member of backend_audit_retention only (the audit
-      retention job's pool from #66)
+      retention job's own pool)
     Type: String
     Default: backend_retention_login
     AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
@@ -749,8 +749,10 @@ Resources:
       Policies:
         # Only the secrets this instance's processes need (ADR 0015, as-8), and
         # never the RDS-managed master secret, which only the operator's
-        # db-bootstrap.sh reads. The owner secret is the migrate step's; until
-        # #66 the service migrates in process and so still reads it at start.
+        # db-bootstrap.sh reads. The owner secret is read by the migrate step
+        # alone (/opt/backend/migrate.sh, run by backend-migrate.service before
+        # the service starts); the service's start.sh reads the app and retention
+        # secrets and never the owner's, so the service process never holds it.
         - PolicyName: ReadTheServicesSecrets
           PolicyDocument:
             Version: "2012-10-17"
@@ -857,16 +859,16 @@ Resources:
           chmod 0644 /opt/backend/rds-ca-bundle.pem
 
           # Create environment file. It holds no secret value: each *_SECRET_ARN names a
-          # secret start.sh reads at every start. DATABASE_APP_SECRET_ARN and
-          # DATABASE_RETENTION_SECRET_ARN are read from #66, which moves the pools onto
-          # their own logins. APP_AUTHORIZATION_GROUPS_0_* replace the shipped
+          # secret start.sh reads at every start, the app login's for the main and
+          # audit append pools and the retention login's for the retention pool. It
+          # names no owner secret: that is migrate.env's, below, which the service
+          # never loads. APP_AUTHORIZATION_GROUPS_0_* replace the shipped
           # development role mapping (which names Groups no deployment has, so the
           # service would refuse to start) with the Admin group alone; see
           # backend/README.md, "Role mapping", to map more Groups.
           cat > /opt/backend/.env << 'EOF'
           AWS_REGION=${AWS::Region}
           DATABASE_URL=jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}?sslmode=verify-full&sslrootcert=/opt/backend/rds-ca-bundle.pem
-          DATABASE_OWNER_SECRET_ARN=${DBOwnerSecret}
           DATABASE_APP_SECRET_ARN=${DBAppSecret}
           DATABASE_RETENTION_SECRET_ARN=${DBRetentionSecret}
           APP_BOOTSTRAP_SECRET_ARN=${AppBootstrapSecret}
@@ -915,11 +917,16 @@ Resources:
             printf '%s' "$1" | jq -r --arg f "$2" '.[$f] // ""'
           }
 
-          # The owner login, until #66: Flyway still migrates in process, and the pool
-          # drops to backend_app with SET ROLE.
-          owner=$(secret_json "$DATABASE_OWNER_SECRET_ARN")
-          DATABASE_USERNAME=$(required "$owner" username)
-          DATABASE_PASSWORD=$(required "$owner" password)
+          # The app login, for the main and audit append pools, and the retention
+          # login, for the audit retention job's pool. Never the owner login: the
+          # service runs with migrations off, and backend-migrate.service has run
+          # them as the owner before this starts.
+          app=$(secret_json "$DATABASE_APP_SECRET_ARN")
+          DATABASE_USERNAME=$(required "$app" username)
+          DATABASE_PASSWORD=$(required "$app" password)
+          retention=$(secret_json "$DATABASE_RETENTION_SECRET_ARN")
+          DATABASE_RETENTION_USERNAME=$(required "$retention" username)
+          DATABASE_RETENTION_PASSWORD=$(required "$retention" password)
 
           admin=$(secret_json "$APP_BOOTSTRAP_SECRET_ARN")
           APP_BOOTSTRAP_USERNAME=$(required "$admin" username)
@@ -931,14 +938,49 @@ Resources:
           APP_EPIC_CLIENT_KEY=$(optional "$epic" clientKey)
           APP_EPIC_CLIENT_NEXT_KEY=$(optional "$epic" clientNextKey)
 
-          unset owner admin epic
-          export DATABASE_USERNAME DATABASE_PASSWORD APP_BOOTSTRAP_USERNAME \
-            APP_BOOTSTRAP_PASSWORD APP_EPIC_CLIENT_ID APP_EPIC_CLIENT_KEY \
-            APP_EPIC_CLIENT_NEXT_KEY
+          unset app retention admin epic
+          export DATABASE_USERNAME DATABASE_PASSWORD DATABASE_RETENTION_USERNAME \
+            DATABASE_RETENTION_PASSWORD APP_BOOTSTRAP_USERNAME APP_BOOTSTRAP_PASSWORD \
+            APP_EPIC_CLIENT_ID APP_EPIC_CLIENT_KEY APP_EPIC_CLIENT_NEXT_KEY
           exec /usr/bin/java -jar /opt/backend/backend.jar
           EOF
           chown root:root /opt/backend/start.sh
           chmod 0755 /opt/backend/start.sh
+
+          # The migrate step's own environment file: the owner secret's ARN, and the
+          # names (never the passwords) of the two logins the migrations grant their
+          # roles to. Only backend-migrate.service loads it; the service never does,
+          # so the service's environment does not even name the owner secret.
+          cat > /opt/backend/migrate.env << 'EOF'
+          DATABASE_OWNER_SECRET_ARN=${DBOwnerSecret}
+          DATABASE_USERNAME=${DBAppLogin}
+          DATABASE_RETENTION_USERNAME=${DBRetentionLogin}
+          EOF
+          chown root:root /opt/backend/migrate.env
+          chmod 600 /opt/backend/migrate.env
+
+          # The migrate step (ADR 0015, ac-1): the same JAR, started at its migrate
+          # entry point instead of the service's, applies the Flyway migrations as the
+          # owner login with no web server, and exits. It is the only process given the
+          # owner credential, read here the way start.sh reads the others: into its
+          # environment only, never an argument, never on disk, never traced. A
+          # failure exits non-zero, and backend.service, which requires this step,
+          # does not start.
+          cat > /opt/backend/migrate.sh << 'EOF'
+          #!/bin/bash
+          set -euo pipefail
+
+          owner=$(aws secretsmanager get-secret-value --region "$AWS_REGION" \
+            --secret-id "$DATABASE_OWNER_SECRET_ARN" --query SecretString --output text)
+          DATABASE_OWNER_USERNAME=$(printf '%s' "$owner" | jq -er '.username | strings')
+          DATABASE_OWNER_PASSWORD=$(printf '%s' "$owner" | jq -er '.password | strings')
+          unset owner
+          export DATABASE_OWNER_USERNAME DATABASE_OWNER_PASSWORD
+          exec /usr/bin/java -Dloader.main=com.example.backend.database.config.MigrationStep \
+            -cp /opt/backend/backend.jar org.springframework.boot.loader.launch.PropertiesLauncher
+          EOF
+          chown root:root /opt/backend/migrate.sh
+          chmod 0755 /opt/backend/migrate.sh
 
           # CloudWatch agent: ship the log file into the stack's log group. The
           # records are ECS JSON already, so the agent forwards each line as is;
@@ -963,12 +1005,37 @@ Resources:
           /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
             -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
+          # The migrate step as a unit of its own, which the service requires: starting
+          # the service runs it first, and a failed migration fails that start before
+          # the service's JVM runs. RemainAfterExit keeps a successful run active, so a
+          # service restart does not migrate again; a deploy restarts this unit
+          # explicitly (deploy.sh), which re-runs it against the new JAR.
+          cat > /etc/systemd/system/backend-migrate.service << 'EOF'
+          [Unit]
+          Description=Spring Boot Backend schema migrations (owner login)
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          User=springboot
+          WorkingDirectory=/opt/backend
+          EnvironmentFile=/opt/backend/.env
+          EnvironmentFile=/opt/backend/migrate.env
+          ExecStart=/opt/backend/migrate.sh
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=backend-migrate
+          EOF
+
           # Create systemd service
           cat > /etc/systemd/system/backend.service << 'EOF'
           [Unit]
           Description=Spring Boot Backend Application
           Wants=network-online.target
-          After=network-online.target
+          After=network-online.target backend-migrate.service
+          Requires=backend-migrate.service
 
           [Service]
           Type=simple

@@ -27,6 +27,7 @@ MVN=${MVN:-./mvnw}
 # else, since the subsystem gates select by package.
 FAST_GATE=(
   arch/ArchitectureTest
+  arch/NoRoleSwitchTest
   arch/TestSourceArchitectureTest
   com/example/backend/audit/application/AuditEventListingServiceTests
   com/example/backend/audit/application/AuditRetentionServiceTests
@@ -102,6 +103,8 @@ FAST_GATE=(
   com/example/backend/contract/OpenApiContractTests
   com/example/backend/counter/controller/UserCounterControllerTests
   com/example/backend/counter/domain/UserCounterTests
+  com/example/backend/database/config/MigrationLoginNamesTests
+  com/example/backend/database/config/MigrationProfilesTests
   com/example/backend/lifecycle/config/ApplicationLifecycleLogTests
   com/example/backend/observability/AccessRefusalLogTests
   com/example/backend/observability/EcsErrorFieldsCustomizerTests
@@ -196,12 +199,12 @@ FAST_GATE=(
 subsystem_pattern() {
   case "$1" in
     arch) echo 'arch/**' ;;
-    auth|scim|audit|authorization|contract|observability|counter|lifecycle|scheduling|web)
+    auth|scim|audit|authorization|contract|observability|counter|database|lifecycle|scheduling|web)
       echo "com/example/backend/$1/**" ;;
     *) return 1 ;;
   esac
 }
-SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability counter lifecycle scheduling web"
+SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability counter database lifecycle scheduling web"
 
 # No archive exists today: nothing was ever parked. If one is created, fence it
 # out of src/test so Surefire cannot collect it.

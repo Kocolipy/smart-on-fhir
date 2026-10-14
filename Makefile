@@ -38,8 +38,9 @@ help: ## Show the available targets
 bootstrap: ## Install frontend dependencies and prepare backend tooling
 	@scripts/bootstrap.sh
 
-infra-up: ## Start PostgreSQL and Redis, waiting until both are healthy
+infra-up: ## Start PostgreSQL and Redis, waiting until both are healthy, and create the local database logins
 	$(COMPOSE) up -d --wait
+	backend/scripts/local-db-logins.sh
 
 infra-down: ## Stop PostgreSQL and Redis (volumes are kept)
 	$(COMPOSE) down

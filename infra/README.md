@@ -195,24 +195,10 @@ on the instance would need the master secret in the instance role, and a
 Lambda custom resource would need a PostgreSQL driver it cannot carry inline,
 plus a Secrets Manager endpoint or NAT in the private subnets.
 
-**What #66 still owes.** Until #66 lands, the service connects as the **owner
-login**: Flyway migrates in process with it, and the request pool drops to
-`backend_app` with `SET ROLE` (V1 grants the owner both roles). So the instance
-role still reads the owner secret, and `start.sh` passes it as
-`DATABASE_USERNAME` / `DATABASE_PASSWORD`. #66 moves migrations into a one-shot
-migrate step (the only holder of the owner secret), runs the service's pools on
-the app and retention logins, and then:
-
-- `start.sh` reads `DATABASE_APP_SECRET_ARN` and `DATABASE_RETENTION_SECRET_ARN`
-  (already in `/opt/backend/.env`) instead of the owner secret;
-- the service stops reading the owner secret, and the instance role's read of
-  it is scoped to the migrate step (or removed from the role if the migrate step
-  runs elsewhere);
-- `SET ROLE backend_app` and `SET LOCAL ROLE backend_audit_retention` go.
-
-The logins and their memberships exist already, so #66 changes no
-infrastructure SQL.
-
+**The service connects as the app and retention logins, never the owner.**
+`start.sh` reads the app and retention secrets; the owner secret is read only by
+the migrate step, which runs before the service (see [Migrate step](#migrate-step)).
+No `SET ROLE` remains: each pool's privileges are its login's.
 **The application's own secrets** are held the same way, so UserData carries no
 secret at all: the Bootstrap Admin's first password (generated), and the Epic
 client id and signing keys. The Epic values still enter through `NoEcho`
@@ -222,6 +208,52 @@ single-node `CacheCluster` cannot carry an AUTH token (only a replication group
 can), so the old `RedisPassword` parameter, which CloudFormation rejected, is
 gone; Redis is reachable only from the instance's security group.
 
+### Migrate step
+
+**The running service never holds the owner credential** (ADR 0015, ac-1). The
+schema migrations run beforehand, in a **migrate step**: the same JAR, started at
+its migrate entry point (`MigrationStep`) with no web server, which applies the
+Flyway migrations as the owner login and exits. The service itself runs with
+Flyway off and is given only the app and retention logins; `ddl-auto: validate`
+still fails its start on a schema that drifted.
+
+On the instance:
+
+- `backend-migrate.service` (oneshot, `RemainAfterExit=yes`, user `springboot`)
+  runs `/opt/backend/migrate.sh` (root-owned). It loads `/opt/backend/.env` and
+  `/opt/backend/migrate.env` — the owner secret's ARN and the app and retention
+  logins' **names** — reads the owner secret into its own environment exactly as
+  `start.sh` reads the others (on a pipe, never an argument, never on disk), and
+  `exec`s `java -Dloader.main=com.example.backend.database.config.MigrationStep
+-cp backend.jar org.springframework.boot.loader.launch.PropertiesLauncher`.
+  Before any DDL it refuses a login name outside `^[a-z][a-z0-9_]{2,30}$`.
+- `backend.service` `Requires=` and is ordered `After=` it, so starting the
+  service runs the step first, and a failed migration fails that start before the
+  service's JVM runs. A reboot runs the step again (a no-op when nothing is new).
+- `start.sh` reads `DATABASE_APP_SECRET_ARN` (→ `DATABASE_USERNAME` /
+  `DATABASE_PASSWORD`, the main and audit append pools) and
+  `DATABASE_RETENTION_SECRET_ARN` (→ `DATABASE_RETENTION_USERNAME` /
+  `DATABASE_RETENTION_PASSWORD`, the retention pool) and never the owner secret.
+  `/opt/backend/.env` does not even name the owner secret; only `migrate.env`,
+  which the service never loads, does.
+
+**A deploy runs the migrate step and then the service.** `deploy.sh` copies the
+JAR, stops the service, `systemctl restart backend-migrate`s (which re-runs it
+against the new JAR) and starts the service only if that succeeded. A failed
+migration prints the step's journal and ends the deploy with the service still
+stopped, so a schema the new JAR does not match is never served. Fix the
+migration (or the database) and deploy again.
+
+The instance role still reads the owner secret, because the migrate step runs on
+the instance; the separation is per process. `smoke.sh` checks it on every
+deploy: the running service's own environment (`/proc/<pid>/environ`) must name
+no `DATABASE_OWNER_*` variable and contain neither the owner secret's ARN nor its
+password, and the migrate step's journal and `migrate.env` join the secret-leak
+scan.
+
+The logins and their memberships come from `db-bootstrap.sh`; the `V3` migration
+grants the memberships again from its placeholders (a no-op on a bootstrapped
+stack) and replaces the retention role switch with the logins themselves.
 ### Database key
 
 One customer-managed KMS key (`DBKeyArn`, alias `alias/<stack>-database`), with
@@ -492,10 +524,12 @@ scp -i spring-backend-key.pem \
   ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
-# Start application
+# Migrate (as the owner login), then start the application only if that succeeded
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
+set -euo pipefail
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
 sudo chown springboot:springboot /opt/backend/backend.jar
+sudo systemctl restart backend-migrate
 sudo systemctl start backend
 sudo systemctl enable backend
 ENDSSH
@@ -830,10 +864,14 @@ scp -i spring-backend-key.pem \
   ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
+# The migrate step runs against the new JAR first; the service starts only if it
+# succeeded (see "Migrate step").
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
+set -euo pipefail
 sudo systemctl stop backend
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
 sudo chown springboot:springboot /opt/backend/backend.jar
+sudo systemctl restart backend-migrate
 sudo systemctl start backend
 ENDSSH
 ```

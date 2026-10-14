@@ -12,7 +12,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.event.ApplicationPreparedEvent;
-import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -75,7 +74,7 @@ class ApplicationLifecycleLogIntegrationTests {
                         "--app.auth.lockout.max-attempts=4",
                         "--app.dormancy.lockout.window=61d",
                         "--app.audit.retention.period=400d");
-        String jdbcUrl = application.getBean(JdbcConnectionDetails.class).getJdbcUrl();
+        String jdbcUrl = application.getEnvironment().getRequiredProperty("spring.datasource.url");
 
         List<String> startup = linesWithAction("application-startup");
         assertThat(startup).as("startup records").hasSize(1);

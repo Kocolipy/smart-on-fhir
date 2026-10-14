@@ -12,6 +12,7 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -78,8 +79,6 @@ class AuditEventRecordingIntegrationTests {
 
     private static final String DELETE_ALL_EVENTS = "DELETE FROM audit_events";
 
-    private static final String ASSUME_RETENTION_ROLE =
-            "SET LOCAL ROLE backend_audit_retention";
 
     @Autowired
     private WebApplicationContext context;
@@ -95,6 +94,9 @@ class AuditEventRecordingIntegrationTests {
 
     @Autowired
     private TransactionTemplate transactions;
+
+    @Autowired
+    private DatabaseLogins logins;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -524,15 +526,11 @@ class AuditEventRecordingIntegrationTests {
     }
 
     /**
-     * Removes recorded events between tests, through the retention role — the
-     * application's own role cannot, which is the arrangement
-     * {@code AuditAppendOnlyIntegrationTests} proves.
+     * Removes recorded events between tests, as the retention login — the app login
+     * cannot, which is the arrangement {@code AuditAppendOnlyIntegrationTests} proves.
      */
     private void clearRecordedEvents() {
-        transactions.executeWithoutResult(status -> {
-            jdbc.execute(ASSUME_RETENTION_ROLE);
-            jdbc.update(DELETE_ALL_EVENTS);
-        });
+        logins.retention().jdbc().update(DELETE_ALL_EVENTS);
     }
 
     /**

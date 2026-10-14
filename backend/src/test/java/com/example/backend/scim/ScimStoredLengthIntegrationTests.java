@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -94,6 +95,10 @@ class ScimStoredLengthIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    /** The owner login: the one that may change the schema these tests force a fault into. */
+    @Autowired
+    private DatabaseLogins logins;
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -478,9 +483,9 @@ class ScimStoredLengthIntegrationTests {
         MvcResult user = createUser(userBody("len-forced-user", null, null));
         MvcResult group = createGroup("""
                 {"schemas":["%s"],"displayName":"len-forced-group"}""".formatted(GROUP_SCHEMA));
-        jdbc.execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_forced_locale"
+        logins.owner().jdbc().execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_forced_locale"
                 + " CHECK (locale IS DISTINCT FROM '" + FORCED + "')");
-        jdbc.execute("ALTER TABLE scim_groups ADD CONSTRAINT ck_test_forced_display_name"
+        logins.owner().jdbc().execute("ALTER TABLE scim_groups ADD CONSTRAINT ck_test_forced_display_name"
                 + " CHECK (display_name <> '" + FORCED + "')");
         try {
             assertServerError(createUser("""
@@ -496,8 +501,8 @@ class ScimStoredLengthIntegrationTests {
                     group.getResponse().getHeader(HttpHeaders.ETAG),
                     patchOp("displayName", "\"" + FORCED + "\"")));
         } finally {
-            jdbc.execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_forced_locale");
-            jdbc.execute("ALTER TABLE scim_groups DROP CONSTRAINT ck_test_forced_display_name");
+            logins.owner().jdbc().execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_forced_locale");
+            logins.owner().jdbc().execute("ALTER TABLE scim_groups DROP CONSTRAINT ck_test_forced_display_name");
         }
 
         assertThat(etagOf(USERS, id(user))).isEqualTo(user.getResponse().getHeader(HttpHeaders.ETAG));

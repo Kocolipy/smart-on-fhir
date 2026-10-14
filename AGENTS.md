@@ -167,11 +167,23 @@ already matches at any depth.
   variables must carry the `VITE_` prefix and be documented in
   `frontend/README.md`.
 - `backend/` requires `.env`; copy `backend/.env.example` first. It also needs
-  Postgres and Redis — `make infra-up` from the repo root, or
-  `docker compose up` in `backend/`.
+  Postgres and Redis — `make infra-up` from the repo root, which also creates
+  the local app and retention database logins
+  (`backend/scripts/local-db-logins.sh`), or `docker compose up` in `backend/`
+  followed by that script. `.env` sets `SPRING_PROFILES_ACTIVE=local`, the
+  profile that runs the migrations at startup; outside `local`, `test` and
+  `migrate`, Flyway is off.
+- The backend connects as **three database logins** — app, retention and owner
+  (`DATABASE_USERNAME`/`DATABASE_PASSWORD`,
+  `DATABASE_RETENTION_USERNAME`/`DATABASE_RETENTION_PASSWORD`,
+  `DATABASE_OWNER_USERNAME`/`DATABASE_OWNER_PASSWORD`), none with a fallback.
+  The owner login is read only where migrations run; a deployed service never
+  holds it (a separate migrate step migrates first). See `backend/README.md`,
+  "Database logins".
 
-`backend/src/main/resources/application.yaml` carries working default
-credentials as env-var fallbacks. **This remote is public.** Any deployment that
+`backend/src/main/resources/application.yaml` still carries working default
+values for some non-database settings (the Bootstrap Admin's first password
+among them) as env-var fallbacks. **This remote is public.** Any deployment that
 does not set the env vars ships published credentials, so never rely on the
 fallbacks and never add new ones.
 

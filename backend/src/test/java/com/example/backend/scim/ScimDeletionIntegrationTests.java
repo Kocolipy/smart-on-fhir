@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Supplier;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -271,40 +270,32 @@ class ScimDeletionIntegrationTests {
     }
 
     /**
-     * The application role may insert and read tombstones, never change or remove one.
+     * The app login may insert and read tombstones, never change or remove one.
      *
-     * <p>The test's own connection is the owning role, which the grants do not bind, so
-     * each statement assumes {@code backend_app} -- the role the deployed application sets
-     * on every connection -- inside a transaction of its own.
+     * <p>The test's own template is the service's main pool, which connects as the app login,
+     * so each statement runs with exactly the deployed service's privileges.
      */
     @Test
     void the_application_cannot_update_or_delete_a_tombstone() throws Exception {
         UUID user = createUser("delete-append-only");
         assertThat(status(conditional(tokenA, delete(USERS + "/" + user), user))).isEqualTo(204);
 
-        assertThat(asApplicationRole(() -> jdbc.queryForObject(
+        assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM scim_tombstones WHERE resource_id = ?",
-                Integer.class, user)))
-                .as("the application role reads tombstones")
+                Integer.class, user))
+                .as("the app login reads tombstones")
                 .isEqualTo(1);
-        assertThatThrownBy(() -> asApplicationRole(() -> jdbc.update(
-                "DELETE FROM scim_tombstones WHERE resource_id = ?", user)))
+        assertThatThrownBy(() -> jdbc.update(
+                "DELETE FROM scim_tombstones WHERE resource_id = ?", user))
                 .isInstanceOf(DataAccessException.class)
                 .rootCause().hasMessageContaining("permission denied for table scim_tombstones");
-        assertThatThrownBy(() -> asApplicationRole(() -> jdbc.update(
-                "UPDATE scim_tombstones SET deleted_at = now() WHERE resource_id = ?", user)))
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE scim_tombstones SET deleted_at = now() WHERE resource_id = ?", user))
                 .isInstanceOf(DataAccessException.class)
                 .rootCause().hasMessageContaining("permission denied for table scim_tombstones");
         assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
                 .as("both refused statements left the tombstone in place")
                 .isEqualTo(1);
-    }
-
-    private <T> T asApplicationRole(Supplier<T> work) {
-        return new TransactionTemplate(transactionManager).execute(status -> {
-            jdbc.execute("SET LOCAL ROLE backend_app");
-            return work.get();
-        });
     }
 
     /** A Group deletion leaves a Group tombstone and frees its displayName the same way. */

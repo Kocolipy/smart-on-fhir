@@ -4,7 +4,7 @@
 # frontend/AGENTS.md carries its trigger and when it passes.
 #
 # Brings up Postgres, Redis and the launcher (the compose `epic-launcher`
-# profile), starts the backend in the dev profile with Epic Login pointed at the
+# profile), starts the backend in the local and dev profiles with Epic Login pointed at the
 # launcher, then runs the Playwright `epic` project, which starts the Vite dev
 # server itself. Everything this script started is torn down again unless
 # KEEP_UP=1 (stack_up and stack_e2e in lib.sh).
@@ -24,8 +24,9 @@ LAUNCHER_URL="http://localhost:9009"
 
 # The launcher's EHR launch names the FHIR base `/v/r4/fhir`, and that is also
 # its OIDC issuer. Both are http, which only the dev profile accepts (D21); the
-# dev profile also accepts the launcher's relative `fhirUser`.
-export SPRING_PROFILES_ACTIVE=dev
+# dev profile also accepts the launcher's relative `fhirUser`. `local` keeps the
+# local run's in-process migrations, which every other profile turns off.
+export SPRING_PROFILES_ACTIVE=local,dev
 export APP_EPIC_ENABLED=true
 export APP_EPIC_FHIR_BASE="$LAUNCHER_URL/v/r4/fhir"
 export APP_EPIC_OAUTH_ISSUER="$APP_EPIC_FHIR_BASE"
