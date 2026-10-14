@@ -7,9 +7,11 @@
 #   3. SCIM          as the Bootstrap Admin, a SCIM create, list and delete
 #   4. alarms        the deadlock and blocked-session alarms exist and notify
 #                    the stack's alarm topic
-#   5. secret leaks  no secret value appears in the rendered UserData (read back
-#                    from EC2), the cloud-init logs, the service's env file, its
-#                    journal or its log file
+#   5. owner login   the running service's environment holds no part of the
+#                    owner secret: only the migrate step is given it
+#   6. secret leaks  no secret value appears in the rendered UserData (read back
+#                    from EC2), the cloud-init logs, the service's and the migrate
+#                    step's env files and journals, or the service's log file
 #
 # Runs on the operator's machine with the operator's AWS credentials, through
 # the same SSH tunnel as db-bootstrap.sh. On a fresh stack the SCIM step
@@ -18,9 +20,9 @@
 # has succeeded. See infra/README.md, "Post-deploy smoke".
 #
 # Usage: ./smoke.sh [--leaks-only] <stack-name> [region]
-#   --leaks-only  step 5 alone, over the sources that exist before the JAR is
+#   --leaks-only  step 6 alone, over the sources that exist before the JAR is
 #                 deployed: the rendered UserData, the cloud-init logs and the
-#                 env file. deploy.sh runs this when the JAR is not deployed.
+#                 env files. deploy.sh runs this when the JAR is not deployed.
 #   KEY_FILE  the instance's SSH key (default: <KeyPairName>.pem beside this script)
 #
 # Never run with command tracing (bash -x): see lib.sh.
@@ -133,7 +135,8 @@ check_secret_leaks() {
   aws ec2 describe-instance-attribute --instance-id "$instance_id" --attribute userData \
     --region "$REGION" --query UserData.Value --output text | base64 --decode |
     scan_for_secrets "the rendered UserData" "${SECRET_VALUES[@]}"
-  for source in /var/log/cloud-init-output.log /var/log/cloud-init.log /opt/backend/.env; do
+  for source in /var/log/cloud-init-output.log /var/log/cloud-init.log /opt/backend/.env \
+    /opt/backend/migrate.env; do
     remote "sudo cat $source" | scan_for_secrets "$source" "${SECRET_VALUES[@]}"
   done
   if [[ -z $boot_only ]]; then
@@ -141,8 +144,33 @@ check_secret_leaks() {
       scan_for_secrets /var/log/backend/backend.json "${SECRET_VALUES[@]}"
     remote "sudo journalctl -u backend --no-pager" |
       scan_for_secrets "the backend service's journal" "${SECRET_VALUES[@]}"
+    remote "sudo journalctl -u backend-migrate --no-pager" |
+      scan_for_secrets "the migrate step's journal" "${SECRET_VALUES[@]}"
   fi
   SECRET_VALUES=()
+}
+
+# The running service holds no owner credential (ADR 0015, ac-1): its JVM's own
+# environment, read from /proc on the instance, names no DATABASE_OWNER_*
+# variable and contains no part of the owner secret — its ARN or its password.
+# Only the migrate step (backend-migrate.service) is given those. The
+# environment holds the app and retention passwords, so it is held in a local
+# variable for the check and never printed.
+check_service_holds_no_owner_credential() {
+  local json environ owner_arn
+  owner_arn=$(stack_output DBOwnerSecretArn)
+  json=$(secret_string "$owner_arn" "$REGION")
+  # shellcheck disable=SC2016 # expanded on the instance, not here
+  environ=$(remote 'sudo cat "/proc/$(systemctl show -p MainPID --value backend)/environ" | tr "\0" "\n"')
+  [[ -n $environ ]] || die "owner credential check: the backend service's environment could not be read"
+  if grep -q '^DATABASE_OWNER_' <<<"$environ"; then
+    die "owner credential check: the backend service's environment has a DATABASE_OWNER_ variable"
+  fi
+  printf '%s' "$environ" | scan_for_secrets "the backend service's environment" \
+    "DBOwnerSecretArn=$owner_arn" "DBOwnerSecretArn.password=$(json_field "$json" password)"
+  environ=""
+  json=""
+  print_info "owner credential check: the service runs without the owner login"
 }
 
 main() {
@@ -184,6 +212,7 @@ main() {
   unset ADMIN_PASSWORD
 
   check_alarms
+  check_service_holds_no_owner_credential
   check_secret_leaks
   print_info "smoke passed on stack $stack"
 }

@@ -90,12 +90,13 @@ require_docker() {
 }
 
 # Spring Boot does not read dotenv files itself, so export backend/.env before
-# handing off to spring-boot:run. Without it the app falls back to the
-# application.yaml defaults, which include published default credentials.
+# handing off to spring-boot:run. Without it the database logins, which have no
+# defaults, are unset and the backend refuses to start; every other setting falls
+# back to the application.yaml defaults, which include published credentials.
 load_backend_env() {
   local env_file="$BACKEND_DIR/.env"
   if [[ ! -f $env_file ]]; then
-    warn "no backend/.env — using application.yaml defaults (including published default credentials)"
+    warn "no backend/.env — the database logins are unset (copy backend/.env.example)"
     return 0
   fi
   set -a
@@ -234,6 +235,9 @@ stack_up() {
   "${STACK_COMPOSE[@]}" up -d --wait
 
   load_backend_env
+  # The app and retention logins the backend connects as (backend/README.md,
+  # "Database logins"); idempotent, so a volume that has them already is fine.
+  "$BACKEND_DIR/scripts/local-db-logins.sh"
   BACKEND_PORT="${SERVER_PORT:-8080}"
   require_port_free "$BACKEND_PORT" "the backend"
   require_port_free 5173 "the Vite dev server Playwright starts"

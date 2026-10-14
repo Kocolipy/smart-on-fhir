@@ -456,19 +456,12 @@ rules:
     severity: ERROR
     message: >-
       The backend_audit_retention database role is the only role permitted to
-      update or delete a recorded audit event, and AuditEventRetentionAdapter is
-      the only place that may assume it. A second place that does is a second way
-      for the application to mutate the trail, which is exactly what the split
-      roles and the table's append-only trigger exist to prevent. If retention
-      needs to do something new, it belongs behind the AuditEventRetention port.
-    paths:
-      exclude:
-        # The adapter that owns the role, and the tests that prove the split is
-        # enforced at the database — which they can only do by speaking as each
-        # role in turn.
-        - "**/AuditEventRetentionAdapter.java"
-        - "**/AuditAppendOnlyIntegrationTests.java"
-        - "**/AuditEventRecordingIntegrationTests.java"
+      delete a recorded audit event, and it is held by the retention login, which
+      only AuditEventRetentionAdapter's pool connects as (#66, ADR 0015). Nothing
+      assumes the role on a connection: a SET ROLE to it would be a second way
+      for the application to mutate the trail, which the separate logins and the
+      table's append-only trigger exist to prevent. If retention needs to do
+      something new, it belongs behind the AuditEventRetention port.
     pattern-regex: SET\s+(LOCAL\s+)?ROLE\s+backend_audit_retention
 
   # ---------------------------------------------------------------------------

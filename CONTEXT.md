@@ -390,13 +390,14 @@ across instances.
 
 ### Database
 
-From the switchover (ADR 0015); until it merges, the backend still runs on
-PostgreSQL with its own roles. Every term here names a SQL Server principal, never
-the sign-in operation: write "database login" or one of the qualified names below,
-and keep a bare **Login** for the operation under Authentication.
+From ADR 0015. The three logins and the migrate step already exist on PostgreSQL
+(#66); the switchover makes them SQL Server principals. Every term here names a
+database principal, never the sign-in operation: write "database login" or one of
+the qualified names below, and keep a bare **Login** for the operation under
+Authentication.
 
 **Database login**:
-One of the three SQL Server identities the backend connects as — the owner
+One of the three database identities the backend connects as — the owner
 login, the app login and the retention login — each holding only its own
 privileges, with no role switching on a connection (ADR 0015). A database
 principal, not a Login.

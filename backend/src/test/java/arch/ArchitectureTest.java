@@ -439,6 +439,9 @@ public class ArchitectureTest {
             // Operation its records are classified as, so it depends on the logging base every
             // module depends on, which depends on nothing back.
             Map.entry("scheduling", Set.of("observability")),
+            // The main pool and the migrate step: how the service reaches its database and how the
+            // schema gets there, which no business module is needed for.
+            Map.entry("database", Set.of()),
             // SPA routing and the API error shape are shared plumbing and know no business module.
             Map.entry("web", Set.of("observability")),
             // Shared by every business module, so it depends on none of them.

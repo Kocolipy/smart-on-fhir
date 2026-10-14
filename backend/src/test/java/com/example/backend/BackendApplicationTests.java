@@ -65,10 +65,11 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            // V2: audit events name the connector token they concern.
-            // V3: memberships are deleted explicitly, never by cascade (ADR 0015).
-            // V4: connector token Permissions move to a child table (ADR 0015).
-            assertThat(versions).containsExactly("1", "2", "3", "4");
+            // V2: audit events name the connector token they concern. V3: separate
+            // database logins replace the role switch.
+            // V4: memberships are deleted explicitly, never by cascade (ADR 0015).
+            // V5: connector token Permissions move to a child table (ADR 0015).
+            assertThat(versions).containsExactly("1", "2", "3", "4", "5");
         }
     }
 }

@@ -16,30 +16,45 @@ class AuditAppendPoolConfigTests {
 
     private final AuditAppendPoolConfig config = new AuditAppendPoolConfig();
 
-    /** A main pool as Boot binds one: URL, login, password, driver and the runtime role switch. */
+    /** A main pool as the service declares one: URL, the app login, its password, the driver. */
     private static HikariDataSource mainPool() {
         HikariDataSource main = new HikariDataSource();
         main.setJdbcUrl("jdbc:postgresql://db.internal:5432/backend");
-        main.setUsername("backend");
+        main.setUsername("backend_app_login");
         main.setPassword("from-the-environment");
         main.setDriverClassName("org.postgresql.Driver");
-        main.setConnectionInitSql("SET ROLE backend_app");
         main.setMaximumPoolSize(10);
         main.setConnectionTimeout(30_000);
         return main;
     }
 
+    /** The app login, the main pool's — never the owner login, and no credential of its own. */
     @Test
-    void thePoolConnectsAsTheMainPoolDoesUnderTheSameRole() {
+    void thePoolConnectsAsTheMainPoolsLogin() {
         try (HikariDataSource main = mainPool();
                 HikariDataSource pool = config.auditAppendDataSource(
                         main, new AuditAppendPoolProperties(null, null))) {
 
             assertThat(List.of(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword(),
-                            pool.getDriverClassName(), pool.getConnectionInitSql()))
-                    .containsExactly("jdbc:postgresql://db.internal:5432/backend", "backend",
-                            "from-the-environment", "org.postgresql.Driver",
-                            "SET ROLE backend_app");
+                            pool.getDriverClassName()))
+                    .containsExactly("jdbc:postgresql://db.internal:5432/backend",
+                            "backend_app_login", "from-the-environment", "org.postgresql.Driver");
+        }
+    }
+
+    /**
+     * Nothing runs on a new connection, whatever the main pool was given: the login's own
+     * privileges are the pool's, and a statement copied from elsewhere could only widen them.
+     */
+    @Test
+    void thePoolRunsNoConnectionInitSqlEvenWhenTheMainPoolHasOne() {
+        try (HikariDataSource main = mainPool()) {
+            main.setConnectionInitSql("SELECT 1");
+            try (HikariDataSource pool = config.auditAppendDataSource(
+                    main, new AuditAppendPoolProperties(null, null))) {
+
+                assertThat(pool.getConnectionInitSql()).isNull();
+            }
         }
     }
 
