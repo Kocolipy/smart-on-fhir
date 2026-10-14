@@ -4,14 +4,13 @@ import static com.example.backend.observability.SqlFailures.AUDIT_TRIGGER_REFUSA
 import static com.example.backend.observability.SqlFailures.CONNECTION_FAILURE;
 import static com.example.backend.observability.SqlFailures.CONNECTION_NOT_ESTABLISHED;
 import static com.example.backend.observability.SqlFailures.DEADLOCK_VICTIM;
-import static com.example.backend.observability.SqlFailures.INVALID_AUTHORIZATION;
-import static com.example.backend.observability.SqlFailures.INVALID_TEXT_REPRESENTATION;
+import static com.example.backend.observability.SqlFailures.VALUE_CONVERSION_FAILED;
 import static com.example.backend.observability.SqlFailures.LOCK_NOT_AVAILABLE;
 import static com.example.backend.observability.SqlFailures.PERMISSION_DENIED;
-import static com.example.backend.observability.SqlFailures.INVALID_PASSWORD;
-import static com.example.backend.observability.SqlFailures.SERIALIZATION_FAILURE;
+import static com.example.backend.observability.SqlFailures.LOGIN_FAILED;
+import static com.example.backend.observability.SqlFailures.SNAPSHOT_CONFLICT;
 import static com.example.backend.observability.SqlFailures.STATEMENT_TIMEOUT;
-import static com.example.backend.observability.SqlFailures.UNIQUE_VIOLATION;
+import static com.example.backend.observability.SqlFailures.UNIQUE_CONSTRAINT_VIOLATION;
 import static com.example.backend.observability.SqlFailures.VALUE_TOO_LONG;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,8 +31,8 @@ import org.springframework.transaction.CannotCreateTransactionException;
 /**
  * ADR 0015's category mapping and the deadlock it retries, keyed on what the engine reports — the
  * SQLState and vendor error number of the {@link SQLException} in the chain, and Spring's
- * data-access hierarchy — never a driver's class. Today's engine's failures are raised by name
- * from {@link SqlFailures}; the table's key is proven against rows of another engine's shape.
+ * data-access hierarchy — never a driver's class. The engine's failures are raised by name
+ * from {@link SqlFailures}; the table's key is proven against tables of the test's own.
  */
 class DatabaseFailureCategoryTests {
 
@@ -54,12 +53,13 @@ class DatabaseFailureCategoryTests {
 
     @Test
     void aSerializationOrSnapshotConflictIsADatabaseFailure() {
-        assertThat(category(translated(SERIALIZATION_FAILURE))).isEqualTo(ErrorCategory.DATABASE);
+        assertThat(category(translated(SNAPSHOT_CONFLICT))).isEqualTo(ErrorCategory.DATABASE);
     }
 
     @Test
     void anUntranslatedUniqueViolationIsADatabaseFailure() {
-        assertThat(category(translated(UNIQUE_VIOLATION))).isEqualTo(ErrorCategory.DATABASE);
+        assertThat(category(translated(UNIQUE_CONSTRAINT_VIOLATION)))
+                .isEqualTo(ErrorCategory.DATABASE);
     }
 
     @Test
@@ -69,7 +69,7 @@ class DatabaseFailureCategoryTests {
 
     @Test
     void aConversionErrorIsADatabaseFailure() {
-        assertThat(category(translated(INVALID_TEXT_REPRESENTATION))).isEqualTo(ErrorCategory.DATABASE);
+        assertThat(category(translated(VALUE_CONVERSION_FAILED))).isEqualTo(ErrorCategory.DATABASE);
     }
 
     @Test
@@ -95,7 +95,8 @@ class DatabaseFailureCategoryTests {
     /** A raw SQL exception under a non-Spring wrapper is still the database's. */
     @Test
     void anSqlExceptionUnderAnyWrapperIsADatabaseFailure() {
-        assertThat(category(new IllegalStateException("wrapped", UNIQUE_VIOLATION.raised())))
+        assertThat(category(
+                new IllegalStateException("wrapped", UNIQUE_CONSTRAINT_VIOLATION.raised())))
                 .isEqualTo(ErrorCategory.DATABASE);
     }
 
@@ -122,12 +123,7 @@ class DatabaseFailureCategoryTests {
     @Test
     void aRefusedDatabaseLoginIsACertAuthFailure() {
         assertThat(category(new CannotGetJdbcConnectionException("no connection",
-                INVALID_PASSWORD.raised()))).isEqualTo(ErrorCategory.CERT_AUTH);
-    }
-
-    @Test
-    void anyInvalidAuthorizationStateIsACertAuthFailure() {
-        assertThat(category(INVALID_AUTHORIZATION.raised())).isEqualTo(ErrorCategory.CERT_AUTH);
+                LOGIN_FAILED.raised()))).isEqualTo(ErrorCategory.CERT_AUTH);
     }
 
     @Test
@@ -187,7 +183,7 @@ class DatabaseFailureCategoryTests {
     /** A serialization or snapshot conflict is the mapping's {@code ERROR}, never retried. */
     @Test
     void aSerializationConflictIsNotADeadlock() {
-        assertThat(DatabaseFailureCategory.deadlock(translated(SERIALIZATION_FAILURE))).isFalse();
+        assertThat(DatabaseFailureCategory.deadlock(translated(SNAPSHOT_CONFLICT))).isFalse();
     }
 
     @Test
@@ -201,13 +197,86 @@ class DatabaseFailureCategoryTests {
                 new IllegalStateException("again", DEADLOCK_VICTIM.raised())))).isTrue();
     }
 
+    // ---- SQL Server, as its driver reports each failure ------------------------------------
+    //
+    // Literals rather than SqlFailures: what mssql-jdbc raises for each failure of ADR 0015's
+    // mapping — the SQLState it derives and the server's error number — written independently of
+    // the table under test.
+
+    /** A deadlock's victim: error 1205, under the serialization state. */
+    @Test
+    void sqlServersDeadlockVictimIsTheDeadlockTheRetryRepeats() {
+        assertThat(DatabaseFailureCategory.deadlock(
+                new SQLException("chosen as the deadlock victim", "40001", 1205))).isTrue();
+    }
+
+    /** A snapshot update conflict (3960) shares the victim's state, and is never retried. */
+    @Test
+    void sqlServersSnapshotConflictIsNotADeadlock() {
+        assertThat(DatabaseFailureCategory.deadlock(
+                new SQLException("snapshot isolation update conflict", "40001", 3960))).isFalse();
+    }
+
+    @Test
+    void sqlServersSnapshotConflictIsADatabaseFailure() {
+        assertThat(category(new SQLException("snapshot conflict", "40001", 3960)))
+                .isEqualTo(ErrorCategory.DATABASE);
+    }
+
+    /** PostgreSQL's victim state names no failure SQL Server reports, so nothing retries on it. */
+    @Test
+    void postgresDeadlockStateIsNoLongerADeadlock() {
+        assertThat(DatabaseFailureCategory.deadlock(new SQLException("x", "40P01", 0))).isFalse();
+    }
+
+    /** Error 18456, a login the server refused, reported under the generic state {@code S0001}. */
+    @Test
+    void sqlServersRefusedLoginIsACertAuthFailure() {
+        assertThat(category(new CannotGetJdbcConnectionException("no connection",
+                new SQLException("Login failed for user", "S0001", 18456))))
+                .isEqualTo(ErrorCategory.CERT_AUTH);
+    }
+
+    /** Error 229, a permission denied on an object, whatever state the driver derives for it. */
+    @Test
+    void sqlServersPermissionDeniedIsACertAuthFailure() {
+        assertThat(category(new SQLException("The SELECT permission was denied", "S0005", 229)))
+                .isEqualTo(ErrorCategory.CERT_AUTH);
+    }
+
+    /** Each of the mapping's {@code database} rows, by the error number the server reports. */
+    @Test
+    void sqlServersOtherMappedFailuresAreDatabaseFailures() {
+        assertThat(List.of(
+                new SQLException("unique constraint", "23000", 2627),
+                new SQLException("unique index", "23000", 2601),
+                new SQLException("truncated", "S0001", 2628),
+                new SQLException("conversion", "S0001", 245),
+                new SQLException("conversion", "S0001", 8114),
+                new SQLException("lock request time out", "S0001", 1222),
+                new SQLException("the audit trigger refused", "S0001", 50001),
+                new SQLException("The query has timed out.", "HY008", 0)))
+                .extracting(DatabaseFailureCategory::of)
+                .containsOnly(ErrorCategory.DATABASE);
+    }
+
+    /**
+     * The refused login's state, {@code S0001}, is the one the driver derives for most server
+     * errors, so only the number makes a failure a refused login.
+     */
+    @Test
+    void anotherErrorUnderTheRefusedLoginsStateIsADatabaseFailure() {
+        assertThat(category(new SQLException("Invalid column name", "S0001", 207)))
+                .isEqualTo(ErrorCategory.DATABASE);
+    }
+
     // ---- the table's key ---------------------------------------------------------------------
 
     /** The serialization state, which SQL Server's victim (1205) and snapshot conflict (3960) share. */
-    private static final String SHARED = SERIALIZATION_FAILURE.sqlState();
+    private static final String SHARED = DEADLOCK_VICTIM.sqlState();
 
     /**
-     * Another engine's table, as the switchover will write it: one SQLState shared by a deadlock
+     * A table of the test's own: one SQLState shared by a deadlock
      * victim and a failure that must not be retried, told apart by the vendor error number.
      */
     private static final DatabaseFailureCategory SHARED_STATE = new DatabaseFailureCategory(List.of(
@@ -221,6 +290,16 @@ class DatabaseFailureCategoryTests {
     @Test
     void aRowKeyedOnAVendorNumberDoesNotMatchTheStateUnderAnotherNumber() {
         assertThat(SHARED_STATE.deadlockVictim(new SQLException("x", SHARED, 3960))).isFalse();
+    }
+
+    /**
+     * A row that names a state as well as a number matches only both: the victim's number under
+     * another state is not the victim — so the snapshot conflict's state alone, or a number
+     * reused under a state of its own, never retries a write.
+     */
+    @Test
+    void aRowKeyedOnAStateDoesNotMatchItsNumberUnderAnotherState() {
+        assertThat(SHARED_STATE.deadlockVictim(new SQLException("x", "S0001", 1205))).isFalse();
     }
 
     /** A row that names no SQLState matches the vendor number under any state, or none. */

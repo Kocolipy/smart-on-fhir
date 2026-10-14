@@ -86,9 +86,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      * <p>A violation here has one more possible cause than in {@link #create}: the
      * reservation is unique too, so a second attempt to seed the same recovery identity
      * violates it. Seeding never expects either: it looks the reservation up first under
-     * its lock, because against Postgres a violation aborts the transaction and cannot be
-     * caught and continued past. A taken {@code userName} arrives as the duplicate it is; a
-     * taken reservation is rethrown as the integrity violation, and either one fails startup.
+     * its lock, because a violation cannot be caught and continued past: SQL Server rolls back
+     * only the failed statement, but the exception marks the transaction rollback-only as it
+     * leaves the repository, and Hibernate's session may not be flushed after it. A taken
+     * {@code userName} arrives as the duplicate it is; a taken reservation is rethrown as the
+     * integrity violation, and either one fails startup.
      */
     @Override
     public ScimUser createReserved(ScimUser user, ReservedResourceName reservedName) {

@@ -163,7 +163,7 @@ class DeadlockRetryAdapterTests {
     @Test
     void aSerializationConflictIsNotRetried() {
         CannotAcquireLockException conflict = new CannotAcquireLockException("serialize",
-                SqlFailures.SERIALIZATION_FAILURE.raised("could not serialize access"));
+                SqlFailures.SNAPSHOT_CONFLICT.raised("snapshot isolation update conflict"));
         Writes writes = proxied(new Writes(conflict));
 
         assertThatThrownBy(writes::write).isSameAs(conflict);

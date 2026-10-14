@@ -355,8 +355,9 @@ public class ArchitectureTest {
                     "the dormancy job's Role revocation, joining the run's batch transaction: a"
                             + " scheduled path, which the next run covers"),
             Map.entry("com.example.backend.audit.infrastructure.persistence.AuditEventRetentionAdapter"
-                            + "#deleteOccurredBefore",
-                    "the audit retention job's delete: a scheduled path, which the next run covers"),
+                            + "#deleteBatchOccurredBefore",
+                    "a batch of the audit retention job's delete: a scheduled path, which the next"
+                            + " run covers"),
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
                     "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
                             + " the outermost boundary a retry belongs at"));

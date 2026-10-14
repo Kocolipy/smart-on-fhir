@@ -1,7 +1,7 @@
 package com.example.backend.observability;
 
 import static com.example.backend.observability.SqlFailures.PERMISSION_DENIED;
-import static com.example.backend.observability.SqlFailures.UNIQUE_VIOLATION;
+import static com.example.backend.observability.SqlFailures.UNIQUE_CONSTRAINT_VIOLATION;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -202,7 +202,7 @@ class EcsErrorFieldsCustomizerTests {
         return new DataIntegrityViolationException(
                 "StatementCallback; SQL [INSERT INTO probe_db.probe_schema.probe VALUES"
                         + " ('refused-alice')]; " + DRIVER_TEXT,
-                UNIQUE_VIOLATION.raised(DRIVER_TEXT));
+                UNIQUE_CONSTRAINT_VIOLATION.raised(DRIVER_TEXT));
     }
 
     /**
@@ -214,7 +214,8 @@ class EcsErrorFieldsCustomizerTests {
         JsonNode record = encoded(withCustomizer(),
                 event(translatedRefusal(), classification(500, "database", true)));
 
-        assertThat(record.at("/error/message").asText()).isEqualTo(UNIQUE_VIOLATION.redacted());
+        assertThat(record.at("/error/message").asText())
+                .isEqualTo(UNIQUE_CONSTRAINT_VIOLATION.redacted());
         assertThat(record.at("/error/type").asText())
                 .isEqualTo("org.springframework.dao.DataIntegrityViolationException");
     }
@@ -231,8 +232,9 @@ class EcsErrorFieldsCustomizerTests {
 
         assertThat(stack)
                 .startsWith("org.springframework.dao.DataIntegrityViolationException:"
-                        + " " + UNIQUE_VIOLATION.redacted())
-                .contains("Caused by: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
+                        + " " + UNIQUE_CONSTRAINT_VIOLATION.redacted())
+                .contains("Caused by: java.sql.SQLException: "
+                        + UNIQUE_CONSTRAINT_VIOLATION.redacted())
                 .contains("at " + EcsErrorFieldsCustomizerTests.class.getName()
                         + ".translatedRefusal(EcsErrorFieldsCustomizerTests.java:");
     }
@@ -270,17 +272,17 @@ class EcsErrorFieldsCustomizerTests {
 
     /**
      * A message beneath the SQL exception — the driver's own cause — is the driver's to have
-     * written, not a quote of the statement, and is kept; a state that is not five letters or
-     * digits is not repeated.
+     * written, not a quote of the statement, and is kept; the state, odd or not, is never
+     * repeated.
      */
     @Test
-    void aCauseBeneathTheSqlExceptionKeepsItsMessageAndAnOddStateIsNotRepeated() {
+    void aCauseBeneathTheSqlExceptionKeepsItsMessageAndTheStateIsNotRepeated() {
         SQLException driver = new SQLException("driver text", "bad\nstate", 4060,
                 new EOFException("connection reset"));
 
         JsonNode record = encoded(withCustomizer(), event(driver, List.of()));
 
-        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 4060 (SQLState unknown)");
+        assertThat(record.at("/error/message").asText()).isEqualTo("SQL Server error 4060");
         assertThat(record.at("/error/stack_trace").asText())
                 .contains("Caused by: java.io.EOFException: connection reset")
                 .doesNotContain("driver text");
@@ -292,14 +294,15 @@ class EcsErrorFieldsCustomizerTests {
      */
     @Test
     void aCyclicChainThroughAnSqlExceptionIsRedactedAndEnds() {
-        SQLException driver = UNIQUE_VIOLATION.raised("quoted-alice");
+        SQLException driver = UNIQUE_CONSTRAINT_VIOLATION.raised("quoted-alice");
         IllegalStateException wrapper = new IllegalStateException("wraps quoted-alice", driver);
         driver.initCause(wrapper);
 
         String line = rawLine(withCustomizer(), event(wrapper, List.of()));
 
         assertThat(line)
-                .contains("Caused by: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
+                .contains("Caused by: java.sql.SQLException: "
+                        + UNIQUE_CONSTRAINT_VIOLATION.redacted())
                 .doesNotContain("quoted-alice");
     }
 
@@ -312,7 +315,7 @@ class EcsErrorFieldsCustomizerTests {
         IllegalStateException first = new IllegalStateException("first");
         IllegalArgumentException second = new IllegalArgumentException("second", first);
         first.initCause(second);
-        first.addSuppressed(UNIQUE_VIOLATION.raised("quoted-alice"));
+        first.addSuppressed(UNIQUE_CONSTRAINT_VIOLATION.raised("quoted-alice"));
 
         String stack = encoded(withCustomizer(), event(first, List.of()))
                 .at("/error/stack_trace").asText();
@@ -320,7 +323,8 @@ class EcsErrorFieldsCustomizerTests {
         assertThat(stack)
                 .startsWith("java.lang.IllegalStateException: first")
                 .contains("Caused by: java.lang.IllegalArgumentException: second")
-                .contains("Suppressed: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
+                .contains("Suppressed: java.sql.SQLException: "
+                        + UNIQUE_CONSTRAINT_VIOLATION.redacted())
                 .doesNotContain("quoted-alice");
     }
 
@@ -355,13 +359,13 @@ class EcsErrorFieldsCustomizerTests {
         assertThat(encoded(withCustomizer(), event)).isEqualTo(encoded(new MockEnvironment(), event));
     }
 
-    /** An SQL exception that carries no SQLState still says it is one, and quotes nothing. */
+    /** An SQL exception that carries no SQLState still says it is one, by number, quoting nothing. */
     @Test
-    void anSqlExceptionWithNoStateIsRedactedToAnUnknownState() {
+    void anSqlExceptionWithNoStateIsRedactedToItsNumber() {
         JsonNode record = encoded(withCustomizer(),
                 event(new SQLException("quoted-alice", (String) null, 0), List.of()));
 
-        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState unknown)");
+        assertThat(record.at("/error/message").asText()).isEqualTo("SQL Server error 0");
     }
 
     /**

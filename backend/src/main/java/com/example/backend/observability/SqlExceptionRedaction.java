@@ -4,7 +4,6 @@ import java.sql.SQLException;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -40,20 +39,16 @@ import org.jspecify.annotations.Nullable;
  */
 final class SqlExceptionRedaction {
 
-    /** An SQLState is five letters or digits; anything else is not repeated. */
-    private static final Pattern SQL_STATE = Pattern.compile("[0-9A-Z]{5}");
-
     private SqlExceptionRedaction() {
     }
 
     /**
-     * What a record says in place of an {@link SQLException}'s message: the engine-neutral
-     * vendor code and SQLState, which identify the failure and quote nothing.
+     * What a record says in place of an {@link SQLException}'s message: {@code SQL Server error
+     * <n>}, the server's error number, which identifies the failure and quotes nothing (ADR 0015,
+     * "SQL exception text is redacted"). A failure the driver raised itself carries {@code 0}.
      */
     static String redactedMessage(SQLException failure) {
-        String state = failure.getSQLState();
-        return "SQL error " + failure.getErrorCode() + " (SQLState "
-                + (state != null && SQL_STATE.matcher(state).matches() ? state : "unknown") + ")";
+        return "SQL Server error " + failure.getErrorCode();
     }
 
     /**

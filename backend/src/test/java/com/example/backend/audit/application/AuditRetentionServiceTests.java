@@ -62,12 +62,12 @@ class AuditRetentionServiceTests {
 
     @Test
     void theCutoffIsTheConfiguredWindowBeforeNow() {
-        CountingRetention retention = new CountingRetention(3, Duration.ZERO, clock);
+        AgedEvents retention = new AgedEvents(3, Duration.ZERO, clock);
         AuditRetentionService service = new AuditRetentionService(
                 retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
 
         assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 3, 1));
-        assertThat(retention.cutoff).isEqualTo(NOW.minus(Duration.ofDays(365)));
+        assertThat(retention.cutoffs).containsExactly(NOW.minus(Duration.ofDays(365)));
         assertThat(lock.attempts()).containsExactly(ScheduledJob.AUDIT_RETENTION);
     }
 
@@ -78,7 +78,7 @@ class AuditRetentionServiceTests {
      */
     @Test
     void aRunThatFindsTheLockHeldDeletesNothingAndReportsItSkipped() {
-        CountingRetention retention = new CountingRetention(3, Duration.ZERO, clock);
+        AgedEvents retention = new AgedEvents(3, Duration.ZERO, clock);
         AuditRetentionService service = new AuditRetentionService(
                 retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
@@ -98,7 +98,7 @@ class AuditRetentionServiceTests {
     @Test
     void aScheduledRunThatFindsTheLockHeldEndsLockHeld() {
         AuditRetentionService service = new AuditRetentionService(
-                new CountingRetention(7, Duration.ZERO, clock),
+                new AgedEvents(7, Duration.ZERO, clock),
                 new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
         Runnable scheduled = new ScheduledJobMetrics(
@@ -125,7 +125,7 @@ class AuditRetentionServiceTests {
     @Test
     void theRunReportsItsDeletedEventsInOneBatchAndWritesNoRecordOfItsOwn() {
         AuditRetentionService service = new AuditRetentionService(
-                new CountingRetention(7, Duration.ZERO, clock),
+                new AgedEvents(7, Duration.ZERO, clock),
                 new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
 
         assertThat(service.deleteAgedOutEvents().records())
@@ -151,7 +151,7 @@ class AuditRetentionServiceTests {
     @Test
     void aScheduledRunIsJobStartAndOneSummaryJobEndUnderOneRunId() {
         AuditRetentionService service = new AuditRetentionService(
-                new CountingRetention(7, Duration.ofMillis(250), clock),
+                new AgedEvents(7, Duration.ofMillis(250), clock),
                 new AuditRetentionPolicy(Duration.ofDays(120), null), runs, clock);
         Runnable scheduled = new ScheduledJobMetrics(
                         new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
@@ -194,7 +194,7 @@ class AuditRetentionServiceTests {
     @Test
     void aRunThatRemovedNothingStillReports() {
         AuditRetentionService service = new AuditRetentionService(
-                new CountingRetention(0, Duration.ZERO, clock),
+                new AgedEvents(0, Duration.ZERO, clock),
                 new AuditRetentionPolicy(null, null),
                 runs,
                 clock);
@@ -202,33 +202,107 @@ class AuditRetentionServiceTests {
         assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 0, 1));
     }
 
-    /**
-     * A retention port that reports a fixed row count and costs a fixed amount of
-     * time, by moving the clock the service reads. That is what lets the logged
-     * duration be asserted as a value rather than as "greater than zero", which
-     * would pass for a job that did nothing at all.
-     */
-    private static final class CountingRetention implements AuditEventRetention {
 
-        private final long deleted;
+    // ---- batches ------------------------------------------------------------------------------
+
+    /**
+     * More aged events than one batch deletes: the run deletes batch after batch until one comes
+     * back short of a whole batch, and reports every event in every batch.
+     */
+    @Test
+    void aRunDeletesBatchAfterBatchUntilOneComesBackShort() {
+        AgedEvents retention = new AgedEvents(9000, Duration.ZERO, clock);
+        AuditRetentionService service = new AuditRetentionService(
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
+
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 9000, 3));
+        assertThat(retention.remaining).isZero();
+    }
+
+    /**
+     * A batch of exactly 4,000 does not say the window is empty, so a run whose aged events fill
+     * whole batches takes one more, which deletes nothing, to learn that it is.
+     */
+    @Test
+    void aRunWhoseBatchesComeBackWholeTakesOneMoreToLearnNothingRemains() {
+        AgedEvents retention = new AgedEvents(8000, Duration.ZERO, clock);
+        AuditRetentionService service = new AuditRetentionService(
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
+
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 8000, 3));
+    }
+
+    /** One batch short of a whole one is the run's last, however few it deleted. */
+    @Test
+    void aBatchOneShortOfWholeIsTheLast() {
+        AgedEvents retention = new AgedEvents(3999, Duration.ZERO, clock);
+        AuditRetentionService service = new AuditRetentionService(
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
+
+        assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 3999, 1));
+    }
+
+    /**
+     * Every batch deletes by the one cutoff the run took at its start, however long the batches
+     * take: a run does not chase events that age out while it runs.
+     */
+    @Test
+    void everyBatchDeletesByTheCutoffTheRunTookAtItsStart() {
+        AgedEvents retention = new AgedEvents(9000, Duration.ofMinutes(1), clock);
+        AuditRetentionService service = new AuditRetentionService(
+                retention, new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
+
+        service.deleteAgedOutEvents();
+
+        Instant cutoff = NOW.minus(Duration.ofDays(365));
+        assertThat(retention.cutoffs).containsExactly(cutoff, cutoff, cutoff);
+    }
+
+    /**
+     * The batches are the run's body, inside the one run under the job's lock: the lock is asked
+     * for once, however many batches follow.
+     */
+    @Test
+    void aRunOfManyBatchesTakesTheJobsLockOnce() {
+        AuditRetentionService service = new AuditRetentionService(
+                new AgedEvents(9000, Duration.ZERO, clock),
+                new AuditRetentionPolicy(Duration.ofDays(365), null), runs, clock);
+
+        service.deleteAgedOutEvents();
+
+        assertThat(lock.attempts()).containsExactly(ScheduledJob.AUDIT_RETENTION);
+    }
+
+    /**
+     * A retention port over a number of aged events: each batch deletes as many as a batch may,
+     * and costs a fixed amount of time, by moving the clock the service reads. That is what lets
+     * the logged duration be asserted as a value rather than as "greater than zero", which would
+     * pass for a job that did nothing at all.
+     */
+    private static final class AgedEvents implements AuditEventRetention {
+
         private final Duration cost;
         private final MutableClock clock;
 
-        private Instant cutoff;
+        private long remaining;
+
+        private final List<Instant> cutoffs = new java.util.ArrayList<>();
 
         private int calls;
 
-        CountingRetention(long deleted, Duration cost, MutableClock clock) {
-            this.deleted = deleted;
+        AgedEvents(long aged, Duration cost, MutableClock clock) {
+            this.remaining = aged;
             this.cost = cost;
             this.clock = clock;
         }
 
         @Override
-        public long deleteOccurredBefore(Instant cutoff) {
-            this.cutoff = cutoff;
+        public long deleteBatchOccurredBefore(Instant cutoff) {
+            cutoffs.add(cutoff);
             calls++;
             clock.advanceBy(cost);
+            long deleted = Math.min(remaining, 4000);
+            remaining -= deleted;
             return deleted;
         }
     }

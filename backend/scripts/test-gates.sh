@@ -42,6 +42,7 @@ FAST_GATE=(
   com/example/backend/audit/domain/AuditEventQueryTests
   com/example/backend/audit/domain/AuditRetentionPolicyTests
   com/example/backend/audit/infrastructure/alert/LoggingOperationalAlertsAdapterTests
+  com/example/backend/audit/infrastructure/persistence/AuditEventRetentionAdapterTests
   com/example/backend/audit/infrastructure/persistence/IsolatedAuditEventPersistenceAdapterTests
   com/example/backend/audit/infrastructure/request/HttpAuditRequestContextAdapterTests
   com/example/backend/auth/InMemoryAccountSessionsContractTests
@@ -130,6 +131,7 @@ FAST_GATE=(
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
   com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
+  com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
   com/example/backend/scim/application/ConnectorAdministrationServiceTests
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests
@@ -195,6 +197,7 @@ FAST_GATE=(
   com/example/backend/scim/infrastructure/persistence/IntegrityViolationsTests
   com/example/backend/scim/infrastructure/persistence/RepresentationChangeTests
   com/example/backend/scim/infrastructure/persistence/ScimQuerySqlTests
+  com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapterTests
   com/example/backend/scim/infrastructure/persistence/entity/CompositeKeyContractTests
   com/example/backend/web/ApiExceptionHandlerTests
   com/example/backend/web/ReadRequestsTests

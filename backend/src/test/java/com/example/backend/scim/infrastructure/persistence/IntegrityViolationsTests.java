@@ -87,7 +87,8 @@ class IntegrityViolationsTests {
     private static ConstraintViolationException hibernate(String name) {
         return new ConstraintViolationException(
                 "could not execute statement",
-                SqlFailures.UNIQUE_VIOLATION.raised("duplicate key value violates unique constraint"),
+                SqlFailures.UNIQUE_CONSTRAINT_VIOLATION.raised(
+                        "duplicate key value violates unique constraint"),
                 name);
     }
 }

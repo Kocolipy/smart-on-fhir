@@ -80,6 +80,41 @@ class AuditRetentionRunLogTests {
                  "duration_ms":250}"""));
     }
 
+    /**
+     * A run over more aged events than one batch deletes them batch by batch, and still writes
+     * one line: every event it deleted, and in how many batches.
+     */
+    @Test
+    void aRunOfSeveralBatchesIsStillOneSummaryLineCountingThemAll() {
+        Runnable run = scheduled(batches(4000, 4000, 1000));
+
+        run.run();
+
+        assertThat(summary()).isEqualTo(JSON.readTree("""
+                {"outcome":"success","status":"completed",
+                 "record":[{"type":"audit_event","deleted":9000,"batches":3}],
+                 "duration_ms":0}"""));
+        assertThat(logs.records()).extracting(record -> record.at("/message").asText())
+                .as("no line per batch")
+                .containsExactly("Scheduled job started", "Scheduled job completed");
+    }
+
+    /**
+     * Each batch commits in a transaction of its own, so a run that fails in its third batch has
+     * deleted what its first two committed, and its one {@code failed} line says so.
+     */
+    @Test
+    void aRunThatFailedInALaterBatchCountsTheBatchesItCommitted() {
+        Runnable run = scheduled(batches(4000, 4000, null));
+
+        assertThatThrownBy(run::run).isInstanceOf(DataAccessResourceFailureException.class);
+
+        assertThat(summary()).isEqualTo(JSON.readTree("""
+                {"outcome":"failure","status":"failed",
+                 "record":[{"type":"audit_event","deleted":8000,"batches":2}],
+                 "duration_ms":0}"""));
+    }
+
     /** A run that removed nothing still says so, in the same line. */
     @Test
     void aRunThatRemovedNothingStillReportsItsOneBatch() {
@@ -168,6 +203,21 @@ class AuditRetentionRunLogTests {
     }
 
     // ---- harness -----------------------------------------------------------------------------
+
+    /**
+     * A retention port whose batches delete these many events in turn; a {@code null} batch
+     * fails, as a batch whose statement timed out would.
+     */
+    private static AuditEventRetention batches(Integer... deleted) {
+        java.util.Iterator<Integer> next = java.util.Arrays.asList(deleted).iterator();
+        return cutoff -> {
+            Integer batch = next.next();
+            if (batch == null) {
+                throw new DataAccessResourceFailureException("statement timed out");
+            }
+            return batch;
+        };
+    }
 
     /** The retention job as the application registers it; returns the task the scheduler runs. */
     private Runnable scheduled(AuditEventRetention retention) {
