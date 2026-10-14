@@ -468,8 +468,9 @@ class ApiContractFixtureTests {
                 t -> {
                     Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                     UUID locked = t.userId(t.provision(true));
-                    t.jdbc.update("UPDATE scim_users SET locked_at = now(), lock_cause = 'FAILURES'"
-                            + " WHERE resource_id = ?", locked);
+                    t.jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
+                            + " WHERE resource_id = ?",
+                            java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC), locked);
                     // Settled, so it is required to change nothing yet and the forced change writes.
                     String settled = t.provision(true);
                     t.settle(settled);

@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
 import java.time.Instant;
@@ -21,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
@@ -72,6 +75,12 @@ class AuditListingIntegrationTests {
 
     @Autowired
     private WebApplicationContext context;
+
+    @Autowired
+    private DatabaseLogins logins;
+
+    @Autowired
+    private Environment environment;
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -299,27 +308,87 @@ class AuditListingIntegrationTests {
         }
     }
 
-    /** Newest first; among equal instants, the greater id first — Postgres's own uuid order. */
+    /**
+     * Newest first; among equal instants, the greater id first — in SQL Server's own
+     * {@code uniqueidentifier} order (ADR 0015, "Observable changes").
+     */
     private static List<String> expectedOrder(List<Seeded> events) {
         return events.stream()
                 .sorted(Comparator.comparing(Seeded::occurredAt)
-                        .thenComparing(Seeded::id, AuditListingIntegrationTests::postgresUuidOrder)
+                        .thenComparing(Seeded::id, AuditListingIntegrationTests::sqlServerUuidOrder)
                         .reversed())
                 .map(event -> event.id().toString())
                 .toList();
     }
 
     /**
-     * Postgres orders {@code uuid} by its bytes, unsigned; {@link UUID#compareTo} compares signed
-     * longs and disagrees whenever the high bit differs. The string form's lexical order is the
-     * byte order, so compare that.
+     * The bytes of an id as its text writes them, in the order SQL Server compares a
+     * {@code uniqueidentifier}: the last group first, then the fourth, then the first three
+     * groups each from its least significant byte — not the text's lexical order, nor
+     * {@link UUID#compareTo}'s signed longs.
      */
-    private static int postgresUuidOrder(UUID left, UUID right) {
-        return left.toString().compareTo(right.toString());
+    private static final int[] SQL_SERVER_BYTE_ORDER =
+            {10, 11, 12, 13, 14, 15, 8, 9, 7, 6, 5, 4, 3, 2, 1, 0};
+
+    private static int sqlServerUuidOrder(UUID left, UUID right) {
+        byte[] leftBytes = bytes(left);
+        byte[] rightBytes = bytes(right);
+        for (int index : SQL_SERVER_BYTE_ORDER) {
+            int compared = Integer.compare(leftBytes[index] & 0xff, rightBytes[index] & 0xff);
+            if (compared != 0) {
+                return compared;
+            }
+        }
+        return 0;
+    }
+
+    private static byte[] bytes(UUID id) {
+        return java.nio.ByteBuffer.allocate(16)
+                .putLong(id.getMostSignificantBits())
+                .putLong(id.getLeastSignificantBits())
+                .array();
     }
 
     private static List<String> ids(JsonNode body) {
         return body.get("events").valueStream().map(event -> event.get("id").asText()).toList();
+    }
+
+    /**
+     * The server refusing the app login a privilege it needs (error 229) is a fault on this side,
+     * answered as the generic {@code 500} with nothing of the driver's text — not the object, the
+     * schema, the statement or the error number — and recorded as the one {@code ERROR} whose
+     * category says to check configuration (ADR 0015's as-13 and its mapping). The refusal is
+     * made real by denying the app login's role its read of the trail, and the grant is given back
+     * however the test ends.
+     */
+    @Test
+    void aPermissionTheDatabaseDeniesIsTheGeneric500QuotingNothing() throws Exception {
+        JdbcTemplate owner = logins.owner().jdbc();
+        MvcResult result;
+        try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
+            owner.execute("DENY SELECT ON audit_events TO backend_app");
+            try {
+                result = mvc.perform(get(LISTING + "?actorId=" + actor).session(admin)).andReturn();
+            } finally {
+                owner.execute("GRANT SELECT ON audit_events TO backend_app");
+            }
+
+            assertThat(logs.records().stream()
+                            .filter(record -> "ERROR".equals(record.at("/log/level").asText()))
+                            .toList())
+                    .singleElement()
+                    .satisfies(error -> {
+                        assertThat(error.at("/error/code").asInt()).isEqualTo(500);
+                        assertThat(error.at("/error/category").asText()).isEqualTo("cert/auth");
+                    });
+            assertThat(logs.lines()).as("the stream")
+                    .doesNotContain("permission was denied", "audit_events");
+        }
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(500);
+        assertThat(result.getResponse().getContentAsString())
+                .doesNotContain("permission", "denied", "audit_events", "SELECT", "229",
+                        "SQLServerException");
     }
 
     // ---- HTTP ----------------------------------------------------------------------------

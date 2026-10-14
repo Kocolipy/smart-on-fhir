@@ -2,6 +2,7 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.domain.ScimSeedLock;
 import java.time.Duration;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
@@ -20,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
  * guarantee into a startup failure.
  *
  * <p>It waits at most {@link #LOCK_TIMEOUT}. A lock not granted — a timeout, a deadlock, a refusal — returns a
- * negative status, and seeding fails the start rather than seed unserialized.
+ * negative status, and seeding fails the start rather than seed unserialized: as a lock the
+ * database would not give ({@link CannotAcquireLockException}), which ADR 0015's mapping
+ * classifies as a {@code database} failure to investigate.
  *
  * <p>JDBC rather than JPA, as in {@code ScheduledJobLockAdapter}: the statement is a lock, not a
  * read, and it joins the caller's transaction through the shared data source.
@@ -62,7 +65,7 @@ class ScimSeedLockAdapter implements ScimSeedLock {
         Integer granted = jdbc.queryForObject(LOCK_SEEDING, Integer.class,
                 Math.toIntExact(LOCK_TIMEOUT.toMillis()));
         if (granted == null || granted < 0) {
-            throw new IllegalStateException(
+            throw new CannotAcquireLockException(
                     "the seeding lock was not granted within " + LOCK_TIMEOUT.toSeconds()
                             + " s (sp_getapplock status " + granted + ")");
         }

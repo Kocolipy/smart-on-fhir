@@ -1,7 +1,9 @@
 package com.example.backend.scheduling.infrastructure.persistence;
 
+import com.example.backend.database.TimedJdbc;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scheduling.domain.ScheduledJobLock;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -36,10 +38,21 @@ class ScheduledJobLockAdapter implements ScheduledJobLock {
     private static final String COUNT_JOB_ROW =
             "SELECT count(*) FROM scheduled_job_locks WHERE job_name = ?";
 
+    /**
+     * How long either statement may run (ADR 0015, "Bounded timeouts"). {@code READPAST} never
+     * waits on a held row, but a lock above the row — a table lock another session holds — would
+     * still be waited for; the run then fails rather than holding its scheduler thread for ever.
+     */
+    private static final Duration STATEMENT_TIMEOUT = Duration.ofSeconds(60);
+
     private final JdbcTemplate jdbc;
 
-    ScheduledJobLockAdapter(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    /**
+     * @param pool the main pool's template: its data source, under a template of this adapter's
+     *             own that times each statement out, so the bound is this adapter's alone
+     */
+    ScheduledJobLockAdapter(JdbcTemplate pool) {
+        this.jdbc = TimedJdbc.over(pool, STATEMENT_TIMEOUT);
     }
 
     /**

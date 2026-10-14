@@ -446,13 +446,21 @@ The job logs its schedule at startup, and each run logs one summary line, its
 `batch.job.status` (`completed` or `failed`), what it deleted as
 `record=[{type: audit_event, deleted: <n>, batches: <m>}]`, and
 `event.duration_ms`. A run that deleted nothing reports too — "nothing had aged
-out" and "the job has not run for a month" are different facts. A failed run
-reports what it had committed: nothing when its delete failed, and the deleted
-batch when it failed afterwards, since the delete commits on the retention pool
-before the run's lock transaction does. The job is serialized on its
-own `audit-retention` row in `scheduled_job_locks`, as the dormancy job is (see
-below): with several instances on the same cron one run deletes, and each other
-writes one `skipped` line (`event.reason: lock-held`) and deletes nothing.
+out" and "the job has not run for a month" are different facts.
+
+A run deletes in batches of at most 4,000 events (`DELETE TOP (4000)`), each in a
+transaction of its own on the retention pool with a 60 s query timeout, until a
+batch comes back short. A batch stays below SQL Server's lock-escalation threshold
+of 5,000 locks, so it holds row locks only and an audit append never waits behind
+it (ADR 0015). A failed run reports what it had committed: every batch before the
+one that failed, or all of them when the run's lock transaction failed afterwards,
+since each batch commits on the retention pool before that transaction does; the
+next run deletes the rest. The job is serialized on its own `audit-retention` row
+in `scheduled_job_locks`, as the dormancy job is (see below), and the lock is held
+by the run's main-pool transaction across every batch: with several instances on
+the same cron one run deletes, and each other — even one started between two
+batches — writes one `skipped` line (`event.reason: lock-held`) and deletes
+nothing.
 
 ### Audit append pool
 
@@ -536,7 +544,7 @@ a mapped membership of a User that is still dormant sees it removed again on the
 next run.
 
 The job is serialized on its own row in `scheduled_job_locks`
-(`SELECT … FOR UPDATE SKIP LOCKED`, held for the run's transaction), so two runs
+(`SELECT … WITH (UPDLOCK, ROWLOCK, READPAST)`, held for the run's transaction), so two runs
 never overlap across instances and a run that finds the job already running skips.
 A zero or negative window, or a role-revocation window not longer than the lockout
 window, fails startup. Neither default appears in `application.yaml` — both belong
@@ -902,6 +910,43 @@ context; `DataSourceConfigTests` gains four (a missing URL; scoped PIT over
 `DataSourceConfig`: 20 mutants, 20 killed, line coverage 10/10). `ConnectorTokenPermissionsMigrationTests` was removed with the PostgreSQL
 `V6` it migrated through: the T-SQL `V1` is the only migration, and a fresh
 database the only starting state.
+
+SQL Server switchover 2/5, 2026-10-14 (#69, ADR 0015; integration branch
+`mssql-cutover`): locks, isolation, audit and error surfacing on SQL Server. Three
+classes join the fast gate, each over `ScriptedJdbc`, a JDBC fake at the driver
+boundary: `ScheduledJobLockAdapterTests` (7 tests), `ScimSeedLockAdapterTests` (6)
+and `AuditEventRetentionAdapterTests` (3); the fast gate runs 3,389 tests.
+`UserCounterSerializationIntegrationTests` (1 test) joins the shared configuration
+and starts no context of its own. Deleted:
+`DatabaseFailureCategoryTests.anyInvalidAuthorizationStateIsACertAuthFailure`, which
+pinned PostgreSQL's `28000` state (`sqlServersRefusedLoginIsACertAuthFailure` now
+pins SQL Server's error 18456), and
+`AuditRetentionSerializationIntegrationTests.ofTwoOverlappingRunsOneDeletesAndTheOtherSkipsLockHeldDeletingNothing`,
+replaced by the two batching cases that hold a run between its batches. Two
+`EcsErrorFieldsCustomizerTests` cases were renamed for the redacted text's new
+`SQL Server error <n>` wording. Grown: `DatabaseFailureCategoryTests` (39),
+`AuditRetentionServiceTests` (+5), `AuditRetentionRunLogTests` (+2),
+`AuditEventReadAdapterIntegrationTests` (+2), `AuditListingIntegrationTests`,
+`ScheduledJobRunIntegrationTests` and `ScimSeedIntegrationTests` (+1 each). Scoped
+PIT over `DatabaseFailureCategory`, `SqlExceptionRedaction`, `ScheduledJobLockAdapter`,
+`ScimSeedLockAdapter`, `AuditRetentionService`, `AuditEventRetentionAdapter`,
+`DeadlockRetryAdapter` and `TimedJdbc`, from the nine touched unit test classes: 242
+mutants, 242 detected (241 killed, 1 timed out), line coverage 161/165, the four
+lines being the private constructors of `SqlExceptionRedaction` and `TimedJdbc`.
+Before, on this branch with #68 alone:
+`Tests run: 5062, Failures: 48, Errors: 166, Skipped: 0` (#68's entry above
+records 46 failures from its own run), 31 context starts, Maven `Total time:
+06:34 min`. After: `Tests run: 5100, Failures: 23, Errors: 144, Skipped: 0`, 33
+context starts (31 and 32 in earlier runs of the same change — fork placement, no
+configuration added), `Total time: 07:23 min`. Of the 48 failures and 166 errors
+red at that baseline (#68's 46 and 166, plus two its own run did not see), 24
+failures and 22 errors now pass and one failure was deleted with its rewrite; the
+23 failures and 144 errors left were all red before, in the suites #70 (the SCIM
+query SQL) and #72 (PostgreSQL SQL and UUID read-backs in test setup) port, and no
+test newly fails. `./scripts/verify.sh` stops at the red tests before its scan, so
+the tests ran as `./mvnw -B clean verify -Dmaven.test.failure.ignore=true` and the
+scan as `./scripts/semgrep.sh`: 0 findings before, and
+`Ran 153 rules on 791 files: 0 findings` after.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

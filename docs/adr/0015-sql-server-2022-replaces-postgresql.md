@@ -20,7 +20,7 @@ This ADR will supersede in part ADR 0004 (how the audit trail's append-only rule
 enforced in the database; the fail-closed/fail-open axis is unchanged) and ADR 0005
 (the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). The
 superseding notes on those two ADRs land with the tickets that change those
-mechanisms.
+mechanisms; ADR 0005's landed with the locking ticket (#69).
 
 It also records a deviation from the App-Standards recommendation of PostgreSQL
 for production (Standalone User Access Control Q6, User SSO Q5).
@@ -564,7 +564,8 @@ missing job row:                                 [] in 3 ms; count [0] in 5 ms
 A held row returns nothing immediately, without blocking. The row returns once the
 holder ends, whether it commits or rolls back. Another job's row is not skipped.
 `ScheduledJobLockAdapter`'s plain-count follow-up does not wait for the lock, so it
-still tells a held row from a missing one. ADR 0005 needs no amendment.
+still tells a held row from a missing one. ADR 0005's decision needs no amendment
+beyond the superseding note recording the new statement (`SKIP LOCKED` → `READPAST`).
 
 ### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
 

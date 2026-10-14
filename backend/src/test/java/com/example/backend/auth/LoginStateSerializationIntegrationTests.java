@@ -3,6 +3,7 @@ package com.example.backend.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
@@ -45,8 +46,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * holder released. Every racer has therefore read the state before any other one wrote — the
  * interleaving a lost update needs — whichever lock it is waiting on.
  *
- * <p>Phase 2 of the SQL Server switchover (ADR 0015) re-runs this class on that engine; the wait
- * probe is the one Postgres-specific statement in it.
+ * <p>Run on SQL Server under read-committed snapshot (ADR 0015's as-4): a racer reads the User
+ * from its own statement's snapshot, never blocked by the holder, and waits only on a lock;
+ * the wait is observed in {@code sys.dm_exec_requests}, never assumed after a sleep.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -72,6 +74,9 @@ class LoginStateSerializationIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private DatabaseLogins logins;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -184,13 +189,17 @@ class LoginStateSerializationIntegrationTests {
         }
     }
 
-    /** Until this many sessions on this database are waiting for a row lock. */
+    /**
+     * Until this many requests on this database are waiting for a lock, as the server lists them.
+     * Read as the server's administrator: another session's requests are visible only with
+     * {@code VIEW SERVER STATE}.
+     */
     private void awaitWaitingSessions(int count) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
-            Integer waiting = jdbc.queryForObject("""
-                    SELECT count(*) FROM pg_stat_activity
-                     WHERE datname = current_database() AND wait_event_type = 'Lock'""",
+            Integer waiting = logins.superuser().jdbc().queryForObject("""
+                    SELECT count(*) FROM sys.dm_exec_requests
+                     WHERE database_id = DB_ID() AND wait_type LIKE 'LCK[_]M[_]%'""",
                     Integer.class);
             if (waiting != null && waiting >= count) {
                 return;

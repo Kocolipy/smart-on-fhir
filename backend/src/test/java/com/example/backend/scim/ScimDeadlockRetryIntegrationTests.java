@@ -27,7 +27,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,13 +58,17 @@ import tools.jackson.databind.JsonNode;
  * A SCIM write the database really chooses as a deadlock's victim, and the retry ADR 0015's as-13
  * puts at its outermost transactional boundary.
  *
- * <p>The deadlock is forced rather than raced for. A User PUT locks the User and its Group one
- * row at a time, in the lock module's order ({@link ScimWriteLocks#ORDER}). A second connection,
- * standing for another writer, first holds the row the PUT locks second; once the PUT waits on
- * it, the second connection asks for the row the PUT already holds, and the two wait on each
- * other. PostgreSQL resolves a deadlock by failing the transaction whose wait has lasted the
- * deadlock timeout first — the PUT's, which began waiting before the other did — as
- * {@link com.example.backend.observability.SqlFailures#DEADLOCK_VICTIM}.
+ * <p>The first deadlock is forced rather than raced for. A User PUT locks the User and its Group
+ * one row at a time, in the lock module's order ({@link ScimWriteLocks#ORDER}). A second
+ * connection, standing for another writer, first holds the row the PUT locks second; once the PUT
+ * waits on it — observed in {@code sys.dm_exec_requests}, never assumed after a sleep — the
+ * second connection asks for the row the PUT already holds, and the two wait on each other. The
+ * other writer runs at {@code DEADLOCK_PRIORITY HIGH}, so SQL Server breaks the cycle by failing
+ * the PUT's transaction with error 1205. A deadlock on the retry as well is {@link ForcedDeadlock}'s:
+ * a real deadlock too, met by every attempt to write the row.
+ *
+ * <p>Neither outcome may carry the driver's text — SQL Server's victim message names its process
+ * and says what it was chosen as — to the caller or into the log.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -73,10 +76,20 @@ class ScimDeadlockRetryIntegrationTests {
 
     private static final String DEADLOCK_RETRIED = "Database deadlock: the write is retried once";
 
+    /** What SQL Server's victim message says, none of which may reach a caller or a record. */
+    private static final List<String> DRIVER_TEXT =
+            List.of("deadlock victim", "deadlocked", "Process ID", "Rerun the transaction");
+
     private static final ScimVersionPrecondition UNCONDITIONAL =
             ScimVersionPrecondition.ofIfMatch(List.of());
 
-    private static final String LOCK_ROW = "SELECT id FROM scim_resources WHERE id = ? FOR UPDATE";
+    private static final String LOCK_ROW =
+            "SELECT id FROM scim_resources WITH (UPDLOCK, ROWLOCK) WHERE id = ?";
+
+    /** A request waiting on a lock the given session holds. */
+    private static final String BLOCKED_BY = """
+            SELECT count(*) FROM sys.dm_exec_requests
+             WHERE blocking_session_id = ? AND wait_type LIKE 'LCK[_]M[_]%'""";
 
     @Autowired
     private ConnectorAdministrationService connectors;
@@ -132,7 +145,7 @@ class ScimDeadlockRetryIntegrationTests {
     /**
      * The PUT chosen as the victim is retried once, in a transaction of its own, and completes:
      * its caller sees the write applied, and the stream carries the one {@code WARN} that says it
-     * was retried.
+     * was retried, quoting nothing of the driver's.
      */
     @Test
     void aUserPutChosenAsADeadlockVictimIsRetriedOnceAndCompletes() throws Exception {
@@ -144,21 +157,21 @@ class ScimDeadlockRetryIntegrationTests {
         CompletableFuture<Optional<ScimUserResource>> put;
         try (Connection other = anotherWriter()) {
             other.setAutoCommit(false);
-            int otherPid = pid(other);
+            int otherSession = session(other);
             lock(other, inLockOrder.get(1));
 
             put = CompletableFuture.supplyAsync(() -> userService.replace(connector, user,
                     UNCONDITIONAL, new ScimUserReplacement(
                             profile("deadlock-retry-" + tag, "Retried " + tag), null, null,
                             false)));
-            awaitBlockedBy(otherPid);
+            awaitBlockedBy(otherSession);
 
             // Closes the cycle; returns once the database has failed the PUT's transaction.
             lock(other, inLockOrder.get(0));
             other.rollback();
         }
 
-        assertThat(put.get(30, TimeUnit.SECONDS))
+        assertThat(put.get(60, TimeUnit.SECONDS))
                 .hasValueSatisfying(written ->
                         assertThat(written.profile().displayName()).isEqualTo("Retried " + tag));
         assertThat(retried()).singleElement().satisfies(warn -> {
@@ -167,6 +180,7 @@ class ScimDeadlockRetryIntegrationTests {
             assertThat(warn.at("/app/retry/attempt").asInt()).isEqualTo(1);
             assertThat(warn.at("/event/reason").asText()).isEqualTo("deadlock");
         });
+        assertThat(logs.lines()).as("the stream").doesNotContain(DRIVER_TEXT);
     }
 
     /**
@@ -177,11 +191,9 @@ class ScimDeadlockRetryIntegrationTests {
      * under the status answered.
      */
     @Test
-    void aUserPutChosenAsTheVictimAgainOnItsRetryIsA503WithRetryAfter() throws Exception {
+    void aUserPutChosenAsTheVictimAgainOnItsRetryIsA503WithRetryAfter() {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         UUID user = createUser("deadlock-repeat-" + tag);
-        UUID group = createGroup("Deadlock repeat " + tag, List.of(user));
-        List<UUID> inLockOrder = inLockOrder(user, group);
         String token = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
                 null, TokenPermissions.ALL).presentedValue();
         String replacement = """
@@ -189,37 +201,19 @@ class ScimDeadlockRetryIntegrationTests {
                 "userName":"deadlock-repeat-%s","displayName":"Repeated %s","active":true}"""
                 .formatted(tag, tag);
 
-        CompletableFuture<MvcResult> put;
-        try (Connection other = anotherWriter()) {
-            other.setAutoCommit(false);
-            int otherPid = pid(other);
-            lock(other, inLockOrder.get(1));
-
-            put = CompletableFuture.supplyAsync(() -> putOverHttp(token, user, replacement));
-            awaitBlockedBy(otherPid);
-
-            // The first deadlock: the PUT's first transaction fails, and its retry waits on the
-            // row held here under the savepoint.
-            Savepoint closing = other.setSavepoint();
-            lock(other, inLockOrder.get(0));
-            awaitBlockedBy(otherPid);
-
-            // Lets the retry take that row and wait on the other again, then closes the cycle a
-            // second time.
-            other.rollback(closing);
-            awaitHeldElsewhere(other, inLockOrder.get(0));
-            awaitBlockedBy(otherPid);
-            lock(other, inLockOrder.get(0));
-            other.rollback();
+        MockHttpServletResponse answered;
+        try (ForcedDeadlock victim = ForcedDeadlock.always(logins, "scim_users", "resource_id", user)) {
+            answered = putOverHttp(token, user, replacement).getResponse();
         }
 
-        MockHttpServletResponse answered = put.get(30, TimeUnit.SECONDS).getResponse();
         assertThat(answered.getStatus()).isEqualTo(503);
         assertThat(answered.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
         assertThat(answered.getContentType()).startsWith("application/scim+json");
-        assertThat(answered.getContentAsString())
+        assertThat(contentOf(answered))
                 .contains("\"status\":\"503\"")
-                .doesNotContain("deadlock detected", "40P01", "scimType");
+                .doesNotContain(DRIVER_TEXT)
+                .as("the error number is the log's, not the caller's").doesNotContain("1205")
+                .doesNotContain("scimType");
         assertThat(retried()).hasSize(1);
         assertThat(logs.records().stream()
                         .filter(record -> "ERROR".equals(record.at("/log/level").asText()))
@@ -229,6 +223,7 @@ class ScimDeadlockRetryIntegrationTests {
                     assertThat(error.at("/error/code").asInt()).isEqualTo(503);
                     assertThat(error.at("/error/category").asText()).isEqualTo("database");
                 });
+        assertThat(logs.lines()).as("the stream").doesNotContain(DRIVER_TEXT);
     }
 
     /**
@@ -269,38 +264,16 @@ class ScimDeadlockRetryIntegrationTests {
                 .toList();
     }
 
-    /** Waits until some backend is waiting on a lock {@code pid} holds. */
-    private void awaitBlockedBy(int pid) throws InterruptedException {
+    /**
+     * Waits until some request is waiting on a lock {@code session} holds. Read as the server's
+     * administrator: another login's requests are visible only with {@code VIEW SERVER STATE}.
+     */
+    private void awaitBlockedBy(int session) throws InterruptedException {
+        JdbcTemplate observer = logins.superuser().jdbc();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (jdbc.queryForObject(
-                "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))",
-                Integer.class, pid) == 0) {
+        while (observer.queryForObject(BLOCKED_BY, Integer.class, session) == 0) {
             if (System.nanoTime() > deadline) {
                 throw new AssertionError("the PUT never waited on the other writer's lock");
-            }
-            Thread.sleep(10);
-        }
-    }
-
-    /**
-     * Waits until another transaction holds {@code id}'s row lock, probing with a lock that does
-     * not wait, under a savepoint that gives back whatever the probe took.
-     */
-    private static void awaitHeldElsewhere(Connection connection, UUID id)
-            throws SQLException, InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (true) {
-            Savepoint probe = connection.setSavepoint();
-            try (PreparedStatement statement = connection.prepareStatement(LOCK_ROW + " NOWAIT")) {
-                statement.setObject(1, id);
-                statement.executeQuery().close();
-            } catch (SQLException held) {
-                connection.rollback(probe);
-                return;
-            }
-            connection.rollback(probe);
-            if (System.nanoTime() > deadline) {
-                throw new AssertionError("the PUT's retry never took the row");
             }
             Thread.sleep(10);
         }
@@ -313,11 +286,17 @@ class ScimDeadlockRetryIntegrationTests {
         }
     }
 
-    private static int pid(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery("SELECT pg_backend_pid()")) {
-            result.next();
-            return result.getInt(1);
+    /**
+     * The connection's session, and its deadlock priority raised: of the two writers in the
+     * cycle, the server fails the one of lower priority, which is the PUT.
+     */
+    private static int session(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET DEADLOCK_PRIORITY HIGH");
+            try (ResultSet result = statement.executeQuery("SELECT @@SPID")) {
+                result.next();
+                return result.getInt(1);
+            }
         }
     }
 
@@ -343,6 +322,14 @@ class ScimDeadlockRetryIntegrationTests {
                             .content(body))
                     .andReturn();
         } catch (Exception failed) {
+            throw new IllegalStateException(failed);
+        }
+    }
+
+    private static String contentOf(MockHttpServletResponse response) {
+        try {
+            return response.getContentAsString();
+        } catch (java.io.UnsupportedEncodingException failed) {
             throw new IllegalStateException(failed);
         }
     }

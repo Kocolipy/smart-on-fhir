@@ -612,7 +612,10 @@ its own scheduled job lock row, deleting every audit event older than the
 retention period: 365 days unless deployment configuration says otherwise, and
 never less than 90. A configured period below the floor stops startup rather than
 shortening the trail, because 90 days is the shortest window in which an
-investigation into a User's activity is still possible.
+investigation into a User's activity is still possible. It deletes in batches of
+at most 4,000 events, each committed on its own, so an audit append never waits
+behind a run, and a run that fails part-way keeps what it deleted for the next run
+to finish; the job's lock is held across every batch.
 
 ### Access model
 
@@ -1064,7 +1067,7 @@ backdated `dormant` fixture is locked without waiting for 04:00.
 
 **Scheduled job lock** — how the dormancy job and the audit retention job are
 serialized: each run takes its own job's row in `scheduled_job_locks` with
-`FOR UPDATE SKIP LOCKED` and holds it for the run's own transaction, which lasts the
+`WITH (UPDLOCK, ROWLOCK, READPAST)` and holds it for the run's own transaction, which lasts the
 whole run, every batch included (ADR 0005). A second run of the
 same job, on any instance, skips; another job holds a different row and never waits. Inside a run, each User is
 re-read under its resource lock and decided again, so no User is processed twice.

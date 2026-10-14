@@ -8,7 +8,9 @@ import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.EcsLogCapture;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -16,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,32 +34,37 @@ import org.springframework.scheduling.config.Task;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Two overlapping runs of the audit retention job, against real Postgres: one deletes, the
- * other finds the job's lock held and deletes nothing.
+ * The audit retention job against real SQL Server: a run over more aged events than one batch
+ * deletes, overlapped by a second run and by an audit append, and a lone run.
  *
  * <p>Both runs are the task the scheduler actually holds, not a re-wrapped copy of the
  * service, so the claim covers the deployed wiring — the lock, the {@code lock-held} end the
- * wrapper writes for a skipped run, and the migration that gives the job its lock row.
+ * wrapper writes for a skipped run, the retention pool and the migration that gives the job its
+ * lock row.
  *
- * <p>The overlap is made by the database rather than by a test hook in the job. This test
- * row-locks one of the aged-out events it inserted, as the owner login (the app login may not
- * lock an audit row), so the first run takes the job's lock on the main pool, reaches its
- * {@code DELETE} on the retention pool and waits there on that row — still inside its run's
- * transaction, still holding the job's lock — exactly as a slow delete on another instance
- * would. The second run starts only once Postgres reports that delete waiting, as the retention
- * login, in {@code pg_stat_activity}: read by the container's superuser, since another login's
- * query text is hidden from the app login. Releasing the row lets the first run finish.
+ * <p>Every pause is made by the database rather than by a test hook in the job: the test holds
+ * an update lock on one aged event, as the owner login (the app login may not lock an audit
+ * row), and the run's batch waits on it exactly as it would on a slow transaction of another
+ * session. Each wait is observed in {@code sys.dm_exec_requests}, read by the server's
+ * administrator, never assumed after a sleep.
  *
  * <p>Every event this class inserts has aged out, so the runs under test remove them and
- * nothing is left to clean up. That the job keeps what has not aged out is
- * {@code AuditAppendOnlyIntegrationTests}'.
+ * nothing is left to clean up but the one fresh event the append test writes, which the trail
+ * keeps. That the job keeps what has not aged out is {@code AuditAppendOnlyIntegrationTests}'.
  *
- * <p>The annotations match {@code EcsLogFormatTests}', so the two share one cached context
- * and one Postgres container.
+ * <p>The annotations match {@code EcsLogFormatTests}', so the two share one cached context.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
 class AuditRetentionSerializationIntegrationTests {
+
+    /** One batch's worth and then some: two batches, the second short. */
+    private static final int AGED = 4500;
+
+    /** Past the 5,000 locks at which SQL Server escalates one statement's row locks. */
+    private static final int PAST_ESCALATION = 6000;
+
+    private static final int BATCH = 4000;
 
     private static final String INSERT_EVENT = """
             INSERT INTO audit_events
@@ -68,18 +76,35 @@ class AuditRetentionSerializationIntegrationTests {
     private static final String COUNT_AGED_OUT =
             "SELECT count(*) FROM audit_events WHERE occurred_at < ?";
 
-    private static final String ROW_LOCK_EVENT =
-            "SELECT id FROM audit_events WHERE id = ? FOR UPDATE";
+    /** The aged event at a position in the table's clustered order, oldest first. */
+    private static final String AGED_EVENT_AT = """
+            SELECT id FROM audit_events WHERE occurred_at < ?
+             ORDER BY occurred_at, id OFFSET ? ROWS FETCH NEXT 1 ROWS ONLY""";
 
-    /**
-     * A backend of the retention login waiting on a row lock in the retention delete — the first
-     * run, held, with its delete on the retention pool.
-     */
-    private static final String WAITING_RETENTION_DELETES = """
-            SELECT count(*) FROM pg_stat_activity
-             WHERE wait_event_type = 'Lock'
-               AND usename = 'backend_retention_login'
-               AND query LIKE 'DELETE FROM audit_events WHERE occurred_at < %'""";
+    private static final String NEWEST_AGED_EVENT = """
+            SELECT TOP (1) id FROM audit_events WHERE occurred_at < ?
+             ORDER BY occurred_at DESC, id DESC""";
+
+    private static final String HOLD_EVENT =
+            "SELECT id FROM audit_events WITH (UPDLOCK, ROWLOCK) WHERE id = ?";
+
+    /** A request waiting on a lock the given session holds. */
+    private static final String BLOCKED_BY = """
+            SELECT count(*) FROM sys.dm_exec_requests
+             WHERE blocking_session_id = ? AND wait_type LIKE 'LCK[_]M[_]%'""";
+
+    /** How often the server has escalated a lock on any of the audit table's indexes. */
+    private static final String LOCK_ESCALATIONS = """
+            SELECT COALESCE(SUM(index_lock_promotion_count), 0)
+              FROM sys.dm_db_index_operational_stats(
+                       DB_ID(), OBJECT_ID('audit_events'), NULL, NULL)""";
+
+    /** A lock on the whole audit table that would keep an append out: an escalated one. */
+    private static final String TABLE_LOCKS = """
+            SELECT count(*) FROM sys.dm_tran_locks
+             WHERE resource_database_id = DB_ID() AND resource_type = 'OBJECT'
+               AND resource_associated_entity_id = OBJECT_ID('audit_events')
+               AND request_mode IN ('S', 'U', 'X', 'SIX', 'UIX')""";
 
     private static final String FIRST_RUN_THREAD = "retention-first-run";
 
@@ -100,6 +125,8 @@ class AuditRetentionSerializationIntegrationTests {
 
     private EcsLogCapture logs;
 
+    private final ExecutorService threads = Executors.newFixedThreadPool(3);
+
     @BeforeEach
     void attachLogs() {
         logs = EcsLogCapture.attach(environment);
@@ -108,81 +135,115 @@ class AuditRetentionSerializationIntegrationTests {
     @AfterEach
     void detachLogs() {
         logs.close();
+        threads.shutdownNow();
     }
 
+    /**
+     * A run over more than one batch of aged events, observed between its batches and inside one:
+     *
+     * <ul>
+     *   <li>Paused inside its first batch, on the 4,000th aged event, it has locked nearly a whole
+     *       batch of rows — and an audit append still goes straight in, because the batch holds
+     *       row locks only: no lock on the table, and no escalation counted.
+     *   <li>Paused inside its second batch, after the first committed — the first 4,000 are gone
+     *       for every other session — a second run started there finds the job's lock still held
+     *       and skips: the batch's commit, on the retention pool, released nothing (#66).
+     *   <li>Let go, it deletes every aged event, in two batches, and writes one summary line.
+     * </ul>
+     */
     @Test
-    void ofTwoOverlappingRunsOneDeletesAndTheOtherSkipsLockHeldDeletingNothing()
-            throws Exception {
-        Instant agedOutAt = Instant.now().minus(policy.period()).minus(Duration.ofDays(30));
-        UUID held = insertEventAt(agedOutAt);
-        UUID alsoAgedOut = insertEventAt(agedOutAt);
+    void aRunOverTwoBatchesNeverEscalatesAndASecondRunBetweenThemSkips() throws Exception {
+        Instant cutoff = Instant.now().minus(policy.period());
+        insertAgedEvents(cutoff.minus(Duration.ofHours(1)), AGED);
+        long aged = agedOut(cutoff);
+        assertThat(aged).as("aged events now: more than one batch, fewer than two")
+                .isGreaterThan(BATCH).isLessThanOrEqualTo(2L * BATCH);
+        JdbcTemplate owner = logins.owner().jdbc();
+        UUID lastOfTheFirstBatch = owner.queryForObject(
+                AGED_EVENT_AT, UUID.class, cutoff.atOffset(ZoneOffset.UTC), BATCH - 1);
+        UUID lastOfTheSecondBatch = owner.queryForObject(
+                NEWEST_AGED_EVENT, UUID.class, cutoff.atOffset(ZoneOffset.UTC));
+        RowHold inTheFirstBatch = hold(lastOfTheFirstBatch);
+        RowHold inTheSecondBatch = hold(lastOfTheSecondBatch);
+        long escalationsBefore = escalations();
         Runnable retention = theScheduledRetentionTask();
-
-        CountDownLatch rowLocked = new CountDownLatch(1);
-        CountDownLatch releaseRow = new CountDownLatch(1);
-        ExecutorService rowHolder = Executors.newSingleThreadExecutor();
-        ExecutorService firstRunner = Executors.newSingleThreadExecutor(
-                runnable -> new Thread(runnable, FIRST_RUN_THREAD));
         try {
-            DatabaseLogins.Login owner = logins.owner();
-            Future<?> holding = rowHolder.submit(() -> owner.transactions()
-                    .executeWithoutResult(status -> {
-                        owner.jdbc().queryForList(ROW_LOCK_EVENT, UUID.class, held);
-                        rowLocked.countDown();
-                        awaitQuietly(releaseRow);
-                    }));
-            assertThat(rowLocked.await(30, TimeUnit.SECONDS)).isTrue();
-            long agedOutBefore = jdbc.queryForObject(
-                    COUNT_AGED_OUT, Long.class,
-                    Instant.now().minus(policy.period()).atOffset(ZoneOffset.UTC));
+            Future<?> first = threads.submit(() -> {
+                Thread.currentThread().setName(FIRST_RUN_THREAD);
+                retention.run();
+            });
 
-            Future<?> first = firstRunner.submit(retention);
-            awaitFirstRunWaitingInsideItsDelete();
+            // Inside the first batch: nearly a whole batch of rows locked, nothing committed.
+            awaitBlockedBy(inTheFirstBatch, () -> agedOut(cutoff) == aged);
+            UUID appended = appendWithinTenSeconds();
+            assertThat(List.of(count(COUNT_EVENT, appended), tableLocks()))
+                    .as("the append went in, and nothing holds the table")
+                    .containsExactly(1L, 0L);
 
-            // The second run, here, while the first holds the job's lock mid-delete.
+            // Between the batches: the first committed, the second waiting.
+            inTheFirstBatch.release();
+            awaitBlockedBy(inTheSecondBatch, () -> agedOut(cutoff) == aged - BATCH);
             String secondThread = Thread.currentThread().getName();
             retention.run();
-            assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, alsoAgedOut))
-                    .as("nothing the first run has not committed is gone")
-                    .isEqualTo(1);
+            assertThat(agedOut(cutoff)).as("the second run deleted nothing")
+                    .isEqualTo(aged - BATCH);
 
-            releaseRow.countDown();
-            holding.get(60, TimeUnit.SECONDS);
+            inTheSecondBatch.release();
             first.get(60, TimeUnit.SECONDS);
 
+            assertThat(escalations()).as("lock escalations on the audit table")
+                    .isEqualTo(escalationsBefore);
+            assertThat(agedOut(cutoff)).isZero();
+
             List<JsonNode> firstRun = onThread(FIRST_RUN_THREAD);
-            List<JsonNode> secondRun = onThread(secondThread);
-
             assertThat(firstRun).extracting(record -> record.at("/message").asText())
+                    .as("one summary line, and no line per batch")
                     .containsExactly("Scheduled job started", "Scheduled job completed");
-            assertThat(firstRun.get(1).at("/record/0/deleted").asLong())
-                    .isEqualTo(agedOutBefore)
-                    .isGreaterThanOrEqualTo(2);
-            assertThat(firstRun.get(1).at("/batch/job/status").asText()).isEqualTo("completed");
-            assertThat(firstRun.get(1).at("/event/outcome").asText()).isEqualTo("success");
-            assertThat(firstRun.get(1).at("/event/reason").isMissingNode())
-                    .as("the run that did the work has no skip reason").isTrue();
+            JsonNode summary = firstRun.get(1);
+            assertThat(List.of(summary.at("/record/0/deleted").asLong(),
+                            summary.at("/record/0/batches").asLong()))
+                    .containsExactly(aged, 2L);
+            assertThat(summary.at("/batch/job/status").asText()).isEqualTo("completed");
+            assertThat(summary.at("/event/outcome").asText()).isEqualTo("success");
 
+            List<JsonNode> secondRun = onThread(secondThread);
             assertThat(secondRun).extracting(record -> record.at("/message").asText())
                     .containsExactly("Scheduled job started",
                             "Scheduled job skipped: another run holds its lock");
             assertThat(secondRun.get(1).at("/event/reason").asText()).isEqualTo("lock-held");
             assertThat(secondRun.get(1).at("/batch/job/status").asText()).isEqualTo("skipped");
-            assertThat(secondRun.get(1).at("/event/outcome").asText()).isEqualTo("success");
-            assertThat(secondRun.get(1).at("/batch/job/name").asText()).isEqualTo("audit-retention");
-
-            assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, held)).isZero();
-            assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, alsoAgedOut)).isZero();
+            assertThat(secondRun.get(1).at("/batch/job/name").asText())
+                    .isEqualTo("audit-retention");
         } finally {
-            releaseRow.countDown();
-            rowHolder.shutdownNow();
-            firstRunner.shutdownNow();
+            inTheFirstBatch.release();
+            inTheSecondBatch.release();
         }
     }
 
     /**
-     * The single-instance case is unchanged: with no other run, a run takes the lock, deletes
-     * what has aged out and logs it, and the next run takes the lock again.
+     * More aged events than SQL Server lets one statement lock row by row: deleted in one
+     * statement they would be escalated to a lock on the whole table, which every audit append
+     * would queue behind. In batches of 4,000 the server never escalates, and every event still
+     * goes.
+     */
+    @Test
+    void aRunOverMoreEventsThanTheEscalationThresholdNeverEscalates() {
+        Instant cutoff = Instant.now().minus(policy.period());
+        insertAgedEvents(cutoff.minus(Duration.ofHours(1)), PAST_ESCALATION);
+        long aged = agedOut(cutoff);
+        long escalationsBefore = escalations();
+
+        theScheduledRetentionTask().run();
+
+        assertThat(List.of(escalations() - escalationsBefore, agedOut(cutoff)))
+                .as("lock escalations on the audit table, and the aged events left")
+                .containsExactly(0L, 0L);
+        assertThat(aged).as("aged events the run had to delete").isGreaterThan(5000);
+    }
+
+    /**
+     * The single-instance case: with no other run, a run takes the lock, deletes what has aged
+     * out in one short batch and logs it, and the next run takes the lock again.
      */
     @Test
     void aLoneRunTakesTheLockDeletesAndLogsAndTheNextRunCanTakeItAgain() {
@@ -197,7 +258,7 @@ class AuditRetentionSerializationIntegrationTests {
         retention.run();
         List<JsonNode> secondRun = onThread(thread);
 
-        assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, agedOut)).isZero();
+        assertThat(count(COUNT_EVENT, agedOut)).isZero();
         assertThat(firstRun).extracting(record -> record.at("/message").asText())
                 .containsExactly("Scheduled job started", "Scheduled job completed");
         assertThat(firstRun.get(1).at("/record/0/deleted").asLong())
@@ -207,6 +268,8 @@ class AuditRetentionSerializationIntegrationTests {
                 .as("the first run's commit released the lock")
                 .containsExactly("Scheduled job started", "Scheduled job completed");
     }
+
+    // ---- harness -----------------------------------------------------------------------------
 
     private Runnable theScheduledRetentionTask() {
         List<Runnable> tasks = scheduledTasks.getScheduledTasks().stream()
@@ -220,21 +283,83 @@ class AuditRetentionSerializationIntegrationTests {
         return tasks.getFirst();
     }
 
+    /** One aged event's row, update-locked by the owner login until released. */
+    private final class RowHold {
+
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        private final int session;
+
+        private final Future<?> holding;
+
+        private RowHold(UUID id) throws Exception {
+            CountDownLatch held = new CountDownLatch(1);
+            int[] spid = new int[1];
+            DatabaseLogins.Login owner = logins.owner();
+            holding = threads.submit(() -> owner.transactions().executeWithoutResult(status -> {
+                JdbcTemplate asOwner = owner.jdbc();
+                asOwner.queryForList(HOLD_EVENT, UUID.class, id);
+                spid[0] = asOwner.queryForObject("SELECT @@SPID", Integer.class);
+                held.countDown();
+                awaitQuietly(release);
+            }));
+            assertThat(held.await(30, TimeUnit.SECONDS)).as("the row is held").isTrue();
+            session = spid[0];
+        }
+
+        void release() throws Exception {
+            release.countDown();
+            holding.get(30, TimeUnit.SECONDS);
+        }
+    }
+
+    private RowHold hold(UUID id) throws Exception {
+        return new RowHold(id);
+    }
+
     /**
-     * Waits until Postgres reports a backend blocked on a row lock inside the retention
-     * delete: the first run has taken the job's lock and is holding it, mid-transaction.
+     * Waits until a request is waiting on {@code hold}'s lock and {@code alsoTrue} holds — the
+     * batch is where the test means it to be.
      */
-    private void awaitFirstRunWaitingInsideItsDelete() throws InterruptedException {
+    private void awaitBlockedBy(RowHold hold, BooleanSupplier alsoTrue) throws InterruptedException {
         JdbcTemplate observer = logins.superuser().jdbc();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
         while (System.nanoTime() < deadline) {
-            Long waiting = observer.queryForObject(WAITING_RETENTION_DELETES, Long.class);
-            if (waiting != null && waiting > 0) {
+            Integer waiting = observer.queryForObject(BLOCKED_BY, Integer.class, hold.session);
+            if (waiting != null && waiting > 0 && alsoTrue.getAsBoolean()) {
                 return;
             }
-            Thread.sleep(50);
+            Thread.sleep(20);
         }
-        throw new AssertionError("the first retention run never reached its delete");
+        throw new AssertionError("the retention batch never waited on session " + hold.session);
+    }
+
+    /**
+     * An audit append, as the app login appends one, given ten seconds: an append queued behind
+     * an escalated table lock would time out instead.
+     */
+    private UUID appendWithinTenSeconds() {
+        JdbcTemplate app = logins.app().jdbc();
+        app.setQueryTimeout(10);
+        UUID id = UUID.randomUUID();
+        app.update(INSERT_EVENT, id, OffsetDateTime.now(ZoneOffset.UTC));
+        return id;
+    }
+
+    private long escalations() {
+        return logins.superuser().jdbc().queryForObject(LOCK_ESCALATIONS, Long.class);
+    }
+
+    private long tableLocks() {
+        return logins.superuser().jdbc().queryForObject(TABLE_LOCKS, Long.class);
+    }
+
+    private long agedOut(Instant cutoff) {
+        return count(COUNT_AGED_OUT, cutoff.atOffset(ZoneOffset.UTC));
+    }
+
+    private long count(String sql, Object argument) {
+        return jdbc.queryForObject(sql, Long.class, argument);
     }
 
     /**
@@ -248,6 +373,16 @@ class AuditRetentionSerializationIntegrationTests {
                 .toList();
     }
 
+    /** {@code count} events, a microsecond apart, the newest at {@code newest}. */
+    private void insertAgedEvents(Instant newest, int count) {
+        List<Object[]> rows = new ArrayList<>();
+        for (int event = count - 1; event >= 0; event--) {
+            rows.add(new Object[] {UUID.randomUUID(),
+                    newest.minusNanos(event * 1_000L).atOffset(ZoneOffset.UTC)});
+        }
+        jdbc.batchUpdate(INSERT_EVENT, rows);
+    }
+
     private UUID insertEventAt(Instant occurredAt) {
         UUID id = UUID.randomUUID();
         jdbc.update(INSERT_EVENT, id, occurredAt.atOffset(ZoneOffset.UTC));
@@ -256,7 +391,7 @@ class AuditRetentionSerializationIntegrationTests {
 
     private static void awaitQuietly(CountDownLatch latch) {
         try {
-            latch.await(60, TimeUnit.SECONDS);
+            latch.await(120, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         }

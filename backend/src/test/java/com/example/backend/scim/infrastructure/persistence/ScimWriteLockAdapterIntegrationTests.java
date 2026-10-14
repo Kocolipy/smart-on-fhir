@@ -3,6 +3,7 @@ package com.example.backend.scim.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.ScimTestRows;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimGroup;
@@ -34,7 +35,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The SCIM write lock module against a real Postgres: which resource rows a write holds once it
+ * The SCIM write lock module against a real SQL Server: which resource rows a write holds once it
  * has asked for its locks. Observed the way a second writer would meet them — a probe from another
  * connection that skips every row someone holds — while the locking transaction stays open.
  */
@@ -53,6 +54,9 @@ class ScimWriteLockAdapterIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private DatabaseLogins logins;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -114,19 +118,21 @@ class ScimWriteLockAdapterIntegrationTests {
      * The order is the module's, not the caller's and not the database's: a write whose later row
      * another writer holds already holds the earlier one while it waits, whichever order it named
      * them in. The two ids differ only in their first eight digits, where the two orders part: the
-     * module's puts {@code 80000000-…} first, Postgres's {@code uuid} order — unsigned bytes — puts
-     * {@code 7fffffff-…} first.
+     * module's — {@link UUID#compareTo}, signed — puts {@code 800000ff-…} first, while SQL Server's
+     * {@code uniqueidentifier} order, which compares that group from its last byte, puts
+     * {@code 7fffff00-…} first.
      */
     @Test
     void resourcesAreTakenInTheModulesOrderWhateverOrderTheyAreNamedIn() throws Exception {
         String tail = UUID.randomUUID().toString().substring(8);
-        UUID earlier = group(UUID.fromString("80000000" + tail), "Lock order earlier");
-        UUID later = group(UUID.fromString("7fffffff" + tail), "Lock order later");
+        UUID earlier = group(UUID.fromString("800000ff" + tail), "Lock order earlier");
+        UUID later = group(UUID.fromString("7fffff00" + tail), "Lock order later");
         CountDownLatch holding = new CountDownLatch(1);
         CountDownLatch released = new CountDownLatch(1);
         Future<?> other = holders.submit(() -> inTransaction(() -> {
             jdbc.queryForList(
-                    "SELECT id FROM scim_resources WHERE id = ? FOR UPDATE", UUID.class, later);
+                    "SELECT id FROM scim_resources WITH (UPDLOCK, ROWLOCK) WHERE id = ?",
+                    UUID.class, later);
             holding.countDown();
             await(released);
         }));
@@ -212,7 +218,8 @@ class ScimWriteLockAdapterIntegrationTests {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             for (UUID id : ids) {
                 held.removeAll(jdbc.queryForList(
-                        "SELECT id FROM scim_resources WHERE id = ? FOR UPDATE SKIP LOCKED",
+                        "SELECT id FROM scim_resources WITH (UPDLOCK, ROWLOCK, READPAST)"
+                                + " WHERE id = ?",
                         UUID.class, id));
             }
         });
@@ -223,9 +230,9 @@ class ScimWriteLockAdapterIntegrationTests {
     private void awaitAWaitingLock() throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
-            Integer waiting = jdbc.queryForObject("""
-                    SELECT count(*) FROM pg_stat_activity
-                     WHERE datname = current_database() AND wait_event_type = 'Lock'""",
+            Integer waiting = logins.superuser().jdbc().queryForObject("""
+                    SELECT count(*) FROM sys.dm_exec_requests
+                     WHERE database_id = DB_ID() AND wait_type LIKE 'LCK[_]M[_]%'""",
                     Integer.class);
             if (waiting != null && waiting > 0) {
                 return;

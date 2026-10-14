@@ -6,6 +6,7 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -29,25 +30,41 @@ import org.springframework.stereotype.Repository;
  * <p>One fixed statement per query shape, never assembled. Each optional filter is written as
  * {@code (CAST(:x AS type) IS NULL OR column = CAST(:x AS type))} and bound, so an absent filter
  * matches everything and a present one is only ever a compared value — nothing the caller sent is
- * concatenated into the SQL. The casts give Postgres the parameter's type when the bound value is
- * a {@code NULL}, which it cannot otherwise infer.
+ * concatenated into the SQL. Each cast is to the column's own SQL Server type, so a bound value —
+ * a {@code NULL} included — is compared as the column is stored, and an id bound as text is
+ * compared as a {@code UNIQUEIDENTIFIER}.
+ *
+ * <p>Both statements end {@code OPTION (RECOMPILE)} (ADR 0015): with a catch-all filter per
+ * column, one cached plan would serve every combination of present and absent filters, and a plan
+ * built for one combination can be a scan for another. A recompile lets each listing be planned
+ * for the filters it actually has; the listing is a low-volume administrative read, so the
+ * compile costs nothing that matters. Both stay whole constant statements.
  *
  * <p>Newest first, with the id as the tiebreak: two events can share an instant, and without a
- * total order a row could appear on two pages, or on none, as the listing is paged.
+ * total order a row could appear on two pages, or on none, as the listing is paged. The tiebreak
+ * follows SQL Server's {@code UNIQUEIDENTIFIER} order, which is a total order like any other.
  */
 @Repository
 class AuditEventReadAdapter implements AuditEventReader {
 
     private static final String FILTER = """
-             WHERE (CAST(:operation AS VARCHAR) IS NULL OR operation = CAST(:operation AS VARCHAR))
-               AND (CAST(:outcome AS VARCHAR) IS NULL OR outcome = CAST(:outcome AS VARCHAR))
-               AND (CAST(:actorId AS UUID) IS NULL OR actor_id = CAST(:actorId AS UUID))
-               AND (CAST(:resourceId AS UUID) IS NULL OR resource_id = CAST(:resourceId AS UUID))
-               AND (CAST(:from AS TIMESTAMPTZ) IS NULL OR occurred_at >= CAST(:from AS TIMESTAMPTZ))
-               AND (CAST(:to AS TIMESTAMPTZ) IS NULL OR occurred_at < CAST(:to AS TIMESTAMPTZ))
+             WHERE (CAST(:operation AS VARCHAR(64)) IS NULL
+                    OR operation = CAST(:operation AS VARCHAR(64)))
+               AND (CAST(:outcome AS VARCHAR(16)) IS NULL
+                    OR outcome = CAST(:outcome AS VARCHAR(16)))
+               AND (CAST(:actorId AS UNIQUEIDENTIFIER) IS NULL
+                    OR actor_id = CAST(:actorId AS UNIQUEIDENTIFIER))
+               AND (CAST(:resourceId AS UNIQUEIDENTIFIER) IS NULL
+                    OR resource_id = CAST(:resourceId AS UNIQUEIDENTIFIER))
+               AND (CAST(:from AS DATETIMEOFFSET(6)) IS NULL
+                    OR occurred_at >= CAST(:from AS DATETIMEOFFSET(6)))
+               AND (CAST(:to AS DATETIMEOFFSET(6)) IS NULL
+                    OR occurred_at < CAST(:to AS DATETIMEOFFSET(6)))
             """;
 
-    private static final String COUNT = "SELECT COUNT(*) FROM audit_events" + FILTER;
+    private static final String COUNT = "SELECT COUNT_BIG(*) FROM audit_events" + FILTER + """
+             OPTION (RECOMPILE)
+            """;
 
     private static final String PAGE = """
             SELECT id, occurred_at, operation, outcome, actor_id, subject_id, resource_type,
@@ -57,8 +74,17 @@ class AuditEventReadAdapter implements AuditEventReader {
               FROM audit_events
             """ + FILTER + """
              ORDER BY occurred_at DESC, id DESC
-             LIMIT :limit OFFSET :offset
+             OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+             OPTION (RECOMPILE)
             """;
+
+    /**
+     * SQL Server's {@code SNAPSHOT} isolation level as its driver takes it through
+     * {@link Connection#setTransactionIsolation} ({@code SQLServerConnection.TRANSACTION_SNAPSHOT};
+     * the driver is a runtime dependency only). JDBC names no such level, and neither does
+     * Spring's {@code Isolation}.
+     */
+    private static final int TRANSACTION_SNAPSHOT = 0x1000;
 
     /** The separator {@code AuditEventPersistenceAdapter} joins changed paths with. */
     private static final String PATH_SEPARATOR = ",";
@@ -70,13 +96,23 @@ class AuditEventReadAdapter implements AuditEventReader {
     }
 
     /**
-     * Counts, then reads the page. There is no short-circuit for a page past the end: the page
-     * statement returns no rows there anyway, and a branch that only saves a query is a branch no
-     * test can tell apart from its absence. {@code COUNT(*)} always yields a row, so the count is
-     * never null.
+     * Counts, then reads the page, both in one snapshot. There is no short-circuit for a page past
+     * the end: the page statement returns no rows there anyway, and a branch that only saves a
+     * query is a branch no test can tell apart from its absence. {@code COUNT_BIG(*)} always
+     * yields a row, so the count is never null.
+     *
+     * <p>Called in the listing's read-only transaction ({@code AuditEventListingService}), whose
+     * first statements these are: the transaction is put at {@code SNAPSHOT} isolation before the
+     * count, so it reads one version of the table from its first read to its end, and an event
+     * appended between the count and the page is in neither (ADR 0015). Read-committed snapshot,
+     * the database's default, gives each statement a snapshot of its own; SQL Server's
+     * {@code REPEATABLE READ} is a locking level that still lets a new row in. A transaction that
+     * has already read under another level cannot switch to {@code SNAPSHOT}, which is why the
+     * switch is the listing's first act.
      */
     @Override
     public AuditEventPage find(AuditEventQuery query) {
+        jdbc.getJdbcTemplate().execute(AuditEventReadAdapter::readFromOneSnapshot);
         MapSqlParameterSource parameters = filters(query);
         long total = jdbc.queryForObject(COUNT, parameters, Long.class);
         parameters.addValue("limit", query.size());
@@ -85,12 +121,22 @@ class AuditEventReadAdapter implements AuditEventReader {
         return AuditEventPage.of(query, events, total);
     }
 
+    /**
+     * Puts the transaction's connection at {@code SNAPSHOT} isolation through the JDBC API rather
+     * than a {@code SET} statement, so the pool sees the change and restores the connection's own
+     * level when it is returned: the snapshot is this transaction's, never the next borrower's.
+     */
+    private static Void readFromOneSnapshot(Connection connection) throws SQLException {
+        connection.setTransactionIsolation(TRANSACTION_SNAPSHOT);
+        return null;
+    }
+
     private static MapSqlParameterSource filters(AuditEventQuery query) {
         return new MapSqlParameterSource()
                 .addValue("operation", name(query.operation()), Types.VARCHAR)
                 .addValue("outcome", name(query.outcome()), Types.VARCHAR)
-                .addValue("actorId", query.actorId(), Types.OTHER)
-                .addValue("resourceId", query.resourceId(), Types.OTHER)
+                .addValue("actorId", text(query.actorId()), Types.VARCHAR)
+                .addValue("resourceId", text(query.resourceId()), Types.VARCHAR)
                 .addValue("from", utc(query.from()), Types.TIMESTAMP_WITH_TIMEZONE)
                 .addValue("to", utc(query.to()), Types.TIMESTAMP_WITH_TIMEZONE);
     }
@@ -131,6 +177,11 @@ class AuditEventReadAdapter implements AuditEventReader {
 
     private static String name(Enum<?> value) {
         return value == null ? null : value.name();
+    }
+
+    /** An id bound as its text, which the statement casts back to a {@code UNIQUEIDENTIFIER}. */
+    private static String text(UUID id) {
+        return id == null ? null : id.toString();
     }
 
     /**

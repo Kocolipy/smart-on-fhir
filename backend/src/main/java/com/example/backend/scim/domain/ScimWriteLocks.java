@@ -66,13 +66,13 @@ public interface ScimWriteLocks {
     /**
      * The order every call takes its rows in: {@link UUID#compareTo}, Java's own.
      *
-     * <p>Chosen because it is computed here and nowhere else, and deliberately not any engine's:
-     * it compares the two halves as signed numbers, so it disagrees with Postgres's {@code uuid}
-     * order (unsigned bytes) and with SQL Server's {@code uniqueidentifier} order (last byte group
-     * first) alike. A lock statement that slid back to the engine's sort therefore breaks the
-     * order on the database the tests run on today, not only after a switchover. Published so a
-     * test that must know which row a write takes second — to hold it from elsewhere — can ask
-     * the module rather than a query.
+     * <p>Chosen because it is computed here and nowhere else, and deliberately not the engine's:
+     * it compares the two halves as signed numbers, so it disagrees with SQL Server's
+     * {@code uniqueidentifier} order (last byte group first, the first three groups from their
+     * last byte). A lock statement that slid back to the engine's sort therefore breaks the
+     * order, which {@code ScimWriteLockAdapterIntegrationTests} holds with two ids the orders
+     * disagree on. Published so a test that must know which row a write takes second — to hold
+     * it from elsewhere — can ask the module rather than a query.
      */
     Comparator<UUID> ORDER = Comparator.naturalOrder();
 
