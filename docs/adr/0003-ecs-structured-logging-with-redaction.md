@@ -6,7 +6,10 @@ Date: 2026-09-25
 
 Accepted. Consolidated on 2026-10-10 from the original decision and the fifteen
 addenda dated 2026-10-01 to 2026-10-10, ADR 0013's Epic Login among them. This file states the current position. The dated
-addenda, including the rules they superseded, are in git history.
+addenda, including the rules they superseded, are in git history. Amended on
+2026-10-14 (#64) for ADR 0015's logging resolutions: SQL exception text, the
+database category mapping with the deadlock retry, connection details and the
+retention run's one line.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -218,30 +221,31 @@ The caller names the operation, adds only the ids and counts it alone can supply
 and calls `log()`. So adding one standard field to every record of a shape is a
 one-file change.
 
-| Shape                                              | Level                     | Sets                                                                        |
-| -------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------- |
-| `success`                                          | `INFO`                    | `event.outcome` `success` (an overload adds `event.duration_ms`)            |
-| `successAtWarn`                                    | `WARN`                    | the same, for the dormancy lockout                                          |
-| `refused`                                          | `WARN`                    | `event.outcome` `failure`; the caller adds `event.reason` where one is told |
-| `error`                                            | `ERROR`                   | the error fields (below), `event.outcome` `failure`                         |
-| `jobScheduled`                                     | `INFO`                    | `batch.job.name`, `app.job.description`, `trigger.cron.*`                   |
-| `jobStart`                                         | `INFO`                    | —                                                                           |
-| `jobEnd`                                           | `INFO`                    | `success`, `event.duration_ms`, and `event.reason` `lock-held` when skipped |
-| `jobFailed`                                        | `ERROR`                   | `error.code` `500`, `failure`, `event.severity` `high`, `event.duration_ms` |
-| `jobSummary`                                       | `INFO`                    | nothing: a run's outcome is its `job-end`'s                                 |
-| `requestEnd`                                       | by status                 | `http.response.status_code`, `event.duration_ms`, `event.outcome`           |
-| `outboundStart` / `outboundEnd` / `outboundFailed` | `INFO` / `INFO` / `ERROR` | the outbound call's fields (Epic Login, below)                              |
-| `jwksRefetchWarning`                               | `WARN`                    | `app.retry.attempt`, no outcome                                             |
+| Shape                                              | Level                     | Sets                                                                                                         |
+| -------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `success`                                          | `INFO`                    | `event.outcome` `success` (an overload adds `event.duration_ms`)                                             |
+| `successAtWarn`                                    | `WARN`                    | the same, for the dormancy lockout                                                                           |
+| `refused`                                          | `WARN`                    | `event.outcome` `failure`; the caller adds `event.reason` where one is told                                  |
+| `error`                                            | `ERROR`                   | the error fields (below), `event.outcome` `failure`                                                          |
+| `jobScheduled`                                     | `INFO`                    | `batch.job.name`, `app.job.description`, `trigger.cron.*`                                                    |
+| `jobStart`                                         | `INFO`                    | —                                                                                                            |
+| `jobEnd`                                           | `INFO`                    | `success`, `event.duration_ms`, `batch.job.status` `completed`, or `skipped` with `event.reason` `lock-held` |
+| `jobFailed`                                        | `ERROR`                   | `error.code` `500`, `failure`, `batch.job.status` `failed`, `event.severity` `high`, `event.duration_ms`     |
+| `requestEnd`                                       | by status                 | `http.response.status_code`, `event.duration_ms`, `event.outcome`                                            |
+| `outboundStart` / `outboundEnd` / `outboundFailed` | `INFO` / `INFO` / `ERROR` | the outbound call's fields (Epic Login, below)                                                               |
+| `jwksRefetchWarning`                               | `WARN`                    | `app.retry.attempt`, no outcome                                                                              |
+| `deadlockRetried`                                  | `WARN`                    | `error.category` `database`, `app.retry.attempt` `1`, `event.reason` `deadlock`, no outcome (below)          |
 
 `withError` is public for the one `WARN` that carries a `data` error
 classification (`http.request.refusal`).
 
 **Messages live on the operation.** Each `LogEvent.Operation` member declares, on
 its own line, the fixed message of every shape it is written in (`onSuccess`,
-`onRefusal`, `onError`, `onSchedule`, `onSummary`, and `onChange` for the one
-operation whose `change` record needs its own). The shapes with one message for
-every operation (`jobStart`, `jobEnd`, `jobFailed`, `requestEnd`, the outbound
-records and `jwksRefetchWarning`) need none. `OperationMessagesTests` reads the
+`onRefusal`, `onError`, `onSchedule`, and `onChange` for the one operation whose
+`change` record needs its own). A scheduled run's summary is its `job-end`, so no
+shape writes a summary beside it (see "Scheduled jobs"). The shapes with one
+message for every operation (`jobStart`, `jobEnd`, `jobFailed`, `requestEnd`, the
+outbound records, `jwksRefetchWarning` and `deadlockRetried`) need none. `OperationMessagesTests` reads the
 compiled production call sites that hand an operation to a shape, and fails for a
 message an operation needs and does not declare, or declares and no call site
 needs. A shape given an operation with no message for it still writes the shape's
@@ -282,11 +286,14 @@ it through `semgrep --test` before the scan.
 `outboundFailed`) are the only ways to write one, and `be-log-error-without-error-fields` refuses any other
 `ERROR` record in production code. The fields:
 
-- `error.code` is the HTTP status a request fault was answered with, or `500` off
-  any request.
+- `error.code` is an HTTP status and only that, `100`–`599` as the Log Schema
+  requires: the status a request fault was answered with, or `500` off any request.
+  It is never a database's error number or SQLState, which the redacted message
+  carries instead (below).
 - `error.category` is `database`, `application`, `data` (a caller's refusal, or an
   unusable answer from a service this one called), `network`, `server` or
-  `cert/auth`.
+  `cert/auth`. A failure the database raised takes its category from
+  `DatabaseFailureCategory` (below).
 - `error.follow_up_action` is `true`, except on the Epic categories that need no
   person (below).
 
@@ -301,29 +308,141 @@ object on the way out:
 
 A record with neither an exception nor a classification gets no `error` object.
 
-| Record                                             | `error.code` | `error.category`           | cause attached                            |
-| -------------------------------------------------- | ------------ | -------------------------- | ----------------------------------------- |
-| scheduled job failed                               | `500`        | `database` / `application` | whole                                     |
-| SCIM 5xx refusal (advice, and `ScimErrorDocument`) | the status   | `application`              | the refusal (advice); none (filter)       |
-| SCIM unmapped integrity violation                  | `500`        | `database`                 | redacted copy                             |
-| audit append failed                                | `500`        | `database`                 | none, `app.error.cause_omitted`           |
-| request record, 5xx no handler recorded            | the status   | `application`              | none                                      |
-| app-wide handler, unexpected exception             | the status   | `application`              | whole; redacted for a data-access failure |
-| Epic call with no answer                           | `502`        | `network`                  | redacted copy                             |
+| Record                                             | `error.code` | `error.category`                                       | cause attached                            |
+| -------------------------------------------------- | ------------ | ------------------------------------------------------ | ----------------------------------------- |
+| scheduled job failed                               | `500`        | `database` / `cert/auth` (mapping) / `application`     | whole                                     |
+| SCIM 5xx refusal (advice, and `ScimErrorDocument`) | the status   | `application`                                          | the refusal (advice); none (filter)       |
+| SCIM unmapped integrity violation                  | `500`        | `database`                                             | redacted copy                             |
+| audit append failed                                | `500`        | `database`                                             | none, `app.error.cause_omitted`           |
+| request record, 5xx no handler recorded            | the status   | `application`                                          | none                                      |
+| app-wide handler, unexpected exception             | the status   | the mapping for a database failure, else `application` | whole; redacted for a data-access failure |
+| Epic call with no answer                           | `502`        | `network`                                              | redacted copy                             |
 
 A **redacted copy** (`RedactedFaultException`) is the original stack under a
 message that is only the cause's type name, with no cause chain. It is used where
-the message may quote data, as a JDBC driver's quotes the refused row. A failed
-scheduled job attaches its exception whole, because Spring's scheduler error
-handler logs it whole regardless and a copy would only cost `error.type` its real
-class. The audit-append alert attaches nothing: `OperationalAlerts` carries only
-the failure's type, so the alert cannot leak what the event withheld.
+the message may quote data, as a JDBC driver's quotes the refused row, and it stays
+although the SQL exception redaction below would now cover a data-access failure:
+a data-access or Hibernate exception with no SQL exception beneath it can quote an
+id or a value too, and the copy holds under any layout. A failed scheduled job
+attaches its exception whole, because Spring's scheduler error handler logs it whole
+regardless and a copy would only cost `error.type` its real class; the SQL exception
+redaction is what keeps the database's text out of both records. The audit-append
+alert attaches nothing: `OperationalAlerts` carries only the failure's type, so the
+alert cannot leak what the event withheld.
+
+**The database category mapping** (ADR 0015, "Standards resolutions").
+`DatabaseFailureCategory` decides the category of a failure the database raised,
+keyed on what every engine reports — the SQLState of the `SQLException` in the
+cause chain, and Spring's data-access and transaction hierarchy — and never on a
+driver's class. The scheduled-job module and the app-wide handler both classify
+through it.
+
+| Failure                                               | SQLState today, on PostgreSQL                                            | `error.category` | `error.follow_up_action`                 | Level   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ | ---------------- | ---------------------------------------- | ------- |
+| Deadlock, first occurrence, retried                   | `40P01`                                                                  | `database`       | — (`retry.attempt=1`, `reason=deadlock`) | `WARN`  |
+| Deadlock (repeat), snapshot or serialization conflict | `40P01`, `40001`                                                         | `database`       | `true` (investigate)                     | `ERROR` |
+| Untranslated unique violation, truncation, conversion | `23505`, `22001`, `22P02` (class `22`/`23`)                              | `database`       | `true` (investigate)                     | `ERROR` |
+| Lock not acquired or timed out; audit-trigger refusal | `55P03`, `57014`; the trigger: `27000` (below)                           | `database`       | `true` (investigate)                     | `ERROR` |
+| TLS trust failure, refused login, permission denied   | an `SSLException` or `CertificateException` beneath; class `28`; `42501` | `cert/auth`      | `true` (check configuration)             | `ERROR` |
+
+Every other database failure is `database`. Two rows need more than a state:
+
+- **The deadlock retry** (ADR 0015's as-13). A deadlock victim's transaction is
+  rolled back whole, so a SCIM or administrative write the database chose as one is
+  run again, once, by a single interceptor at the outermost transactional boundary:
+  `DeadlockRetryAdapter`, an infrastructure advisor ordered ahead of the transaction
+  on every `@RetriedOnDeadlock` method — the SCIM User and Group create, PUT, PATCH
+  and DELETE, the Unlock and the forced password change. The first deadlock is the
+  `deadlockRetried` `WARN`, classified as the write's own operation, with no
+  `error.code` (no status has been answered) and no follow-up; a deadlock on the
+  retry propagates, and the request's fault handler writes it as the second row's
+  `ERROR`, answered with the generic `500`. ADR 0015's `503` with `Retry-After: 1`
+  for that second deadlock is an API change and lands with the switchover's
+  contract update. A write that joins a transaction already open is not retried,
+  since no inner call can run the outer transaction again; read-only paths and
+  scheduled runs are not marked, because the next request or run covers them. A
+  deadlock is `DatabaseFailureCategory.deadlock`: SQLState `40P01` in the cause
+  chain. `app.retry.attempt` is the issue's `retry.attempt`, under the `app`
+  namespace as the JWKS refetch's is, since ECS names no such field.
+- **The audit trigger's refusal** (ADR 0004's 2026-10-14 addendum). The append-only
+  trigger raises `triggered_data_change_violation` (`27000`), the SQL standard's
+  state for a change a trigger refused, so it is `database` and can never be
+  mistaken for the permission refusal (`42501`) a missing grant raises. Before
+  `V4__audit_trigger_refusal_state.sql` it raised `42501` and was classified
+  `cert/auth`. V4 changes only the state: the guard is V3's role-membership test
+  (ADR 0004's superseding note), so what reaches it is a principal the grants let
+  through — the owner login — and the app login is refused by its grants first.
+
+`DatabaseFailureLogIntegrationTests` drives the failures the suite can produce on
+PostgreSQL — the unique violation, truncation, conversion error, permission
+refusal, lock not acquired, audit-trigger refusal and refused login — and asserts
+each record's `error.code` and `error.category`; `DatabaseFailureCategoryTests`
+holds every row, the deadlock, serialization and TLS ones included.
+`ScimDeadlockRetryIntegrationTests` forces a real deadlock on a User PUT, once and
+then again on its retry, and `DeadlockRetryAdapterTests` holds the retry's rules.
 
 **No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the
 request (`RequestFault`), and `RequestIdFilter` then writes that request's record at
 `WARN`, unclassified: still the `5xx` and still `failure`, but not the same failure
 twice. An Epic call that got no answer is logged at `ERROR` once, by the outbound
 interceptor, not again when the Login ends for it.
+
+### SQL exception text
+
+**A database's error text never reaches a record.** It quotes what it refused —
+the duplicate key, the truncated or unconvertible value, the failing row — and
+names the schema, the table and sometimes the database. The exceptions that wrap it
+repeat it: Spring's translated `DataAccessException` carries the driver's message
+and the statement, Hibernate's the same. So `EcsErrorFieldsCustomizer`, which every
+structured record with an attached exception passes through whoever logged it,
+writes `error.message` and `error.stack_trace` from a redacted copy of the
+exception tree (`SqlExceptionRedaction`):
+
+- the message of every `SQLException` in the tree, causes and suppressed ones
+  included, becomes `SQL error <vendor code> (SQLState <state>)`, an SQLState that
+  is not five letters or digits being written `unknown`;
+- the message of every throwable with an `SQLException` beneath it in its cause
+  chain becomes that one's redacted message, because it quotes it;
+- a cause beneath the `SQLException` (the socket failure a driver reports) keeps
+  its message, and every class name and frame is kept.
+
+The rule is keyed on the generic `SQLException`, never a driver's class, and the
+message is engine-neutral: the SQL Server switchover (ADR 0015) changes only its
+wording, to `SQL Server error <n>`. It holds in the structured layouts, console and
+file, which every deployment runs. The pattern layout a developer may opt into
+locally (`LOG_STRUCTURED_FORMAT` empty) prints an attached exception as the JVM
+does; the call sites that attach a redacted copy (above) are what stays redacted
+there. `EcsErrorFieldsCustomizerTests` holds the rule under both of the encoder's
+renderers, and `DatabaseFailureLogIntegrationTests` holds it for real PostgreSQL
+refusals whose statements name their tables by database and schema: no emitted
+field carries the refused value, the database name or the schema name.
+
+### Connection details
+
+**No log line names the database's location.** A JDBC URL names the host, the port
+and the database. `log-levels.yaml` pins each library logger that writes one, with a
+comment on each saying what it would write:
+
+- `org.flywaydb.core.FlywayExecutor` at `WARN` (Flyway's database-information line);
+- `org.hibernate.orm.connections.pooling` at `WARN` (Hibernate's `HHH10001005`
+  database-information block, whose default catalog is the database name);
+- `com.zaxxer.hikari` at `INFO`, so Hikari logs only pool names — `app`,
+  `audit-append` and `retention`, the service's three pools (at `DEBUG` its
+  configuration dump, written as each pool opens, includes `jdbcUrl`);
+- `org.postgresql` at `WARN` (the driver's connection trace).
+
+A level stated for the logger itself is one a broader setting cannot reach, so
+turning logging up to investigate does not turn these lines back on. The levels hold
+for the migrate step (`MigrationStep`), which reads the same configuration, as for the
+service: Flyway runs only there, in a local run and in the tests (ADR 0015, ac-1).
+`StartupLogConnectionDetailsTests` starts a deployment as a deployment does, in child
+JVMs on the main configuration: the migrate step on an empty database, as the owner
+login, then `BackendApplication` with no profile, as the app and retention logins. It
+asserts that no line from the migrate step's first to the service's shutdown names
+the JDBC URL, the host or the database. A second deployment, with the root logger at
+`DEBUG` (Tomcat's alone held at `INFO`, as its class loader cannot start at `DEBUG`),
+asserts the same of the pinned loggers, with all three pools opened — the audit append
+pool by a refused login, the retention pool by a retention run.
 
 ### The records
 
@@ -454,14 +573,38 @@ rules hold its `basePackages` list.
 - puts `batch.job.name`, `batch.job.run.id` (a fresh UUID) and `trigger.type`
   `scheduled` in the context;
 - writes `job-start`;
-- writes `job-end`, which carries `event.reason` `lock-held` for a skipped run, the
-  counts the run reported (`SkippableJobRun.counts()`), or `jobFailed`'s `ERROR`;
+- writes `job-end`, the run's one summary line: `event.outcome`, `event.duration_ms`
+  and `batch.job.status` — `completed`, with the counts the run reported
+  (`SkippableJobRun.counts()`) and what it did to each kind of record as
+  `record=[{type, …counts}]` (`SkippableJobRun.records()`); `skipped`, with
+  `event.reason` `lock-held` and nothing else; or `failed`, as `jobFailed`'s
+  `ERROR`, with the `record` of what the run had committed: what its body last
+  reported committed (`JobProgress.committed`), else what the job's schedule states a
+  failed run committed (`ScheduledJobSpec.committedOnFailure`);
 - rethrows a failure, and clears the context however the run ended.
+
+`event.duration_ms` rather than ECS's `event.duration`: every record this service
+writes states its duration in milliseconds under that name, and ECS's own field is
+in nanoseconds, so a second spelling for one job would split every duration query
+in two.
 
 Both ends are classified as the job's own `Operation`. The startup schedule record
 (`jobScheduled`) states `app.job.description`, `trigger.cron.expression` and
 `trigger.cron.timezone`. `trigger.type` is `scheduled`, the schema's own value, not
 `cron`.
+
+**Audit retention.** A run writes one line beside its `job-start`: its `job-end`,
+`record=[{type: audit_event, deleted: <n>, batches: <m>}]`. The delete is one
+statement, so a run that did the work is one batch, even when nothing had aged out.
+The delete commits in a transaction of its own, on the retention pool as the
+retention login (#66), before the run's lock transaction does, and the run reports it
+committed as it returns (`JobProgress`). So a run whose delete failed is `failed` with
+`deleted: 0, batches: 0`, and a run that failed after its delete committed — its lock
+transaction's commit failing — is `failed` with the batch and the rows it deleted.
+ADR 0015's batched deletes report each batch the same way as it commits. There is no
+line per batch, and no summary beside the end — the service writes no record of its
+own. A run skipped on a held lock is the one `skipped` line.
+`AuditRetentionRunLogTests` holds each case as the scheduler runs it.
 
 **Dormancy** (ADR 0011). `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION` are one
 record per User, naming it as `user.target.id`. A revocation also names the Roles
@@ -508,7 +651,10 @@ that do not exist yet. Neither alone is the property.
   administrative change through the real filter chain. It encodes every record with
   the production encoder and asserts that no fixture credential or identifier
   appears anywhere in the bytes. `JdbcErrorLogRedactionTests` does the same for a
-  driver error. `EpicLoginRedactionIntegrationTests` drives the following through
+  driver error. `DatabaseFailureLogIntegrationTests` drives a unique violation, a
+  value too long, a conversion error and a permission refusal from the real
+  schema, and `StartupLogConnectionDetailsTests` the application's start (see "SQL
+  exception text" and "Connection details"). `EpicLoginRedactionIntegrationTests` drives the following through
   the in-JVM fake Epic:
   - a successful Epic Login;
   - one refused for each audit reason;

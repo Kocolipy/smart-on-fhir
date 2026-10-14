@@ -3,6 +3,8 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.PasswordAcceptance;
@@ -152,6 +154,7 @@ public class ScimUserService {
      * own — this one is already doomed.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public ScimUserResource create(AuthenticatedConnector connector, NewScimUser command) {
         ScimAttributeLimits.requireWithin(command.profile());
         ScimAttributeLimits.requireExternalIdWithin(command.externalId());
@@ -235,6 +238,7 @@ public class ScimUserService {
      * @return empty when no live User has that id
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public Optional<ScimUserResource> replace(
             AuthenticatedConnector connector,
             UUID id,
@@ -258,6 +262,7 @@ public class ScimUserService {
      * @return empty when no live User has that id
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public Optional<ScimUserResource> patch(
             AuthenticatedConnector connector,
             UUID id,
@@ -284,6 +289,7 @@ public class ScimUserService {
      * @return whether a live User was there to delete
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.SCIM_WRITE)
     public boolean delete(
             AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
         Optional<ScimUser> stored = lockedForWrite(id);

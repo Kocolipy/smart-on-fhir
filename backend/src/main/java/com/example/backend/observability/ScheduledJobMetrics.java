@@ -9,6 +9,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -17,12 +18,10 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
-import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.config.CronTask;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.TransactionException;
 
 /**
  * The scheduled-job module: the one place every scheduled job is registered and runs through,
@@ -69,11 +68,16 @@ import org.springframework.transaction.TransactionException;
  *
  * <ul>
  *   <li>a {@code job-start} record as the run begins;
- *   <li>a {@code job-end} record as it ends: {@code event.outcome} {@code success} and
- *       {@code event.duration_ms}, plus whatever the run {@linkplain SkippableJobRun#counts
- *       counted}; with {@code event.reason} {@code lock-held} in place of
- *       the work when a lock-serialized job found another run holding its lock; or, at
- *       {@code ERROR}, {@code failure} with the error fields and the exception attached;
+ *   <li>a {@code job-end} record as it ends, the run's one summary line: {@code event.outcome}
+ *       {@code success}, {@code event.duration_ms} and {@code batch.job.status}
+ *       {@code completed}, plus whatever the run {@linkplain SkippableJobRun#counts counted}
+ *       and its {@code record} ({@link SkippableJobRun#records}); {@code skipped}, with
+ *       {@code event.reason} {@code lock-held} in place of the work, when a lock-serialized job
+ *       found another run holding its lock; or, at {@code ERROR}, {@code failure} and
+ *       {@code failed} with the error fields, the exception attached, and the {@code record}
+ *       of what the run had committed — what its body last reported committed
+ *       ({@link JobProgress#committed}), else what the job states a failed run committed
+ *       ({@link ScheduledJobSpec#committedOnFailure});
  *   <li>the context keys removed again when the run ends, however it ends.
  * </ul>
  *
@@ -124,7 +128,7 @@ public class ScheduledJobMetrics {
      */
     public Runnable instrumentLocked(
             String job, Operation operation, Supplier<? extends SkippableJobRun> task) {
-        return instrument(job, operation, task, Map.of());
+        return instrument(job, operation, task, Map.of(), List.of());
     }
 
     /**
@@ -148,7 +152,8 @@ public class ScheduledJobMetrics {
                     .register(registry));
         }
         registrar.addCronTask(new CronTask(
-                instrument(job.name(), job.operation(), job.task(), counters),
+                instrument(job.name(), job.operation(), job.task(), counters,
+                        job.committedOnFailure()),
                 new CronTrigger(job.cron(), ServiceTimeZone.ZONE)));
         LoggingEventBuilder scheduled = LogEvent.jobScheduled(
                 log, job.operation(), job.name(), job.cron(), job.description());
@@ -160,7 +165,8 @@ public class ScheduledJobMetrics {
             String job,
             Operation operation,
             Supplier<? extends SkippableJobRun> task,
-            Map<String, Counter> counters) {
+            Map<String, Counter> counters,
+            List<JobRecord> committedOnFailure) {
         Counter succeeded = runs(job, "success");
         Counter failed = runs(job, "failure");
         AtomicLong lastSuccessMillis = new AtomicLong(clock.millis());
@@ -176,12 +182,15 @@ public class ScheduledJobMetrics {
                         long startedAt = clock.millis();
                         LogEvent.jobStart(log, operation).log();
                         SkippableJobRun result;
-                        try {
-                            result = task.get();
-                        } catch (RuntimeException failure) {
-                            failed.increment();
-                            logFailure(operation, failure, clock.millis() - startedAt);
-                            throw failure;
+                        try (JobProgress.Run progress = JobProgress.start(committedOnFailure)) {
+                            try {
+                                result = task.get();
+                            } catch (RuntimeException failure) {
+                                failed.increment();
+                                logFailure(operation, failure, clock.millis() - startedAt,
+                                        progress.committed());
+                                throw failure;
+                            }
                         }
                         long endedAt = clock.millis();
                         lastSuccessMillis.set(endedAt);
@@ -211,8 +220,16 @@ public class ScheduledJobMetrics {
                     counter.increment(count);
                 }
             });
+            withRecords(end, result.records());
         }
         end.log();
+    }
+
+    /** {@code record}, one object per kind of record the run reports; none when it reports none. */
+    private static LoggingEventBuilder withRecords(LoggingEventBuilder end, List<JobRecord> records) {
+        return records.isEmpty()
+                ? end
+                : end.addKeyValue(LogEvent.RECORD, records.stream().map(JobRecord::field).toList());
     }
 
     /**
@@ -221,21 +238,21 @@ public class ScheduledJobMetrics {
      * to the scheduler's own error handler, which logs it whole regardless, so a redacted
      * copy here would hide nothing and would cost {@code error.type} its real class name.
      */
-    private static void logFailure(Operation operation, RuntimeException failure, long durationMillis) {
-        LogEvent.jobFailed(log, operation, durationMillis, category(failure))
+    private static void logFailure(Operation operation, RuntimeException failure,
+            long durationMillis, List<JobRecord> committed) {
+        withRecords(LogEvent.jobFailed(log, operation, durationMillis, category(failure)),
+                        committed)
                 .setCause(failure)
                 .log();
     }
 
     /**
-     * {@code database} for a failure Spring's data access or transaction layer raised —
-     * every job here is a database job, so those are the failures expected — and
-     * {@code application} for anything else.
+     * The database's categories for a failure the database raised ({@link
+     * DatabaseFailureCategory}) — every job here is a database job, so those are the failures
+     * expected — and {@code application} for anything else.
      */
     static ErrorCategory category(RuntimeException failure) {
-        return failure instanceof DataAccessException || failure instanceof TransactionException
-                ? ErrorCategory.DATABASE
-                : ErrorCategory.APPLICATION;
+        return DatabaseFailureCategory.of(failure);
     }
 
     private Counter runs(String job, String outcome) {

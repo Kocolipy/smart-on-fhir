@@ -242,6 +242,36 @@ class JdbcErrorLogRedactionTests {
         assertNoRecordCarries(forced, newUserName, existingUserName);
     }
 
+    /**
+     * The unmapped violation's record is classified as ADR 0015 maps it: {@code error.code} the
+     * status the connector was answered with, {@code error.category} {@code database}.
+     */
+    @Test
+    void a_forced_violations_record_carries_the_answered_status_and_the_database_category()
+            throws Exception {
+        String forced = "redact-classified-" + UUID.randomUUID();
+        logs.reset();
+
+        logins.owner().jdbc().execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_redaction_category"
+                + " CHECK (locale IS DISTINCT FROM '" + forced + "')");
+        MvcResult refused;
+        try {
+            refused = createUser("redact-classified-user-" + UUID.randomUUID(), forced);
+        } finally {
+            logins.owner().jdbc().execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_redaction_category");
+        }
+
+        assertThat(status(refused)).isEqualTo(500);
+        assertThat(logs.records())
+                .filteredOn(record -> "SCIM write refused by an unmapped integrity violation"
+                        .equals(record.at("/message").asText()))
+                .singleElement()
+                .satisfies(record -> {
+                    assertThat(record.at("/error/code").asInt()).isEqualTo(500);
+                    assertThat(record.at("/error/category").asText()).isEqualTo("database");
+                });
+    }
+
     // ---- harness -----------------------------------------------------------------------------
 
     /**

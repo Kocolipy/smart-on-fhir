@@ -30,10 +30,8 @@ class FeatureLogFieldsTests {
 
     @Test
     void theAuditTrailsFieldsKeepTheirSpellings() {
-        assertThat(List.of(AuditLogFields.AUDIT_OPERATION, AuditLogFields.RETENTION_PERIOD,
-                        AuditLogFields.RETENTION_DELETED_ROWS))
-                .containsExactly("audit.operation", "audit.retention.period",
-                        "audit.retention.deleted_rows");
+        assertThat(List.of(AuditLogFields.AUDIT_OPERATION, AuditLogFields.RETENTION_PERIOD))
+                .containsExactly("audit.operation", "audit.retention.period");
     }
 
     @Test

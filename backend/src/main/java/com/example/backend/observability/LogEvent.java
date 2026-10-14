@@ -40,9 +40,10 @@ import org.slf4j.spi.LoggingEventBuilder;
  *
  * <p>A record is built here whole, not assembled at its call site: {@link #success},
  * {@link #refused}, {@link #error}, the scheduled-run records ({@link #jobScheduled},
- * {@link #jobStart}, {@link #jobEnd}, {@link #jobFailed}, {@link #jobSummary}), the
- * request record ({@link #requestEnd}) and the outbound-call records ({@link #outboundStart},
- * {@link #outboundEnd}, {@link #outboundFailed}) each open the record at its level, classify it, set
+ * {@link #jobStart}, {@link #jobEnd}, {@link #jobFailed}), the request record
+ * ({@link #requestEnd}), the outbound-call records ({@link #outboundStart},
+ * {@link #outboundEnd}, {@link #outboundFailed}) and the retry warnings
+ * ({@link #jwksRefetchWarning}, {@link #deadlockRetried}) each open the record at its level, classify it, set
  * {@link #OUTCOME} and {@link #DURATION_MS} where the shape has them, and set the operation's
  * fixed message for that shape. A caller names the operation, adds only the ids and counts it
  * alone can supply, and calls {@code log()}. {@code be-log-record-outside-log-event} holds
@@ -131,7 +132,11 @@ public final class LogEvent {
      */
     public static final String ERROR_CODE = "error_code";
 
-    /** {@code Log_Schema.md} §Error {@code error.category}, an {@link ErrorCategory}; see {@link #ERROR_CODE}. */
+    /**
+     * {@code Log_Schema.md} §Error {@code error.category}, an {@link ErrorCategory}; see
+     * {@link #ERROR_CODE}. Written through {@link #withError}, and alone by
+     * {@link #deadlockRetried}, whose record has answered no status to give a code.
+     */
     public static final String ERROR_CATEGORY = "error_category";
 
     /**
@@ -151,6 +156,34 @@ public final class LogEvent {
      * the job's lock, and so did nothing.
      */
     public static final String REASON_LOCK_HELD = "lock-held";
+
+    /**
+     * The {@link #REASON} of a write retried because the database chose its transaction as a
+     * deadlock's victim ({@link #deadlockRetried}).
+     */
+    public static final String REASON_DEADLOCK = "deadlock";
+
+    /**
+     * How a scheduled run ended, on its {@code job-end}: {@value #JOB_COMPLETED}, {@value
+     * #JOB_SKIPPED} or {@value #JOB_FAILED}. {@code Log_Schema.md} §Batch.
+     */
+    public static final String BATCH_JOB_STATUS = "batch.job.status";
+
+    /** {@link #BATCH_JOB_STATUS} of a run that did the work. */
+    public static final String JOB_COMPLETED = "completed";
+
+    /** {@link #BATCH_JOB_STATUS} of a run that found another run holding the job's lock. */
+    public static final String JOB_SKIPPED = "skipped";
+
+    /** {@link #BATCH_JOB_STATUS} of a run that threw. */
+    public static final String JOB_FAILED = "failed";
+
+    /**
+     * What a scheduled run did to each kind of record, on its {@code job-end}: an array with one
+     * object per kind ({@link JobRecord}), {@code [{type: audit_event, deleted: 12, batches: 1}]}.
+     * {@code Log_Schema.md} §Batch.
+     */
+    public static final String RECORD = "record";
 
     /** An inbound request's method, from a closed set. ECS {@code http.request.method}. */
     public static final String HTTP_METHOD = "http.request.method";
@@ -228,6 +261,10 @@ public final class LogEvent {
      * a gateway's {@code 502}, as the schema aligns codes with HTTP statuses.
      */
     public static final int BAD_GATEWAY_ERROR_CODE = 502;
+
+    /** {@link #deadlockRetried}'s message: fixed text, naming no row, table or value. */
+    private static final String DEADLOCK_RETRIED_MESSAGE =
+            "Database deadlock: the write is retried once";
 
     /** {@link #jwksRefetchWarning}'s message: fixed text, naming the key's role and no value. */
     private static final String JWKS_REFETCH_MESSAGE =
@@ -376,6 +413,23 @@ public final class LogEvent {
                 .setMessage(JWKS_REFETCH_MESSAGE);
     }
 
+    /**
+     * The record of a write about to be retried because the database chose its transaction as a
+     * deadlock's victim (the deadlock retry, {@code DeadlockRetryAdapter}): {@code WARN}, classified as the write's own
+     * operation, {@code error.category} {@code database} with no {@code error.code} — no status
+     * has been answered — and no follow-up, {@link #RETRY_ATTEMPT} {@code 1}, {@link #REASON}
+     * {@value #REASON_DEADLOCK}, and no outcome, which the retried write's own records state. A
+     * second deadlock is the write's failure, written by the request's fault handler as its
+     * {@code ERROR}.
+     */
+    public static LoggingEventBuilder deadlockRetried(Logger log, Operation operation) {
+        return classify(log.atWarn(), operation, Category.DATABASE, Type.ERROR)
+                .addKeyValue(ERROR_CATEGORY, ErrorCategory.DATABASE.value())
+                .addKeyValue(RETRY_ATTEMPT, 1)
+                .addKeyValue(REASON, REASON_DEADLOCK)
+                .setMessage(DEADLOCK_RETRIED_MESSAGE);
+    }
+
     /** The outbound records' common shape: an {@link Operation#EPIC_OUTBOUND} connection. */
     private static LoggingEventBuilder outbound(LoggingEventBuilder opened, String call,
             String method, String url, Type type) {
@@ -408,8 +462,9 @@ public final class LogEvent {
 
     /**
      * The {@code job-end} record of a scheduled run that did not fail: {@code INFO},
-     * {@code event.outcome} {@code success} and {@code event.duration_ms} — with
-     * {@code event.reason} {@value #REASON_LOCK_HELD} when the run found another holding the
+     * {@code event.outcome} {@code success}, {@code event.duration_ms} and
+     * {@code batch.job.status} {@value #JOB_COMPLETED} — or {@value #JOB_SKIPPED}, with
+     * {@code event.reason} {@value #REASON_LOCK_HELD}, when the run found another holding the
      * job's lock and so did nothing. The caller adds what the run counted.
      */
     public static LoggingEventBuilder jobEnd(
@@ -418,34 +473,29 @@ public final class LogEvent {
                 .addKeyValue(OUTCOME, SUCCESS)
                 .addKeyValue(DURATION_MS, durationMs);
         return skipped
-                ? end.addKeyValue(REASON, REASON_LOCK_HELD)
+                ? end.addKeyValue(BATCH_JOB_STATUS, JOB_SKIPPED)
+                        .addKeyValue(REASON, REASON_LOCK_HELD)
                         .setMessage("Scheduled job skipped: another run holds its lock")
-                : end.setMessage("Scheduled job completed");
+                : end.addKeyValue(BATCH_JOB_STATUS, JOB_COMPLETED)
+                        .setMessage("Scheduled job completed");
     }
 
     /**
      * The {@code job-end} record of a scheduled run that threw: {@code ERROR} with
      * {@code error.code} {@code 500}, {@code event.outcome} {@code failure},
-     * {@code event.severity} {@code high} and {@code event.duration_ms}. The caller attaches
-     * the exception.
+     * {@code batch.job.status} {@value #JOB_FAILED}, {@code event.severity} {@code high} and
+     * {@code event.duration_ms}. The caller attaches the exception, and adds what the run had
+     * committed.
      */
     public static LoggingEventBuilder jobFailed(
             Logger log, Operation operation, long durationMs, ErrorCategory errorCategory) {
         return classify(atError(log, FAILED_RUN_ERROR_CODE, errorCategory),
                         operation, Category.BATCH, Type.JOB_END)
                 .addKeyValue(OUTCOME, FAILURE)
+                .addKeyValue(BATCH_JOB_STATUS, JOB_FAILED)
                 .addKeyValue(SEVERITY, Severity.HIGH.value())
                 .addKeyValue(DURATION_MS, durationMs)
                 .setMessage("Scheduled job failed");
-    }
-
-    /**
-     * What one scheduled run did, beside its {@code job-end}: {@code INFO}, {@code event.type}
-     * {@code info}, and no outcome, which is the {@code job-end}'s to state.
-     */
-    public static LoggingEventBuilder jobSummary(Logger log, Operation operation) {
-        return classify(log.atInfo(), operation, Category.BATCH, Type.INFO)
-                .setMessage(message(operation, MessageSlot.SUMMARY));
     }
 
     /**
@@ -575,12 +625,13 @@ public final class LogEvent {
      *
      * <p>Each operation also declares, on its own line, the fixed message of every record shape
      * it is written in: {@link #onSuccess}, {@link #onChange}, {@link #onRefusal},
-     * {@link #onError}, {@link #onSchedule} and {@link #onSummary}, one per
-     * {@link MessageSlot}. {@code OperationMessagesTests} reads the production call sites that
-     * hand an operation to a shape and fails for a message the operation does not declare. The
-     * shapes whose message is the same whatever the operation — {@link LogEvent#jobStart},
-     * {@link LogEvent#jobEnd}, {@link LogEvent#jobFailed}, {@link LogEvent#requestEnd}, the
-     * outbound records and {@link LogEvent#jwksRefetchWarning} — need none.
+     * {@link #onError} and {@link #onSchedule}, one per {@link MessageSlot}. A scheduled run's
+     * summary is its {@code job-end}, so no shape writes a summary beside it.
+     * {@code OperationMessagesTests} reads the production call sites that hand an operation to a
+     * shape and fails for a message the operation does not declare. The shapes whose message is
+     * the same whatever the operation — {@link LogEvent#jobStart}, {@link LogEvent#jobEnd},
+     * {@link LogEvent#jobFailed}, {@link LogEvent#requestEnd}, the outbound records,
+     * {@link LogEvent#jwksRefetchWarning} and {@link LogEvent#deadlockRetried} — need none.
      */
     public enum Operation {
         LOGIN(Action.USER_AUTHENTICATION, null,
@@ -637,8 +688,7 @@ public final class LogEvent {
                 onSuccess("Session ended"),
                 onError("Sessions could not be ended; they may still be live")),
         AUDIT_RETENTION(null, "audit.retention",
-                onSchedule("Audit retention job scheduled"),
-                onSummary("Audit retention run complete")),
+                onSchedule("Audit retention job scheduled")),
         AUDIT_APPEND(null, "audit.append",
                 onError("Audit event could not be appended; the request was not altered")),
         HTTP_REQUEST(null, "http.request"),
@@ -701,10 +751,6 @@ public final class LogEvent {
             return new Message(MessageSlot.SCHEDULED, text);
         }
 
-        /** The message of its job's {@link LogEvent#jobSummary} records. */
-        private static Message onSummary(String text) {
-            return new Message(MessageSlot.SUMMARY, text);
-        }
     }
 
     /**
@@ -721,8 +767,7 @@ public final class LogEvent {
         SUCCESS_ON_CHANGE(null),
         REFUSED("Operation refused"),
         ERROR("Operation failed"),
-        SCHEDULED("Scheduled job registered"),
-        SUMMARY("Scheduled job run summary");
+        SCHEDULED("Scheduled job registered");
 
         private final String generic;
 
