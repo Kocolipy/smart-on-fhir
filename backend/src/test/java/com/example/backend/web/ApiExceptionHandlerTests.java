@@ -8,6 +8,7 @@ import com.example.backend.audit.CapturedLog;
 import com.example.backend.counter.controller.UserCounterController;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
+import com.example.backend.observability.SqlFailures;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -173,7 +174,7 @@ class ApiExceptionHandlerTests {
     @Test
     void aDataAccessFailureIsCategorisedAsADatabaseErrorUnderTheAnsweredStatus() {
         handler.handleUnexpected(new DataIntegrityViolationException("refused",
-                new java.sql.SQLException("driver", "22001")));
+                SqlFailures.VALUE_TOO_LONG.raised()));
 
         assertThat(CapturedLog.fields(onlyRecord()))
                 .containsEntry(LogEvent.ERROR_CODE, 500)
@@ -184,7 +185,7 @@ class ApiExceptionHandlerTests {
     @Test
     void aPermissionRefusalIsCategorisedAsCertAuth() {
         handler.handleUnexpected(new DataIntegrityViolationException("refused",
-                new java.sql.SQLException("driver", "42501")));
+                SqlFailures.PERMISSION_DENIED.raised()));
 
         assertThat(CapturedLog.fields(onlyRecord()))
                 .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth");

@@ -104,7 +104,7 @@ class DatabaseFailureLogIntegrationTests {
 
         JsonNode end = failedRun("INSERT INTO " + probe() + " (name) VALUES ('" + value + "')");
 
-        assertRedacted(end, "23505");
+        assertRedacted(end, SqlFailures.UNIQUE_VIOLATION);
         assertClassified(end, "database");
     }
 
@@ -113,7 +113,7 @@ class DatabaseFailureLogIntegrationTests {
         JsonNode end = failedRun("INSERT INTO " + probe() + " (name, code) VALUES ('" + value
                 + "', '" + value + "')");
 
-        assertRedacted(end, "22001");
+        assertRedacted(end, SqlFailures.VALUE_TOO_LONG);
         assertClassified(end, "database");
     }
 
@@ -121,7 +121,7 @@ class DatabaseFailureLogIntegrationTests {
     void aConversionErrorIsADatabaseErrorQuotingNothing() {
         JsonNode end = failedRun("SELECT CAST('" + value + "' AS integer) FROM " + probe());
 
-        assertRedacted(end, "22P02");
+        assertRedacted(end, SqlFailures.INVALID_TEXT_REPRESENTATION);
         assertClassified(end, "database");
     }
 
@@ -134,7 +134,7 @@ class DatabaseFailureLogIntegrationTests {
         JsonNode end = failedRun("SELECT name FROM " + database + "." + refusedSchema
                 + ".secret WHERE name = '" + value + "'");
 
-        assertRedacted(end, "42501");
+        assertRedacted(end, SqlFailures.PERMISSION_DENIED);
         assertClassified(end, "cert/auth");
     }
 
@@ -158,7 +158,7 @@ class DatabaseFailureLogIntegrationTests {
                     + "' FOR UPDATE NOWAIT");
         });
 
-        assertRedacted(end, "55P03");
+        assertRedacted(end, SqlFailures.LOCK_NOT_AVAILABLE);
         assertClassified(end, "database");
     }
 
@@ -184,7 +184,8 @@ class DatabaseFailureLogIntegrationTests {
             asOwner.update("DELETE FROM audit_events WHERE id = ?", event);
         }));
 
-        assertThat(end.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState 27000)");
+        assertThat(end.at("/error/message").asText())
+                .isEqualTo(SqlFailures.AUDIT_TRIGGER_REFUSAL.redacted());
         assertClassified(end, "database");
     }
 
@@ -197,7 +198,8 @@ class DatabaseFailureLogIntegrationTests {
 
         JsonNode end = failedRun(() -> refused.execute("SELECT 1"));
 
-        assertThat(end.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState 28P01)");
+        assertThat(end.at("/error/message").asText())
+                .isEqualTo(SqlFailures.INVALID_PASSWORD.redacted());
         assertClassified(end, "cert/auth");
     }
 
@@ -237,7 +239,8 @@ class DatabaseFailureLogIntegrationTests {
      * the database name or the schema names, while the record still names the failure by its
      * SQLState and keeps the stack.
      */
-    private void assertRedacted(JsonNode end, String state) {
+    private void assertRedacted(JsonNode end, SqlFailures.Failure failure) {
+        String state = failure.sqlState();
         List<String> forbidden = List.of(value, database, schema, refusedSchema);
         for (String field : List.of("/message", "/error/message", "/error/stack_trace")) {
             assertThat(end.at(field).asText()).as(field).doesNotContain(forbidden);
