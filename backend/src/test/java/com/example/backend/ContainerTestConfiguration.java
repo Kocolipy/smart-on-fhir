@@ -60,6 +60,8 @@ public class ContainerTestConfiguration {
 
     private static final AtomicInteger CONTEXTS = new AtomicInteger();
 
+    private static final AtomicInteger DATABASES = new AtomicInteger();
+
     static {
         POSTGRES.start();
         REDIS.start();
@@ -72,21 +74,36 @@ public class ContainerTestConfiguration {
     @Bean
     DynamicPropertyRegistrar storesOfThisContext() throws SQLException {
         int context = CONTEXTS.incrementAndGet();
-        String database = "context_" + context;
-        try (Connection admin = DriverManager.getConnection(
-                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-                Statement statement = admin.createStatement()) {
-            statement.execute("CREATE DATABASE " + database);
-        }
-        String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
-                + POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + database;
+        EmptyDatabase database = emptyDatabase();
         return registry -> {
-            registry.add("spring.datasource.url", () -> url);
-            registry.add("spring.datasource.username", POSTGRES::getUsername);
-            registry.add("spring.datasource.password", POSTGRES::getPassword);
+            registry.add("spring.datasource.url", database::url);
+            registry.add("spring.datasource.username", database::username);
+            registry.add("spring.datasource.password", database::password);
             registry.add("spring.data.redis.host", REDIS::getHost);
             registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
             registry.add("spring.data.redis.database", () -> context);
         };
+    }
+
+    /**
+     * A new, empty database on the shared Postgres container, for a test that drives Flyway itself
+     * rather than through a context — one that migrates to an earlier version, writes the data a
+     * later migration has to carry, and then migrates the rest of the way. Each context gets its
+     * database here too.
+     */
+    public static EmptyDatabase emptyDatabase() throws SQLException {
+        String name = "database_" + DATABASES.incrementAndGet();
+        try (Connection admin = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                Statement statement = admin.createStatement()) {
+            statement.execute("CREATE DATABASE " + name);
+        }
+        String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
+                + POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + name;
+        return new EmptyDatabase(url, POSTGRES.getUsername(), POSTGRES.getPassword());
+    }
+
+    /** Where {@link #emptyDatabase} put the database, and the owning role's credentials. */
+    public record EmptyDatabase(String url, String username, String password) {
     }
 }

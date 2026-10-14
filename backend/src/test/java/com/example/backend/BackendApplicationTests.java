@@ -67,7 +67,8 @@ class BackendApplicationTests {
             }
             // V2: audit events name the connector token they concern.
             // V3: memberships are deleted explicitly, never by cascade (ADR 0015).
-            assertThat(versions).containsExactly("1", "2", "3");
+            // V4: connector token Permissions move to a child table (ADR 0015).
+            assertThat(versions).containsExactly("1", "2", "3", "4");
         }
     }
 }
