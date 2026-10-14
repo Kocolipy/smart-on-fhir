@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.observability.EcsLogCapture;
+import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.observability.SqlFailures;
@@ -23,7 +24,10 @@ import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -54,6 +58,7 @@ class DeadlockRetryAdapterTests {
     @AfterEach
     void detachLogs() {
         logs.close();
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test
@@ -104,6 +109,51 @@ class DeadlockRetryAdapterTests {
 
         assertThatThrownBy(writes::write).isSameAs(second);
         assertThat(retried()).hasSize(1);
+    }
+
+    /**
+     * The second deadlock is the one ADR 0015's as-13 answers {@code 503}: the retry marks the
+     * request it ended, so the request's fault handler tells it from a deadlock nothing retried.
+     */
+    @Test
+    void aSecondDeadlockMarksTheRequestAsItsRetryExhausted() {
+        servingARequest();
+        CannotAcquireLockException second = deadlock();
+        Writes writes = proxied(new Writes(deadlock(), second));
+
+        assertThatThrownBy(writes::write).isSameAs(second);
+        assertThat(ExhaustedRetry.answers(second)).isTrue();
+    }
+
+    /** A write served on no request — a test's, a job's — has nothing to mark or to answer. */
+    @Test
+    void aSecondDeadlockOnNoRequestIsAnsweredByNoOne() {
+        CannotAcquireLockException second = deadlock();
+        Writes writes = proxied(new Writes(deadlock(), second));
+
+        assertThatThrownBy(writes::write).isSameAs(second);
+        assertThat(ExhaustedRetry.answers(second)).isFalse();
+    }
+
+    @Test
+    void aRetryThatCompletesLeavesTheRequestUnmarked() {
+        servingARequest();
+        CannotAcquireLockException first = deadlock();
+        proxied(new Writes(first)).write();
+
+        assertThat(ExhaustedRetry.answers(first)).isFalse();
+    }
+
+    /** A retry that fails for any other reason is that failure's, and no exhausted retry. */
+    @Test
+    void aRetryThatFailsForAnotherReasonLeavesTheRequestUnmarked() {
+        servingARequest();
+        CannotAcquireLockException first = deadlock();
+        IllegalStateException bug = new IllegalStateException("bug");
+        Writes writes = proxied(new Writes(first, bug));
+
+        assertThatThrownBy(writes::write).isSameAs(bug);
+        assertThat(ExhaustedRetry.answers(first)).isFalse();
     }
 
     /**
@@ -217,6 +267,11 @@ class DeadlockRetryAdapterTests {
     @SuppressWarnings("unchecked")
     private static <T extends Throwable> RuntimeException sneaky(Throwable failure) throws T {
         throw (T) failure;
+    }
+
+    private static void servingARequest() {
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(new MockHttpServletRequest()));
     }
 
     private static CannotAcquireLockException deadlock() {

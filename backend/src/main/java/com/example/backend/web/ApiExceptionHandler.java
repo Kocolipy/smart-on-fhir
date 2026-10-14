@@ -1,6 +1,7 @@
 package com.example.backend.web;
 
 import com.example.backend.observability.DatabaseFailureCategory;
+import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.ErrorCategory;
@@ -42,9 +43,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *   <li><b>A fault on this side</b> — any other exception, and a {@code 5xx} Spring MVC
  *       assigns. One {@code ERROR} {@code http.request.fault} record with the exception
  *       attached — redacted, for a data-access failure, whose message quotes the statement and
- *       the refused row — answered with a generic {@code 500} that says nothing about it. The
- *       request record that follows is then written at {@code WARN} ({@link RequestFault}), so
- *       the fault is reported once.
+ *       the refused row — answered with a generic {@code 500} that says nothing about it, or, for
+ *       a retried write the database chose as the deadlock's victim again on its retry, with
+ *       {@code 503} and {@code Retry-After: 1} ({@link ExhaustedRetry}). The request record that
+ *       follows is then written at {@code WARN} ({@link RequestFault}), so the fault is reported
+ *       once.
  * </ul>
  *
  * <h2>Scope</h2>
@@ -82,6 +85,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /** Any exception no controller and no Spring MVC mapping answers: a fault. */
     @ExceptionHandler(Exception.class)
     ResponseEntity<Object> handleUnexpected(Exception fault) {
+        return answerUnexpected(fault);
+    }
+
+    /**
+     * A fault's one record and its answer: the generic {@code 500} — or, for a retried write the
+     * database chose as the deadlock's victim again on its retry, {@code 503} with
+     * {@code Retry-After: 1} (ADR 0015's as-13; {@link ExhaustedRetry}), the same record under that
+     * status. Public for the connector administration adapter: it is on the application chain but
+     * in the {@code scim} module, whose advice answers for its package, and its deadlocked writes
+     * are answered in this chain's shape.
+     */
+    public static ResponseEntity<Object> answerUnexpected(Exception fault) {
+        if (ExhaustedRetry.answers(fault)) {
+            return fault(fault, HttpStatus.SERVICE_UNAVAILABLE, ExhaustedRetry.retryAfter());
+        }
         return fault(fault, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
@@ -118,6 +136,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private static ResponseEntity<Object> fault(Exception fault, HttpStatusCode statusCode) {
+        return fault(fault, statusCode, HttpHeaders.EMPTY);
+    }
+
+    private static ResponseEntity<Object> fault(
+            Exception fault, HttpStatusCode statusCode, HttpHeaders headers) {
         int status = statusCode.value();
         LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status,
                         DatabaseFailureCategory.of(fault),
@@ -127,7 +150,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
                 .log();
         RequestFault.recorded();
-        return respond(ApiError.of(statusCode), HttpHeaders.EMPTY);
+        return respond(ApiError.of(statusCode), headers);
     }
 
     private static void refusal(Exception refused, HttpStatusCode statusCode) {

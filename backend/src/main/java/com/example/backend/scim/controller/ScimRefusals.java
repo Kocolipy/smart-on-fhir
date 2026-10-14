@@ -124,7 +124,10 @@ final class ScimRefusals {
         NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, null, "notImplemented", null),
 
         /** A failure on this side that the request could not have avoided. */
-        SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, null, "serverError", null);
+        SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, null, "serverError", null),
+
+        /** A retried write the database chose as the deadlock's victim again (ADR 0015, as-13). */
+        SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, null, "serviceUnavailable", null);
 
         final HttpStatus status;
 

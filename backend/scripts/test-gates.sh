@@ -27,6 +27,7 @@ MVN=${MVN:-./mvnw}
 # else, since the subsystem gates select by package.
 FAST_GATE=(
   arch/ArchitectureTest
+  arch/DeadlockRetryRulesTests
   arch/NoRoleSwitchTest
   arch/TestSourceArchitectureTest
   com/example/backend/audit/application/AuditEventListingServiceTests

@@ -1,6 +1,8 @@
 package com.example.backend.scim.controller;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.observability.DatabaseFailureCategory;
+import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -13,22 +15,27 @@ import com.example.backend.observability.RequestFault;
 import com.example.backend.scim.application.ScimLogFields;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimRequestRefusedException;
+import com.example.backend.web.ApiExceptionHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
@@ -119,17 +126,70 @@ class ScimExceptionHandler {
         ScimErrorException refusal = ScimErrorException.serverError(
                 "The write could not be completed because of a server-side failure; it was not"
                         + " applied.");
-        // The fault's one record. Attached as a redacted copy: the stack says where it failed,
-        // and the message — which quotes the statement and the conflicting value — is replaced
-        // by the cause's type, so no part of the refused row reaches the record.
+        databaseFault(violation, causeType, Operation.SCIM_WRITE, refusal.status().value(),
+                ErrorCategory.DATABASE, record -> record.addKeyValue(LogEvent.REASON, causeType));
+        return body(refusal);
+    }
+
+    /**
+     * A retried write the database chose as the deadlock's victim again on its retry (ADR 0015's
+     * as-13, {@link ExhaustedRetry}): {@code 503} with {@code Retry-After: 1}, a fault on this side
+     * the connector may simply send again.
+     *
+     * <p>A deadlock arrives as Spring's data-access or transaction failure, so those are the types
+     * this handler is consulted for; every one of them that is not the exhausted retry's deadlock
+     * is rethrown as it is, which leaves it unresolved — exactly as it was before this handler
+     * existed — and the integrity violation keeps its own, more specific, handler above.
+     *
+     * <p>The fault's one record is the {@code database} {@code ERROR}, needing investigation, that
+     * {@link com.example.backend.observability.DatabaseFailureCategory} makes of it, with a
+     * redacted copy attached: the driver's message quotes the statement. The connector
+     * administration adapter is in this package but on the application chain, so its deadlocked
+     * writes are answered in that chain's shape, by the application API's own fault handler.
+     */
+    @ExceptionHandler({DataAccessException.class, TransactionException.class})
+    ResponseEntity<?> handle(RuntimeException failure, HandlerMethod handler) {
+        if (!ExhaustedRetry.answers(failure)) {
+            throw failure;
+        }
+        if (AdminConnectorController.class.isAssignableFrom(handler.getBeanType())) {
+            return ApiExceptionHandler.answerUnexpected(failure);
+        }
+        ScimErrorException unavailable = ScimErrorException.serviceUnavailable(
+                "The write conflicted with a concurrent write and was not applied; send it again.");
+        String type = failure.getClass().getSimpleName();
+        String causeType = failure instanceof DataAccessException dataAccess
+                ? dataAccess.getMostSpecificCause().getClass().getSimpleName()
+                : type;
+        int status = unavailable.status().value();
+        databaseFault(failure, causeType, Operation.SCIM_REFUSAL, status,
+                DatabaseFailureCategory.of(failure), record -> record
+                        .addKeyValue(LogEvent.REASON, type)
+                        .addKeyValue(LogEvent.HTTP_STATUS_CODE, status));
+        ResponseEntity<Map<String, Object>> body = body(unavailable);
+        return ResponseEntity.status(body.getStatusCode())
+                .headers(body.getHeaders())
+                .headers(ExhaustedRetry.retryAfter())
+                .body(body.getBody());
+    }
+
+    /**
+     * A database fault's one record, in the addressed resource's context, and the request marked
+     * as having had it ({@link RequestFault}). The failure is attached as a redacted copy named
+     * {@code causeType}: the stack says where it failed, and the message — which quotes the
+     * statement and, for a unique key, the conflicting value — never reaches the record.
+     * {@code fields} adds what the handler's record carries beyond that.
+     */
+    private static void databaseFault(
+            RuntimeException failure, String causeType, Operation operation, int status,
+            ErrorCategory errorCategory, UnaryOperator<LoggingEventBuilder> fields) {
         inResourceContext(resourceType -> withResourceType(
-                        LogEvent.error(log, Operation.SCIM_WRITE, refusal.status().value(),
-                                        ErrorCategory.DATABASE, Category.DATABASE, Type.ERROR)
-                                .setCause(RedactedFaultException.of(violation, causeType))
-                                .addKeyValue(LogEvent.REASON, causeType), resourceType)
+                        fields.apply(LogEvent.error(log, operation, status, errorCategory,
+                                        Category.DATABASE, Type.ERROR)
+                                .setCause(RedactedFaultException.of(failure, causeType))),
+                        resourceType)
                 .log());
         RequestFault.recorded();
-        return body(refusal);
     }
 
     /**

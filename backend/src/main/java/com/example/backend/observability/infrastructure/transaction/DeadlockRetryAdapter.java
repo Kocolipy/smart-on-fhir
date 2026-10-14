@@ -1,6 +1,7 @@
 package com.example.backend.observability.infrastructure.transaction;
 
 import com.example.backend.observability.DatabaseFailureCategory;
+import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
@@ -37,13 +38,16 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *   <li>The first deadlock is written at {@code WARN} ({@link LogEvent#deadlockRetried}:
  *       {@code error.category} {@code database}, {@code app.retry.attempt} {@code 1},
  *       {@code event.reason} {@code deadlock}, no follow-up) and the write runs again.
- *   <li>A deadlock on the retry propagates as it was raised, and the request's fault handler
- *       writes it as the {@code ERROR} it is — {@code database}, investigate — through
- *       {@link DatabaseFailureCategory}.
+ *   <li>A deadlock on the retry propagates as it was raised, with the request marked
+ *       ({@link ExhaustedRetry}), and the request's fault handler writes it as the {@code ERROR}
+ *       it is — {@code database}, investigate — through {@link DatabaseFailureCategory}, and
+ *       answers it {@code 503} with {@code Retry-After: 1}.
  *   <li>Any other failure propagates untouched: a serialization or snapshot conflict, a lock not
  *       acquired, a refusal. None of them is retried.
  *   <li>Never nested: a marked method called inside a transaction that is already open joins it,
- *       and a transaction cannot be retried from inside itself, so such a call is not retried.
+ *       and a transaction cannot be retried from inside itself, so such a call passes straight
+ *       through, not retried. {@code ArchitectureTest} keeps every marked method where that cannot
+ *       happen: called by an inbound web adapter alone, which opens no transaction.
  * </ul>
  *
  * <p>Reads whether a transaction is open, and registers nothing to run at its end: after-commit
@@ -81,7 +85,22 @@ public class DeadlockRetryAdapter extends DefaultPointcutAdvisor {
                     throw failure;
                 }
                 LogEvent.deadlockRetried(log, operation(invocation)).log();
+                return retry(call);
+            }
+        }
+
+        /**
+         * The one retry. A deadlock on it is the write's failure and propagates as raised, with
+         * the request marked so its fault handler answers it as the {@code 503} it is.
+         */
+        private static Object retry(ProxyMethodInvocation call) {
+            try {
                 return proceed(call.invocableClone());
+            } catch (RuntimeException failure) {
+                if (DatabaseFailureCategory.deadlock(failure)) {
+                    ExhaustedRetry.recorded();
+                }
+                throw failure;
             }
         }
 

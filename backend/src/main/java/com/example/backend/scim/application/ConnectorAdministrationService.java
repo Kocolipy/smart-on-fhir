@@ -8,6 +8,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
@@ -94,6 +95,7 @@ public class ConnectorAdministrationService {
 
     /** Creates a connector holding no tokens yet. */
     @Transactional
+    @RetriedOnDeadlock(Operation.CONNECTOR_CREATE)
     public ConnectorSummary create(String displayName, UUID actorId) {
         Instant now = clock.instant();
         ScimConnector connector = ScimConnector.create(UUID.randomUUID(), displayName, now);
@@ -124,6 +126,7 @@ public class ConnectorAdministrationService {
      * likely to have the wrong id than to want a second no-op.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.CONNECTOR_DELETE)
     public void delete(UUID connectorId, UUID actorId) {
         ScimConnector connector = requireLive(connectorId);
         Instant now = clock.instant();
@@ -163,6 +166,7 @@ public class ConnectorAdministrationService {
      * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_ISSUE)
     public IssuedConnectorToken issueToken(
             UUID connectorId,
             Collection<Permission> requested,
@@ -221,6 +225,7 @@ public class ConnectorAdministrationService {
      * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_ROTATE)
     public IssuedConnectorToken rotateToken(
             UUID tokenId,
             Collection<Permission> requested,
@@ -278,6 +283,7 @@ public class ConnectorAdministrationService {
      * row back from what it read, so a rotation committed in between would otherwise be undone.
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_REVOKE)
     public void revokeToken(UUID tokenId, UUID actorId) {
         tokenLocks.lockToken(tokenId);
         ScimConnectorToken existing = requireToken(tokenId);

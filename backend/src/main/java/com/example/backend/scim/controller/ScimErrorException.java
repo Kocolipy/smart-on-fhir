@@ -134,6 +134,15 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(ScimRefusals.Kind.SERVER_ERROR, detail);
     }
 
+    /**
+     * A failure on this side that passes: the write was the database's deadlock victim again on
+     * its retry (ADR 0015's as-13). {@code 503} and no {@code scimType}, which RFC 7644 §3.12
+     * defines none for; the answer carries {@code Retry-After}.
+     */
+    public static ScimErrorException serviceUnavailable(String detail) {
+        return new ScimErrorException(ScimRefusals.Kind.SERVICE_UNAVAILABLE, detail);
+    }
+
     /** The kind of refusal, which decides everything about it but the detail. */
     ScimRefusals.Kind kind() {
         return kind;
