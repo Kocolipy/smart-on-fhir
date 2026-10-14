@@ -1,8 +1,8 @@
 package com.example.backend.audit.infrastructure.persistence;
 
 import com.example.backend.audit.domain.AuditEventRetention;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -45,9 +45,13 @@ class AuditEventRetentionAdapter implements AuditEventRetention {
         this.jdbc = jdbc;
     }
 
+    /**
+     * The cutoff is bound as an offset at UTC, so the same rows age out in any JVM zone (ADR
+     * 0015, "Storage is UTC only").
+     */
     @Override
     @Transactional(transactionManager = RETENTION_TRANSACTIONS)
     public long deleteOccurredBefore(Instant cutoff) {
-        return jdbc.update(DELETE_AGED_OUT, Timestamp.from(cutoff));
+        return jdbc.update(DELETE_AGED_OUT, cutoff.atOffset(ZoneOffset.UTC));
     }
 }

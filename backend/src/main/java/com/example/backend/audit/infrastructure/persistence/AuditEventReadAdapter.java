@@ -8,9 +8,10 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -90,8 +91,8 @@ class AuditEventReadAdapter implements AuditEventReader {
                 .addValue("outcome", name(query.outcome()), Types.VARCHAR)
                 .addValue("actorId", query.actorId(), Types.OTHER)
                 .addValue("resourceId", query.resourceId(), Types.OTHER)
-                .addValue("from", timestamp(query.from()), Types.TIMESTAMP)
-                .addValue("to", timestamp(query.to()), Types.TIMESTAMP);
+                .addValue("from", utc(query.from()), Types.TIMESTAMP_WITH_TIMEZONE)
+                .addValue("to", utc(query.to()), Types.TIMESTAMP_WITH_TIMEZONE);
     }
 
     private static AuditEvent event(ResultSet row) throws SQLException {
@@ -132,7 +133,12 @@ class AuditEventReadAdapter implements AuditEventReader {
         return value == null ? null : value.name();
     }
 
-    private static Timestamp timestamp(Instant instant) {
-        return instant == null ? null : Timestamp.from(instant);
+    /**
+     * A bound instant crosses the seam as an offset at UTC, never a {@code java.sql.Timestamp}:
+     * a Timestamp carries the JVM's wall clock, which SQL Server compares as UTC (ADR 0015,
+     * "Storage is UTC only"; the {@code be-jdbc-timestamp-bind} Semgrep rule).
+     */
+    private static OffsetDateTime utc(Instant instant) {
+        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
     }
 }
