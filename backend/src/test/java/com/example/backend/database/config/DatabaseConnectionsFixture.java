@@ -16,10 +16,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 public final class DatabaseConnectionsFixture {
 
     /** The database every pool reaches. */
-    public static final String URL = "jdbc:postgresql://db.internal:5432/backend";
+    public static final String URL = "jdbc:sqlserver://db.internal:1433;databaseName=backend";
 
     /** The driver every pool reaches it through. */
-    public static final String DRIVER = "org.postgresql.Driver";
+    public static final String DRIVER = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
 
     /** The app login, the main pool's and the audit append pool's. */
     public static final DatabaseConnections.DatabaseLogin APP_LOGIN =

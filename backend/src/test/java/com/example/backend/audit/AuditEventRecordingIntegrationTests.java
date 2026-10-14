@@ -384,7 +384,7 @@ class AuditEventRecordingIntegrationTests {
      *
      * <p>The one shape a credential word may name is a stable id: {@code token_id} and
      * {@code replacement_token_id} name the connector token an event concerns, and are
-     * {@code uuid} columns, into which no token value, digest or name can be written. Any
+     * {@code uniqueidentifier} columns, into which no token value, digest or name can be written. Any
      * other column naming a credential, or a credential-named column of any other type,
      * fails here.
      */
@@ -398,7 +398,7 @@ class AuditEventRecordingIntegrationTests {
                 .filter(column -> CREDENTIAL_WORD.matcher(
                         (String) column.get("column_name")).find())
                 .filter(column -> !(((String) column.get("column_name")).endsWith("_id")
-                        && "uuid".equals(column.get("data_type"))))
+                        && "uniqueidentifier".equals(column.get("data_type"))))
                 .map(column -> (String) column.get("column_name"))
                 .toList();
 
@@ -406,10 +406,13 @@ class AuditEventRecordingIntegrationTests {
         assertThat(credentialNamedNonIds).isEmpty();
     }
 
-    /** The audit table's columns with their types, from the deployed schema. */
+    /**
+     * The audit table's columns with their types, from the deployed schema. The catalog views'
+     * names are upper case, as the database's binary collation requires them spelled.
+     */
     private static final String AUDIT_COLUMN_TYPES =
-            "SELECT column_name, data_type FROM information_schema.columns"
-            + " WHERE table_name = 'audit_events'";
+            "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS"
+            + " WHERE TABLE_NAME = 'audit_events'";
 
     /** A word a column that could hold a credential or a readable identifier would carry. */
     private static final java.util.regex.Pattern CREDENTIAL_WORD = java.util.regex.Pattern.compile(

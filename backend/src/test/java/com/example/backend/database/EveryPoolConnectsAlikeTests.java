@@ -52,8 +52,8 @@ class EveryPoolConnectsAlikeTests {
                         .map(pool -> context.getBean(pool, HikariDataSource.class))
                         .map(pool -> List.of(pool.getJdbcUrl(), pool.getDriverClassName()))
                         .toList())
-                .containsOnly(List.of("jdbc:postgresql://db.internal:5432/backend",
-                        "org.postgresql.Driver")));
+                .containsOnly(List.of("jdbc:sqlserver://db.internal:1433;databaseName=backend",
+                        "com.microsoft.sqlserver.jdbc.SQLServerDriver")));
     }
 
     /**

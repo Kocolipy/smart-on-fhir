@@ -143,7 +143,12 @@ are one record.
   with `COLLATE "C"`, which the SCIM sort relies on. Equality and the unique
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
-  Server's `LOWER`.
+  Server's `LOWER`. (Added 2026-10-14, #68.) The collation is the **database's**,
+  set by `CREATE DATABASE … COLLATE`; the server keeps its default collation. On
+  the pinned image a server collated `BIN2_UTF8` (`MSSQL_COLLATION`) cannot load the
+  internal extended procedures behind `sp_getapplock` and a T-SQL `sp_executesql`
+  (error 17750, "Could not load the DLL (server internal)"), and the seed lock is an
+  application lock.
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
   listing at `SNAPSHOT`.** Readers do not block writers, as with PostgreSQL's MVCC
   today. The listing's count and page must see one consistent view; SQL Server's

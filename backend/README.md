@@ -1,7 +1,8 @@
 # Backend
 
 A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
-identity directory, audit trail and per-User counters persisted in PostgreSQL.
+identity directory, audit trail and per-User counters persisted in SQL Server 2022
+(ADR 0015).
 Identities are provisioned by an external directory over a SCIM 2.0 interface
 (`/scim/v2`); the session-authenticated application API lives under `/api`.
 Spring Session replaces the servlet container's in-memory session, so session
@@ -13,17 +14,26 @@ instances.
 - Java 25
 - Maven — not required; the checked-in wrapper (`./mvnw`) downloads and
   checksum-verifies the release pinned in `.mvn/wrapper/maven-wrapper.properties`
-- Docker with Docker Compose (recommended for local Redis and PostgreSQL)
+- Docker with Docker Compose (for the local SQL Server and Redis)
+- An **x86_64** machine: Linux, WSL2 or an Intel Mac. The SQL Server image has no
+  arm64 build. On Apple Silicon it runs only under Rosetta emulation (Docker
+  Desktop's "Use Rosetta for x86_64/amd64 emulation"), which Microsoft does not
+  support and which is slow; Apple Silicon is not a supported development
+  platform (ADR 0015).
+- Memory: the local SQL Server is capped at 2 GB (`MSSQL_MEMORY_LIMIT_MB`) in a
+  3 GB container, and the test suite starts one SQL Server per test JVM — about
+  0.9 GB each, two JVMs — so give WSL2 or Docker Desktop at least 8 GB.
 
 ## Run locally
 
-Copy `.env.example` to `.env`, then start Redis and PostgreSQL and create the
-local database logins (see [Database logins](#database-logins)):
+Copy `.env.example` to `.env`, then start SQL Server and Redis, which also
+creates the local database and its three logins (see
+[Local setup](#local-setup)):
 
 ```bash
-make infra-up        # from the repository root: both containers, then the logins
+make infra-up        # from the repository root
 # or, from backend/:
-docker compose up -d --wait redis postgres && ./scripts/local-db-logins.sh
+docker compose up -d --wait && docker compose run --rm sqlserver-init
 ```
 
 Start the application:
@@ -33,8 +43,8 @@ Start the application:
 ```
 
 Spring Boot does not read `.env` itself, so export it first (`make dev` from the
-repository root does). It carries the three database logins, which have no
-defaults, and `SPRING_PROFILES_ACTIVE=local`, the profile that runs the
+repository root does). It carries `DATABASE_URL` and the three database logins,
+none of which has a default, and `SPRING_PROFILES_ACTIVE=local`, the profile that runs the
 migrations at startup. Without `APP_DEV_FIXTURES_ENABLED=true` and
 `APP_DEV_FIXTURES_PASSWORD` from it, startup refuses the shipped development
 role mapping, because the Groups it names do not exist; see
@@ -146,12 +156,12 @@ surfaces — and the baseline gate holds it against the running code (see
 ## Configuration
 
 Copy `.env.example` to `.env` if your runtime loads dotenv files, or export the
-variables in your shell. The defaults connect to Redis at `localhost:6379`,
-PostgreSQL at `localhost:5432`, and expire sessions after 15 minutes of
-inactivity — the same value every environment uses, including deployed ones
-(`infra/infrastructure.yaml`), so the SPA can rely on a single window. The
-database credentials have no defaults at all: set the logins
-[Database logins](#database-logins) lists, in every environment.
+variables in your shell. The defaults connect to Redis at `localhost:6379` and
+expire sessions after 15 minutes of inactivity — the same value every
+environment uses, including deployed ones (`infra/infrastructure.yaml`), so the
+SPA can rely on a single window. The database has no defaults at all: set
+`DATABASE_URL` and the logins [Database logins](#database-logins) lists, in
+every environment. A start without `DATABASE_URL` fails, naming it.
 
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
@@ -368,7 +378,7 @@ service in `compose.yaml`. It is behind the `epic-launcher` compose profile, so
 repository root:
 
 ```bash
-make epic-launcher-up     # Postgres, Redis and the launcher on http://localhost:9009
+make epic-launcher-up     # SQL Server, Redis and the launcher on http://localhost:9009
 make epic-launcher-down   # stops all three; `make infra-down` leaves the launcher up
 ```
 
@@ -565,7 +575,7 @@ change moves the basis.
 
 ### Database logins
 
-The service reaches PostgreSQL as **three logins**, each holding only its own
+The service reaches SQL Server as **three logins**, each holding only its own
 privileges, and nothing switches role on a connection (ADR 0015, "Runtime
 model"; `NoRoleSwitchTest`, in the `arch` tests, holds that no source
 or configuration file issues `SET ROLE`):
@@ -574,11 +584,11 @@ or configuration file issues `SET ROLE`):
 | ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
 | **app login**       | `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | the main pool (`app`) and the audit append pool (`audit-append`)            | `backend_app`             |
 | **retention login** | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | the audit retention job's own pool (`retention`) and nothing else           | `backend_audit_retention` |
-| **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | — (owns the schema)       |
+| **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | — (owns the database)     |
 
-`DATABASE_URL` is the one database all three reach. **None of the six login variables
-has a default** — this repository is public — so a missing one fails startup.
-The test JVMs drop all of them (`pom.xml`).
+`DATABASE_URL` is the one database all three reach. **Neither it nor any of the six
+login variables has a default** — this repository is public — so a missing one
+fails startup. The test JVMs drop all of them (`pom.xml`).
 
 - **`backend_app`** holds full DML on the tables whose lifecycle the application
   owns (the `scim_*` directory tables and `user_counters`) and narrower grants
@@ -588,24 +598,25 @@ The test JVMs drop all of them (`pom.xml`).
   the row a job serializes on. An `UPDATE` or `DELETE` of a recorded event from
   application code is refused by the server. The migrations' `GRANT` statements
   are the exact list; a later migration that adds a table the application writes
-  must grant `backend_app` on it.
+  must grant `backend_app` on it. A refusal is SQL Server error 229.
 - **`backend_audit_retention`** holds `SELECT`/`DELETE` on `audit_events` and
-  nothing else (its `UPDATE` grant was revoked by `V3`). Only the audit retention
-  adapter reaches the retention pool.
+  nothing else — no `UPDATE`. Only the audit retention adapter reaches the
+  retention pool.
 
-Beside the grants the audit table carries a `BEFORE UPDATE OR DELETE` trigger
+Beside the grants the audit table carries an `INSTEAD OF UPDATE, DELETE` trigger
 that refuses **every** `UPDATE`, from every principal, and every `DELETE` unless
-the caller is a member of `backend_audit_retention` that does not administer it.
-That second half is what refuses the owner login, which owns the table — so the
-grants do not bind it — and holds the role `WITH ADMIN OPTION` only so it can
-grant it. Append-only therefore survives a console session or a misused owner
+the caller is a member of `backend_audit_retention` and not of `db_owner`, with
+error 50001. That second half is what refuses the owner login, which owns the
+database — so the grants do not bind it — and a sysadmin, which enters as its
+owner. Append-only therefore survives a console session or a misused owner
 credential. `AuditAppendOnlyIntegrationTests` connects as each login and asserts
 each refusal.
 
 The pools: how each reaches the database is one module's, `DatabaseConnections`
 (`database.config`): the URL, the driver, and every driver property under
-`spring.datasource.hikari.data-source-properties` — where TLS, the trust store
-and the login timeout go once they leave the URL — reach the main, audit append
+`spring.datasource.hikari.data-source-properties` — set in
+`src/main/resources/database.yaml`: `encrypt=true`, `sslProtocol=TLSv1.2` and
+`loginTimeout=15`, with the trust store to come — reach the main, audit append
 and retention pools alike, and the migrate step's owner connection too
 (`MigrationConnection`). Set such a property there, for the service and the
 migrate step both, and never on one pool. A pool states only its name, login,
@@ -651,22 +662,55 @@ owner credential.
   (`ContainerTestConfiguration`).
 
 The migrations learn the app and retention logins' names as the placeholders
-`app_login` and `retention_login`, and `V3` makes each a member of its role,
-quoting the name. `MigrationLoginNames` refuses a name that does not match
+`app_login` and `retention_login`, and `V1` creates a database user `FOR LOGIN`
+each and makes it a member of its role, quoting the name with `QUOTENAME`. `MigrationLoginNames` refuses a name that does not match
 `^[a-z][a-z0-9_]{2,30}$`, or the two naming one login, before Flyway runs a
 statement.
 
-#### Local login setup
+#### Local setup
 
-Locally the owner login is the compose superuser (`backend`/`backend`), which
-already owns the `backend` database. The app and retention logins are created by
-`scripts/local-db-logins.sh` from the values in `.env` — `make infra-up` and the
-E2E runs call it once Postgres is healthy. It is idempotent: it creates a login
-that is missing and resets each one's password, so run it again after changing
-`.env`. With plain `docker compose up`, run it yourself before the first start.
-The roles come from `V1` and the memberships from `V3`, so the script grants
-nothing. A deployment creates all three logins with `infra/db-bootstrap.sh`
-instead.
+`compose.yaml` runs **SQL Server 2022** (CU27, Developer Edition, pinned by tag
+and digest, `linux/amd64`) on `localhost:1433`, capped at 2 GB, with a health
+check, beside Redis. Its one-shot `sqlserver-init` service, in a profile of its own
+so a plain `up` leaves it out, is run in the foreground by `make infra-up` once SQL
+Server is healthy — `docker compose run --rm sqlserver-init`, whose exit status is
+the init's, since `up --wait` does not wait for a one-shot to finish
+(`scripts/local-db-init.sh` and `local-db-init.sql`): it creates the
+`backend` database with its creation options — collation
+`Latin1_General_100_BIN2_UTF8`, compatibility level 160, `READ_COMMITTED_SNAPSHOT`
+and `ALLOW_SNAPSHOT_ISOLATION` on, none of which a migration can set — and the
+owner, app and retention logins from `.env`, and makes the owner login the
+database's owner. It is idempotent: it leaves what exists and resets each
+login's password, so `make infra-up` after changing `.env` applies it. It echoes
+no secret: values reach `sqlcmd` as scripting variables from the environment,
+never as arguments, and `sqlcmd` runs without `-e`. The roles, the app and
+retention logins' database users and their grants come from `V1`, so the init
+grants nothing. A deployment creates the database and the logins with its own
+bootstrap instead.
+
+The server keeps its default collation and only the database is collated
+`Latin1_General_100_BIN2_UTF8`: a server collated `BIN2_UTF8` cannot load the
+internal procedures behind `sp_getapplock`, which the seed lock takes.
+
+The `.env` variables it reads:
+
+| Variable                                                     | What it is                                                                                                                                                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MSSQL_SA_PASSWORD`                                          | The local server's `sa` password, read by compose for the server and its init only; the backend never sees it. SQL Server's policy applies: 8+ characters from three of upper case, lower case, digits and symbols. |
+| `DATABASE_URL`                                               | `jdbc:sqlserver://localhost:1433;databaseName=backend`. No default.                                                                                                                                                 |
+| `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | The owner login, created by the init and made the database's owner.                                                                                                                                                 |
+| `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | The app login.                                                                                                                                                                                                      |
+| `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | The retention login.                                                                                                                                                                                                |
+
+Login names must match `^[a-z][a-z0-9_]{2,30}$` and be three different names; a
+password must hold no quote. The local server's certificate is self-signed, so
+the `local` profile alone sets `trustServerCertificate=true`; everywhere else the
+certificate is validated, and `TrustServerCertificateTest` fails the build if
+that setting appears in any other profile, resource or deployment script. The
+connection is encrypted either way (`database.yaml`).
+
+`make dev` checks that SQL Server answers at the host and port of
+`DATABASE_URL` (1433 by default) before it starts anything.
 
 ### Session storage
 
@@ -837,6 +881,27 @@ the unreadable-body handler's cause loop, which predates this change), line
 coverage 163/165, the two lines being `ExhaustedRetry`'s private constructor. The
 baseline gate after: `Tests run: 5033, Failures: 0, Errors: 0, Skipped: 0`, up
 from 4993 on df51e6b, Semgrep 0 findings; 4:32 min against 4:28.
+
+SQL Server switchover 1/5, 2026-10-14 (#68, ADR 0015; integration branch
+`mssql-cutover`): the suite runs on one SQL Server 2022 CU27 container per test JVM
+(`ContainerTestConfiguration`), each context on a database of its own created with
+the deployment's options. Before, on PostgreSQL at 6e8a882: `./scripts/verify.sh`
+308 s wall-clock (Maven `Total time: 04:48 min`), `Tests run: 5033, Failures: 0,
+Errors: 0, Skipped: 0`, 32 context starts, Semgrep 0 findings. After, on SQL Server:
+Maven `Total time: 06:23 min` (385 s), `Tests run: 5062, Failures: 46, Errors: 166,
+Skipped: 0`, 31 context starts (32, 31, 33 and 31 across four runs — the forks place
+the `@DirtiesContext` classes differently — with no configuration added: neither new
+full-context class starts one), Semgrep 0 findings. The failures are the suites the
+next switchover tickets port (locks, audit listing and error mapping in #69, the
+SCIM query SQL in #70, the remaining PostgreSQL SQL in tests in #72), and they also
+make the run slower than it will be: a failing wait runs to its patience. New:
+`ScimSchemaUniquenessIntegrationTests` (12 tests) and `UtcStorageIntegrationTests`
+(3) join the shared context; `TrustServerCertificateTest` (5) joins the fast gate;
+`DatabaseUrlTests` (2) starts the deployed configuration and fails it, opening no
+context; `DataSourceConfigTests` gains four (a missing URL; scoped PIT over
+`DataSourceConfig`: 20 mutants, 20 killed, line coverage 10/10). `ConnectorTokenPermissionsMigrationTests` was removed with the PostgreSQL
+`V6` it migrated through: the T-SQL `V1` is the only migration, and a fresh
+database the only starting state.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

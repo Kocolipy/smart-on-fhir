@@ -65,12 +65,8 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            // V2: audit events name the connector token they concern. V3: separate
-            // database logins replace the role switch. V4: the append-only trigger
-            // refuses with a state of its own.
-            // V5: memberships are deleted explicitly, never by cascade (ADR 0015).
-            // V6: connector token Permissions move to a child table (ADR 0015).
-            assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
+            // One T-SQL V1 (ADR 0015): the PostgreSQL migrations were folded into it.
+            assertThat(versions).containsExactly("1");
         }
     }
 }

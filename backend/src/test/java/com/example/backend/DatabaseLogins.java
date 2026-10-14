@@ -18,10 +18,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       own guard.
  *   <li>{@link #app()} and {@link #retention()} — the two logins the service's pools connect as,
  *       on connections of the test's own.
- *   <li>{@link #superuser()} — the container's superuser, an observer only: it reads another
- *       login's activity in {@code pg_stat_activity}, which a login without
- *       {@code pg_read_all_stats} sees with its query text hidden. It is not a login the service
- *       or the deployment has, so no claim about privileges is ever made through it.
+ *   <li>{@link #superuser()} — the container's {@code sa}, an observer only: it reads another
+ *       login's sessions and requests ({@code sys.dm_exec_sessions}, {@code sys.dm_exec_requests}),
+ *       which a login without {@code VIEW SERVER STATE} sees only its own of. It is not a login
+ *       the service or the deployment has, so no claim about privileges is ever made through
+ *       it.
  * </ul>
  *
  * <p>Each opens a plain connection per use, outside every pool, and {@link Login#transactions()}

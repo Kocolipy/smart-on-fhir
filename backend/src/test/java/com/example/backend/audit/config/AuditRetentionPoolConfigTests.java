@@ -33,8 +33,8 @@ class AuditRetentionPoolConfigTests {
         try (HikariDataSource pool = retentionPool()) {
 
             assertThat(List.of(pool.getJdbcUrl(), pool.getDriverClassName()))
-                    .containsExactly("jdbc:postgresql://db.internal:5432/backend",
-                            "org.postgresql.Driver");
+                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
+                            "com.microsoft.sqlserver.jdbc.SQLServerDriver");
         }
     }
 

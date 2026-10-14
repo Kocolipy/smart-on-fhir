@@ -75,9 +75,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- The SQL Server driver (ADR 0015); its version is the Spring Boot BOM's. -->
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-jdbc</artifactId>
             <scope>runtime</scope>
         </dependency>
         <!--
@@ -85,9 +86,9 @@
           flyway-core alone no longer triggers FlywayAutoConfiguration or the
           JPA-after-Flyway ordering, so Flyway silently never ran and Hibernate's
           ddl-auto: validate failed against an empty schema. This starter is what
-          actually wires FlywayAutoConfiguration; flyway-database-postgresql adds
-          the PostgreSQL-specific migration support the starter does not include
-          on its own.
+          actually wires FlywayAutoConfiguration; flyway-sqlserver adds the SQL
+          Server support (its parser, `GO` batches included) the starter does not
+          include on its own.
         -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -95,7 +96,7 @@
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-database-postgresql</artifactId>
+            <artifactId>flyway-sqlserver</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -175,7 +176,7 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-postgresql</artifactId>
+            <artifactId>testcontainers-mssqlserver</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -258,8 +259,10 @@
               20-core machine with a 5.9 GB WSL VM: 217s with one JVM, ~143s with two,
               124s with three. Two, not more: the third JVM saves ~20s but peaks within
               ~0.8 GB of the VM's memory, and "1C" would start a JVM per core. A fork
-              starts its own Postgres and Redis (ContainerTestConfiguration), so contexts
+              starts its own SQL Server and Redis (ContainerTestConfiguration), so contexts
               split across forks cost a migrated database each, not a container start.
+              A SQL Server container idles at ~0.9 GB, so the two forks need ~2 GB more
+              than they did on PostgreSQL (ADR 0015, V6).
               Override with -DforkCount=1 to debug a test in one JVM.
 
               The forks take classes from one shared queue, so the class that starts last
@@ -293,6 +296,7 @@
                         <excludedEnvironmentVariable>REDIS_HOST</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>REDIS_PORT</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>REDIS_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>MSSQL_SA_PASSWORD</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>DATABASE_URL</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>DATABASE_USERNAME</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>DATABASE_PASSWORD</excludedEnvironmentVariable>

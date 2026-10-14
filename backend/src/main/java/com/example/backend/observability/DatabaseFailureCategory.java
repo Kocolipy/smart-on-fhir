@@ -56,9 +56,14 @@ public final class DatabaseFailureCategory {
     static final EngineFailure REFUSED_LOGIN =
             new EngineFailure("28", null, ErrorCategory.CERT_AUTH, false);
 
-    /** SQLState {@code 42501}, insufficient privilege: a permission refusal. */
+    /**
+     * SQL Server error {@code 229}, a permission denied on an object: a permission refusal.
+     * Re-keyed with the switchover's schema (#68), because the append-only guarantees are asserted
+     * by it; the rows still keyed on PostgreSQL's SQLStates are re-keyed with the error mapping
+     * (#69).
+     */
     static final EngineFailure PERMISSION_DENIED =
-            new EngineFailure("42501", null, ErrorCategory.CERT_AUTH, false);
+            new EngineFailure(null, 229, ErrorCategory.CERT_AUTH, false);
 
     /** SQLState {@code 40P01}, PostgreSQL's {@code deadlock_detected}: the victim, retried. */
     static final EngineFailure DEADLOCK_VICTIM =
@@ -74,11 +79,12 @@ public final class DatabaseFailureCategory {
             new EngineFailure("40001", null, ErrorCategory.DATABASE, false);
 
     /**
-     * SQLState {@code 27000}, triggered data change violation: the audit table's append-only
+     * Error {@code 50001}, the number the audit table's append-only trigger throws (V1): the
      * trigger refusing a change, never a permission refusal (ADR 0004's 2026-10-14 addendum).
+     * Re-keyed with the switchover's schema (#68), as {@link #PERMISSION_DENIED} is.
      */
     static final EngineFailure AUDIT_TRIGGER_REFUSAL =
-            new EngineFailure("27000", null, ErrorCategory.DATABASE, false);
+            new EngineFailure(null, 50001, ErrorCategory.DATABASE, false);
 
     /** SQLState {@code 23505}: a unique violation no adapter translated. */
     static final EngineFailure UNIQUE_VIOLATION =

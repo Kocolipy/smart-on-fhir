@@ -64,7 +64,7 @@ class NoRoleSwitchTest {
     void theGuardReadsTheMainSources() {
         assertThat(filesUnder(MAIN)).anyMatch(file -> file.endsWith("application.yaml"))
                 .anyMatch(file -> file.toString().endsWith("AuditEventRetentionAdapter.java"))
-                .anyMatch(file -> file.toString().endsWith("V3__separate_database_logins.sql"));
+                .anyMatch(file -> file.toString().endsWith("V1__initial_schema.sql"));
     }
 
     private static List<Path> filesUnder(Path root) {

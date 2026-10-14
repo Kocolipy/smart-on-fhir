@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
+import com.example.backend.auth.application.LoginIdentityService;
+import com.example.backend.auth.application.LoginPrincipal;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -48,17 +50,18 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A value too long for its column, and any other integrity violation, against the real Postgres
+ * A value too long for its column, and any other integrity violation, against the real SQL Server
  * schema — the bug report's table, observed end to end.
  *
  * <p>Every refusal here used to reach the database, whose integrity violation the persistence
  * adapters translated wholesale into "the name is taken": a 40-character email {@code type} came
  * back as {@code 409 uniqueness} naming {@code userName}, and an over-length {@code externalId}
- * as the servlet container's own {@code 500} body. Postgres is what decides those outcomes, so
+ * as the servlet container's own {@code 500} body. The database is what decides those outcomes, so
  * they are asserted here rather than against the in-memory fakes, which have no columns.
  *
- * <p>A U+0000 in any stored string is the same kind of refusal: PostgreSQL cannot store it, so
- * it is refused as {@code 400 invalidValue} before the statement rather than failing at it.
+ * <p>A U+0000 in any stored string is the same kind of refusal: it is hostile in logs and
+ * terminals (ADR 0015 keeps the refusal as input hygiene), so it is refused as
+ * {@code 400 invalidValue} before the statement rather than stored.
  */
 @SpringBootTest
 @ExtendWith(OutputCaptureExtension.class)
@@ -102,6 +105,10 @@ class ScimStoredLengthIntegrationTests {
 
     @Autowired
     private RequestIdFilter requestIdFilter;
+
+    /** The Epic Login's lookup of the User a Practitioner ID links to. */
+    @Autowired
+    private LoginIdentityService loginIdentities;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -233,25 +240,69 @@ class ScimStoredLengthIntegrationTests {
 
     /**
      * The other side of every limit: a value exactly as long as its column is accepted, counted
-     * in code points as Postgres counts them — a {@code userName} of 256 supplementary characters
-     * is 512 UTF-16 units and the column stores it.
+     * in code points — every value here is made of supplementary characters, four bytes each in
+     * UTF-8, so a {@code userName} of 256 of them is 512 UTF-16 units and 1024 bytes. SQL Server's
+     * {@code VARCHAR(n)} counts bytes, so every Unicode-capable column is four times its limit
+     * (ADR 0015), and each stored value reads back whole.
      */
     @Test
     void every_user_value_at_its_limit_is_stored_counting_code_points() throws Exception {
-        String userName = SUPPLEMENTARY.repeat(256);
+        String at256 = SUPPLEMENTARY.repeat(256);
+        String at64 = SUPPLEMENTARY.repeat(64);
+        String at32 = SUPPLEMENTARY.repeat(32);
         MvcResult stored = createUser("""
                 {"schemas":["%s"],"userName":"%s","externalId":"%s","displayName":"%s",
                  "name":{"givenName":"%s","familyName":"%s"},
                  "preferredLanguage":"%s","locale":"%s","timezone":"%s",
                  "emails":[{"value":"%s","type":"%s","primary":true}]}"""
-                .formatted(USER_SCHEMA, userName, "x".repeat(256), "d".repeat(256),
-                        "g".repeat(256), "f".repeat(256), "l".repeat(64), "c".repeat(64),
-                        "z".repeat(64), "e".repeat(256), "t".repeat(32)));
+                .formatted(USER_SCHEMA, at256, at256, at256, at256, at256, at64, at64, at64,
+                        at256, at32));
 
         assertThat(stored.getResponse().getStatus())
                 .as(stored.getResponse().getContentAsString()).isEqualTo(201);
-        assertThat(jdbc.queryForObject("SELECT user_name FROM scim_users WHERE resource_id = ?",
-                String.class, id(stored))).isEqualTo(userName);
+        UUID id = id(stored);
+        assertThat(jdbc.queryForList("""
+                        SELECT u.user_name, u.normalized_user_name, u.display_name, u.given_name,
+                               u.family_name, u.preferred_language, u.locale, u.timezone,
+                               e.value, e.type, x.external_id
+                          FROM scim_users u
+                          JOIN scim_user_emails e ON e.resource_id = u.resource_id
+                          JOIN scim_external_ids x ON x.resource_id = u.resource_id
+                         WHERE u.resource_id = ?""", id)
+                .getFirst().values())
+                .containsExactly(at256, at256, at256, at256, at256, at64, at64, at64, at256,
+                        at32, at256);
+    }
+
+    /**
+     * An Epic Login's identity is the Practitioner ID its {@code userName} holds (ADR 0013, D2),
+     * so the SSO claim is stored in that column and nowhere else: one of the column's full 256
+     * code points, every one non-ASCII — two-, three- and four-byte characters alike — is stored,
+     * and the Epic Login's lookup finds the User by it. Its first four code points are minted per
+     * run, so a rerun against a database that kept an earlier run's User still creates one.
+     */
+    @Test
+    void a_non_ascii_sso_claim_at_its_limit_is_stored_and_links_its_user() throws Exception {
+        String practitionerId = uniqueCjk(4) + ("é" + "漢" + SUPPLEMENTARY + "Ж").repeat(63);
+        MvcResult stored = createUser("""
+                {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, practitionerId));
+
+        assertThat(stored.getResponse().getStatus())
+                .as(stored.getResponse().getContentAsString()).isEqualTo(201);
+        assertThat(loginIdentities.loadEpicLinkedUser(practitionerId))
+                .map(LoginPrincipal::userId)
+                .contains(id(stored));
+    }
+
+    /** A connector's display name, the one administrator-written label, at its 200 code points. */
+    @Test
+    void a_connector_display_name_at_its_limit_is_stored_counting_code_points() {
+        String name = SUPPLEMENTARY.repeat(200);
+
+        UUID connector = connectors.create(name, null).id();
+
+        assertThat(jdbc.queryForObject("SELECT display_name FROM scim_connectors WHERE id = ?",
+                String.class, connector)).isEqualTo(name);
     }
 
     /** The bug report's Group rows: {@code displayName} on all three verbs, and {@code externalId}. */
@@ -530,6 +581,16 @@ class ScimStoredLengthIntegrationTests {
     }
 
     // ---- harness ---------------------------------------------------------------------------
+
+    /** {@code count} three-byte CJK code points drawn from a random UUID, unique per call. */
+    private static String uniqueCjk(int count) {
+        long bits = UUID.randomUUID().getLeastSignificantBits();
+        StringBuilder minted = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            minted.appendCodePoint(0x4E00 + (int) ((bits >>> (16 * i)) & 0xFFFF) % 0x5000);
+        }
+        return minted.toString();
+    }
 
     private static String userBody(String userName, UserAttribute attribute, String value) {
         if (attribute == null) {

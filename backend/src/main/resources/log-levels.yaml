@@ -20,9 +20,8 @@ logging:
   level:
     # Hibernate's JDBC error logger (`SQLExceptionLogging.ERROR_NAME`) writes the
     # driver's message as it stands, at WARN, for every statement the database
-    # refuses. Postgres quotes the refused value in it: a unique violation as
-    # `Key (normalized_user_name)=(<userName>) already exists`, a CHECK or NOT NULL
-    # violation as `Failing row contains (<the whole row>)`. That puts a submitted
+    # refuses. SQL Server quotes the refused value in it: a unique violation as
+    # `… The duplicate key value is (<userName>).` That puts a submitted
     # userName or Group displayName in the log stream on every `409 uniqueness`,
     # and Semgrep cannot see it because the call is inside Hibernate.
     #
@@ -58,6 +57,13 @@ logging:
     # versions and the schema) at their own loggers, and drops the one line that
     # is nothing but the URL.
     org.flywaydb.core.FlywayExecutor: "WARN"
+    # Flyway's schema history lines, at INFO on a migrate: on SQL Server they name
+    # the history table three-part, database first — "Schema history table
+    # [<the database>].[dbo].[flyway_schema_history] does not exist yet",
+    # "Creating Schema History table [<the database>]…". WARN keeps the logger's
+    # warnings; migration progress stays at DbMigrate's own logger, which names
+    # the schema alone.
+    org.flywaydb.core.internal.schemahistory.JdbcTableSchemaHistory: "WARN"
     # Hibernate's HHH10001005 "Database info" block, at INFO once per persistence
     # unit: the JDBC URL and the default catalog — which is the database name.
     # WARN keeps the logger's pool warnings; there is nothing else at INFO.
@@ -70,9 +76,9 @@ logging:
     # housekeeping lines follow. INFO, so Hikari logs pool names only, for all
     # three. (The migrate step opens no pool.)
     com.zaxxer.hikari: "INFO"
-    # The PostgreSQL driver logs through java.util.logging, which Boot bridges in.
-    # At DEBUG it traces every connection it opens: "Connecting with URL:
-    # <the JDBC URL>", and the host and port it dials. WARN keeps what it warns
-    # of. The SQL Server switchover (ADR 0015) replaces this with the Microsoft
-    # driver's logger, `com.microsoft.sqlserver.jdbc`, at the same level.
-    org.postgresql: "WARN"
+    # The Microsoft SQL Server driver logs through java.util.logging, which Boot
+    # bridges in. At FINE and below it traces every connection it opens — the
+    # server name, port and database it dials — and the statements it sends, and
+    # SQL Server quotes the refused value in a unique-violation message as
+    # PostgreSQL did (ADR 0015, lm-19). WARN keeps what it warns of.
+    com.microsoft.sqlserver.jdbc: "WARN"

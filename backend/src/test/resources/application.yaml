@@ -13,12 +13,13 @@ spring:
     # service fields, the timestamp zone and the log-file settings a record is
     # written with are the deployed ones, and with LOG_FILE unset — as it is
     # here — there is no file.
-    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml
-  # No spring.datasource.* here: ContainerTestConfiguration's @ServiceConnection
-  # Postgres container registers the URL, username and password onto the context
-  # directly, and Flyway migrations are PostgreSQL syntax that only a real
-  # Postgres — not an in-memory substitute — can run as the deployed service
-  # does.
+    # `database.yaml` likewise: every test pool is opened with the deployed
+    # driver properties (encrypted, TLS 1.2, the login timeout).
+    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:database.yaml
+  # No spring.datasource.* here: ContainerTestConfiguration's SQL Server
+  # container registers the URL, the logins and Flyway's owner login onto each
+  # context directly, and the migrations are T-SQL that only a real SQL Server —
+  # not an in-memory substitute — can run as the deployed service does.
   jpa:
     hibernate:
       ddl-auto: validate

@@ -9,10 +9,12 @@ import org.springframework.stereotype.Repository;
 /**
  * Serializes each scheduled job on its own row of {@code scheduled_job_locks}.
  *
- * <p>{@code FOR UPDATE SKIP LOCKED} is the whole mechanism. The row lock is held until the
- * calling transaction ends, so a second run of the same job — in this process or another one
- * against the same database — skips the row and learns it is not the one to run, without
- * waiting. A run of the other job locks a different row and never sees this one.
+ * <p>{@code WITH (UPDLOCK, ROWLOCK, READPAST)} is the whole mechanism (ADR 0005, ADR 0015). The
+ * row's update lock is held until the calling transaction ends, so a second run of the same job —
+ * in this process or another one against the same database — reads past the held row and learns
+ * it is not the one to run, without waiting; spike V3 verified that {@code READPAST} skips a held
+ * row under read-committed snapshot. A run of the other job locks a different row and never sees
+ * this one.
  *
  * <p>JDBC rather than JPA: the row has no attributes worth mapping, and the statement is a lock,
  * not a read. It runs on the primary data source — the application login is the one granted the
@@ -28,9 +30,8 @@ class ScheduledJobLockAdapter implements ScheduledJobLock {
 
     /** Whole statements as constants, never assembled; see the local Semgrep ruleset. */
     private static final String LOCK_JOB_ROW = """
-            SELECT job_name FROM scheduled_job_locks
-             WHERE job_name = ?
-               FOR UPDATE SKIP LOCKED""";
+            SELECT job_name FROM scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST)
+             WHERE job_name = ?""";
 
     private static final String COUNT_JOB_ROW =
             "SELECT count(*) FROM scheduled_job_locks WHERE job_name = ?";
@@ -44,7 +45,7 @@ class ScheduledJobLockAdapter implements ScheduledJobLock {
     /**
      * Locks the job's row, or reports it held.
      *
-     * <p>{@code SKIP LOCKED} returns nothing both for a row another run holds and for a row that
+     * <p>{@code READPAST} returns nothing both for a row another run holds and for a row that
      * does not exist, and the two must not be confused: a missing row would otherwise read as
      * "someone else is running it" forever, and the job would silently never run. So an empty
      * result is followed by a plain read, which does not wait for the lock, and a missing row

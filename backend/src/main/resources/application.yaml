@@ -7,30 +7,36 @@ spring:
     # redaction rule depends on in `log-levels.yaml`, and the actuator exposure
     # and metrics settings in `telemetry.yaml`, so the test resources'
     # `application.yaml` — which shadows this file entirely — can import the same
-    # documents instead of restating them. The role mapping and the development
-    # fixtures live in `authorization.yaml`, which the test resources do NOT
-    # import: their contexts carry a Superuser-only mapping of their own.
-    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:authorization.yaml
+    # documents instead of restating them. How every connection reaches the
+    # database — encryption, the TLS floor, the login timeout — lives in
+    # `database.yaml`, imported by both for the same reason. The role mapping and
+    # the development fixtures live in `authorization.yaml`, which the test
+    # resources do NOT import: their contexts carry a Superuser-only mapping of
+    # their own.
+    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:database.yaml,classpath:authorization.yaml
   # The main pool (DataSourceConfig), as the APP LOGIN: a member of `backend_app`
   # only, with full DML on the tables the application owns the lifecycle of and
   # INSERT/SELECT only on `audit_events`. That is what makes the audit trail
   # append-only for THIS application rather than only by convention — an UPDATE or
-  # DELETE from application code is refused by the server with SQLSTATE 42501,
+  # DELETE from application code is refused by the server (SQL Server error 229),
   # whatever the code intended. Nothing runs on a new connection: the login's
   # privileges are the pool's. The audit append pool connects as the same login.
   #
-  # No credential has a fallback: this repository is public, so a deployment that
-  # forgot one fails to start rather than signing in with a published password.
-  # `spring.datasource.hikari.*` settings still bind to this pool.
+  # Neither the URL nor any credential has a fallback: this repository is public,
+  # so a deployment that forgot one fails to start rather than reaching whatever
+  # answers on a published address, or signing in with a published password. A
+  # local run reads DATABASE_URL from backend/.env, the tests set it themselves,
+  # and the deployed stack sets it in UserData. `spring.datasource.hikari.*`
+  # settings still bind to this pool.
   #
   # How a connection reaches the database is one module's (DatabaseConnections):
   # this URL and its driver, and every driver property under
   # `spring.datasource.hikari.data-source-properties` — TLS, the trust store, the
-  # login timeout — reach the main, audit append and retention pools alike, and
-  # the migrate step's owner connection (MigrationConnection). Set them there,
-  # never on one pool.
+  # login timeout, set in `database.yaml` — reach the main, audit append and
+  # retention pools alike, and the migrate step's owner connection
+  # (MigrationConnection). Set them there, never on one pool.
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
+    url: ${DATABASE_URL}
     username: ${DATABASE_USERNAME}
     password: ${DATABASE_PASSWORD}
   jpa:
@@ -179,6 +185,22 @@ spring:
     placeholders:
       "[app_login]": ${DATABASE_USERNAME}
       "[retention_login]": ${DATABASE_RETENTION_USERNAME}
+
+---
+# A local run's SQL Server (compose.yaml) presents a self-signed certificate, so
+# the local profile alone trusts it without validation. Nowhere else: a
+# deployment validates the server's certificate (ADR 0015, dp-3), and
+# `TrustServerCertificateTest` fails the build if this setting appears in any
+# document but a local or test one. The connection is still encrypted
+# (`database.yaml`).
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    hikari:
+      data-source-properties:
+        "[trustServerCertificate]": "true"
 
 ---
 # The migrate step has no pool to borrow a URL from, so Flyway is told the
