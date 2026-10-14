@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
+import com.example.backend.ForcedDeadlock;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.observability.RequestIdFilter;
@@ -115,6 +117,9 @@ class ApiContractFixtureTests {
     private RequestIdFilter requestIdFilter;
 
     @Autowired
+    private DatabaseLogins logins;
+
+    @Autowired
     @Qualifier("springSessionRepositoryFilter")
     private Filter springSessionRepositoryFilter;
 
@@ -195,6 +200,7 @@ class ApiContractFixtureTests {
         counter(all);
         administration(all);
         connectors(all);
+        deadlockedWrites(all);
         audit(all);
         actuator(all);
         return all.stream().map(fixture -> Arguments.of(Named.of(fixture.name(), fixture)));
@@ -451,6 +457,61 @@ class ApiContractFixtureTests {
         });
     }
 
+    // ---- a write deadlocked on its retry too (ADR 0015, as-13) ------------------------
+
+    /**
+     * Each administrative write the database chooses as a deadlock's victim on its first attempt
+     * and on the one retry: {@code 503} with {@code Retry-After: 1} and the generic body.
+     */
+    private static void deadlockedWrites(List<Fixture> all) {
+        add(all, "unlock and force-password-change: 503 with Retry-After when deadlocked twice",
+                t -> {
+                    Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+                    UUID locked = t.userId(t.provision(true));
+                    t.jdbc.update("UPDATE scim_users SET locked_at = now(), lock_cause = 'FAILURES'"
+                            + " WHERE resource_id = ?", locked);
+                    // Settled, so it is required to change nothing yet and the forced change writes.
+                    String settled = t.provision(true);
+                    t.settle(settled);
+                    UUID credentialed = t.userId(settled);
+                    try (ForcedDeadlock victim = t.deadlocked("scim_users", "resource_id", locked)) {
+                        t.expectDeadlocked(t.csrf(t.post("/api/admin/accounts/" + locked + "/unlock"))
+                                .cookie(admin));
+                    }
+                    try (ForcedDeadlock victim =
+                            t.deadlocked("scim_users", "resource_id", credentialed)) {
+                        t.expectDeadlocked(t.csrf(t.post("/api/admin/accounts/" + credentialed
+                                + "/force-password-change")).cookie(admin));
+                    }
+                });
+        add(all, "connector writes: 503 with Retry-After when deadlocked twice", t -> {
+            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+            String base = "/api/admin/connectors";
+            String displayName = "Deadlocked " + UUID.randomUUID();
+            try (ForcedDeadlock victim =
+                    t.deadlocked("scim_connectors", "display_name", displayName)) {
+                t.expectDeadlocked(t.json(t.csrf(t.post(base)).cookie(admin),
+                        "{\"displayName\":\"" + displayName + "\"}"));
+            }
+            UUID connector = t.connectors.create("Deadlocked connector", null).id();
+            String tokens = base + "/" + connector + "/tokens";
+            UUID token = t.connectors.issueToken(connector, TokenPermissions.READ, null, null,
+                    TokenPermissions.ALL).tokenId();
+            try (ForcedDeadlock victim =
+                    t.deadlocked("scim_connector_tokens", "connector_id", connector)) {
+                t.expectDeadlocked(t.json(t.csrf(t.post(tokens)).cookie(admin),
+                        "{\"permissions\":" + TokenPermissions.READ_JSON + "}"));
+                t.expectDeadlocked(t.json(t.csrf(t.post(tokens + "/" + token + "/rotate"))
+                        .cookie(admin), "{}"));
+                t.expectDeadlocked(t.csrf(t.post(tokens + "/" + token + "/revoke")).cookie(admin));
+            }
+            try (ForcedDeadlock victim = t.deadlocked("scim_connectors", "id", connector)) {
+                t.expectDeadlocked(t.csrf(t.call(HttpMethod.DELETE, base + "/" + connector))
+                        .cookie(admin));
+            }
+        });
+    }
+
     // ---- /api/admin/audit-events ------------------------------------------------------
 
     private static void audit(List<Fixture> all) {
@@ -518,6 +579,22 @@ class ApiContractFixtureTests {
                         result.getResponse().getContentAsString())
                 .isEqualTo(status);
         return result;
+    }
+
+    /** Expects the 503 a write deadlocked on its retry is answered with, and its header. */
+    MvcResult expectDeadlocked(MockHttpServletRequestBuilder request) throws Exception {
+        MvcResult result = expect(request, 503);
+        assertThat(result.getResponse().getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(json(result).path("code").asText()).isEqualTo("server-error");
+        return result;
+    }
+
+    /**
+     * Makes every write of the row of {@code table} whose {@code column} reads {@code value} the
+     * database's deadlock victim, until the returned handle is closed.
+     */
+    ForcedDeadlock deadlocked(String table, String column, Object value) {
+        return ForcedDeadlock.always(logins, table, column, value);
     }
 
     /** Logs in and returns the session cookie. */

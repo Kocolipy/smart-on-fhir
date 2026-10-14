@@ -18,6 +18,7 @@ import static com.example.backend.contract.ScimConformanceFixtureTests.oversized
 import static com.example.backend.contract.ScimConformanceFixtureTests.texts;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.ForcedDeadlock;
 import com.example.backend.contract.ScimConformanceFixtureTests.Fixture;
 import com.example.backend.contract.ScimConformanceFixtureTests.Kind;
 import com.example.backend.contract.ScimConformanceFixtureTests.Resource;
@@ -1192,6 +1193,68 @@ final class ScimConformanceCases {
                 assertThat(patched.at(key.pointer()).asText()).isEqualTo(inner);
             });
         }
+    }
+
+    // ==== a write deadlocked on its retry too (docs/openapi.yaml; ADR 0015, as-13) ========
+
+    /**
+     * Each write the database chooses as a deadlock's victim on its first attempt and on the one
+     * retry: {@code 503} with {@code Retry-After: 1}, a SCIM error document with no
+     * {@code scimType}, and nothing applied.
+     */
+    static void deadlockedWrites(List<Fixture> all, Kind kind) {
+        String k = kind.resourceType();
+        String table = kind == Kind.USER ? "scim_users" : "scim_groups";
+        String column = kind == Kind.USER ? "user_name" : "display_name";
+
+        add(all, k + " create: 503 with Retry-After when it deadlocks on its retry too", t -> {
+            String name = name();
+            try (ForcedDeadlock victim = t.deadlocked(table, column, name)) {
+                expectDeadlocked(t, body(t.scim(HttpMethod.POST, kind.collection()),
+                        kind.create(name)));
+            }
+            JsonNode list = json(t.expect(t.scim(HttpMethod.GET, kind.collection())
+                    .param("filter", kind.identifying + " eq \"" + name + "\""), 200));
+            assertThat(list.get("totalResults").asInt()).as("nothing was created").isZero();
+        });
+
+        add(all, k + " replace: 503 with Retry-After when it deadlocks on its retry too", t -> {
+            Resource resource = t.create(kind);
+            try (ForcedDeadlock victim = t.deadlocked("scim_resources", "id", resource.id())) {
+                expectDeadlocked(t, body(t.scim(HttpMethod.PUT, kind.one(resource.id())),
+                        kind.replace(name())));
+            }
+            t.assertUnchanged(kind, resource);
+        });
+
+        add(all, k + " patch: 503 with Retry-After when it deadlocks on its retry too", t -> {
+            Resource resource = t.create(kind);
+            try (ForcedDeadlock victim = t.deadlocked("scim_resources", "id", resource.id())) {
+                expectDeadlocked(t, body(t.scim(HttpMethod.PATCH, kind.one(resource.id())),
+                        kind.patchRename(name())));
+            }
+            t.assertUnchanged(kind, resource);
+        });
+
+        add(all, k + " delete: 503 with Retry-After when it deadlocks on its retry too", t -> {
+            Resource resource = t.create(kind);
+            try (ForcedDeadlock victim = t.deadlocked("scim_resources", "id", resource.id())) {
+                expectDeadlocked(t, t.scim(HttpMethod.DELETE, kind.one(resource.id())));
+            }
+            t.assertUnchanged(kind, resource);
+        });
+    }
+
+    private static void expectDeadlocked(
+            ScimConformanceFixtureTests t, MockHttpServletRequestBuilder request) throws Exception {
+        MvcResult result = t.expect(request, 503);
+        assertThat(result.getResponse().getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(result.getResponse().getContentType()).startsWith("application/scim+json");
+        JsonNode error = json(result);
+        assertThat(texts(error.get("schemas"))).containsExactly(ERROR_SCHEMA);
+        assertThat(error.get("status").stringValue()).isEqualTo("503");
+        assertThat(error.has("scimType")).as("no scimType for 503").isFalse();
+        assertThat(error.path("detail").asText()).isNotBlank().doesNotContain("deadlock");
     }
 
     // ==== User-only conditions ============================================================

@@ -1,14 +1,16 @@
 package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
+import com.example.backend.ForcedDeadlock;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
-import com.example.backend.observability.DatabaseFailureCategory;
 import com.example.backend.observability.EcsLogCapture;
+import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.application.NewScimGroup;
 import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimGroupService;
@@ -19,6 +21,7 @@ import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.ScimWriteLocks;
+import jakarta.servlet.Filter;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -37,10 +40,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -80,6 +92,19 @@ class ScimDeadlockRetryIntegrationTests {
 
     @Autowired
     private Environment environment;
+
+    @Autowired
+    private DatabaseLogins logins;
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private RequestIdFilter requestIdFilter;
+
+    @Autowired
+    @Qualifier("springSecurityFilterChain")
+    private Filter springSecurityFilterChain;
 
     private AuthenticatedConnector connector;
 
@@ -145,28 +170,32 @@ class ScimDeadlockRetryIntegrationTests {
     }
 
     /**
-     * The PUT's retry chosen as the victim again: the second deadlock is the write's failure and
-     * reaches its caller as the database raised it — for the request's fault handler to write as
-     * a {@code database} {@code ERROR} — and the write is not tried a third time, so the stream
-     * carries the one {@code WARN} of the one retry.
+     * The PUT's retry chosen as the victim again: ADR 0015's as-13 second deadlock. The write is
+     * not tried a third time, and its connector is answered {@code 503} with
+     * {@code Retry-After: 1} in the SCIM error document, with no driver text — and the stream
+     * carries the one retry's {@code WARN} and the fault's one {@code ERROR}, {@code database},
+     * under the status answered.
      */
     @Test
-    void aUserPutChosenAsTheVictimAgainOnItsRetryFails() throws Exception {
+    void aUserPutChosenAsTheVictimAgainOnItsRetryIsA503WithRetryAfter() throws Exception {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         UUID user = createUser("deadlock-repeat-" + tag);
         UUID group = createGroup("Deadlock repeat " + tag, List.of(user));
         List<UUID> inLockOrder = inLockOrder(user, group);
+        String token = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
+                null, TokenPermissions.ALL).presentedValue();
+        String replacement = """
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],\
+                "userName":"deadlock-repeat-%s","displayName":"Repeated %s","active":true}"""
+                .formatted(tag, tag);
 
-        CompletableFuture<Optional<ScimUserResource>> put;
+        CompletableFuture<MvcResult> put;
         try (Connection other = anotherWriter()) {
             other.setAutoCommit(false);
             int otherPid = pid(other);
             lock(other, inLockOrder.get(1));
 
-            put = CompletableFuture.supplyAsync(() -> userService.replace(connector, user,
-                    UNCONDITIONAL, new ScimUserReplacement(
-                            profile("deadlock-repeat-" + tag, "Repeated " + tag), null, null,
-                            false)));
+            put = CompletableFuture.supplyAsync(() -> putOverHttp(token, user, replacement));
             awaitBlockedBy(otherPid);
 
             // The first deadlock: the PUT's first transaction fails, and its retry waits on the
@@ -184,11 +213,44 @@ class ScimDeadlockRetryIntegrationTests {
             other.rollback();
         }
 
-        assertThatThrownBy(() -> put.get(30, TimeUnit.SECONDS))
-                .rootCause()
-                .isInstanceOfSatisfying(SQLException.class,
-                        sql -> assertThat(DatabaseFailureCategory.deadlock(sql)).isTrue());
+        MockHttpServletResponse answered = put.get(30, TimeUnit.SECONDS).getResponse();
+        assertThat(answered.getStatus()).isEqualTo(503);
+        assertThat(answered.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(answered.getContentType()).startsWith("application/scim+json");
+        assertThat(answered.getContentAsString())
+                .contains("\"status\":\"503\"")
+                .doesNotContain("deadlock detected", "40P01", "scimType");
         assertThat(retried()).hasSize(1);
+        assertThat(logs.records().stream()
+                        .filter(record -> "ERROR".equals(record.at("/log/level").asText()))
+                        .toList())
+                .singleElement()
+                .satisfies(error -> {
+                    assertThat(error.at("/error/code").asInt()).isEqualTo(503);
+                    assertThat(error.at("/error/category").asText()).isEqualTo("database");
+                });
+    }
+
+    /**
+     * A connector administration write is retried as a SCIM write is: a token rotation whose
+     * first attempt is the victim completes on its retry, and the retry's {@code WARN} is
+     * classified as the rotation.
+     */
+    @Test
+    void aTokenRotationChosenAsADeadlockVictimIsRetriedOnceAndCompletes() {
+        UUID issued = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
+                null, TokenPermissions.ALL).tokenId();
+
+        IssuedConnectorToken replacement;
+        try (ForcedDeadlock victim = ForcedDeadlock.once(
+                logins, "scim_connector_tokens", "connector_id", connector.connectorId())) {
+            replacement = connectors.rotateToken(issued, null, null, null, TokenPermissions.ALL);
+        }
+
+        assertThat(replacement.tokenId()).isNotEqualTo(issued);
+        assertThat(retried()).singleElement().satisfies(warn ->
+                assertThat(warn.at("/app/event/action").asText())
+                        .isEqualTo("scim.connector.token.rotate"));
     }
 
     // ---- harness -----------------------------------------------------------------------------
@@ -267,6 +329,22 @@ class ScimDeadlockRetryIntegrationTests {
         return DriverManager.getConnection(environment.getRequiredProperty("spring.datasource.url"),
                 environment.getRequiredProperty("spring.datasource.username"),
                 environment.getRequiredProperty("spring.datasource.password"));
+    }
+
+    /** The PUT as a connector sends it, over the namespace's filter chain. */
+    private MvcResult putOverHttp(String token, UUID user, String body) {
+        MockMvc mvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(requestIdFilter, springSecurityFilterChain)
+                .build();
+        try {
+            return mvc.perform(MockMvcRequestBuilders.put("/scim/v2/Users/" + user)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .contentType(MediaType.valueOf("application/scim+json"))
+                            .content(body))
+                    .andReturn();
+        } catch (Exception failed) {
+            throw new IllegalStateException(failed);
+        }
     }
 
     private UUID createUser(String userName) {

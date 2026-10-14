@@ -9,7 +9,8 @@ addenda dated 2026-10-01 to 2026-10-10, ADR 0013's Epic Login among them. This f
 addenda, including the rules they superseded, are in git history. Amended on
 2026-10-14 (#64) for ADR 0015's logging resolutions: SQL exception text, the
 database category mapping with the deadlock retry, connection details and the
-retention run's one line.
+retention run's one line. Amended again on 2026-10-14 (B23) for the deadlock
+retry's coverage rules and the second deadlock's `503`.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -352,18 +353,39 @@ Every other database failure is `database`. Two rows need more than a state:
   run again, once, by a single interceptor at the outermost transactional boundary:
   `DeadlockRetryAdapter`, an infrastructure advisor ordered ahead of the transaction
   on every `@RetriedOnDeadlock` method — the SCIM User and Group create, PUT, PATCH
-  and DELETE, the Unlock and the forced password change. The first deadlock is the
+  and DELETE, the Unlock, the forced password change, and the connector create and
+  delete and the token issue, rotation and revocation. The first deadlock is the
   `deadlockRetried` `WARN`, classified as the write's own operation, with no
   `error.code` (no status has been answered) and no follow-up; a deadlock on the
-  retry propagates, and the request's fault handler writes it as the second row's
-  `ERROR`, answered with the generic `500`. ADR 0015's `503` with `Retry-After: 1`
-  for that second deadlock is an API change and lands with the switchover's
-  contract update. A write that joins a transaction already open is not retried,
-  since no inner call can run the outer transaction again; read-only paths and
-  scheduled runs are not marked, because the next request or run covers them. A
-  deadlock is `DatabaseFailureCategory.deadlock`: SQLState `40P01` in the cause
-  chain. `app.retry.attempt` is the issue's `retry.attempt`, under the `app`
-  namespace as the JWKS refetch's is, since ECS names no such field.
+  retry propagates, marks the request (`ExhaustedRetry`), and the request's fault
+  handler writes it as the second row's `ERROR` — once, `database`, investigate,
+  with a redacted copy attached — answered `503` with `Retry-After: 1` and no driver
+  text, ADR 0015's answer, landed ahead of the switchover because it is
+  engine-neutral: in the SCIM error document on the SCIM chain, and as the
+  `server-error` `ApiError` on the application chain, the connector administration
+  adapter's included. A deadlock the retry did not see — on a path not retried —
+  stays the generic `500`, so `docs/openapi.yaml` lists the `503` on the retried
+  writes alone. A deadlock is `DatabaseFailureCategory.deadlock`: SQLState `40P01`
+  in the cause chain. `app.retry.attempt` is the issue's `retry.attempt`, under the
+  `app` namespace as the JWKS refetch's is, since ECS names no such field.
+
+  **Coverage and placement are rules, not conventions** (`ArchitectureTest`). Every
+  public, non-read-only `@Transactional` method carries the retry unless
+  `NOT_RETRIED_ON_DEADLOCK` names it with its reason — the login-state events, the
+  self-service password change and counter, the SCIM reads (whose transaction
+  writes only the read's own audit row), and the startup seed and scheduled paths,
+  which the next start or run covers — and an exemption naming no such method
+  fails. A retried method opens a read-write transaction of its own, implements no
+  inherited method, and is called by an inbound web adapter alone, which opens no
+  transaction: a write joining a transaction already open would not be retried,
+  since no inner call can run the outer transaction again, so the rule keeps the
+  retry at the outermost boundary rather than leaving it to the adapter's silent
+  pass-through. And a fail-open audit event (`Audited.Refused`, ADR 0004) ends the
+  retried body that appends it: it commits on its own at once, so a retry after
+  more work could deadlock would append it twice. The rule reads the body's paths
+  from its bytecode, into its helpers and the beans it calls: after the event, no
+  path reaches a port or another bean before it throws or returns.
+
 - **The audit trigger's refusal** (ADR 0004's 2026-10-14 addendum). The append-only
   trigger raises `triggered_data_change_violation` (`27000`), the SQL standard's
   state for a change a trigger refused, so it is `database` and can never be
@@ -379,7 +401,11 @@ refusal, lock not acquired, audit-trigger refusal and refused login — and asse
 each record's `error.code` and `error.category`; `DatabaseFailureCategoryTests`
 holds every row, the deadlock, serialization and TLS ones included.
 `ScimDeadlockRetryIntegrationTests` forces a real deadlock on a User PUT, once and
-then again on its retry, and `DeadlockRetryAdapterTests` holds the retry's rules.
+then again on its retry, which answers `503`, and retries a token rotation;
+`DeadlockRetryAdapterTests` holds the retry's rules and `DeadlockRetryRulesTests`
+shows each architecture rule failing on the shape it forbids. The contract
+fixtures produce every documented `503` through `ForcedDeadlock`, a trigger that
+raises the victim's SQLState on the write's row.
 
 **No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the
 request (`RequestFault`), and `RequestIdFilter` then writes that request's record at

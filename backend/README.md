@@ -820,6 +820,24 @@ two, and `AuditAppendPoolConfigTests` loses its connection-init-sql case to
 Failures: 0, Errors: 0, Skipped: 0`, up from 4967 on 98f8375, Semgrep 0
 findings, no context start added.
 
+Deadlock retry coverage and its 503, 2026-10-14 (architecture review B23, ADR 0015
+as-13): `DeadlockRetryRulesTests` (8 tests, planted classes, no context) joins the
+fast gate beside the seven new `ArchitectureTest` rules (86, up from 79), and `ScimExceptionHandlerDeadlockTests` (7) is a unit test.
+`DeadlockRetryAdapterTests` gains four cases (16), `ApiExceptionHandlerTests` three
+(17). `ScimDeadlockRetryIntegrationTests` (3 tests) now drives its second deadlock
+over HTTP to the `503` and adds a token rotation retried through `ForcedDeadlock`,
+the trigger the contract fixtures use for the documented `503`s:
+`ScimConformanceFixtureTests` gains eight (428) and `ApiContractFixtureTests` two
+(29). No class adds a configuration; the context start count reads 33 in two runs
+against 31 on df51e6b, the difference being where the forks place the two
+`@DirtiesContext` classes, which decides how often the shared context reboots.
+Scoped PIT over `DeadlockRetryAdapter`, `ExhaustedRetry`, `ApiExceptionHandler`
+and `ScimExceptionHandler`: 247 mutants, 247 detected (one of them a timeout in
+the unreadable-body handler's cause loop, which predates this change), line
+coverage 163/165, the two lines being `ExhaustedRetry`'s private constructor. The
+baseline gate after: `Tests run: 5033, Failures: 0, Errors: 0, Skipped: 0`, up
+from 4993 on df51e6b, Semgrep 0 findings; 4:32 min against 4:28.
+
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the
 repository root, and the Semgrep registry download inside `./scripts/semgrep.sh`.

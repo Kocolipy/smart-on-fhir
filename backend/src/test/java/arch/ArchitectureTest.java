@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -296,6 +297,256 @@ public class ArchitectureTest {
             .because("Transaction management belongs at the use-case/service boundary, method by"
                     + " method as much as class by class");
 
+    // The deadlock retry (ADR 0015's as-13)
+
+    /**
+     * The public methods that open a transaction which may write and are deliberately NOT retried
+     * on deadlock, each with the reason, written once here.
+     *
+     * <p>ADR 0015's as-13 retries "a SCIM or administrative write", once, at its outermost
+     * transactional boundary, and never "read-only and scheduled paths: the next request or run
+     * covers them". Every other public {@code @Transactional} method that is not read-only carries
+     * {@link com.example.backend.observability.RetriedOnDeadlock}, which
+     * {@link #every_transactional_write_is_retried_on_deadlock} holds: a new write is retried
+     * unless someone adds it here with a reason. An entry is the owner's name and the method's,
+     * {@code Owner#method}, covering every overload of it.
+     */
+    static final Map<String, String> NOT_RETRIED_ON_DEADLOCK = Map.ofEntries(
+            // The login-state events: the Login and the password change record what the attempt
+            // did to the login state (ADR 0001). They are neither SCIM nor administrative writes,
+            // and the person signing in, whose attempt this is, tries again.
+            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordFailure",
+                    "a refused Login's login-state event, not a SCIM or administrative write"),
+            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordPasswordSuccess",
+                    "an accepted Login's login-state event, not a SCIM or administrative write"),
+            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordEpicSuccess",
+                    "an accepted Epic Login's login-state event, not a SCIM or administrative write"),
+            Map.entry("com.example.backend.auth.application.LoginAttemptService"
+                            + "#recordPasswordChangeFailure",
+                    "a refused password change's login-state event, not a SCIM or administrative"
+                            + " write"),
+            Map.entry("com.example.backend.auth.application.LoginService#logInFromEpic",
+                    "an Epic Login (ADR 0013): a login-state event, not a SCIM or administrative"
+                            + " write; the clinician launches again"),
+            Map.entry("com.example.backend.auth.application.PasswordChangeService#changePassword",
+                    "the signed-in User's own password change: self-service, not a SCIM or"
+                            + " administrative write; the User submits it again"),
+            Map.entry("com.example.backend.counter.application.UserCounterService#increment",
+                    "a User's own counter: self-service, not a SCIM or administrative write"),
+            Map.entry("com.example.backend.counter.application.UserCounterService#reset",
+                    "a User's own counter: self-service, not a SCIM or administrative write"),
+            // The SCIM reads: their transaction writes only the read's own fail-closed audit row
+            // (SCIM_*_QUERIED), so they are as-13's read-only paths, which the next request covers.
+            Map.entry("com.example.backend.scim.application.ScimUserService#query",
+                    "a SCIM read, writing only its own audit row: read-only in as-13's sense"),
+            Map.entry("com.example.backend.scim.application.ScimGroupService#query",
+                    "a SCIM read, writing only its own audit row: read-only in as-13's sense"),
+            Map.entry("com.example.backend.scim.application.ScimSearchService#search",
+                    "a SCIM read, writing only its own audit row: read-only in as-13's sense"),
+            // The scheduled and startup paths, which the next run or start covers.
+            Map.entry("com.example.backend.scim.application.ScimSeedService#seed",
+                    "startup seeding, before any request is served: a failure fails the start,"
+                            + " and the next start seeds"),
+            Map.entry("com.example.backend.scim.application.ScimSeedService#seedDevFixtures",
+                    "startup seeding of the development fixtures: the next start seeds"),
+            Map.entry("com.example.backend.scim.application.ScimSeedService#seedDormantDevFixture",
+                    "startup seeding of the development fixtures: the next start seeds"),
+            Map.entry("com.example.backend.scim.application.ScimRoleRevocationService#revokeRoles",
+                    "the dormancy job's Role revocation, joining the run's batch transaction: a"
+                            + " scheduled path, which the next run covers"),
+            Map.entry("com.example.backend.audit.infrastructure.persistence.AuditEventRetentionAdapter"
+                            + "#deleteOccurredBefore",
+                    "the audit retention job's delete: a scheduled path, which the next run covers"),
+            Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
+                    "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
+                            + " the outermost boundary a retry belongs at"));
+
+    /** Spring's {@code @Transactional} on a method, or else on the class declaring it. */
+    private static Optional<org.springframework.transaction.annotation.Transactional> transactionOf(
+            JavaMethod method) {
+        Class<org.springframework.transaction.annotation.Transactional> type =
+                org.springframework.transaction.annotation.Transactional.class;
+        if (method.isAnnotatedWith(type)) {
+            return Optional.of(method.getAnnotationOfType(type));
+        }
+        return method.getOwner().isAnnotatedWith(type)
+                ? Optional.of(method.getOwner().getAnnotationOfType(type))
+                : Optional.empty();
+    }
+
+    /** A public method that opens, or joins, a transaction that is not read-only. */
+    private static boolean isTransactionalWrite(JavaMethod method) {
+        return method.getModifiers().contains(com.tngtech.archunit.core.domain.JavaModifier.PUBLIC)
+                && transactionOf(method).filter(transaction -> !transaction.readOnly()).isPresent();
+    }
+
+    /** {@code Owner#method}, the key {@link #NOT_RETRIED_ON_DEADLOCK} names a method by. */
+    private static String retryKey(JavaMethod method) {
+        return method.getOwner().getName() + "#" + method.getName();
+    }
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule every_transactional_write_is_retried_on_deadlock =
+        methods()
+            .that(DescribedPredicate.describe(
+                    "are public and open a transaction that is not read-only",
+                    ArchitectureTest::isTransactionalWrite))
+            .and(DescribedPredicate.describe("are not exempted in NOT_RETRIED_ON_DEADLOCK",
+                    (JavaMethod method) -> !NOT_RETRIED_ON_DEADLOCK.containsKey(retryKey(method))))
+            .should().beAnnotatedWith(com.example.backend.observability.RetriedOnDeadlock.class)
+            .because("ADR 0015's as-13: every SCIM or administrative write is retried once on"
+                    + " deadlock; a write that is not says why in NOT_RETRIED_ON_DEADLOCK");
+
+    /** An exemption names a write that exists and is not retried, so none outlives its method. */
+    @com.tngtech.archunit.junit.ArchTest
+    static void every_deadlock_retry_exemption_names_an_unretried_write(
+            com.tngtech.archunit.core.domain.JavaClasses classes) {
+        Set<String> unretried = new java.util.HashSet<>();
+        for (JavaClass type : classes) {
+            for (JavaMethod method : type.getMethods()) {
+                if (isTransactionalWrite(method)
+                        && !method.isAnnotatedWith(
+                                com.example.backend.observability.RetriedOnDeadlock.class)) {
+                    unretried.add(retryKey(method));
+                }
+            }
+        }
+        org.assertj.core.api.Assertions.assertThat(unretried)
+                .as("NOT_RETRIED_ON_DEADLOCK names only public, non-read-only @Transactional"
+                        + " methods that are not retried")
+                .containsAll(NOT_RETRIED_ON_DEADLOCK.keySet());
+    }
+
+    /**
+     * The retry is placed where a whole transaction begins: on a public method that opens one of
+     * its own. Each attempt then runs in a transaction of its own, which is what makes running it
+     * again safe — a retry around a method that joins or needs none would repeat half a
+     * transaction, or work that was never transactional at all.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_retried_write_opens_its_own_transaction =
+        methods()
+            .that().areAnnotatedWith(com.example.backend.observability.RetriedOnDeadlock.class)
+            .should(new ArchCondition<JavaMethod>(
+                    "be public and open a read-write transaction of their own") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    boolean opens = isTransactionalWrite(method) && transactionOf(method)
+                            .map(transaction -> transaction.propagation()
+                                    == org.springframework.transaction.annotation.Propagation.REQUIRED
+                                    || transaction.propagation()
+                                    == org.springframework.transaction.annotation.Propagation
+                                            .REQUIRES_NEW)
+                            .orElse(false);
+                    if (!opens) {
+                        events.add(SimpleConditionEvent.violated(method, method.getFullName()
+                                + " is retried but does not open a read-write transaction"));
+                    }
+                }
+            })
+            .because("ADR 0015's as-13: the retry sits at the outermost transactional boundary,"
+                    + " ahead of the transaction it runs again");
+
+    /**
+     * Outermost placement, made checkable: a retried write is called by an inbound web adapter
+     * alone, which opens no transaction ({@link #no_transactional_handler_methods},
+     * {@link #web_adapters_open_no_transaction}), so it is always the outermost transactional
+     * boundary. A retried method called from inside a transaction would join it, and
+     * {@code DeadlockRetryAdapter} passes such a call straight through — not retried and not
+     * logged, since a transaction cannot be run again from inside itself. A call from the write's
+     * own class would not pass through the proxy at all.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_retried_write_is_called_only_by_a_web_adapter =
+        noClasses()
+            .that().resideOutsideOfPackage("..controller..")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is retried on deadlock",
+                    (JavaMethodCall call) -> call.getTarget().resolveMember()
+                            .map(target -> target.isAnnotatedWith(
+                                    com.example.backend.observability.RetriedOnDeadlock.class))
+                            .orElse(false)))
+            .because("ADR 0015's as-13: the retry is never nested, so no code that may run inside"
+                    + " a transaction calls a retried write");
+
+    /**
+     * No call reaches a retried write unseen: it implements and overrides nothing, so every call
+     * names its own class, which {@link #a_retried_write_is_called_only_by_a_web_adapter} reads.
+     * A port method a retried write implemented could be called through the port from inside a
+     * transaction, and the rule above would never see the call.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_retried_write_overrides_nothing =
+        methods()
+            .that().areAnnotatedWith(com.example.backend.observability.RetriedOnDeadlock.class)
+            .should(new ArchCondition<JavaMethod>("implement or override no inherited method") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    List<String> parameters = method.getRawParameterTypes().stream()
+                            .map(JavaClass::getName).toList();
+                    java.util.stream.Stream.concat(
+                                    method.getOwner().getAllRawInterfaces().stream(),
+                                    method.getOwner().getAllRawSuperclasses().stream())
+                            .flatMap(inherited -> inherited.getMethods().stream())
+                            .filter(inherited -> inherited.getName().equals(method.getName())
+                                    && inherited.getRawParameterTypes().stream()
+                                            .map(JavaClass::getName).toList().equals(parameters))
+                            .forEach(inherited -> events.add(SimpleConditionEvent.violated(method,
+                                    method.getFullName() + " is retried and overrides "
+                                            + inherited.getFullName())));
+                }
+            })
+            .because("every call to a retried write is one the outermost-placement rule can read");
+
+    /**
+     * A fail-open audit event ends the retried body that appends it: after it, no path reaches a
+     * port or another bean before it throws or returns.
+     *
+     * <p>A fail-open event — a refusal's, {@code Audited.Refused} — is appended in a transaction of
+     * its own and commits at once (ADR 0004). Anything the body did after it could be a deadlock's
+     * victim, and the retry would then run the body again and append the event a second time: a
+     * duplicate audit row, which nothing removes. A refusal recorded as the body throws it is safe
+     * — nothing follows that a deadlock could strike — and so is an event appended before writes
+     * on a path that ends at it. {@link RetriedBodies} reads the paths from the bytecode, following
+     * the body into its own helpers and the beans it calls.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_retried_write_ends_at_its_fail_open_audit_event =
+        methods()
+            .that().areAnnotatedWith(com.example.backend.observability.RetriedOnDeadlock.class)
+            .should(new ArchCondition<JavaMethod>(
+                    "reach no port or bean after appending a fail-open audit event") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    java.lang.reflect.Method reflected = method.reflect();
+                    String descriptor = java.lang.invoke.MethodType.methodType(
+                                    reflected.getReturnType(), reflected.getParameterTypes())
+                            .toMethodDescriptorString();
+                    RetriedBodies.collaboratorsAfterAFailOpenEvent(
+                                    method.getOwner().getName().replace('.', '/'),
+                                    method.getName(), descriptor)
+                            .forEach(found -> events.add(SimpleConditionEvent.violated(method,
+                                    method.getFullName() + ": " + found)));
+                }
+            })
+            .because("ADR 0015's as-13 retries a deadlocked write, and a fail-open audit event"
+                    + " appended before more work would be appended again by the retry (ADR 0004)");
+
+    /** A web adapter opens no transaction by hand either, around a retried write or otherwise. */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule web_adapters_open_no_transaction =
+        noClasses()
+            .that().resideInAPackage("..controller..")
+            .should().dependOnClassesThat(DescribedPredicate.describe(
+                    "open a transaction: a transaction manager, or a template or synchronization"
+                            + " from org.springframework.transaction.support",
+                    (JavaClass type) -> type.getPackageName().equals(
+                                    "org.springframework.transaction.support")
+                            || type.isAssignableTo(
+                                    org.springframework.transaction.TransactionManager.class)))
+            .because("ADR 0015's as-13: a retried write called inside a handler's own transaction"
+                    + " would be nested, and not retried");
+
     /**
      * Time is read through the injected {@code Clock} bean.
      *
@@ -451,7 +702,10 @@ public class ArchitectureTest {
             Map.entry("audit", Set.of("authorization", "database", "observability", "scheduling")),
             // auth reaches the directory through scim.domain ports; nothing in scim mentions auth
             // (backend/AGENTS.md).
-            Map.entry("scim", Set.of("audit", "authorization", "observability")),
+            // scim reaches web for one thing: the connector administration adapter is on the
+            // application chain, so its deadlocked writes' 503 is the application API's ApiError,
+            // answered by that API's own fault handler (ADR 0015's as-13).
+            Map.entry("scim", Set.of("audit", "authorization", "observability", "web")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
             // counter and lifecycle are leaves, which no entry names: removing one must not break
             // another module.

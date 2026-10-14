@@ -6,6 +6,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.counter.controller.UserCounterController;
+import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.SqlFailures;
@@ -17,7 +18,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.StaticApplicationContext;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -191,6 +194,57 @@ class ApiExceptionHandlerTests {
                 .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth");
     }
 
+    /**
+     * ADR 0015's as-13: a retried write the database chose as the deadlock's victim again on its
+     * retry answers {@code 503} with {@code Retry-After: 1} and the stable body, and is still the
+     * one {@code database} {@code ERROR}, needing investigation, that the 500 would have been.
+     */
+    @Test
+    void aDeadlockOnARetriedWritesRetryIsA503WithRetryAfter() {
+        ExhaustedRetry.recorded();
+        CannotAcquireLockException deadlock = deadlock();
+
+        ResponseEntity<Object> response = handler.handleUnexpected(deadlock);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+        assertThat(response.getBody()).isEqualTo(new ApiError(503, ApiError.SERVER_ERROR,
+                "The request could not be completed because of a server-side failure."));
+        ILoggingEvent record = onlyRecord();
+        assertThat(record.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(record.getThrowableProxy().getClassName())
+                .isEqualTo(RedactedFaultException.class.getName());
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 503)
+                .containsEntry(LogEvent.HTTP_STATUS_CODE, 503)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
+        assertThat(faultRecorded()).isTrue();
+    }
+
+    /** A deadlock nothing retried is not as-13's second one: the generic 500, no Retry-After. */
+    @Test
+    void aDeadlockNoRetryMetIsTheGeneric500() {
+        ResponseEntity<Object> response = handler.handleUnexpected(deadlock());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getHeaders().containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
+        assertThat(CapturedLog.fields(onlyRecord())).containsEntry(LogEvent.ERROR_CODE, 500);
+    }
+
+    /** Only the deadlock is answered 503: any other failure of a retried request stays a 500. */
+    @Test
+    void anotherFailureOfARequestWhoseRetryWasExhaustedIsThe500() {
+        ExhaustedRetry.recorded();
+
+        ResponseEntity<Object> response = handler.handleUnexpected(
+                new DataIntegrityViolationException("refused", SqlFailures.VALUE_TOO_LONG.raised()));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getHeaders().containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
+    }
+
     @Test
     void anyOtherExceptionIsAttachedAsItself() {
         IllegalArgumentException failure = new IllegalArgumentException("x");
@@ -317,6 +371,11 @@ class ApiExceptionHandlerTests {
     private ResponseEntity<Object> handle(Exception failure) throws Exception {
         return handler.handleException(
                 failure, new ServletWebRequest(request, new MockHttpServletResponse()));
+    }
+
+    private static CannotAcquireLockException deadlock() {
+        return new CannotAcquireLockException("could not execute statement",
+                SqlFailures.DEADLOCK_VICTIM.raised("ERROR: deadlock detected"));
     }
 
     private ILoggingEvent onlyRecord() {

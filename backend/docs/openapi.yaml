@@ -121,6 +121,13 @@ info:
     `detail` that names no cause. It is not listed on each operation, because no
     well-formed request is meant to produce it.
 
+    **A deadlocked write is retried.** Every SCIM write and every administrative
+    write under `/api/admin` that the database chooses as a deadlock's victim is
+    run again, once, in a transaction of its own (ADR 0015, as-13). A write chosen
+    again on that retry answers `503` with `Retry-After: 1` — a `ScimError` under
+    `/scim/v2`, an `ApiError` under `/api` — and nothing was applied, so it may
+    simply be sent again. Each such operation lists the `503`; no read does.
+
     The contract is checked mechanically: `src/test/java/com/example/backend/contract/`
     holds every response its fixtures receive against this document — status,
     documented headers, media type and body schema — and fails for a status this
@@ -774,6 +781,8 @@ paths:
           $ref: "#/components/responses/MalformedUserId"
         "404":
           $ref: "#/components/responses/UnknownAccount"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/accounts/{id}/force-password-change:
     post:
       tags: [Administration]
@@ -812,6 +821,8 @@ paths:
           description: |
             The account has no password, so there is no credential to replace. Not
             403: the caller holds the right Permission, the action itself is refused.
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/groups:
     get:
       tags: [Administration]
@@ -934,6 +945,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
       requestBody:
         required: true
         content:
@@ -978,6 +991,8 @@ paths:
           $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/connectors/{connectorId}/tokens:
     post:
       tags: [Connectors]
@@ -1021,6 +1036,8 @@ paths:
           $ref: "#/components/responses/TokenPermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
       requestBody:
         required: true
         content:
@@ -1086,6 +1103,8 @@ paths:
             rotated already — the second of two concurrent rotations of one token
             included. Nothing was minted or written. No body; the listing shows
             which state the token is in.
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
       requestBody:
         required: false
         content:
@@ -1121,6 +1140,8 @@ paths:
           $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/audit-events:
     get:
       tags: [Audit]
@@ -1515,6 +1536,8 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
   /scim/v2/Users/.search:
     post:
       tags: [SCIM]
@@ -1698,6 +1721,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
     patch:
       tags: [SCIM]
       summary: Modify a User
@@ -1793,6 +1818,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
     delete:
       tags: [SCIM]
       summary: Delete a User
@@ -1846,6 +1873,8 @@ paths:
           $ref: "#/components/responses/ScimNotFound"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
   /scim/v2/Groups:
     get:
       tags: [SCIM]
@@ -1966,6 +1995,8 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
   /scim/v2/Groups/.search:
     post:
       tags: [SCIM]
@@ -2146,6 +2177,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
     patch:
       tags: [SCIM]
       summary: Modify a Group
@@ -2230,6 +2263,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
     delete:
       tags: [SCIM]
       summary: Delete a Group
@@ -2271,6 +2306,8 @@ paths:
           $ref: "#/components/responses/ScimNotFound"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
+        "503":
+          $ref: "#/components/responses/ScimWriteDeadlocked"
   /scim/v2/Me:
     get:
       tags: [SCIM]
@@ -2619,6 +2656,22 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ApiError"
+    WriteDeadlocked:
+      description: |
+        The database chose the write's transaction as a deadlock's victim, and
+        again when the service retried it, once. Nothing was applied: the request
+        may be sent again after `Retry-After` seconds. The body is the generic
+        `server-error` `ApiError`, naming no cause. Recorded once, as an `ERROR`
+        classified `database` that needs investigating.
+      headers:
+        Retry-After:
+          description: Always `1`, in seconds.
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     UnknownConnector:
       description: |
         No live connector or token has that id. The body is empty, and "never
@@ -2709,6 +2762,21 @@ components:
       description: |
         The `If-Match` names a version that is no longer current — another write changed
         the resource first. Nothing was changed; GET it and retry.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimWriteDeadlocked:
+      description: |
+        The database chose the write's transaction as a deadlock's victim, and
+        again when the service retried it, once. Nothing was applied: the request
+        may be sent again after `Retry-After` seconds. A `ScimError` with no
+        `scimType` and a `detail` that names no cause.
+      headers:
+        Retry-After:
+          description: Always `1`, in seconds.
+          schema:
+            type: string
       content:
         application/scim+json:
           schema:

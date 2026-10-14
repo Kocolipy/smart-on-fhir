@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
+import com.example.backend.ForcedDeadlock;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
@@ -113,6 +115,9 @@ class ScimConformanceFixtureTests {
     private RequestIdFilter requestIdFilter;
 
     @Autowired
+    private DatabaseLogins logins;
+
+    @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
@@ -211,6 +216,7 @@ class ScimConformanceFixtureTests {
             ScimConformanceCases.mutability(all, kind);
             ScimConformanceCases.pagination(all, kind);
             ScimConformanceCases.patchGrammar(all, kind);
+            ScimConformanceCases.deadlockedWrites(all, kind);
         }
         ScimConformanceCases.userOnly(all);
         ScimConformanceCases.groupOnly(all);
@@ -392,6 +398,14 @@ class ScimConformanceFixtureTests {
                 .isEqualTo(resource.etag());
         JsonNode body = json(reread);
         assertThat(body.get(kind.identifying)).isEqualTo(resource.body().get(kind.identifying));
+    }
+
+    /**
+     * Makes every write of the row of {@code table} whose {@code column} reads {@code value} the
+     * database's deadlock victim, until the returned handle is closed.
+     */
+    ForcedDeadlock deadlocked(String table, String column, Object value) {
+        return ForcedDeadlock.always(logins, table, column, value);
     }
 
     /** Remembers an id created out of band so it is cleaned up. */
