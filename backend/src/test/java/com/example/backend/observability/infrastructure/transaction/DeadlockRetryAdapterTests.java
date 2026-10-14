@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
+import com.example.backend.observability.SqlFailures;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.sql.SQLException;
 import java.util.ArrayDeque;
@@ -36,8 +37,8 @@ import tools.jackson.databind.JsonNode;
  * victim's transaction fails where one run outside it, in a transaction of its own, completes.
  *
  * <p>The deadlock is the exception a PostgreSQL deadlock victim's write raises through JPA:
- * Spring's {@link CannotAcquireLockException} over the driver's {@link SQLException}, SQLState
- * {@code 40P01}.
+ * Spring's {@link CannotAcquireLockException} over the driver's {@link SQLException}, raised as
+ * {@link SqlFailures#DEADLOCK_VICTIM}.
  */
 class DeadlockRetryAdapterTests {
 
@@ -112,7 +113,7 @@ class DeadlockRetryAdapterTests {
     @Test
     void aSerializationConflictIsNotRetried() {
         CannotAcquireLockException conflict = new CannotAcquireLockException("serialize",
-                new SQLException("could not serialize access", "40001"));
+                SqlFailures.SERIALIZATION_FAILURE.raised("could not serialize access"));
         Writes writes = proxied(new Writes(conflict));
 
         assertThatThrownBy(writes::write).isSameAs(conflict);
@@ -220,7 +221,7 @@ class DeadlockRetryAdapterTests {
 
     private static CannotAcquireLockException deadlock() {
         return new CannotAcquireLockException("could not execute statement",
-                new SQLException("ERROR: deadlock detected", "40P01"));
+                SqlFailures.DEADLOCK_VICTIM.raised("ERROR: deadlock detected"));
     }
 
     /** The transaction the stand-in opened for the current attempt. */

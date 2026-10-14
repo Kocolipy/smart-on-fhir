@@ -2,8 +2,8 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.observability.SqlFailures;
 import com.example.backend.scim.domain.DuplicateUserNameException;
-import java.sql.SQLException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.hibernate.exception.DataException;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,7 @@ class IntegrityViolationsTests {
     void a_violation_naming_no_constraint_is_returned_unchanged() {
         DataIntegrityViolationException tooLong = new DataIntegrityViolationException(
                 "could not execute statement",
-                new DataException("value too long", new SQLException("value too long", "22001")));
+                new DataException("value too long", SqlFailures.VALUE_TOO_LONG.raised("value too long")));
 
         assertThat(IntegrityViolations.violates(tooLong, TAKEN)).isFalse();
         assertThat(IntegrityViolations.translated(
@@ -87,7 +87,7 @@ class IntegrityViolationsTests {
     private static ConstraintViolationException hibernate(String name) {
         return new ConstraintViolationException(
                 "could not execute statement",
-                new SQLException("duplicate key value violates unique constraint", "23505"),
+                SqlFailures.UNIQUE_VIOLATION.raised("duplicate key value violates unique constraint"),
                 name);
     }
 }

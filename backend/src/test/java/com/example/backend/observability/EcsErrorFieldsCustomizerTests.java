@@ -1,5 +1,7 @@
 package com.example.backend.observability;
 
+import static com.example.backend.observability.SqlFailures.PERMISSION_DENIED;
+import static com.example.backend.observability.SqlFailures.UNIQUE_VIOLATION;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -200,7 +202,7 @@ class EcsErrorFieldsCustomizerTests {
         return new DataIntegrityViolationException(
                 "StatementCallback; SQL [INSERT INTO probe_db.probe_schema.probe VALUES"
                         + " ('refused-alice')]; " + DRIVER_TEXT,
-                new SQLException(DRIVER_TEXT, "23505", 0));
+                UNIQUE_VIOLATION.raised(DRIVER_TEXT));
     }
 
     /**
@@ -212,7 +214,7 @@ class EcsErrorFieldsCustomizerTests {
         JsonNode record = encoded(withCustomizer(),
                 event(translatedRefusal(), classification(500, "database", true)));
 
-        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState 23505)");
+        assertThat(record.at("/error/message").asText()).isEqualTo(UNIQUE_VIOLATION.redacted());
         assertThat(record.at("/error/type").asText())
                 .isEqualTo("org.springframework.dao.DataIntegrityViolationException");
     }
@@ -229,8 +231,8 @@ class EcsErrorFieldsCustomizerTests {
 
         assertThat(stack)
                 .startsWith("org.springframework.dao.DataIntegrityViolationException:"
-                        + " SQL error 0 (SQLState 23505)")
-                .contains("Caused by: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                        + " " + UNIQUE_VIOLATION.redacted())
+                .contains("Caused by: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
                 .contains("at " + EcsErrorFieldsCustomizerTests.class.getName()
                         + ".translatedRefusal(EcsErrorFieldsCustomizerTests.java:");
     }
@@ -254,15 +256,15 @@ class EcsErrorFieldsCustomizerTests {
     @Test
     void aSuppressedSqlExceptionIsRedactedToo() {
         IllegalStateException failure = new IllegalStateException("cleanup failed");
-        failure.addSuppressed(new SQLException("permission denied for schema probe_schema",
-                "42501", 0));
+        failure.addSuppressed(PERMISSION_DENIED.raised(
+                "permission denied for schema probe_schema"));
 
         String stack = encoded(withCustomizer(), event(failure, List.of()))
                 .at("/error/stack_trace").asText();
 
         assertThat(stack)
                 .startsWith("java.lang.IllegalStateException: cleanup failed")
-                .contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 42501)")
+                .contains("Suppressed: java.sql.SQLException: " + PERMISSION_DENIED.redacted())
                 .doesNotContain("probe_schema");
     }
 
@@ -290,14 +292,14 @@ class EcsErrorFieldsCustomizerTests {
      */
     @Test
     void aCyclicChainThroughAnSqlExceptionIsRedactedAndEnds() {
-        SQLException driver = new SQLException("quoted-alice", "23505");
+        SQLException driver = UNIQUE_VIOLATION.raised("quoted-alice");
         IllegalStateException wrapper = new IllegalStateException("wraps quoted-alice", driver);
         driver.initCause(wrapper);
 
         String line = rawLine(withCustomizer(), event(wrapper, List.of()));
 
         assertThat(line)
-                .contains("Caused by: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                .contains("Caused by: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
                 .doesNotContain("quoted-alice");
     }
 
@@ -310,7 +312,7 @@ class EcsErrorFieldsCustomizerTests {
         IllegalStateException first = new IllegalStateException("first");
         IllegalArgumentException second = new IllegalArgumentException("second", first);
         first.initCause(second);
-        first.addSuppressed(new SQLException("quoted-alice", "23505"));
+        first.addSuppressed(UNIQUE_VIOLATION.raised("quoted-alice"));
 
         String stack = encoded(withCustomizer(), event(first, List.of()))
                 .at("/error/stack_trace").asText();
@@ -318,7 +320,7 @@ class EcsErrorFieldsCustomizerTests {
         assertThat(stack)
                 .startsWith("java.lang.IllegalStateException: first")
                 .contains("Caused by: java.lang.IllegalArgumentException: second")
-                .contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                .contains("Suppressed: java.sql.SQLException: " + UNIQUE_VIOLATION.redacted())
                 .doesNotContain("quoted-alice");
     }
 
@@ -326,7 +328,7 @@ class EcsErrorFieldsCustomizerTests {
     @Test
     void mutuallySuppressedThrowablesAreEachWrittenOnce() {
         IllegalStateException first = new IllegalStateException("first");
-        SQLException second = new SQLException("quoted-alice", "42501");
+        SQLException second = PERMISSION_DENIED.raised("quoted-alice");
         first.addSuppressed(second);
         second.addSuppressed(first);
 
@@ -334,7 +336,7 @@ class EcsErrorFieldsCustomizerTests {
                 .at("/error/stack_trace").asText();
 
         assertThat(stack.split("Suppressed: ", -1)).hasSize(2);
-        assertThat(stack).contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 42501)");
+        assertThat(stack).contains("Suppressed: java.sql.SQLException: " + PERMISSION_DENIED.redacted());
     }
 
     /**
@@ -369,7 +371,7 @@ class EcsErrorFieldsCustomizerTests {
     @Test
     void aThrowableThatOnlySuppressesAnSqlExceptionKeepsItsOwnMessage() {
         IllegalStateException failure = new IllegalStateException("cleanup failed");
-        failure.addSuppressed(new SQLException("quoted-alice", "42501"));
+        failure.addSuppressed(PERMISSION_DENIED.raised("quoted-alice"));
 
         JsonNode record = encoded(withCustomizer(), event(failure, List.of()));
 

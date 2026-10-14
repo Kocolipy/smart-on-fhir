@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
+import com.example.backend.observability.DatabaseFailureCategory;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.NewScimGroup;
@@ -51,8 +52,8 @@ import tools.jackson.databind.JsonNode;
  * standing for another writer, first holds the row the PUT locks second; once the PUT waits on
  * it, the second connection asks for the row the PUT already holds, and the two wait on each
  * other. PostgreSQL resolves a deadlock by failing the transaction whose wait has lasted the
- * deadlock timeout first — the PUT's, which began waiting before the other did — with SQLState
- * {@code 40P01}.
+ * deadlock timeout first — the PUT's, which began waiting before the other did — as
+ * {@link com.example.backend.observability.SqlFailures#DEADLOCK_VICTIM}.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -186,7 +187,7 @@ class ScimDeadlockRetryIntegrationTests {
         assertThatThrownBy(() -> put.get(30, TimeUnit.SECONDS))
                 .rootCause()
                 .isInstanceOfSatisfying(SQLException.class,
-                        sql -> assertThat(sql.getSQLState()).isEqualTo("40P01"));
+                        sql -> assertThat(DatabaseFailureCategory.deadlock(sql)).isTrue());
         assertThat(retried()).hasSize(1);
     }
 
