@@ -470,7 +470,7 @@ class ScheduledJobMetricsTests {
     void a_run_refused_its_rights_by_the_database_is_cert_auth_under_500() {
         Runnable job = instrument("probe", OPERATION, () -> {
             throw new DataIntegrityViolationException("refused",
-                    new java.sql.SQLException("permission denied", "42501", 229));
+                    SqlFailures.PERMISSION_DENIED.raised("permission denied"));
         });
 
         assertThatThrownBy(job::run).isInstanceOf(DataIntegrityViolationException.class);

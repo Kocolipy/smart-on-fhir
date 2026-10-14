@@ -21,6 +21,7 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.SqlFailures;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -135,9 +136,6 @@ class AuditAppendOnlyIntegrationTests {
 
     private static final String DROP_FORCED_FAILURE_TRIGGER =
             "DROP TRIGGER IF EXISTS forced_append_failure ON audit_events";
-
-    /** Postgres's code for a privilege the current role does not hold. */
-    private static final String INSUFFICIENT_PRIVILEGE = "42501";
 
     @Autowired
     private WebApplicationContext context;
@@ -316,7 +314,7 @@ class AuditAppendOnlyIntegrationTests {
 
         assertThatThrownBy(() -> logins.app().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
                 .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(INSUFFICIENT_PRIVILEGE))
+                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
                 .rootCause()
                 .hasMessageContaining("permission denied for table audit_events");
 
@@ -331,7 +329,7 @@ class AuditAppendOnlyIntegrationTests {
 
         assertThatThrownBy(() -> logins.app().jdbc().update(DELETE_EVENT, recorded))
                 .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(INSUFFICIENT_PRIVILEGE))
+                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
                 .rootCause()
                 .hasMessageContaining("permission denied for table audit_events");
 
@@ -389,7 +387,7 @@ class AuditAppendOnlyIntegrationTests {
 
         assertThatThrownBy(() -> logins.retention().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
                 .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(INSUFFICIENT_PRIVILEGE))
+                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
                 .rootCause()
                 .hasMessageContaining("permission denied for table audit_events");
 
@@ -402,7 +400,7 @@ class AuditAppendOnlyIntegrationTests {
         assertThatThrownBy(() -> logins.retention().jdbc().update(
                         INSERT_EVENT, UUID.randomUUID(), Instant.now().atOffset(ZoneOffset.UTC)))
                 .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(INSUFFICIENT_PRIVILEGE));
+                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()));
     }
 
     /**
