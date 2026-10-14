@@ -6,7 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,7 +30,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * The scheduled-job run module against real Postgres and the real lock rows (ADR 0005): the
  * lock is held for the whole of a run's body — including across a transaction the body commits
  * of its own, as a job that commits per batch would — and released when the run ends, however
- * it ends.
+ * it ends. That includes a transaction committed on the retention pool, the audit retention
+ * job's own data source and login, which is where its per-batch deletes commit.
  *
  * <p>The bodies here are the test's own, not a job's, so the claim is the module's and holds for
  * any job handed to it. A second run is started only once the first is inside its body, and the
@@ -39,6 +44,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(ContainerTestConfiguration.class)
 class ScheduledJobRunIntegrationTests {
 
+    private static final String INSERT_EVENT = """
+            INSERT INTO audit_events
+                (id, occurred_at, operation, outcome, resource_type, status_class)
+                VALUES (?, ?, 'LOGOUT', 'SUCCESS', 'User', 'ok')""";
+
+    private static final String COUNT_EVENT = "SELECT count(*) FROM audit_events WHERE id = ?";
+
+    private static final String DELETE_EVENT = "DELETE FROM audit_events WHERE id = ?";
+
+    /** Any instant does: the batch deletes the event by id, not by age. */
+    private static final Instant OCCURRED_AT = Instant.parse("2000-01-01T00:00:00Z");
+
     @Autowired
     private ScheduledJobRunService runs;
 
@@ -47,6 +64,20 @@ class ScheduledJobRunIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    /** The retention pool's transaction manager, the one the retention job's deletes commit on. */
+    @Autowired
+    @Qualifier("auditRetentionTransactionManager")
+    private PlatformTransactionManager retentionTransactions;
+
+    /**
+     * The retention pool's template: the retention login, the one login that may delete. The
+     * pool's own bean rather than {@code DatabaseLogins.retention()}, whose connections sit
+     * outside every pool: what is proven is a commit on the pool's own transaction manager.
+     */
+    @Autowired
+    @Qualifier("auditRetentionJdbcTemplate")
+    private JdbcTemplate retentionJdbc;
 
     @Test
     void aSecondRunOfTheSameJobSkipsWhileTheFirstRunsBodyIsInProgress() throws Exception {
@@ -69,6 +100,31 @@ class ScheduledJobRunIntegrationTests {
                 () -> batch.executeWithoutResult(status -> jdbc.queryForObject(
                         "SELECT 1", Integer.class)),
                 () -> runs.run(ScheduledJob.DORMANCY, () -> "the second run's work"));
+
+        assertThat(second).isEmpty();
+    }
+
+    /**
+     * A batch the retention job commits on the retention pool — another data source, as
+     * another login — commits only that batch: its delete is visible to another connection
+     * while the run is still in its body, and a second run of the job still skips. One
+     * transaction per batch rests on this.
+     */
+    @Test
+    void aBatchTheBodyCommitsOnTheRetentionPoolDoesNotReleaseTheLock() throws Exception {
+        UUID event = UUID.randomUUID();
+        jdbc.update(INSERT_EVENT, event, Timestamp.from(OCCURRED_AT));
+        TransactionTemplate batch = new TransactionTemplate(retentionTransactions);
+
+        Optional<String> second = whileARunIsInsideItsBody(ScheduledJob.AUDIT_RETENTION,
+                () -> batch.executeWithoutResult(status ->
+                        retentionJdbc.update(DELETE_EVENT, event)),
+                () -> {
+                    assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, event))
+                            .as("the batch committed: another connection no longer sees the event")
+                            .isZero();
+                    return runs.run(ScheduledJob.AUDIT_RETENTION, () -> "the second run's work");
+                });
 
         assertThat(second).isEmpty();
     }

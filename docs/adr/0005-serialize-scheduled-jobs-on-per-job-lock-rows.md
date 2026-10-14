@@ -100,7 +100,9 @@ another run holds it. Otherwise it runs the body inside that transaction and hol
 the lock until the body has returned or thrown. A body that throws rolls the run
 back. A transaction a body opens of its own — on another data source's
 transaction manager, or on the primary one with `PROPAGATION_REQUIRES_NEW` —
-commits inside the run's transaction and releases nothing. A per-batch commit on
+commits inside the run's transaction and releases nothing.
+`ScheduledJobRunIntegrationTests` proves both cases on Postgres, the first with a
+delete committed on the retention pool. A per-batch commit on
 the primary data source therefore needs `REQUIRES_NEW`: a per-batch
 `@Transactional` with the default `REQUIRED` propagation joins the run's
 transaction instead, and nothing commits until the run does. The lock stays on
