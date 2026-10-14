@@ -21,14 +21,10 @@ import {
 import { useAuthState } from "./auth-context-value";
 
 /**
- * Re-exported so a feature reads the whole result contract — the cases and the
- * copy for the two cases it does not own — from this seam alone. A `forbidden`
- * result passes through untouched: an authorization refusal is not the end of
- * the session, so the seam never expires it.
+ * An `ApiResult` whose session outcome the seam has already handled. A
+ * `forbidden` result passes through untouched: an authorization refusal is not
+ * the end of the session, so the seam never expires it.
  */
-export { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
-
-/** An `ApiResult` whose session outcome the seam has already handled. */
 export type SessionResult<T> = Exclude<ApiResult<T>, { kind: "unauthenticated" }>;
 
 /**
