@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(cat \"$(git rev-parse --show-toplevel)/graphify-out/.graphify_python\") -m graphify hook-check"
+            "command": "i=$(cat \"$(git rev-parse --show-toplevel 2>/dev/null)/graphify-out/.graphify_python\" 2>/dev/null) && [ -x \"$i\" ] || exit 0; \"$i\" -m graphify hook-check"
           }
         ]
       }

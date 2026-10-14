@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(cat \"$CLAUDE_PROJECT_DIR/graphify-out/.graphify_python\") -m graphify hook-guard search"
+            "command": "i=$(cat \"$CLAUDE_PROJECT_DIR/graphify-out/.graphify_python\" 2>/dev/null) && [ -x \"$i\" ] || exit 0; \"$i\" -m graphify hook-guard search"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$(cat \"$CLAUDE_PROJECT_DIR/graphify-out/.graphify_python\") -m graphify hook-guard read"
+            "command": "i=$(cat \"$CLAUDE_PROJECT_DIR/graphify-out/.graphify_python\" 2>/dev/null) && [ -x \"$i\" ] || exit 0; \"$i\" -m graphify hook-guard read"
           }
         ]
       }
