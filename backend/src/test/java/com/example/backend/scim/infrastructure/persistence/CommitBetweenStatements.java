@@ -39,7 +39,7 @@ public final class CommitBetweenStatements implements StatementInspector {
      * {@code commit} runs at most once.
      */
     public static <T> T afterReading(String table, Runnable commit, Supplier<T> read) {
-        ARMED.set(new Armed(Pattern.compile("\\bfrom\\s+" + table + "\\b"), commit));
+        ARMED.set(new Armed(Pattern.compile("\\bfrom\\s+" + Pattern.quote(table) + "\\b"), commit));
         try {
             return read.get();
         } finally {

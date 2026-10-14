@@ -50,6 +50,11 @@ public class ScimConnectorTokenEntity {
      * the four directory Permissions
      * ({@code ck_scim_connector_token_permissions_directory_permission}), whatever this mapping
      * permits. Eager, as {@code ScimUserEntity}'s emails are: every use of a token needs them.
+     *
+     * <p>Unlike a User's emails, they are left to their own statement after the token's, with no
+     * entity graph: a token is revoked by an {@code UPDATE} and never deleted, so no commit can
+     * remove its rows between the two statements, and a collection that did find none would load
+     * as empty, not fail the read.
      */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(

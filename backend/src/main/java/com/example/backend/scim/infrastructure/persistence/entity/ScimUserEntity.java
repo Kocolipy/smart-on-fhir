@@ -10,6 +10,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
+import jakarta.persistence.NamedAttributeNode;
+import jakarta.persistence.NamedEntityGraph;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
@@ -32,15 +34,25 @@ import org.hibernate.annotations.DynamicUpdate;
  * the ETag, both of which come from the resource row: making it lazy would turn every
  * single read into two queries and every listing into N+1, for data that is never not
  * wanted.
+ *
+ * <p>Eager is not the same as one statement, though: left to the mapping, Hibernate reads the
+ * resource and the emails in statements after the User's. {@link #WITH_RESOURCE_AND_EMAILS}
+ * names the graph that fetches all three in one, for the queries a deletion can race.
  */
 @Entity
 @Table(name = "scim_users")
+@NamedEntityGraph(
+        name = ScimUserEntity.WITH_RESOURCE_AND_EMAILS,
+        attributeNodes = {@NamedAttributeNode("resource"), @NamedAttributeNode("emails")})
 // Only changed columns are written. A SCIM replacement loads this row and changes the profile;
 // without this, Hibernate's UPDATE would also write back the failure-run columns as they were
 // read, erasing a failed login the login path counted in between (it writes them without the
 // resource lock the SCIM write holds).
 @DynamicUpdate
 public class ScimUserEntity {
+
+    /** The entity graph reading a User with its resource row and its emails in one statement. */
+    public static final String WITH_RESOURCE_AND_EMAILS = "ScimUserEntity.withResourceAndEmails";
 
     @Id
     @Column(name = "resource_id", nullable = false, updatable = false)
