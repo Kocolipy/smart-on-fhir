@@ -1,17 +1,42 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupEntity;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/** Spring Data access to the SCIM Group table. */
+/**
+ * Spring Data access to the SCIM Group table.
+ *
+ * <p>The listing and a page by id read each Group in the same statement as its resource row, for
+ * the reason {@link ScimUserJpaRepository} gives. Left to the mapping, a Group deleted between the
+ * two statements would fail the read with {@code ObjectNotFoundException}. {@code findById}
+ * already joins the resource.
+ */
 interface ScimGroupJpaRepository extends JpaRepository<ScimGroupEntity, UUID> {
 
-    /** The Group the deployment reserves under this name, or empty before seeding has run. */
+    /** Every Group, in the given order, each read in the same statement as its resource. */
+    @Override
+    @EntityGraph(attributePaths = "resource")
+    List<ScimGroupEntity> findAll(Sort sort);
+
+    /** The Groups with these ids, a SCIM query's page, each read with its resource. */
+    @Override
+    @EntityGraph(attributePaths = "resource")
+    List<ScimGroupEntity> findAllById(Iterable<UUID> ids);
+
+    /**
+     * The Group the deployment reserves under this name, or empty before seeding has run.
+     *
+     * <p>Left without the graph: the reserved Group cannot be deleted, so no deletion can land
+     * between this read and its resource's.
+     */
     Optional<ScimGroupEntity> findByResource_ReservedName(String reservedName);
 
     /**

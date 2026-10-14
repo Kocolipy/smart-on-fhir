@@ -1,13 +1,18 @@
 package com.example.backend.scim.infrastructure.persistence.entity;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * Database representation of a connector token.
@@ -40,13 +45,23 @@ public class ScimConnectorTokenEntity {
     private byte[] tokenHash;
 
     /**
-     * The Permissions the token carries, by their wire spelling, as a Postgres {@code text[]}.
-     * The database refuses any value outside the four directory Permissions
-     * ({@code ck_scim_connector_tokens_directory_permissions}), whatever this mapping permits.
+     * The Permissions the token carries, by their wire spelling, one row each in
+     * {@code scim_connector_token_permissions} (ADR 0015). The database refuses any value outside
+     * the four directory Permissions
+     * ({@code ck_scim_connector_token_permissions_directory_permission}), whatever this mapping
+     * permits. Eager, as {@code ScimUserEntity}'s emails are: every use of a token needs them.
+     *
+     * <p>Unlike a User's emails, they are left to their own statement after the token's, with no
+     * entity graph: a token is revoked by an {@code UPDATE} and never deleted, so no commit can
+     * remove its rows between the two statements, and a collection that did find none would load
+     * as empty, not fail the read.
      */
-    @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(nullable = false, updatable = false, columnDefinition = "text[]")
-    private String[] permissions;
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "scim_connector_token_permissions",
+            joinColumns = @JoinColumn(name = "token_id", nullable = false))
+    @Column(name = "permission", nullable = false, length = 32)
+    private Set<String> permissions = new HashSet<>();
 
     @Column(nullable = false, updatable = false)
     private Instant issuedAt;
@@ -82,7 +97,7 @@ public class ScimConnectorTokenEntity {
         this.connectorId = connectorId;
         this.lookupId = lookupId;
         this.tokenHash = tokenHash;
-        this.permissions = permissions.clone();
+        this.permissions = new HashSet<>(Arrays.asList(permissions));
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
         this.originalExpiresAt = originalExpiresAt;
@@ -107,7 +122,7 @@ public class ScimConnectorTokenEntity {
     }
 
     public String[] getPermissions() {
-        return permissions.clone();
+        return permissions.toArray(String[]::new);
     }
 
     public Instant getIssuedAt() {

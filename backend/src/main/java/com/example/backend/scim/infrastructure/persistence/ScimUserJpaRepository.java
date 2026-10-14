@@ -6,13 +6,41 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/** Spring Data access to the SCIM User tables. */
+/**
+ * Spring Data access to the SCIM User tables.
+ *
+ * <h2>A User is read in one statement</h2>
+ *
+ * <p>Every query here that returns {@link ScimUserEntity} and that a deletion can race fetches
+ * its resource row and its emails in the same statement, through the entity graph
+ * {@link ScimUserEntity#WITH_RESOURCE_AND_EMAILS}. The one that does not is
+ * {@link #findByResource_ReservedName}, whose User cannot be deleted. Left to the mapping,
+ * Hibernate reads the User rows first and the eager resource and emails in later statements.
+ * Under READ COMMITTED each statement sees what had committed when that statement began. A
+ * deletion that commits between them therefore leaves a User row whose resource has gone, and
+ * the read fails with {@code ObjectNotFoundException}: a {@code 500} for a User that was merely
+ * deleted while the listing ran. One statement sees one snapshot, on PostgreSQL READ COMMITTED and
+ * on SQL Server with {@code READ_COMMITTED_SNAPSHOT ON} alike (ADR 0015). The User is then read
+ * whole or not at all. {@code findById} needs no graph: a load by id already joins both.
+ */
 interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
+
+    /** Every User, in the given order, each read in the same statement as its resource. */
+    @Override
+    @EntityGraph(ScimUserEntity.WITH_RESOURCE_AND_EMAILS)
+    List<ScimUserEntity> findAll(Sort sort);
+
+    /** The Users with these ids, a SCIM query's page, each read with its resource. */
+    @Override
+    @EntityGraph(ScimUserEntity.WITH_RESOURCE_AND_EMAILS)
+    List<ScimUserEntity> findAllById(Iterable<UUID> ids);
 
     /**
      * The User holding this normalized {@code userName}, or empty.
@@ -22,9 +50,15 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
      * uniqueness constraint is not — a lookup by it would refuse a correct password on
      * account of how the name was typed.
      */
+    @EntityGraph(ScimUserEntity.WITH_RESOURCE_AND_EMAILS)
     Optional<ScimUserEntity> findByNormalizedUserName(String normalizedUserName);
 
-    /** The User the deployment reserves under this name, or empty before seeding has run. */
+    /**
+     * The User the deployment reserves under this name, or empty before seeding has run.
+     *
+     * <p>Left without the graph: a reserved User cannot be deleted, so no deletion can land
+     * between this read and its resource's.
+     */
     Optional<ScimUserEntity> findByResource_ReservedName(String reservedName);
 
     /**

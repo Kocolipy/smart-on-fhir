@@ -6,14 +6,17 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
+import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -182,7 +185,72 @@ class ScimUserPersistenceAdapterIntegrationTests {
                 new ScimLoginState("hash", 3, EARLIER, LockCause.FAILURES, EARLIER, null));
     }
 
+    /**
+     * The administrative listing reads each User whole or not at all: a User whose deletion
+     * commits while the listing is reading is either listed as it was stored or absent, never a
+     * row whose resource has gone.
+     */
+    @Test
+    void aUserDeletedDuringTheListingIsListedWholeOrNotAtAll() {
+        ScimUser victim = storedWithEmail(unique("adapter-listing"));
+
+        List<ScimUser> listed = inTransaction(() -> CommitBetweenStatements.afterReading(
+                "scim_users",
+                () -> deleteCommitted(victim.id()),
+                users::findAllOrderedByNormalizedUserName));
+
+        assertThat(listed.stream().filter(user -> user.id().equals(victim.id())).toList())
+                .isIn(List.of(), List.of(victim));
+    }
+
+    /** A page of Users by id, as a SCIM query loads one, reads each User whole or not at all. */
+    @Test
+    void aUserDeletedDuringAPageReadIsReadWholeOrNotAtAll() {
+        ScimUser victim = storedWithEmail(unique("adapter-page"));
+
+        List<ScimUser> page = inTransaction(() -> CommitBetweenStatements.afterReading(
+                "scim_users",
+                () -> deleteCommitted(victim.id()),
+                () -> users.findAllById(List.of(victim.id()))));
+
+        assertThat(page).isIn(List.of(), List.of(victim));
+    }
+
+    /** The login path's lookup reads the User whole or not at all. */
+    @Test
+    void aUserDeletedDuringTheLookupByUserNameIsReadWholeOrNotAtAll() {
+        ScimUser victim = storedWithEmail(unique("adapter-lookup"));
+
+        Optional<ScimUser> found = inTransaction(() -> CommitBetweenStatements.afterReading(
+                "scim_users",
+                () -> deleteCommitted(victim.id()),
+                () -> users.findByNormalizedUserName(victim.profile().normalizedUserName())));
+
+        assertThat(found).isIn(Optional.empty(), Optional.of(victim));
+    }
+
     // ---- helpers --------------------------------------------------------------------------
+
+    /** A stored User with an email, read back as the store holds it. */
+    private ScimUser storedWithEmail(String userName) {
+        ScimUser user = ScimIdentities.user(userName);
+        ScimUserProfile profile = user.profile();
+        ScimUser withEmail = new ScimUser(user.id(),
+                new ScimUserProfile(profile.userName(), profile.name(), "Victim",
+                        profile.preferredLanguage(), profile.locale(), profile.timezone(), true,
+                        List.of(new ScimEmail(userName + "@example.test", "work", true))),
+                user.login(), null, user.version(), user.createdAt(), user.lastModifiedAt());
+        UUID id = store(withEmail, user.login()).id();
+        return inTransaction(() -> users.findById(id).orElseThrow());
+    }
+
+    /** Deletes the User in a transaction of its own, which commits before this returns. */
+    private void deleteCommitted(UUID id) {
+        inTransaction(() -> {
+            users.deleteById(id, Instant.now().truncatedTo(ChronoUnit.MICROS));
+            return null;
+        });
+    }
 
     private ScimUser store(ScimUser user, ScimLoginState login) {
         ScimUser withLogin = ScimIdentities.withActive(user, user.profile().active(), login);

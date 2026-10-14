@@ -3,6 +3,7 @@ package com.example.backend.scim;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.NewScimGroup;
@@ -77,7 +78,7 @@ class ScimWriteLockOrderIntegrationTests {
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
         created.clear();
     }

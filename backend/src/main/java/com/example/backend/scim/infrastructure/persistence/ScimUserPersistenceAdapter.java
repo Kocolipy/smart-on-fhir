@@ -269,13 +269,17 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      * Deletes the User and advances the version of every Group it belonged to.
      *
      * <p>Advanced before the delete, while the membership rows that name those Groups still
-     * exist; the cascade from the resource row then removes the memberships with everything else.
-     * A User in no Group advances nothing. Takes no lock: the caller holds the User and its Groups.
+     * exist. The memberships are then deleted explicitly, in the same transaction and before the
+     * resource row: the member-side foreign keys take no action (ADR 0015), so the database
+     * refuses the resource's deletion while one remains. The cascade from the resource row
+     * removes everything else. A User in no Group advances nothing. Takes no lock: the caller
+     * holds the User and its Groups.
      */
     @Override
     public void deleteById(UUID id, Instant now) {
         RepresentationChange.userDeleted(memberships.findGroupIdsOfUser(id), now)
                 .advanceIn(resources);
+        memberships.deleteMembershipsHeldBy(id);
         resources.deleteResource(id);
     }
 

@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -132,7 +133,7 @@ class ScimAttributeProfileIntegrationTests {
     @AfterAll
     void removeOnlyWhatThisClassCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+            ScimTestRows.delete(jdbc, id);
         }
     }
 

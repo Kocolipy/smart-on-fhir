@@ -76,7 +76,8 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
     /**
      * Deletes one resource row, and with it — through the {@code ON DELETE CASCADE} foreign keys
      * every related table declares — the User or Group row, its emails, credential history,
-     * memberships, connector aliases and application-owned rows.
+     * connector aliases and application-owned rows. Not its memberships: their foreign keys take
+     * no action (ADR 0015), so the caller deletes them first or this statement is refused.
      *
      * <p>A bulk statement rather than {@code deleteById}, so the managed copies of the rows the
      * cascade removes cannot be flushed back afterwards: the context is flushed before and

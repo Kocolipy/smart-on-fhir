@@ -65,7 +65,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1", "2", "3", "4");
+                .containsExactly("1", "2", "3", "4", "5", "6");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */
@@ -115,7 +115,7 @@ class MigrationStepIntegrationTests {
     /**
      * A migration that fails ends the entry point with the failure, so the process exits non-zero
      * and a deployment that runs it first never starts the service: here {@code V3} names a login
-     * that does not exist.
+     * that does not exist, so neither it nor any migration after it is applied.
      */
     @Test
     void aFailingMigrationFailsTheStep() throws SQLException {
@@ -126,6 +126,6 @@ class MigrationStepIntegrationTests {
                 .hasRootCauseMessage("ERROR: role \"no_such_login\" does not exist");
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .doesNotContain("3");
+                .containsExactly("1", "2");
     }
 }

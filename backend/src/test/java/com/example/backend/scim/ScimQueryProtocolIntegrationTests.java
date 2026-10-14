@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -182,7 +183,7 @@ class ScimQueryProtocolIntegrationTests {
     @AfterAll
     void removeOnlyWhatThisClassCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+            ScimTestRows.delete(jdbc, id);
         }
     }
 
@@ -569,7 +570,7 @@ class ScimQueryProtocolIntegrationTests {
             }
         } finally {
             for (UUID id : mine) {
-                jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+                ScimTestRows.delete(jdbc, id);
             }
         }
     }
@@ -612,7 +613,7 @@ class ScimQueryProtocolIntegrationTests {
             }
         } finally {
             for (UUID id : mine) {
-                jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+                ScimTestRows.delete(jdbc, id);
             }
         }
     }
@@ -783,7 +784,7 @@ class ScimQueryProtocolIntegrationTests {
             assertThat(latestEvent().get("result_count")).isEqualTo(200);
         } finally {
             for (UUID id : mine) {
-                jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+                ScimTestRows.delete(jdbc, id);
             }
         }
     }

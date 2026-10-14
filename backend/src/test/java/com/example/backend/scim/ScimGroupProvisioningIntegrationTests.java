@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -137,7 +138,7 @@ class ScimGroupProvisioningIntegrationTests {
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         for (UUID id : createdResources) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
         createdResources.clear();
     }

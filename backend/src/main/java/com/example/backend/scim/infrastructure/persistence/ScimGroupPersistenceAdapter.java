@@ -158,8 +158,10 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * Deletes the Group and advances the version of every User that was a member.
      *
      * <p>The members' versions are advanced BEFORE the delete, because after it there is no
-     * membership row left to read them from. Both happen in the caller's transaction, so a
-     * failure leaves neither.
+     * membership row left to read them from. The memberships are then deleted explicitly, before
+     * the resource row: the member-side foreign keys take no action (ADR 0015), so the database
+     * refuses the Group's deletion while one remains. All of it happens in the caller's
+     * transaction, so a failure leaves none of it.
      */
     @Override
     public boolean deleteById(UUID id, Instant now) {
@@ -311,7 +313,15 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         return group.members().stream().map(ScimGroupMember::userId).toList();
     }
 
-    /** The memberships of these Groups, grouped by Group, each member carrying its label. */
+    /**
+     * The memberships of these Groups, grouped by Group, each member carrying its label.
+     *
+     * <p>Read in a statement of its own, apart from the Groups', which
+     * {@link ScimGroupJpaRepository} reads with their resources, and left so: a deletion
+     * committing between the two leaves a Group read with the members it had or with none. That
+     * is a stale read rather than a failure, since a Group with no rows here is a legitimate
+     * empty Group.
+     */
     private Map<UUID, List<ScimGroupMember>> membersOf(Collection<UUID> groupIds) {
         return memberships.findMembersOfGroups(groupIds).stream()
                 .collect(Collectors.groupingBy(

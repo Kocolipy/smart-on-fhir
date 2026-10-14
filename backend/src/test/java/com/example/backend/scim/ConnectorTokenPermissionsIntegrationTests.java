@@ -1,6 +1,7 @@
 package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -19,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,9 +66,12 @@ class ConnectorTokenPermissionsIntegrationTests {
         "group:read", "group:write",
     };
 
-    private static final String TOKEN_ROW =
-            "SELECT array_to_string(permissions, ',') AS permissions"
-            + " FROM scim_connector_tokens WHERE id = ?";
+    private static final String TOKEN_PERMISSIONS =
+            "SELECT string_agg(permission, ',' ORDER BY permission) AS permissions"
+            + " FROM scim_connector_token_permissions WHERE token_id = ?";
+
+    private static final String PERMISSION_ROWS =
+            "SELECT count(*) FROM scim_connector_token_permissions WHERE token_id = ?";
 
     private static final String EVENTS =
             "SELECT * FROM audit_events WHERE operation = ? AND subject_id = ?"
@@ -109,7 +114,7 @@ class ConnectorTokenPermissionsIntegrationTests {
         JsonNode body = body(issued);
         assertThat(strings(body.get("permissions"))).containsExactly("group:read", "group:write");
         UUID tokenId = UUID.fromString(body.get("tokenId").asText());
-        assertThat(jdbc.queryForObject(TOKEN_ROW, String.class, tokenId))
+        assertThat(jdbc.queryForObject(TOKEN_PERMISSIONS, String.class, tokenId))
                 .isEqualTo("group:read,group:write");
         assertThat(listedTokens(connector)).singleElement()
                 .satisfies(token -> assertThat(strings(token.get("permissions")))
@@ -180,7 +185,7 @@ class ConnectorTokenPermissionsIntegrationTests {
                 "{\"permissions\":[\"group:read\"]}", CONNECTOR_ADMIN);
         assertThat(replaced.getResponse().getStatus()).isEqualTo(201);
         assertThat(strings(body(replaced).get("permissions"))).containsExactly("group:read");
-        assertThat(jdbc.queryForObject(TOKEN_ROW, String.class, tokenId(replaced)))
+        assertThat(jdbc.queryForObject(TOKEN_PERMISSIONS, String.class, tokenId(replaced)))
                 .isEqualTo("group:read");
 
         assertThat(events("CONNECTOR_TOKEN_ROTATE", connector))
@@ -205,6 +210,38 @@ class ConnectorTokenPermissionsIntegrationTests {
                     assertThat(row.get("error_code")).isEqualTo("PERMISSION_ESCALATION");
                     assertThat(row.get("permissions")).isEqualTo("group:write,user:write");
                 });
+    }
+
+    // ---- the stored shape -------------------------------------------------------------------
+
+    /**
+     * The table's own check is the last line behind the application's refusal: a Permission
+     * outside the four directory ones, written straight to the database, is refused there.
+     */
+    @Test
+    void the_database_refuses_a_token_permission_outside_the_directory_four() throws Exception {
+        UUID connector = createConnector("permissions-stored-check");
+        UUID token = tokenId(issue(connector, "[\"user:read\"]", CONNECTOR_ADMIN));
+
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO scim_connector_token_permissions (token_id, permission) VALUES (?, ?)",
+                token, "connector:token"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .rootCause()
+                .hasMessageContaining("ck_scim_connector_token_permissions_directory_permission");
+    }
+
+    /** A token's Permission rows go with the token, whichever path deletes it. */
+    @Test
+    void deleting_a_token_removes_its_permission_rows() throws Exception {
+        UUID connector = createConnector("permissions-stored-delete");
+        UUID token = tokenId(issue(connector, "[\"group:read\",\"group:write\"]", CONNECTOR_ADMIN));
+        assertThat(jdbc.queryForObject(PERMISSION_ROWS, Integer.class, token))
+                .as("the fixture's token holds two Permission rows").isEqualTo(2);
+
+        jdbc.update("DELETE FROM scim_connector_tokens WHERE id = ?", token);
+
+        assertThat(jdbc.queryForObject(PERMISSION_ROWS, Integer.class, token)).isZero();
     }
 
     // ---- the SCIM chain ---------------------------------------------------------------------

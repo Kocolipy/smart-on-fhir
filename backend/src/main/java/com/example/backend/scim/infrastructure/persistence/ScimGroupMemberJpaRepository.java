@@ -119,6 +119,16 @@ interface ScimGroupMemberJpaRepository
     int deleteMembershipsOf(@Param("groupId") UUID groupId);
 
     /**
+     * Removes every membership this User holds, for its deletion.
+     *
+     * <p>The member-side foreign keys take no action (ADR 0015), so the User's resource row
+     * cannot be deleted while a membership still names it; nothing removes these rows but this.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from ScimGroupMemberEntity m where m.id.userId = :userId")
+    int deleteMembershipsHeldBy(@Param("userId") UUID userId);
+
+    /**
      * Removes one membership row and nothing else.
      *
      * @return how many rows were removed — zero when the User was not a member

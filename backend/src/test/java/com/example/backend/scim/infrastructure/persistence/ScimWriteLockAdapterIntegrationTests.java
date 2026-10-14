@@ -3,6 +3,7 @@ package com.example.backend.scim.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -64,7 +65,7 @@ class ScimWriteLockAdapterIntegrationTests {
     void removeOnlyWhatThisTestCreated() {
         holders.shutdownNow();
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
     }
 

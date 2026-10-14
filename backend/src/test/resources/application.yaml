@@ -22,6 +22,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      # Inert unless a test arms it; see the class. Named here, for every context, so the tests
+      # that interleave a commit into a read join the shared context instead of booting their own.
+      hibernate.session_factory.statement_inspector: com.example.backend.scim.infrastructure.persistence.CommitBetweenStatements
 
 app:
   auth:

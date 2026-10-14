@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -33,6 +34,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -132,7 +134,7 @@ class ScimDeletionIntegrationTests {
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
     }
 
@@ -267,6 +269,25 @@ class ScimDeletionIntegrationTests {
         JsonNode members = body(mvc.perform(as(tokenA, get(GROUPS + "/" + group))).andReturn())
                 .path("members");
         assertThat(members.isMissingNode() || members.isEmpty()).isTrue();
+    }
+
+    /**
+     * Memberships go only when the delete paths remove them: both member-side foreign keys take
+     * no action (ADR 0015), so a User or Group row a membership still names is refused rather
+     * than taking the membership with it.
+     */
+    @Test
+    void the_database_refuses_to_delete_a_resource_a_membership_still_names() throws Exception {
+        UUID user = createUser("delete-no-cascade");
+        UUID group = createGroupWith("Delete No Cascade Group", user);
+
+        for (UUID resource : List.of(user, group)) {
+            assertThatThrownBy(() -> jdbc.update(
+                    "DELETE FROM scim_resources WHERE id = ?", resource))
+                    .as("deleting %s under its membership", resource)
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .rootCause().hasMessageContaining("fk_scim_group_members_");
+        }
     }
 
     /**
