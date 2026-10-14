@@ -57,6 +57,9 @@ public final class SqlFailures {
     public static final Failure CONNECTION_NOT_ESTABLISHED =
             of(DatabaseFailureCategory.CONNECTION_NOT_ESTABLISHED);
 
+    /** The SQLState SQL Server's driver reports for an error raised with state 1. */
+    private static final String SQL_SERVER_STATE = "S0001";
+
     private SqlFailures() {
     }
 
@@ -84,8 +87,14 @@ public final class SqlFailures {
         }
     }
 
+    /**
+     * A row that names no SQLState keys on its error number alone — SQL Server's rows, whose
+     * driver derives the state from the error's own state number — so it is raised with
+     * {@value #SQL_SERVER_STATE}, a state the driver reports and the row does not consult.
+     */
     private static Failure of(EngineFailure row) {
-        return new Failure(row.sqlState(), errorCode(row));
+        return new Failure(row.sqlState() == null ? SQL_SERVER_STATE : row.sqlState(),
+                errorCode(row));
     }
 
     private static Failure inClass(EngineFailure row, String subclass) {

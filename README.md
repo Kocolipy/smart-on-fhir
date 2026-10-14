@@ -28,6 +28,17 @@ Every toolchain version is pinned in the repo, so every machine resolves the sam
 | Maven | `backend/.mvn/wrapper/maven-wrapper.properties`                 | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
 | JDK   | `/.tool-versions`                                               | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)              |
 
+The database engine's image is pinned the same way, once for local development
+and once for the test suite, which must agree:
+
+| Image                                                         | Pinned in                                                                                         | Reviewed |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- |
+| SQL Server 2022 (`mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, amd64, Developer Edition) | `backend/compose.yaml` (tag + digest), `ContainerTestConfiguration.SQL_SERVER_IMAGE` (digest) | monthly (ADR 0015, "Database patching") |
+
+Its digest is `sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090`.
+The image is x86_64 only: Apple Silicon is not a supported development platform
+(`backend/README.md`, "Local setup").
+
 Activate the Node and JDK pins with whichever manager you use — `nvm use` (reads
 `/.nvmrc`), or `asdf install` / `mise install` (both read `/.tool-versions`) from
 the repo root. Maven needs nothing installed: build through `./mvnw`.
@@ -38,7 +49,7 @@ image is; the digest is what actually gets pulled. To move one, bump the tag and
 re-resolve the digest together:
 
 ```bash
-docker buildx imagetools inspect postgres:18.6-alpine --format '{{println .Manifest.Digest}}'
+docker buildx imagetools inspect mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04 --format '{{println .Manifest.Digest}}'
 ```
 
 The one exception is the local Epic launcher, `smartonfhir/smart-launcher-2`:
@@ -68,7 +79,7 @@ Full script list is in `frontend/package.json`.
 cd backend
 ./mvnw spring-boot:run   # run the service
 ./scripts/verify.sh      # the baseline gate: build, tests, ArchUnit, Semgrep
-docker compose up        # Postgres + Redis dependencies
+make -C .. infra-up       # SQL Server + Redis, and the local database and its logins
 ```
 
 Copy `backend/.env.example` to `.env` before running. Requires the pinned JDK
@@ -99,7 +110,7 @@ cd infra
 ```
 
 `infra/` holds the CloudFormation template (`infrastructure.yaml`) and its
-scripts; it is not an app, and `make infra-up` (local Postgres and Redis) has
+scripts; it is not an app, and `make infra-up` (local SQL Server and Redis) has
 nothing to do with it. Run the scripts from `infra/`: `deploy.sh` finds the
 template, the key and the repo from its own location, but writes
 `<stack>-outputs.txt` to the current directory, which is where `cleanup.sh`

@@ -38,11 +38,11 @@ help: ## Show the available targets
 bootstrap: ## Install frontend dependencies and prepare backend tooling
 	@scripts/bootstrap.sh
 
-infra-up: ## Start PostgreSQL and Redis, waiting until both are healthy, and create the local database logins
+infra-up: ## Start SQL Server and Redis, wait until both are healthy, and create the local database and its three logins from backend/.env
 	$(COMPOSE) up -d --wait
-	backend/scripts/local-db-logins.sh
+	$(COMPOSE) run --rm sqlserver-init
 
-infra-down: ## Stop PostgreSQL and Redis (volumes are kept)
+infra-down: ## Stop SQL Server and Redis (volumes are kept)
 	$(COMPOSE) down
 
 infra-logs: ## Tail the dependency logs
@@ -53,6 +53,7 @@ infra-logs: ## Tail the dependency logs
 # values that point the backend at it.
 epic-launcher-up: ## Start the local SMART launcher (stand-in for Epic) with the dependencies
 	$(COMPOSE) --profile epic-launcher up -d --wait
+	$(COMPOSE) run --rm sqlserver-init
 
 epic-launcher-down: ## Stop the local SMART launcher and the dependencies (volumes are kept)
 	$(COMPOSE) --profile epic-launcher down

@@ -6,6 +6,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -21,7 +23,7 @@ class DataSourceConfigTests {
             .withConfiguration(AutoConfigurations.of(DataSourceAutoConfiguration.class))
             .withUserConfiguration(DataSourceConfig.class)
             .withPropertyValues(
-                    "spring.datasource.url=jdbc:postgresql://db.internal:5432/backend",
+                    "spring.datasource.url=jdbc:sqlserver://db.internal:1433;databaseName=backend",
                     "spring.datasource.username=backend_app_login",
                     "spring.datasource.password=the-app-logins");
 
@@ -30,7 +32,7 @@ class DataSourceConfigTests {
         contexts.run(context -> {
             HikariDataSource pool = context.getBean(HikariDataSource.class);
             assertThat(List.of(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword()))
-                    .containsExactly("jdbc:postgresql://db.internal:5432/backend",
+                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
                             "backend_app_login", "the-app-logins");
         });
     }
@@ -39,7 +41,7 @@ class DataSourceConfigTests {
     @Test
     void theMainPoolUsesTheDriverItsUrlNames() {
         contexts.run(context -> assertThat(context.getBean(HikariDataSource.class)
-                .getDriverClassName()).isEqualTo("org.postgresql.Driver"));
+                .getDriverClassName()).isEqualTo("com.microsoft.sqlserver.jdbc.SQLServerDriver"));
     }
 
     @Test
@@ -64,6 +66,24 @@ class DataSourceConfigTests {
     void theDeclaredPoolIsTheContextsOnlyDataSource() {
         contexts.run(context -> assertThat(context.getBeansOfType(DataSource.class))
                 .containsOnlyKeys("dataSource"));
+    }
+
+    /**
+     * The URL has no fallback ({@code DATABASE_URL}), so a context whose URL is missing, blank or
+     * an unresolved placeholder fails, naming the variable — never a URL that is not JDBC.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "spring.datasource.url=", "spring.datasource.url=  ",
+            "spring.datasource.url=${DATABASE_URL}"})
+    void aMissingUrlFailsTheStartNamingTheVariable(String url) {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(DataSourceAutoConfiguration.class))
+                .withUserConfiguration(DataSourceConfig.class)
+                .withPropertyValues("spring.datasource.username=backend_app_login", url)
+                .run(context -> assertThat(context).getFailure()
+                        .rootCause()
+                        .hasMessage("The service's database URL is not set: set DATABASE_URL"
+                                + " (spring.datasource.url); it has no default"));
     }
 
     /** No statement runs on a new connection: the login's privileges are the pool's. */

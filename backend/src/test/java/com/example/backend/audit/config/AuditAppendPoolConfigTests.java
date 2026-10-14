@@ -29,8 +29,8 @@ class AuditAppendPoolConfigTests {
 
             assertThat(List.of(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword(),
                             pool.getDriverClassName()))
-                    .containsExactly("jdbc:postgresql://db.internal:5432/backend",
-                            "backend_app_login", "the-app-logins", "org.postgresql.Driver");
+                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
+                            "backend_app_login", "the-app-logins", "com.microsoft.sqlserver.jdbc.SQLServerDriver");
         }
     }
 

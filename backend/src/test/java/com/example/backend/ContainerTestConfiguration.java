@@ -11,47 +11,50 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The one place the test Postgres and Redis are declared: one container of each per test JVM, and
- * a database of each for every test {@code ApplicationContext}.
+ * The one place the test SQL Server and Redis are declared: one container of each per test JVM,
+ * and a database of each for every test {@code ApplicationContext}.
  *
- * <p>{@code ddl-auto: validate} plus a Flyway migration written in PostgreSQL
- * syntax (PL/pgSQL triggers, partial and expression indexes) means the test
- * database has to genuinely be Postgres — H2 cannot run {@code db/migration} as shipped, and a
- * dialect emulation layer would verify a schema the deployed service does not
- * have. The {@link DynamicPropertyRegistrar} below writes the connection onto
- * {@code spring.datasource.*}, {@code app.datasource.retention.*}, {@code spring.flyway.*} and
- * {@code spring.data.redis.*}, so no test {@code application.yaml} needs to know the containers
- * exist.
+ * <p>{@code ddl-auto: validate} plus a Flyway migration written in T-SQL (an {@code INSTEAD OF}
+ * trigger, filtered indexes, a persisted computed column) means the test database has to genuinely
+ * be SQL Server — H2 cannot run {@code db/migration} as shipped, and a dialect emulation layer
+ * would verify a schema the deployed service does not have. The {@link DynamicPropertyRegistrar}
+ * below writes the connection onto {@code spring.datasource.*}, {@code app.datasource.retention.*},
+ * {@code spring.flyway.*} and {@code spring.data.redis.*}, so no test {@code application.yaml}
+ * needs to know the containers exist.
  *
  * <p>A database per context, not one for the whole run. Contexts differ in configuration — the
  * development role mapping and its fixtures, the release gate — and some tests rely on a store
  * no other context has written: {@code RolePropagationIntegrationTests} deletes a fixture Group
  * that {@code DevelopmentRoleMappingIntegrationTests} signs in through, and seeding never repairs
- * a Group that exists. Each context therefore starts on an empty Postgres database and its own
- * Redis database number, exactly as it did when every context started containers of its own;
- * what is shared is only the containers, whose start was most of a context's boot.
+ * a Group that exists. Each context therefore starts on an empty database and its own Redis
+ * database number, exactly as it did when every context started containers of its own; what is
+ * shared is only the containers, whose start was most of a context's boot.
  *
- * <p><strong>The deployment's three database logins, not the container's superuser.</strong> The
- * service's main pool connects as the app login and its retention pool as the retention login,
- * and Flyway migrates as the owner login, which owns each context's database and administers the
- * two NOLOGIN roles ({@code WITH ADMIN OPTION}) — the shape the deployment's bootstrap gives them.
- * The migrations make the app and retention logins members of their roles, through the
- * placeholders registered below. So every statement a test drives through the service runs with
- * a deployment's privileges, and a grant a migration forgot fails here first. A test that must
- * speak as another principal goes through {@link DatabaseLogins}. Logins and roles are
- * cluster-wide, so they are created once per container, in the {@code static} block.
+ * <p><strong>Each database is created as the deployment creates one</strong> (ADR 0015): with the
+ * collation {@value #COLLATION}, compatibility level 160, {@code READ_COMMITTED_SNAPSHOT} and
+ * {@code ALLOW_SNAPSHOT_ISOLATION} on, and owned by the owner login. Those are creation options,
+ * set here because no migration can set them: {@code READ_COMMITTED_SNAPSHOT} cannot change inside
+ * the transaction Flyway migrates in. About a second per context (ADR 0015, V6).
+ *
+ * <p><strong>The deployment's three database logins, not the container's {@code sa}.</strong>
+ * The service's main pool connects as the app login and its retention pool as the retention
+ * login, and Flyway migrates as the owner login, which owns each context's database — the shape
+ * the deployment's bootstrap gives them. The migration creates the app and retention logins'
+ * database users and makes each a member of its role, through the placeholders registered below.
+ * So every statement a test drives through the service runs with a deployment's privileges, and a
+ * grant the migration forgot fails here first. A test that must speak as another principal goes
+ * through {@link DatabaseLogins}. Logins are server principals, so they are created once per
+ * container, in the {@code static} block; the roles are each database's own, and the migration
+ * creates them.
  *
  * <p>The containers are started here, in a {@code static} block, rather than declared as
  * {@code @ServiceConnection} beans, because a context owns its beans' lifecycle: the first context
  * to close — {@code BackendApplicationTests} closes one on purpose — would stop a container every
  * cached context still points at. Ryuk removes them when the JVM exits.
- *
- * <p>Postgres allows 500 connections rather than its default 100, because every context the
- * cache holds keeps its own connection pools open on the one server.
  *
  * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
  * database starts with the seeded Bootstrap Admin's first-login change already completed, and
@@ -61,9 +64,29 @@ import org.testcontainers.utility.DockerImageName;
 @Import({SeededBootstrapAdminTestConfiguration.class, SeededTestUserConfiguration.class})
 public class ContainerTestConfiguration {
 
-    private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:18.6-alpine"))
-                    .withCommand("postgres", "-c", "max_connections=500");
+    /**
+     * SQL Server 2022 CU27 ({@code 2022-CU27-ubuntu-22.04}, Developer Edition, amd64), pinned by
+     * digest as {@code compose.yaml} pins it; see {@code /README.md}, "Toolchain pins".
+     */
+    static final String SQL_SERVER_IMAGE = "mcr.microsoft.com/mssql/server@sha256:"
+            + "4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090";
+
+    /** The collation every database is created with (ADR 0015). */
+    static final String COLLATION = "Latin1_General_100_BIN2_UTF8";
+
+    /**
+     * Developer Edition's licence is accepted for development and test use only.
+     *
+     * <p>The server keeps its default collation: only each database is created with
+     * {@value #COLLATION}. A server collated {@code BIN2_UTF8} ({@code MSSQL_COLLATION}) fails to
+     * load the internal extended procedures behind {@code sp_getapplock} and a T-SQL
+     * {@code sp_executesql} ("Could not load the DLL (server internal)", error 17750) on this
+     * image, and the seed lock is an application lock.
+     */
+    private static final MSSQLServerContainer SQL_SERVER =
+            new MSSQLServerContainer(DockerImageName.parse(SQL_SERVER_IMAGE)
+                            .asCompatibleSubstituteFor("mcr.microsoft.com/mssql/server"))
+                    .acceptLicense();
 
     /** Redis' default of 16 numbered databases is fewer than the suite's contexts. */
     private static final GenericContainer<?> REDIS =
@@ -84,7 +107,11 @@ public class ContainerTestConfiguration {
     /** The retention login: the audit retention job's pool. */
     public static final String RETENTION_LOGIN = "backend_retention_login";
 
-    /** Generated per test JVM, as a deployment's are per stack, and never written anywhere. */
+    /**
+     * Generated per test JVM, as a deployment's are per stack, and never written anywhere. A UUID
+     * meets SQL Server's password policy (lower-case letters, digits and a symbol), and holds no
+     * quote, so the literal needs no escaping.
+     */
     public static final String OWNER_PASSWORD = UUID.randomUUID().toString();
 
     static final String APP_PASSWORD = UUID.randomUUID().toString();
@@ -92,48 +119,41 @@ public class ContainerTestConfiguration {
     static final String RETENTION_PASSWORD = UUID.randomUUID().toString();
 
     static {
-        POSTGRES.start();
+        SQL_SERVER.start();
         REDIS.start();
         createTheDatabaseLogins();
     }
 
     static String superuserName() {
-        return POSTGRES.getUsername();
+        return SQL_SERVER.getUsername();
     }
 
     static String superuserPassword() {
-        return POSTGRES.getPassword();
+        return SQL_SERVER.getPassword();
     }
 
     /**
-     * The three logins and the two roles, as the deployment's bootstrap creates them: the owner
-     * administers both roles, and no other membership is granted here — the migrations grant the
-     * app and retention logins theirs. The names are this class's constants and the passwords
-     * UUIDs, so the literals need no escaping.
+     * The three logins, as the deployment's bootstrap creates them. The names are this class's
+     * constants and the passwords UUIDs, so the literals need no escaping.
      */
     private static void createTheDatabaseLogins() {
-        try (Connection admin = DriverManager.getConnection(
-                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        try (Connection admin = asSuperuser("master");
                 Statement statement = admin.createStatement()) {
             statement.execute(createLogin(OWNER_LOGIN, OWNER_PASSWORD));
             statement.execute(createLogin(APP_LOGIN, APP_PASSWORD));
             statement.execute(createLogin(RETENTION_LOGIN, RETENTION_PASSWORD));
-            statement.execute("CREATE ROLE backend_app NOLOGIN");
-            statement.execute("CREATE ROLE backend_audit_retention NOLOGIN");
-            statement.execute("GRANT backend_app, backend_audit_retention TO " + OWNER_LOGIN
-                    + " WITH ADMIN OPTION");
         } catch (SQLException failure) {
             throw new IllegalStateException("the test database logins could not be created", failure);
         }
     }
 
     private static String createLogin(String name, String password) {
-        return "CREATE ROLE " + name + " LOGIN PASSWORD '" + password + "'";
+        return "CREATE LOGIN " + name + " WITH PASSWORD = N'" + password + "'";
     }
 
     /**
-     * This context's stores: a Postgres database created for it and owned by the owner login,
-     * which Flyway migrates as that login, and the next Redis database number.
+     * This context's stores: a database created for it and owned by the owner login, which Flyway
+     * migrates as that login, and the next Redis database number.
      */
     @Bean
     DynamicPropertyRegistrar storesOfThisContext() throws SQLException {
@@ -156,19 +176,39 @@ public class ContainerTestConfiguration {
     }
 
     /**
-     * A new, empty database owned by the owner login, as a deployment's bootstrap leaves one, and
-     * its JDBC URL — each context's, and a test's that migrates a database itself rather than
-     * through a context. Named from a counter, so the statement holds no caller's text.
+     * A new, empty database with the deployment's creation options, owned by the owner login, as
+     * a deployment's bootstrap leaves one, and its JDBC URL — each context's, and a test's that
+     * migrates a database itself rather than through a context. Named from a counter, so the
+     * statements hold no caller's text.
      */
     public static String emptyDatabase() throws SQLException {
         String name = "database_" + DATABASES.incrementAndGet();
-        try (Connection admin = DriverManager.getConnection(
-                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        try (Connection admin = asSuperuser("master");
                 Statement statement = admin.createStatement()) {
-            statement.execute("CREATE DATABASE " + name + " OWNER " + OWNER_LOGIN);
+            statement.execute("CREATE DATABASE " + name + " COLLATE " + COLLATION);
+            statement.execute("ALTER DATABASE " + name + " SET COMPATIBILITY_LEVEL = 160");
+            statement.execute("ALTER DATABASE " + name + " SET READ_COMMITTED_SNAPSHOT ON");
+            statement.execute("ALTER DATABASE " + name + " SET ALLOW_SNAPSHOT_ISOLATION ON");
+            statement.execute("ALTER AUTHORIZATION ON DATABASE::" + name + " TO " + OWNER_LOGIN);
         }
-        return "jdbc:postgresql://" + POSTGRES.getHost() + ":"
-                + POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + name;
+        return url(name);
+    }
+
+    /**
+     * The URL of {@code database} on the test server. The container's certificate is
+     * self-signed, so a test connection trusts it, which only test and local configuration may
+     * ({@code arch.TrustServerCertificateTest}); it is encrypted all the same, by the driver's
+     * default and by {@code database.yaml}'s {@code encrypt}, which the URL leaves to them.
+     */
+    private static String url(String database) {
+        return "jdbc:sqlserver://" + SQL_SERVER.getHost() + ":"
+                + SQL_SERVER.getMappedPort(MSSQLServerContainer.MS_SQL_SERVER_PORT)
+                + ";databaseName=" + database + ";trustServerCertificate=true";
+    }
+
+    private static Connection asSuperuser(String database) throws SQLException {
+        return DriverManager.getConnection(
+                url(database), SQL_SERVER.getUsername(), SQL_SERVER.getPassword());
     }
 
     /** This context's database as each login sees it, for the tests that need one. */

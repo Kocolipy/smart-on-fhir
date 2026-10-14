@@ -1,0 +1,27 @@
+# How every connection to the service's database is opened, in its own document
+# so both the main and the test resources' `application.yaml` import it: the test
+# `application.yaml` shadows the main one entirely, and a test pool opened
+# differently from a deployed one would prove a different connection.
+#
+# These are driver properties (DatabaseConnectionProperties), which the database
+# connections module gives every pool — main, audit append and retention — and
+# MigrationConnection gives the migrate step's owner connection, so none of them
+# can be left off one connection (ADR 0015, dp-3 and "Bounded timeouts"):
+#
+#   encrypt          every connection is encrypted with TLS. The server's
+#                    certificate is validated; only the `local` profile and the
+#                    tests trust a self-signed one (TrustServerCertificateTest).
+#   sslProtocol      TLS 1.2 at minimum.
+#   loginTimeout     a login that does not complete within 15 s fails, rather
+#                    than holding a pool's connection attempt open.
+#
+# Mixed-case keys are bracketed so they reach the driver as written. A
+# deployment's trust store (`trustStore`, `trustStorePassword`) belongs here too,
+# set by the infrastructure (#71), never in a URL fallback.
+spring:
+  datasource:
+    hikari:
+      data-source-properties:
+        encrypt: "true"
+        "[sslProtocol]": TLSv1.2
+        "[loginTimeout]": "15"

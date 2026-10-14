@@ -61,7 +61,7 @@ class StartupLogConnectionDetailsTests {
 
     /** The loggers {@code log-levels.yaml} pins for the connection's sake. */
     private static final List<String> PINNED = List.of(
-            "com.zaxxer.hikari", "org.postgresql", "org.flywaydb",
+            "com.zaxxer.hikari", "com.microsoft.sqlserver.jdbc", "org.flywaydb",
             "org.hibernate.orm.connections.pooling");
 
     /**
@@ -135,9 +135,19 @@ class StartupLogConnectionDetailsTests {
         return "\"message\":\"" + pool + " - Start completed.\"";
     }
 
+    /**
+     * Whether {@code line} names the connection of {@code url}, a
+     * {@code jdbc:sqlserver://host:port;databaseName=…;…} URL: the URL itself, the server, or the
+     * database.
+     */
     private static boolean namesTheConnection(String line, String url) {
-        URI server = URI.create(url.substring("jdbc:".length()));
-        String database = url.substring(url.lastIndexOf('/') + 1);
+        String[] parts = url.substring("jdbc:".length()).split(";");
+        URI server = URI.create(parts[0]);
+        String database = Arrays.stream(parts)
+                .filter(part -> part.startsWith("databaseName="))
+                .map(part -> part.substring("databaseName=".length()))
+                .findFirst()
+                .orElseThrow();
         return line.contains("jdbc:")
                 || line.contains(server.getHost() + ":" + server.getPort())
                 || line.contains(server.getHost())

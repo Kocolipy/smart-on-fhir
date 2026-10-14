@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.application.ScimSeedService.SeededIdentity;
 import com.example.backend.scim.domain.ScimSeedLock;
@@ -47,9 +48,15 @@ class ScimSeedIntegrationTests {
 
     private static final String COUNT_AUDIT_EVENTS = "SELECT count(*) FROM audit_events";
 
-    /** A backend waiting on an advisory lock shows as an ungranted advisory row. */
-    private static final String COUNT_WAITING_ADVISORY_LOCKS =
-            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted";
+    /**
+     * A session waiting on an application lock shows as a waiting {@code APPLICATION} request.
+     * Read as the server's administrator: another login's locks are visible only with
+     * {@code VIEW SERVER STATE}, which the service's logins do not hold.
+     */
+    private static final String COUNT_WAITING_APPLICATION_LOCKS = """
+            SELECT count(*) FROM sys.dm_tran_locks
+             WHERE resource_type = 'APPLICATION' AND request_status = 'WAIT'
+               AND resource_database_id = DB_ID()""";
 
     private static final Duration PATIENCE = Duration.ofSeconds(15);
 
@@ -64,6 +71,9 @@ class ScimSeedIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private DatabaseLogins logins;
 
     @Value("${app.auth.bootstrap-username}")
     private String recoveryUserName;
@@ -87,8 +97,8 @@ class ScimSeedIntegrationTests {
     }
 
     /**
-     * A transaction-scoped advisory lock taken on an auto-commit connection is released when its
-     * own statement ends, so a call outside a transaction would protect nothing while appearing to
+     * A transaction-owned application lock taken on an auto-commit connection is released when
+     * its own statement ends, so a call outside a transaction would protect nothing while appearing to
      * work. It is refused instead.
      */
     @Test
@@ -101,8 +111,8 @@ class ScimSeedIntegrationTests {
      * Two instances starting together: while one holds the seeding lock, the other's seed waits
      * in the database rather than reading and racing it, and proceeds once the holder commits.
      *
-     * <p>"Waits" is observed in {@code pg_locks}, not inferred from a sleep, so the assertion does
-     * not depend on timing.
+     * <p>"Waits" is observed in {@code sys.dm_tran_locks}, not inferred from a sleep, so the
+     * assertion does not depend on timing.
      */
     @Test
     void a_seed_waits_for_a_concurrent_holder_of_the_seeding_lock() throws Exception {
@@ -119,7 +129,7 @@ class ScimSeedIntegrationTests {
             assertThat(held.await(PATIENCE.toSeconds(), TimeUnit.SECONDS)).isTrue();
 
             Future<?> seed = threads.submit(this::seedAsConfigured);
-            awaitWaitingAdvisoryLocks(1);
+            awaitWaitingApplicationLocks(1);
             assertThat(seed.isDone())
                     .as("the seed must be blocked while another transaction holds the lock")
                     .isFalse();
@@ -134,9 +144,10 @@ class ScimSeedIntegrationTests {
         }
     }
 
-    private void awaitWaitingAdvisoryLocks(long expected) throws InterruptedException {
+    private void awaitWaitingApplicationLocks(long expected) throws InterruptedException {
         Instant deadline = Instant.now().plus(PATIENCE);
-        while (count(COUNT_WAITING_ADVISORY_LOCKS) != expected) {
+        while (logins.superuser().jdbc().queryForObject(COUNT_WAITING_APPLICATION_LOCKS, Long.class)
+                != expected) {
             assertThat(Instant.now())
                     .as("no seed came to wait on the seeding lock")
                     .isBefore(deadline);

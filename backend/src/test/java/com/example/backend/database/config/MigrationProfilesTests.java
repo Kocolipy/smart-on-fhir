@@ -109,7 +109,7 @@ class MigrationProfilesTests {
     void theMigrateStepReachesTheServicesDatabase() {
         assertThat(deployedConfigurationUnder("migrate")
                         .bind("spring.flyway.url", String.class).get())
-                .isEqualTo("jdbc:postgresql://localhost:5432/backend");
+                .isEqualTo("${DATABASE_URL}");
     }
 
     /**

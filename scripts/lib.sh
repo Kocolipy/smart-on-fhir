@@ -150,14 +150,13 @@ port_reachable() {
   timeout 2 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$1" "$2" 2>/dev/null
 }
 
-# Print "host port" for the first host of a jdbc:postgresql:// URL, defaulting to
-# localhost and 5432 the way the driver does. Handles [IPv6] literals and drops
-# failover hosts, the database name and query parameters.
+# Print "host port" for a jdbc:sqlserver:// URL, defaulting to localhost and 1433
+# the way the driver does. Handles [IPv6] literals and drops a named instance and
+# the ;-separated properties (the database name among them).
 jdbc_host_port() {
-  local rest=${1#jdbc:postgresql://} host port
-  rest=${rest%%/*}
-  rest=${rest%%\?*}
-  rest=${rest%%,*}
+  local rest=${1#jdbc:sqlserver://} host port
+  rest=${rest%%;*}
+  rest=${rest%%\\*}
   if [[ $rest == \[* ]]; then
     host=${rest%%]*}
     host=${host#[}
@@ -167,7 +166,7 @@ jdbc_host_port() {
     port=${rest#"$host"}
   fi
   port=${port#:}
-  printf '%s %s\n' "${host:-localhost}" "${port:-5432}"
+  printf '%s %s\n' "${host:-localhost}" "${port:-1433}"
 }
 
 # Refuse to start when the port is taken. Without this the caller's readiness
@@ -270,11 +269,12 @@ stack_up() {
 
   log "starting $description"
   "${STACK_COMPOSE[@]}" up -d --wait
+  # The database and the three logins the backend connects as (backend/README.md,
+  # "Local setup"), by the one-shot init, in the foreground so a failure stops the
+  # run; idempotent, so a volume that has them already is fine.
+  "${STACK_COMPOSE[@]}" run --rm sqlserver-init
 
   load_backend_env
-  # The app and retention logins the backend connects as (backend/README.md,
-  # "Database logins"); idempotent, so a volume that has them already is fine.
-  "$BACKEND_DIR/scripts/local-db-logins.sh"
   BACKEND_PORT="${SERVER_PORT:-8080}"
   require_port_free "$BACKEND_PORT" "the backend"
   require_port_free 5173 "the Vite dev server Playwright starts"

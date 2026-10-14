@@ -22,7 +22,7 @@ MVN=${MVN:-./mvnw}
 
 # Explicit list: every test class whose source names none of @SpringBootTest,
 # ContainerTestConfiguration, Testcontainers, GenericContainer or
-# PostgreSQLContainer, so none starts a Spring context or a container. Add a
+# MSSQLServerContainer, so none starts a Spring context or a container. Add a
 # class only if it is that and needs no environment value; add it to nothing
 # else, since the subsystem gates select by package.
 FAST_GATE=(
@@ -30,6 +30,7 @@ FAST_GATE=(
   arch/DeadlockRetryRulesTests
   arch/NoRoleSwitchTest
   arch/TestSourceArchitectureTest
+  arch/TrustServerCertificateTest
   com/example/backend/audit/application/AuditEventListingServiceTests
   com/example/backend/audit/application/AuditRetentionServiceTests
   com/example/backend/audit/application/AuditTrailServiceTests

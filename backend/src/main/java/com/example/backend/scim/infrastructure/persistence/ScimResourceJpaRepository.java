@@ -21,7 +21,8 @@ import org.springframework.data.repository.query.Param;
 interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UUID> {
 
     /**
-     * Locks this one resource row {@code FOR UPDATE} until the transaction ends. The result is
+     * Locks this one resource row for update ({@code WITH (UPDLOCK, ROWLOCK)}) until the
+     * transaction ends. The result is
      * the statement's, not the caller's: the adapter ignores it, because a missing resource is
      * the write's own 404 to find with its first read, and locking nothing is then harmless.
      *
@@ -29,8 +30,7 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      * {@code ArchitectureTest} holds that. One row by primary key, and so no order of its own: the
      * order of a write's locks is the order the adapter issues these statements in, which it
      * decides ({@code ScimWriteLocks.ORDER}). No engine can reorder a statement that locks a
-     * single row, so the guarantee holds whatever the database — on SQL Server the same lock is
-     * {@code WITH (UPDLOCK, ROWLOCK)} (ADR 0015).
+     * single row, so the guarantee holds whatever the database (ADR 0015).
      *
      * <p>The serialization point of a conditional write. A second writer holding the same
      * precondition blocks here until the first commits, and its next statement then reads the
@@ -38,7 +38,8 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      * succeeding. Native and returning the id alone, so it loads no entity: the reads after it are
      * the transaction's first, and see what the previous lock holder committed.
      */
-    @Query(value = "SELECT id FROM scim_resources WHERE id = :id FOR UPDATE", nativeQuery = true)
+    @Query(value = "SELECT id FROM scim_resources WITH (UPDLOCK, ROWLOCK) WHERE id = :id",
+            nativeQuery = true)
     List<UUID> lockResource(@Param("id") UUID id);
 
     /**
