@@ -130,3 +130,37 @@ class PlantedAuditEvents {
         new StringBuilder().append(password);
     }
 }
+
+class PlantedTimestampBinds {
+
+    private java.sql.PreparedStatement statement;
+
+    void bindAJvmLocalWallClock(java.time.Instant instant, long millis) throws Exception {
+        // ruleid: be-jdbc-timestamp-bind
+        jdbc.update("DELETE FROM audit_events WHERE occurred_at < ?", Timestamp.from(instant));
+        // ruleid: be-jdbc-timestamp-bind
+        jdbc.update("DELETE FROM audit_events WHERE occurred_at < ?", new Timestamp(millis));
+        // ruleid: be-jdbc-timestamp-bind
+        Object parsed = Timestamp.valueOf("2026-10-14 09:30:00");
+        // ruleid: be-jdbc-timestamp-bind
+        statement.setTimestamp(1, null);
+        // ruleid: be-jdbc-timestamp-bind
+        parameters.addValue("from", null, Types.TIMESTAMP);
+        // ruleid: be-jdbc-timestamp-bind
+        Object qualified = java.sql.Timestamp.from(instant);
+    }
+
+    void bindAnOffsetAtUtcAndReadEitherWay(java.time.Instant instant, java.sql.ResultSet row)
+            throws Exception {
+        // ok: be-jdbc-timestamp-bind
+        jdbc.update("DELETE FROM audit_events WHERE occurred_at < ?",
+                instant.atOffset(java.time.ZoneOffset.UTC));
+        // ok: be-jdbc-timestamp-bind
+        parameters.addValue("from", instant.atOffset(java.time.ZoneOffset.UTC),
+                Types.TIMESTAMP_WITH_TIMEZONE);
+        // ok: be-jdbc-timestamp-bind
+        java.time.Instant read = row.getTimestamp("occurred_at").toInstant();
+        // ok: be-jdbc-timestamp-bind
+        java.time.OffsetDateTime at = row.getObject("occurred_at", java.time.OffsetDateTime.class);
+    }
+}
