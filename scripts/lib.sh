@@ -139,12 +139,49 @@ port_holder() {
   ss -ltnpH "sport = :$1" 2>/dev/null || true
 }
 
+# Succeed when $1:$2 accepts a TCP connection within 2 s. Use this, not
+# port_holder, to ask "is a dependency up?": it tests exactly what the backend
+# will do, so it holds under every WSL setup. Under mirrored networking or Docker
+# Desktop a published port has no listening socket in WSL's own namespace (`ss`
+# reports it free while connections succeed); under NAT a dependency on the
+# Windows side is reached at the host's IP, not 127.0.0.1. Host and port are
+# passed as arguments, never spliced into the inner script.
+port_reachable() {
+  timeout 2 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$1" "$2" 2>/dev/null
+}
+
+# Print "host port" for the first host of a jdbc:postgresql:// URL, defaulting to
+# localhost and 5432 the way the driver does. Handles [IPv6] literals and drops
+# failover hosts, the database name and query parameters.
+jdbc_host_port() {
+  local rest=${1#jdbc:postgresql://} host port
+  rest=${rest%%/*}
+  rest=${rest%%\?*}
+  rest=${rest%%,*}
+  if [[ $rest == \[* ]]; then
+    host=${rest%%]*}
+    host=${host#[}
+    port=${rest#*]}
+  else
+    host=${rest%%:*}
+    port=${rest#"$host"}
+  fi
+  port=${port#:}
+  printf '%s %s\n' "${host:-localhost}" "${port:-5432}"
+}
+
 # Refuse to start when the port is taken. Without this the caller's readiness
 # probe happily passes against a *previous* run's leftover process, and you debug
-# a server you are not actually running.
+# a server you are not actually running. `ss` names a holder inside WSL; the
+# connect probe catches one it cannot see — a Windows process under mirrored
+# networking, or a port Docker Desktop publishes.
 require_port_free() {
   local port=$1 name=$2 info
   info="$(port_holder "$port")"
+  if [[ -z $info ]] && port_reachable 127.0.0.1 "$port"; then
+    info="something answers on localhost:$port but holds no socket inside WSL —
+a Windows-side process or a Docker-published port"
+  fi
   [[ -n $info ]] || return 0
   die "port $port is already in use, so $name cannot bind it:
        ${info//$'\n'/$'\n'       }

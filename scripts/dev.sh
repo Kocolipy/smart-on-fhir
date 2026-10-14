@@ -23,12 +23,14 @@ require_port_free 5173 "the Vite dev server"
 
 # Postgres and Redis are a hard dependency: the backend fails its datasource and
 # Redis session setup without them. Checking here turns a silent multi-minute
-# startup wait into an immediate, actionable message.
-for dep in "Postgres:${POSTGRES_PORT:-5432}" "Redis:${REDIS_PORT:-6379}"; do
-  name=${dep%%:*}
-  port=${dep##*:}
-  [[ -n "$(port_holder "$port")" ]] ||
-    die "$name is not listening on $port — run 'make infra-up' first."
+# startup wait into an immediate, actionable message. Probe the addresses the
+# backend itself will use, read from backend/.env, so the check agrees with the
+# backend whether the dependencies sit in Docker or on the Windows host.
+read -r pg_host pg_port < <(jdbc_host_port "${DATABASE_URL:-}")
+for dep in "Postgres|$pg_host|$pg_port" "Redis|${REDIS_HOST:-localhost}|${REDIS_PORT:-6379}"; do
+  IFS='|' read -r name host port <<<"$dep"
+  port_reachable "$host" "$port" ||
+    die "$name is not reachable at $host:$port (backend/.env) — run 'make infra-up' first."
 done
 
 backend_pid=""
