@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.database.ConnectionQualifiers;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import java.time.Instant;
@@ -67,7 +68,7 @@ class ScheduledJobRunIntegrationTests {
 
     /** The retention pool's transaction manager, the one the retention job's deletes commit on. */
     @Autowired
-    @Qualifier("auditRetentionTransactionManager")
+    @Qualifier(ConnectionQualifiers.AUDIT_RETENTION_TRANSACTIONS)
     private PlatformTransactionManager retentionTransactions;
 
     /**
@@ -76,7 +77,7 @@ class ScheduledJobRunIntegrationTests {
      * outside every pool: what is proven is a commit on the pool's own transaction manager.
      */
     @Autowired
-    @Qualifier("auditRetentionJdbcTemplate")
+    @Qualifier(ConnectionQualifiers.AUDIT_RETENTION_JDBC)
     private JdbcTemplate retentionJdbc;
 
     @Test

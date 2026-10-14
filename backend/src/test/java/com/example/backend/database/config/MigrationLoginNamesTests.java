@@ -8,7 +8,6 @@ import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
@@ -128,7 +127,7 @@ class MigrationLoginNamesTests {
     void theMigrationConfigurationGivesFlywayTheCheck() {
         new ApplicationContextRunner().withUserConfiguration(MigrationConfig.class)
                 .run(context -> assertThatThrownBy(() -> context
-                        .getBean(FlywayConfigurationCustomizer.class)
+                        .getBean(MigrationLoginNames.class)
                         .customize(withLogins("ab", "retention")))
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessageStartingWith("Flyway placeholder app_login "));

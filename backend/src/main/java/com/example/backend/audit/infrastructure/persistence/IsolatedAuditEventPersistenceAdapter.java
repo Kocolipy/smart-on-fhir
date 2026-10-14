@@ -2,6 +2,7 @@ package com.example.backend.audit.infrastructure.persistence;
 
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.IsolatedAuditEventRepository;
+import com.example.backend.database.ConnectionQualifiers;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,8 +13,8 @@ import org.springframework.stereotype.Repository;
  * Maps the fail-open append onto the dedicated audit pool, as one plain JDBC {@code INSERT}.
  *
  * <p>The {@link JdbcTemplate} is the audit append pool's ({@code AuditAppendPoolConfig}): two or
- * three connections of their own, opened with the main pool's URL and credentials, so an append
- * runs as the same app login and never takes a connection from the main pool. The pool's connections auto-commit, so the one statement is a
+ * three connections of their own, opened as the main pool's are and as the same app login, so an
+ * append never takes a connection from the main pool. The pool's connections auto-commit, so the one statement is a
  * transaction of its own — committed whatever the caller's transaction then does — with no
  * transaction manager to join, and none the caller's could leak into.
  *
@@ -40,16 +41,15 @@ class IsolatedAuditEventPersistenceAdapter implements IsolatedAuditEventReposito
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-    /**
-     * The audit append pool's template, by the qualifier {@code AuditAppendPoolConfig} declares it
-     * under — spelled in both, since a configuration and a persistence adapter may not depend on
-     * each other; a mismatch fails every context's startup.
-     */
-    static final String AUDIT_APPEND_JDBC = "auditAppendJdbcTemplate";
-
     private final JdbcTemplate pool;
 
-    IsolatedAuditEventPersistenceAdapter(@Qualifier(AUDIT_APPEND_JDBC) JdbcTemplate pool) {
+    /**
+     * @param pool the audit append pool's template, by the qualifier {@code AuditAppendPoolConfig}
+     *             declares it under — both spell it through {@link ConnectionQualifiers}, since a
+     *             configuration and a persistence adapter may not depend on each other
+     */
+    IsolatedAuditEventPersistenceAdapter(
+            @Qualifier(ConnectionQualifiers.AUDIT_APPEND_JDBC) JdbcTemplate pool) {
         this.pool = pool;
     }
 

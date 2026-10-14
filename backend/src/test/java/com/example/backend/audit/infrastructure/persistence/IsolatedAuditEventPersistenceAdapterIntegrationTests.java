@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.database.ConnectionQualifiers;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -30,7 +31,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class IsolatedAuditEventPersistenceAdapterIntegrationTests {
 
     @Autowired
-    @Qualifier(IsolatedAuditEventPersistenceAdapter.AUDIT_APPEND_JDBC)
+    @Qualifier(ConnectionQualifiers.AUDIT_APPEND_JDBC)
     private JdbcTemplate auditPool;
 
     @Autowired

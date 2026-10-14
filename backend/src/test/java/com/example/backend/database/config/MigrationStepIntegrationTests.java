@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
@@ -108,6 +109,24 @@ class MigrationStepIntegrationTests {
                         migrate(url, "app\"; DROP TABLE scim_users; --", "backend_retention_login")))
                 .hasRootCauseMessage("Flyway placeholder app_login (DATABASE_USERNAME) must be a"
                         + " login name matching ^[a-z][a-z0-9_]{2,30}$");
+
+        assertThat(asOwner(url).queryForObject(PUBLIC_TABLES, Integer.class)).isZero();
+    }
+
+    /**
+     * The owner's connection is opened with the driver properties every pool's is: here one that
+     * demands TLS of a server that offers none, so the step fails before any migration runs rather
+     * than migrating over a connection the deployment said must be encrypted.
+     */
+    @Test
+    void theOwnersConnectionIsOpenedWithTheServicesDriverProperties() throws SQLException {
+        String url = emptyDatabase();
+        String[] args = Stream.concat(Stream.of(migrate(url)),
+                        Stream.of("--spring.datasource.hikari.data-source-properties.sslmode=require"))
+                .toArray(String[]::new);
+
+        assertThatThrownBy(() -> MigrationStep.main(args))
+                .hasRootCauseMessage("The server does not support SSL.");
 
         assertThat(asOwner(url).queryForObject(PUBLIC_TABLES, Integer.class)).isZero();
     }

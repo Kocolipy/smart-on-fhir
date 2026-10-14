@@ -3,67 +3,42 @@ package com.example.backend.audit.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.database.config.DatabaseConnections;
+import com.example.backend.database.config.DatabaseConnectionsFixture;
 import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * The audit append pool connects exactly as the main pool does, and sizes itself by its own two
- * settings. Built without opening a connection: the pool starts on its first append.
+ * The audit append pool is the connections module's pool for the app login, and sizes itself by
+ * its own two settings. Built without opening a connection: the pool starts on its first append.
  */
 class AuditAppendPoolConfigTests {
 
     private final AuditAppendPoolConfig config = new AuditAppendPoolConfig();
 
-    /** A main pool as the service declares one: URL, the app login, its password, the driver. */
-    private static HikariDataSource mainPool() {
-        HikariDataSource main = new HikariDataSource();
-        main.setJdbcUrl("jdbc:postgresql://db.internal:5432/backend");
-        main.setUsername("backend_app_login");
-        main.setPassword("from-the-environment");
-        main.setDriverClassName("org.postgresql.Driver");
-        main.setMaximumPoolSize(10);
-        main.setConnectionTimeout(30_000);
-        return main;
-    }
+    /** The service's connections: its database, the app login, and no driver property. */
+    private static final DatabaseConnections CONNECTIONS = DatabaseConnectionsFixture.connections();
 
     /** The app login, the main pool's — never the owner login, and no credential of its own. */
     @Test
     void thePoolConnectsAsTheMainPoolsLogin() {
-        try (HikariDataSource main = mainPool();
-                HikariDataSource pool = config.auditAppendDataSource(
-                        main, new AuditAppendPoolProperties(null, null))) {
+        try (HikariDataSource pool = config.auditAppendDataSource(
+                        CONNECTIONS, new AuditAppendPoolProperties(null, null))) {
 
             assertThat(List.of(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword(),
                             pool.getDriverClassName()))
                     .containsExactly("jdbc:postgresql://db.internal:5432/backend",
-                            "backend_app_login", "from-the-environment", "org.postgresql.Driver");
-        }
-    }
-
-    /**
-     * Nothing runs on a new connection, whatever the main pool was given: the login's own
-     * privileges are the pool's, and a statement copied from elsewhere could only widen them.
-     */
-    @Test
-    void thePoolRunsNoConnectionInitSqlEvenWhenTheMainPoolHasOne() {
-        try (HikariDataSource main = mainPool()) {
-            main.setConnectionInitSql("SELECT 1");
-            try (HikariDataSource pool = config.auditAppendDataSource(
-                    main, new AuditAppendPoolProperties(null, null))) {
-
-                assertThat(pool.getConnectionInitSql()).isNull();
-            }
+                            "backend_app_login", "the-app-logins", "org.postgresql.Driver");
         }
     }
 
     /** Small, short, named and auto-committing by default — never the main pool's sizing. */
     @Test
     void thePoolIsSmallAndShortByDefault() {
-        try (HikariDataSource main = mainPool();
-                HikariDataSource pool = config.auditAppendDataSource(
-                        main, new AuditAppendPoolProperties(null, null))) {
+        try (HikariDataSource pool = config.auditAppendDataSource(
+                        CONNECTIONS, new AuditAppendPoolProperties(null, null))) {
 
             assertThat(List.<Object>of(pool.getMaximumPoolSize(), pool.getConnectionTimeout(),
                             pool.getPoolName(), pool.isAutoCommit()))
@@ -73,9 +48,8 @@ class AuditAppendPoolConfigTests {
 
     @Test
     void theConfiguredSizeAndTimeoutAreTheOnesUsed() {
-        try (HikariDataSource main = mainPool();
-                HikariDataSource pool = config.auditAppendDataSource(
-                        main, new AuditAppendPoolProperties(3, Duration.ofMillis(750)))) {
+        try (HikariDataSource pool = config.auditAppendDataSource(
+                        CONNECTIONS, new AuditAppendPoolProperties(3, Duration.ofMillis(750)))) {
 
             assertThat(List.of(pool.getMaximumPoolSize(), (int) pool.getConnectionTimeout()))
                     .containsExactly(3, 750);
@@ -85,9 +59,8 @@ class AuditAppendPoolConfigTests {
     /** The append adapter's template writes through the pool it is given, and no other. */
     @Test
     void theTemplateWritesThroughTheAuditPool() {
-        try (HikariDataSource main = mainPool();
-                HikariDataSource pool = config.auditAppendDataSource(
-                        main, new AuditAppendPoolProperties(null, null))) {
+        try (HikariDataSource pool = config.auditAppendDataSource(
+                        CONNECTIONS, new AuditAppendPoolProperties(null, null))) {
 
             assertThat(config.auditAppendJdbcTemplate(pool).getDataSource()).isSameAs(pool);
         }

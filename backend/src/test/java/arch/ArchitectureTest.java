@@ -437,15 +437,18 @@ public class ArchitectureTest {
             // The scheduled-job lock and run module are shared by the auth and audit jobs (ADR 0005),
             // so it knows neither of them. A job's one identity, ScheduledJob, carries the
             // Operation its records are classified as, so it depends on the logging base every
-            // module depends on, which depends on nothing back.
-            Map.entry("scheduling", Set.of("observability")),
-            // The main pool and the migrate step: how the service reaches its database and how the
-            // schema gets there, which no business module is needed for.
+            // module depends on, which depends on nothing back. A run's transaction is the main
+            // pool's, named by the qualifier the database module declares.
+            Map.entry("scheduling", Set.of("database", "observability")),
+            // The connections module, the main pool and the migrate step: how the service reaches
+            // its database and how the schema gets there, which no business module is needed for.
+            // It also owns the qualifiers its connection beans are injected by.
             Map.entry("database", Set.of()),
             // SPA routing and the API error shape are shared plumbing and know no business module.
             Map.entry("web", Set.of("observability")),
-            // Shared by every business module, so it depends on none of them.
-            Map.entry("audit", Set.of("authorization", "observability", "scheduling")),
+            // Shared by every business module, so it depends on none of them. Its append and
+            // retention pools are the database connections module's.
+            Map.entry("audit", Set.of("authorization", "database", "observability", "scheduling")),
             // auth reaches the directory through scim.domain ports; nothing in scim mentions auth
             // (backend/AGENTS.md).
             Map.entry("scim", Set.of("audit", "authorization", "observability")),

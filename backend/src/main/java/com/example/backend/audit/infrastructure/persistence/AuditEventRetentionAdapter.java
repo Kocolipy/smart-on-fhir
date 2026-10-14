@@ -1,6 +1,7 @@
 package com.example.backend.audit.infrastructure.persistence;
 
 import com.example.backend.audit.domain.AuditEventRetention;
+import com.example.backend.database.ConnectionQualifiers;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -27,21 +28,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 class AuditEventRetentionAdapter implements AuditEventRetention {
 
-    /**
-     * The retention pool's template and transaction manager, by the qualifiers
-     * {@code audit.config.AuditRetentionPoolConfig} declares them under — spelled again here,
-     * since a persistence adapter and a configuration may not depend on each other.
-     */
-    static final String RETENTION_JDBC = "auditRetentionJdbcTemplate";
-
-    static final String RETENTION_TRANSACTIONS = "auditRetentionTransactionManager";
-
     private static final String DELETE_AGED_OUT =
             "DELETE FROM audit_events WHERE occurred_at < ?";
 
     private final JdbcTemplate jdbc;
 
-    AuditEventRetentionAdapter(@Qualifier(RETENTION_JDBC) JdbcTemplate jdbc) {
+    /**
+     * @param jdbc the retention pool's template, by the qualifier
+     *             {@code audit.config.AuditRetentionPoolConfig} declares it under — both spell it
+     *             through {@link ConnectionQualifiers}, since a persistence adapter and a
+     *             configuration may not depend on each other
+     */
+    AuditEventRetentionAdapter(@Qualifier(ConnectionQualifiers.AUDIT_RETENTION_JDBC) JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -50,7 +48,7 @@ class AuditEventRetentionAdapter implements AuditEventRetention {
      * 0015, "Storage is UTC only").
      */
     @Override
-    @Transactional(transactionManager = RETENTION_TRANSACTIONS)
+    @Transactional(transactionManager = ConnectionQualifiers.AUDIT_RETENTION_TRANSACTIONS)
     public long deleteOccurredBefore(Instant cutoff) {
         return jdbc.update(DELETE_AGED_OUT, cutoff.atOffset(ZoneOffset.UTC));
     }

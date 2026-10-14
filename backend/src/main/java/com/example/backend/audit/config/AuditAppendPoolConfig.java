@@ -1,5 +1,7 @@
 package com.example.backend.audit.config;
 
+import com.example.backend.database.ConnectionQualifiers;
+import com.example.backend.database.config.DatabaseConnections;
 import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -30,49 +32,36 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * pool and create the one JPA transaction manager. This pool adds no transaction manager: its
  * connections auto-commit, so each append is a transaction of its own.
  *
- * <p><strong>The main pool's login, not a copy of its settings.</strong> The URL, the username and
- * the password are read off the main pool, so an append connects as the app login — a member of
- * {@code backend_app} only, which may insert an audit event and never change or delete one — as
- * every other statement the service issues; there is no second set of credentials, no fallback
- * for one, and never the owner login. Nothing runs on a new connection: the login's privileges
- * are the pool's (ADR 0015, "The audit append pool needs its own role switch", resolved by the
- * separate logins of #66). Only the pool's size and its connection timeout are its own
- * ({@link AuditAppendPoolProperties}). The pool starts lazily, on the first append, so a context
- * that records no refusal opens no connection here.
+ * <p><strong>The app login, the main pool's.</strong> The pool is the database connections
+ * module's pool for the app login ({@link DatabaseConnections#appLogin()}), so an append connects
+ * as a member of {@code backend_app} only — which may insert an audit event and never change or
+ * delete one — as every other statement the service issues, and reaches the database exactly as
+ * the main pool does; there is no second set of credentials, no fallback for one, and never the
+ * owner login. Nothing runs on a new connection: the login's privileges are the pool's (ADR 0015,
+ * "The audit append pool needs its own role switch", resolved by the separate logins of #66).
+ * Only the pool's size and its connection timeout are its own ({@link AuditAppendPoolProperties}).
+ * The pool starts lazily, on the first append, so a context that records no refusal opens no
+ * connection here.
  */
 @Configuration
 @EnableConfigurationProperties(AuditAppendPoolProperties.class)
 public class AuditAppendPoolConfig {
 
-    /**
-     * The qualifier the append adapter injects the template by. Spelled again there, since a
-     * configuration and a persistence adapter may not depend on each other.
-     */
-    static final String AUDIT_APPEND_JDBC = "auditAppendJdbcTemplate";
-
     /** The pool's name in its metrics and its log lines. */
     static final String POOL_NAME = "audit-append";
 
-    /**
-     * The pool, connected as the main one is.
-     *
-     * @param main the main pool, the one default {@link DataSource} — read for its connection
-     *             settings, never used
-     */
+    /** The pool, for the app login. */
     @Bean(defaultCandidate = false)
     @Qualifier(POOL_NAME)
     public HikariDataSource auditAppendDataSource(
-            HikariDataSource main, AuditAppendPoolProperties settings) {
-        HikariDataSource pool = SecondaryPools.onTheMainPoolsDatabase(
-                main, POOL_NAME, settings.size(), settings.timeout());
-        pool.setUsername(main.getUsername());
-        pool.setPassword(main.getPassword());
-        return pool;
+            DatabaseConnections connections, AuditAppendPoolProperties settings) {
+        return connections.pool(
+                POOL_NAME, connections.appLogin(), settings.size(), settings.timeout());
     }
 
     /** The template the append adapter writes through, on the pool and nothing else. */
     @Bean(defaultCandidate = false)
-    @Qualifier(AUDIT_APPEND_JDBC)
+    @Qualifier(ConnectionQualifiers.AUDIT_APPEND_JDBC)
     public JdbcTemplate auditAppendJdbcTemplate(@Qualifier(POOL_NAME) DataSource pool) {
         return new JdbcTemplate(pool);
     }
