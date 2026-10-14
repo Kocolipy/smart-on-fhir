@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { usePageStatus } from "@/auth/page-status";
 import { holds, holdsAny } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
@@ -27,16 +26,15 @@ const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
  * The counter's state and the two changes to it. The current count is read
  * once, on mount, and only with `counter:read` — without it the read would
  * only be refused, so it is never asked for. Both report to the page's one
- * error line, where the latest failure shows: a change starting withdraws the
- * read's, and its own refusal replaces it.
+ * error line, which the signed-in layout owns and renders, where the latest
+ * failure shows: a change starting withdraws the read's, and its own refusal
+ * replaces it.
  */
 function useCounter() {
-  const status = usePageStatus();
   const reading = useGatedRead(COUNTER, {
     failureMessage: "Unable to load the counter. Please try again.",
-    status,
   });
-  const write = useGatedWrite({ status });
+  const write = useGatedWrite();
 
   const updateCount = (change: typeof INCREMENT_COUNTER) =>
     write.run(change, {
@@ -45,7 +43,6 @@ function useCounter() {
     });
 
   return {
-    error: status.error,
     increment: () => void updateCount(INCREMENT_COUNTER),
     isUpdating: write.pending,
     reset: () => void updateCount(RESET_COUNTER),
@@ -126,7 +123,7 @@ function CounterControls({
  */
 export function Showcase() {
   const { user } = useAuth();
-  const { error, increment, isUpdating, reset, view } = useCounter();
+  const { increment, isUpdating, reset, view } = useCounter();
 
   return (
     <Card className="w-full">
@@ -136,11 +133,6 @@ export function Showcase() {
       </CardHeader>
       <CardContent>
         <CounterReading view={view} />
-        {error ? (
-          <p className="mt-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
       </CardContent>
       <CardFooter className="gap-2">
         <CounterControls

@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import type { FormEvent } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
+import { useStatusReporter } from "@/auth/page-status";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,9 @@ const inputClass =
  * returns the visitor to login, which says why. Running the change is the
  * session action's (`useSessionAction`), which shows nothing for either; the
  * page owns only what comes before and after it — the confirmation check, and
- * clearing the fields after a refusal.
+ * clearing the fields after a refusal. Both the mismatch and the action's line
+ * are reported to the page's one error line, which the signed-in layout owns
+ * and renders; the page draws none of its own.
  *
  * The fields are uncontrolled on purpose. A controlled input mirrors its value
  * into the DOM `value` attribute, and a password belongs in no attribute; read
@@ -29,12 +32,11 @@ const inputClass =
  */
 export function ChangePassword() {
   const { user } = useAuth();
-  const change = useSessionAction("changePassword");
-  // The page's own refusal, which sends nothing; it stands until the next submission.
-  const [mismatch, setMismatch] = useState(false);
-  const confined = user?.passwordChangeRequired === true;
   // The action's line is the outcome's own copy, which never contains either submitted value.
-  const error = mismatch ? MISMATCH_MESSAGE : change.error;
+  const change = useSessionAction("changePassword", useStatusReporter());
+  // The page's own refusal, which sends nothing; it stands until the next submission.
+  const mismatch = useStatusReporter();
+  const confined = user?.passwordChangeRequired === true;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,7 +46,7 @@ export function ChangePassword() {
     const data = new FormData(form);
     const newPassword = String(data.get("newPassword"));
     const mismatched = newPassword !== String(data.get("confirmPassword"));
-    setMismatch(mismatched);
+    mismatch.report(mismatched ? MISMATCH_MESSAGE : null);
     if (mismatched) {
       form.reset();
       return;
@@ -123,11 +125,6 @@ export function ChangePassword() {
               type="password"
             />
           </div>
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
           <Button className="w-full" disabled={change.pending} type="submit">
             {change.pending ? "Changing password…" : "Change password"}
           </Button>

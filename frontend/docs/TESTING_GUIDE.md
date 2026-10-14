@@ -339,10 +339,19 @@ suites see the whole pipeline:
   against a hand-built `AuthContext` value, from `authState()` over one of the
   sessions in `src/auth/auth-context.testHelpers.ts` (`signedIn({ permissions })`,
   `CHECKING`, `unchecked()`), so a field added to the auth state changes one
-  builder, not every suite.
+  builder, not every suite. A hook that reports to the page status runs inside
+  the real one, `InPageStatus` in `src/auth/page-status.testHelpers.tsx`, and
+  the suite reads the line back with `shownLine()`.
 - **A page suite** (`src/pages/*.test.tsx`) renders the real page through the
   **session test adapter**, `renderAsSession()` in
-  `src/auth/session-adapter.testHelpers.tsx`, and fakes nothing but `fetch`.
+  `src/auth/session-adapter.testHelpers.tsx`, and fakes nothing but `fetch`. A
+  signed-in page renders where the app renders it, inside the real signed-in
+  layout, which owns its one error line: `renderSignedIn(path, session,
+answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
+  signed-in page under `SignedInShell` and renders the adapter at `path`. A
+  suite for one part of a page — the Connectors panel — routes that part alone
+  under the same layout with `renderInLayout(routes, path, session, answers)`,
+  which `renderSignedIn` is built on.
 
 Both kinds sign in as the same User, `testUser(overrides?)` in
 `src/auth/auth-context.testHelpers.ts`: `ada`, unflagged, with a 15-minute idle
@@ -377,7 +386,9 @@ how a suite proves nothing was sent for a session lacking a Permission.
 This replaced mocking `apiFetch` with data already decoded and mocking the
 Connectors panel out of the Accounts page. That pattern is what let the Accounts
 page ship two error lines (fixed in #82): the panel that drew the second line
-was never rendered in the page's own suite.
+was never rendered in the page's own suite. Since then the layout owns the line
+and nothing below it can make a second (`auth/page-status.ts`), and the page
+suites render inside the layout, so its Sign out shares the line they assert on.
 
 A suite's own wrapper over the adapter takes the wire answers before the
 session, so `renderAccounts(answers, session)`, `renderShowcase(answers, session)`

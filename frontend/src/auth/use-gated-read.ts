@@ -2,12 +2,12 @@
  * The one Permission-gated read every page's listing goes through.
  *
  * A page names a {@link ReadDeclaration} — the path, decoder and Permission
- * its API module declares — with the declaration's arguments, the copy for a
- * plain failure, and the {@link PageStatus} its error line reads; the hook does
- * the rest. Without the Permission no request is sent at all — the read would
- * only be refused — and with it the result lands as data, or as a refusal
- * whose message, read through the seam's own {@link refusalMessage}, is
- * reported to the page status.
+ * its API module declares — with the declaration's arguments and the copy for
+ * a plain failure; the hook does the rest. Without the Permission no request
+ * is sent at all — the read would only be refused — and with it the result
+ * lands as data, or as a refusal whose message, read through the seam's own
+ * {@link refusalMessage}, is reported to the page status the signed-in layout
+ * holds (`page-status.ts`), through a reporter of the read's own.
  *
  * What the page renders is one closed {@link ReadView}: the page switches on
  * it rather than rebuilding "a failure is never shown as empty" from loose
@@ -24,15 +24,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "./auth-context-value";
 import type { DeclarationArgs, ReadDeclaration } from "./declarations";
-import { useStatusReporter, type PageStatus, type StatusReporter } from "./page-status";
+import { useStatusReporter, type StatusReporter } from "./page-status";
 import { holds } from "./permissions";
 import { refusalMessage, useSessionRequest, type SessionResult } from "./use-session-request";
 
 export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> & {
   /** The copy for a plain `failed` result, which only the page can describe. */
   failureMessage: string;
-  /** The page's error line, which this read reports its outcome to. */
-  status: PageStatus;
 };
 
 /**
@@ -172,13 +170,13 @@ export function useGatedRead<T, A extends readonly unknown[]>(
   { decode, path: pathOf, permission }: ReadDeclaration<T, A>,
   options: GatedReadOptions<A>,
 ): GatedRead<T> {
-  const { failureMessage, status } = options;
+  const { failureMessage } = options;
   // An endpoint with a fixed path takes no arguments, and is handed none.
   const path = pathOf(...((options.args ?? []) as A));
   const { user } = useAuth();
   const allowed = holds(user, permission);
   const request = useSessionRequest();
-  const { report } = useStatusReporter(status);
+  const { report } = useStatusReporter();
   const [state, setState] = useKeyedState<T>(allowed ? path : null);
 
   const read = useCallback(() => request(path, {}, decode), [decode, path, request]);

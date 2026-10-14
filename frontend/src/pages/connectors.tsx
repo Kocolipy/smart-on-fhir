@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import type { PageStatus } from "@/auth/page-status";
 import { holds } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
@@ -346,18 +345,17 @@ interface ConnectorActions {
  * that at once.
  *
  * The listing and every mutation report to the page's one error line — the
- * Accounts page's `status`, which its Users and Groups report to as well — where
- * the latest failure shows: a mutation starting withdraws every standing one,
+ * signed-in layout's, which the Accounts page's Users and Groups report to as
+ * well — where the latest failure shows: a mutation starting withdraws every standing one,
  * its own refusal replaces it, and the re-read after it — reporting later still
  * — replaces that in turn when it fails too.
  */
-function useConnectors(status: PageStatus) {
+function useConnectors() {
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
   const listing = useGatedRead(CONNECTORS, {
     failureMessage: "Unable to load the connectors. Please try again.",
-    status,
   });
-  const write = useGatedWrite({ status });
+  const write = useGatedWrite();
 
   /** What every mutation shares: report a refusal naming `what`, then re-read — still inside the pending window. */
   const mutationOptions = (what: string) => ({
@@ -465,13 +463,13 @@ function CreateConnectorForm({
  * may carry only Permissions the session holds itself; the backend refuses
  * anything more, so the form offers nothing more.
  *
- * Renders no error line of its own: it is a panel of the Accounts page, whose
- * one line its listing and mutations report to through `status`
- * (ARCHITECTURE.md, "a page's single error line").
+ * Renders no error line of its own: it is a panel of the Accounts page, and its
+ * listing and mutations report to the page's one line, which the signed-in
+ * layout owns (`page-status.ts`).
  */
-export function Connectors({ status }: { status: PageStatus }) {
+export function Connectors() {
   const { user } = useAuth();
-  const { actionsFor, create, disclosure, dismiss, pending, view } = useConnectors(status);
+  const { actionsFor, create, disclosure, dismiss, pending, view } = useConnectors();
   const may: May = (request) => holds(user, request.permission);
   const grantable = TOKEN_PERMISSIONS.filter((permission) => holds(user, permission));
 

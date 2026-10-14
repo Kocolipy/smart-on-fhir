@@ -9,14 +9,13 @@ import {
   GUEST,
   holding,
   json,
-  renderAsSession,
   UNREACHABLE,
   type Answers,
   type StartingSession,
 } from "@/auth/session-adapter.testHelpers";
 
-import { Accounts } from "./accounts";
 import type { GroupRow, UserRow } from "./accounts-api";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const USERS = "GET /api/admin/accounts";
 const GROUPS = "GET /api/admin/groups";
@@ -57,13 +56,17 @@ const unlockGrace = `POST /api/admin/accounts/${GRACE_ID}/unlock`;
 const forceGrace = `POST /api/admin/accounts/${GRACE_ID}/force-password-change`;
 
 /**
- * The page as `session` sees it — every listing it may read answered empty
- * unless `answers` says otherwise, the Connectors panel's included, since the
- * page renders it for real.
+ * The page as `session` sees it, inside the signed-in layout that renders its
+ * one error line — every listing it may read answered empty unless `answers`
+ * says otherwise, the Connectors panel's included, since the page renders it
+ * for real.
  */
 const renderAccounts = (answers: Answers, session: StartingSession = SUPERUSER) =>
-  renderAsSession(<Accounts />, session, {
-    answers: { [CONNECTORS]: json([]), [GROUPS]: json([]), [USERS]: json([]), ...answers },
+  renderSignedIn("/accounts", session, {
+    [CONNECTORS]: json([]),
+    [GROUPS]: json([]),
+    [USERS]: json([]),
+    ...answers,
   });
 
 const usersTable = () => screen.getByRole("table", { name: "Users" });
@@ -567,9 +570,8 @@ describe("Accounts", () => {
 
 /**
  * The page's single error line with every panel present: the Connectors panel
- * reports to the page's status, so a failure of its read and one of another
- * listing share one line, where the latest shows. A panel that made its own
- * status would put a second line on the page.
+ * reports to the layout's page status as the page does, so a failure of its
+ * read and one of another listing share one line, where the latest shows.
  */
 describe("Accounts with its Connectors panel", () => {
   it.each([

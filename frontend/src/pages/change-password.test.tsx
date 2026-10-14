@@ -7,7 +7,6 @@ import {
   deferred,
   holding,
   json,
-  renderAsSession,
   STILL_CHECKING,
   type Answers,
   type StartingSession,
@@ -15,7 +14,7 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 
-import { ChangePassword } from "./change-password";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 /** Distinctive values, so a search of the DOM or a log line for them cannot match by accident. */
 const CURRENT = "Current-Value-4f81";
@@ -28,9 +27,12 @@ const CHANGE = "POST /api/auth/change-password";
 /** A session confined to the password change. */
 const FLAGGED = holding([], { passwordChangeRequired: true });
 
-/** The page as `session` sees it, the backend answering a submission as `answers` says. */
+/**
+ * The page as `session` sees it, inside the signed-in layout that renders its
+ * one error line, the backend answering a submission as `answers` says.
+ */
 const renderPage = (answers: Answers = {}, session: StartingSession = FLAGGED) =>
-  renderAsSession(<ChangePassword />, session, { answers });
+  renderSignedIn("/change-password", session, answers);
 
 /** The submissions the page sent, as the backend saw them. */
 const submissions = (requests: () => readonly { path: string }[]) =>
