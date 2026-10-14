@@ -244,7 +244,8 @@ Next Steps (deploy.sh does 1-3 when you answer yes to the JAR prompt):
    backend-only and produces a JAR with no SPA)
 3. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
    then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
-   and: sudo systemctl start backend && sudo systemctl enable backend
+   and: sudo systemctl stop backend && sudo systemctl restart backend-migrate && sudo systemctl start backend && sudo systemctl enable backend
+   (the migrate step runs the migrations as the owner login; if it fails, do not start the service)
 4. Post-deploy smoke (health, TLS, SCIM, alarms, secret leaks): ./smoke.sh ${STACK_NAME} ${AWS_REGION}
 5. The Bootstrap Admin's password: aws secretsmanager get-secret-value --secret-id ${ADMIN_SECRET_ARN} --query SecretString --output text
 EOF
@@ -354,13 +355,25 @@ deploy_jar() {
         "${JAR_FILE}" \
         "ec2-user@${EC2_IP}:/tmp/backend.jar"
 
-    print_info "Configuring and starting application..."
+    print_info "Migrating the schema (migrate step), then starting the application..."
 
+    # The migrate step runs first, as the owner login, against the new JAR; the
+    # service is stopped while it runs and is started only once it succeeded. A
+    # failed migration ends this script with the service still stopped, so a
+    # schema the new JAR does not match is never served (infra/README.md,
+    # "Migrate step").
     ssh -i "$KEY_FILE" \
         -o StrictHostKeyChecking=accept-new \
         "ec2-user@${EC2_IP}" << 'ENDSSH'
+set -euo pipefail
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
 sudo chown springboot:springboot /opt/backend/backend.jar
+sudo systemctl stop backend
+if ! sudo systemctl restart backend-migrate; then
+    sudo journalctl -u backend-migrate -n 50 --no-pager || true
+    echo "the migrate step failed; the service was not started" >&2
+    exit 1
+fi
 sudo systemctl start backend
 sudo systemctl enable backend
 sleep 5
