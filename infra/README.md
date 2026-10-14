@@ -17,10 +17,17 @@ cd infra
 ./deploy.sh
 ```
 
-The script will prompt for VPC IDs, passwords, and deploy the entire stack.
-Then [retrieve the SSH key](#ssh-key-management),
-[deploy the application](#deploy-application) and
-[test it](#test-application).
+The script prompts for VPC IDs and sizing — **never for a password**: every
+credential is generated into Secrets Manager by the stack (see
+[Database security](#database-security-secrets-key-tls-monitoring)). It deploys
+the stack, retrieves the SSH key, creates the database logins
+(`db-bootstrap.sh`), and runs the [post-deploy smoke](#post-deploy-smoke)
+(`smoke.sh`), which fails the deploy if any secret value leaked: the full smoke
+when you answer yes to the JAR prompt and it deploys the application, and its
+leak check over the boot alone when you answer no.
+
+Needs, besides the AWS CLI: `jq`, `curl`, `ssh`/`scp`, `openssl`, `base64`
+and the PostgreSQL client `psql`, 15 or newer.
 
 > **Before taking traffic:** attach an AWS WAF web ACL to the ALB. The stack
 > does not create one, and the application has no rate limiter of its own. See
@@ -39,8 +46,12 @@ Internet → ALB (HTTP:80) → EC2 (8080) → RDS PostgreSQL + Redis
 
 - Application Load Balancer (internet-facing)
 - EC2 instance (Amazon Linux 2023 + Java 25)
-- RDS PostgreSQL (encrypted, automated backups)
+- RDS PostgreSQL 15 (encrypted under a customer-managed KMS key, TLS enforced,
+  Enhanced Monitoring and Performance Insights, automated backups)
+- Secrets Manager secrets for every database credential and the application's
+  own secrets
 - ElastiCache Redis (session storage)
+- An SNS topic as the stack's alarm target, and two database alarms
 - Security groups with proper isolation
 
 ---
@@ -113,6 +124,209 @@ log destination.
 
 ---
 
+## Database security (secrets, key, TLS, monitoring)
+
+What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on today's RDS
+PostgreSQL (`/docs/adr/0015-sql-server-2022-replaces-postgresql.md`, "Compliance
+resolutions"). It is engine-neutral: the SQL Server switchover re-targets it
+rather than replacing it.
+
+### Database credentials
+
+**Every database credential is in AWS Secrets Manager.** None is a
+CloudFormation parameter, none is in UserData or in a file on the instance, and
+`deploy.sh` prompts for none.
+
+| Secret (stack output)   | Holds                                        | Created by                                           | Read by                                              |
+| ----------------------- | -------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| `DBMasterSecretArn`     | the RDS master user (`DBMasterUsername`)     | RDS (`ManageMasterUserPassword`)                     | the operator only: `db-bootstrap.sh`, `smoke.sh`     |
+| `DBOwnerSecretArn`      | the owner login (`DBOwnerLogin`)             | CloudFormation, generated                            | the instance (see below), `db-bootstrap.sh`          |
+| `DBAppSecretArn`        | the app login (`DBAppLogin`)                 | CloudFormation, generated                            | the instance, `db-bootstrap.sh`, `smoke.sh`          |
+| `DBRetentionSecretArn`  | the retention login (`DBRetentionLogin`)     | CloudFormation, generated                            | the instance, `db-bootstrap.sh`                      |
+| `AppBootstrapSecretArn` | the Bootstrap Admin (`AppBootstrapUsername`) | CloudFormation, generated                            | the instance; `smoke.sh` replaces the first password |
+| `EpicClientSecretArn`   | the Epic client id and signing keys (JSON)   | CloudFormation, from the `AppEpicClient*` parameters | the instance                                         |
+
+Each generated password is 32 characters and excludes `'`, `"`, `\` and `;`.
+Each secret is encrypted under the stack's [database key](#database-key). There
+is no rotation yet (#73).
+
+**The instance role reads only these secrets** — `GetSecretValue` on the five
+ARNs above, and `kms:Decrypt` on the database key through Secrets Manager only.
+It cannot read the master secret, nor any other secret in the account.
+
+**The service resolves its credentials at every start.** UserData writes
+`/opt/backend/start.sh` (root-owned) and the systemd unit runs it. It reads the
+secrets through the instance role, puts each value into the JVM's environment
+and `exec`s Java: no value is ever written to disk, passed as a command-line
+argument (each reaches `jq` on a pipe) or traced. `/opt/backend/.env` holds the
+secrets' ARNs, never their values. A secret that cannot be read, or lacks its
+password, stops the start before the JVM runs, and systemd retries.
+
+**The logins are created by `db-bootstrap.sh`, on the operator's machine.** On a
+fresh stack something must create the owner, app and retention logins in
+PostgreSQL, and only the master user can. The master secret must not reach the
+instance role, so the script runs where the deploy runs, with the operator's
+own AWS credentials:
+
+1. It reads the master and the three login secrets into shell variables.
+2. It opens an SSH tunnel from a local port to RDS through the instance (RDS is
+   in private subnets), and downloads the RDS CA bundle.
+3. Its local `psql` connects through the tunnel as the master user with
+   `sslmode=verify-full`: TLS runs end to end from the operator's `psql` to RDS,
+   so the instance forwards bytes it cannot read, and no credential is sent to
+   it or runs anything on it.
+4. It pipes the SQL to `psql`'s stdin. The SQL text holds no password: the
+   master's reaches `psql` in `PGPASSWORD`, and each login's in an environment
+   variable `psql` reads into a psql variable (`\getenv`, hence psql 15+) and
+   quotes as a literal itself (`:'var'`) — never a command-line argument, never
+   a file, never the script's own text.
+
+The SQL creates any missing login, sets each login's password to its secret's,
+creates the NOLOGIN roles `backend_app` and `backend_audit_retention` ahead of
+`V1` (which creates them only if they are missing), and gives the owner login
+both of them `WITH ADMIN OPTION` — so the owner needs no `CREATEROLE` — makes
+the app login a member of `backend_app` only and the retention login a member
+of `backend_audit_retention` only, hands the database to the owner login, and
+revokes the database's `PUBLIC` privileges. Re-running it is safe; it also
+re-applies a secret whose value was changed. The parameter group pins
+`log_statement = none`, so the `ALTER ROLE … PASSWORD` statements are never
+logged by PostgreSQL. The alternatives were rejected: a migrate step or UserData
+on the instance would need the master secret in the instance role, and a
+Lambda custom resource would need a PostgreSQL driver it cannot carry inline,
+plus a Secrets Manager endpoint or NAT in the private subnets.
+
+**What #66 still owes.** Until #66 lands, the service connects as the **owner
+login**: Flyway migrates in process with it, and the request pool drops to
+`backend_app` with `SET ROLE` (V1 grants the owner both roles). So the instance
+role still reads the owner secret, and `start.sh` passes it as
+`DATABASE_USERNAME` / `DATABASE_PASSWORD`. #66 moves migrations into a one-shot
+migrate step (the only holder of the owner secret), runs the service's pools on
+the app and retention logins, and then:
+
+- `start.sh` reads `DATABASE_APP_SECRET_ARN` and `DATABASE_RETENTION_SECRET_ARN`
+  (already in `/opt/backend/.env`) instead of the owner secret;
+- the service stops reading the owner secret, and the instance role's read of
+  it is scoped to the migrate step (or removed from the role if the migrate step
+  runs elsewhere);
+- `SET ROLE backend_app` and `SET LOCAL ROLE backend_audit_retention` go.
+
+The logins and their memberships exist already, so #66 changes no
+infrastructure SQL.
+
+**The application's own secrets** are held the same way, so UserData carries no
+secret at all: the Bootstrap Admin's first password (generated), and the Epic
+client id and signing keys. The Epic values still enter through `NoEcho`
+CloudFormation parameters, which the stack writes into `EpicClientSecretArn`;
+they may contain neither `"` nor `\`. Redis has no password: the stack's
+single-node `CacheCluster` cannot carry an AUTH token (only a replication group
+can), so the old `RedisPassword` parameter, which CloudFormation rejected, is
+gone; Redis is reachable only from the instance's security group.
+
+### Database key
+
+One customer-managed KMS key (`DBKeyArn`, alias `alias/<stack>-database`), with
+**automatic rotation enabled**, encrypts RDS storage — and with it the automated
+backups and every snapshot — Performance Insights, the RDS-managed master secret
+and the five secrets above. `StorageEncrypted` stays on.
+
+Its key policy allows exactly two things:
+
+- **administration** by `KeyAdminArn` — the IAM role or user that deploys the
+  stack, which `deploy.sh` fills from your caller identity (an assumed role's
+  session becomes the role's ARN, path included). It may describe, enable,
+  disable, tag, rotate, alias, revoke grants on and schedule the deletion of the
+  key, and may **not** encrypt, decrypt or create grants;
+- **use** by principals of this account only through RDS or Secrets Manager
+  (`kms:ViaService`), and only when their own IAM policy also allows it — the
+  instance role's allows `kms:Decrypt` through Secrets Manager alone.
+
+The key is **retained when the stack is deleted**: the final snapshot RDS takes
+then is encrypted under it, and would be unreadable without it. Schedule its
+deletion yourself once that snapshot is no longer needed.
+
+### TLS to the database
+
+- **Server-side:** the stack's own parameter group sets `rds.force_ssl = 1` and
+  `ssl_min_protocol_version = TLSv1.2`, so RDS refuses any connection that is not
+  TLS 1.2 or higher, from any client.
+- **The service:** the JDBC URL carries `sslmode=verify-full` and
+  `sslrootcert=/opt/backend/rds-ca-bundle.pem`, the region's RDS CA bundle
+  UserData downloads, so the driver validates the RDS certificate's chain and
+  host name. Java 25 also refuses TLS 1.0 and 1.1 itself.
+- **The operator's tools** (`db-bootstrap.sh`, `smoke.sh`) use `verify-full`
+  against the same bundle, through the tunnel.
+
+`smoke.sh` proves it on every deploy: a plaintext session is refused for
+requiring TLS, and a `verify-full` session negotiates TLS 1.2 or higher.
+
+### Database monitoring
+
+- **Enhanced Monitoring** every 60 seconds (`RDSMonitoringRole`).
+- **Performance Insights**, 7 days' retention, encrypted under the database key.
+- **Alarms**, both on Performance Insights counters through CloudWatch's
+  `DB_PERF_INSIGHTS` metric math, each firing only when **every minute of five**
+  is above zero, and both notifying the stack's notification target, the SNS
+  topic `AlarmTopicArn`, on alarm and on recovery:
+
+  | Alarm (stack output)         | Counter                                | Fires on                                   |
+  | ---------------------------- | -------------------------------------- | ------------------------------------------ |
+  | `DBDeadlocksAlarmName`       | `db.Concurrency.deadlocks`             | deadlocks in every minute for 5 minutes    |
+  | `DBBlockedSessionsAlarmName` | `db.Transactions.blocked_transactions` | blocked sessions in every minute for 5 min |
+
+  Missing data is not treated as OK: a counter that stops arriving shows as
+  `INSUFFICIENT_DATA`, not as a quiet `OK`. Give `AlarmEmail` to subscribe an
+  address (AWS mails a confirmation link first), or subscribe any other endpoint
+  to `AlarmTopicArn`.
+
+### Post-deploy smoke
+
+`./smoke.sh <stack> [region]` checks a running stack and exits non-zero on the
+first failure. `deploy.sh` runs it after deploying the JAR; run it yourself after
+any later deploy.
+
+`./smoke.sh --leaks-only <stack> [region]` runs step 5 alone, over the sources
+that exist before the service does — the rendered UserData, the cloud-init logs
+and `/opt/backend/.env` — and needs neither the JAR nor `psql`. `deploy.sh` runs
+it when you decline the JAR prompt, so every deploy scans the boot.
+
+1. **Health:** `/actuator/health` through the ALB answers `200`.
+2. **TLS:** as the app login, through the tunnel, a plaintext session is refused
+   and a `verify-full` session negotiates TLS 1.2+.
+3. **SCIM:** as the Bootstrap Admin, it mints a one-day token on a throwaway
+   connector, then over SCIM creates a User, finds it in the list, deletes it and
+   confirms it is gone, then deletes the connector (revoking the token) and
+   signs out. On a fresh stack the first sign-in must replace the seeded
+   password: the smoke generates a new one, stores it in `AppBootstrapSecretArn`
+   as `AWSPENDING`, changes it, then promotes it to `AWSCURRENT`. **After the
+   first smoke the secret holds the Bootstrap Admin's current password** — read
+   it from there. If the promotion fails after the change, the message names the
+   pending version to promote by hand.
+4. **Alarms:** both exist and notify `AlarmTopicArn` (it warns when nobody is
+   subscribed yet).
+5. **Secret leaks:** every database password (the master's included), the
+   Bootstrap Admin's current and previous passwords and the Epic credentials
+   are searched for in the **rendered UserData** (read back from EC2), the
+   instance's `/var/log/cloud-init-output.log` and `/var/log/cloud-init.log`,
+   `/opt/backend/.env`, the service's journal and its log file. A match fails
+   the deploy, naming the secret and the file, never printing the value.
+
+**Bootstrap hygiene.** UserData runs with `set -euo pipefail` and never with
+`set -x`, and holds no secret to begin with. `deploy.sh`, `db-bootstrap.sh`,
+`smoke.sh` and `start.sh` keep each secret in a shell variable: it reaches a
+process on a pipe, through a process substitution or in that one process's
+environment — never as a command-line argument, never in a file (the smoke's
+cookie jar, in a private temporary directory removed on exit, is the one
+exception) — and is never printed. Never run them with `bash -x`.
+
+### An existing stack
+
+These changes replace the master user's credential, change the owner login and
+re-key storage (`KmsKeyId` cannot change in place), so an existing stack does
+not update into them: deploy a fresh stack. The application holds no data that
+must be kept (ADR 0015).
+
+---
+
 ## Prerequisites
 
 1. **Existing VPC in ap-southeast-1** with:
@@ -120,12 +334,17 @@ log destination.
    - 2 private subnets (different AZs) for RDS/Redis
    - Internet Gateway attached
 
-2. **AWS CLI** configured:
+2. **AWS CLI** configured, as a principal that may create the stack's
+   resources (IAM, KMS, RDS, Secrets Manager, CloudWatch, SNS included) — this
+   principal becomes the database key's administrator (`KeyAdminArn`):
 
    ```bash
    aws configure
    # Set region: ap-southeast-1
    ```
+
+   Plus `jq`, `curl`, `ssh`/`scp`, `openssl`, `base64` and `psql` (the PostgreSQL
+   client, 15 or newer) on the machine you deploy from.
 
 3. **Application built** — the _integrated_ JAR (SPA + backend), from the repo
    root:
@@ -151,10 +370,27 @@ log destination.
 ./deploy.sh
 ```
 
-The script prompts for the database-backed `ADMIN` seed credentials, the only
-User a deployment is seeded with: `AppBootstrapUsername` /
-`AppBootstrapPassword`. Existing accounts are never overwritten
-on restart.
+It prompts for no password. In order, it:
+
+1. creates the stack and waits for it;
+2. writes `<stack>-outputs.txt` (no secret value in it);
+3. retrieves the SSH key into `<KeyName>.pem` (mode `0400`) when the stack created
+   the key pair;
+4. creates the database logins: `./db-bootstrap.sh <stack>`;
+5. on a yes to the JAR prompt, builds and deploys the integrated JAR, starts the
+   service, and runs `./smoke.sh <stack>`, failing the deploy on any failed check;
+   on a no, runs `./smoke.sh --leaks-only <stack>`, failing the deploy on a
+   leaked secret.
+
+The only User a deployment is seeded with is the Bootstrap Admin
+(`AppBootstrapUsername`), whose first password is generated into
+`AppBootstrapSecretArn`; existing accounts are never overwritten on restart.
+After the first smoke that secret holds its current password:
+
+```bash
+aws secretsmanager get-secret-value --secret-id <AppBootstrapSecretArn> \
+  --query SecretString --output text | jq -r .password
+```
 
 ### Option 2: Manual
 
@@ -162,9 +398,11 @@ on restart.
 # 1. Get VPC info
 ./get-vpc-info.sh vpc-xxxxx
 
-# 2. Configure parameters
+# 2. Configure parameters (no secret goes in it)
 cp parameters.template.json parameters.json
-# Edit parameters.json with your VPC IDs and passwords
+# Edit parameters.json: VPC and subnet IDs, and KeyAdminArn — your deploying
+# role's or user's ARN (aws sts get-caller-identity; for an assumed role, the
+# role's ARN from aws iam get-role, path included)
 
 # 3. Deploy stack
 aws cloudformation create-stack \
@@ -178,6 +416,12 @@ aws cloudformation create-stack \
 aws cloudformation wait stack-create-complete \
   --stack-name spring-backend \
   --region ap-southeast-1
+
+# 5. Retrieve the SSH key (below), then create the database logins
+./db-bootstrap.sh spring-backend
+
+# 6. Deploy the application (below), then the post-deploy smoke
+./smoke.sh spring-backend
 ```
 
 ---
@@ -232,6 +476,9 @@ Set in `parameters.json`:
 
 ## Deploy Application
 
+On a fresh stack, run `./db-bootstrap.sh <stack>` first: the service's first
+start connects as the owner login, which that script creates.
+
 ```bash
 # Get EC2 IP
 EC2_IP=$(aws cloudformation describe-stacks \
@@ -252,11 +499,19 @@ sudo chown springboot:springboot /opt/backend/backend.jar
 sudo systemctl start backend
 sudo systemctl enable backend
 ENDSSH
+
+# Then check it: health, TLS, SCIM, alarms and secret leaks
+./smoke.sh spring-backend
 ```
 
 ---
 
 ## Test Application
+
+`./smoke.sh` covers this end to end. By hand: the Bootstrap Admin's password is
+in `AppBootstrapSecretArn` (see [Deployment](#deployment)). If you replace a
+seeded password by hand, write the new one back to that secret, or the next
+`smoke.sh` cannot sign in.
 
 ```bash
 # Get ALB URL
@@ -401,51 +656,56 @@ of silently disarming an alert.
 
 ## Parameters Reference
 
-| Parameter                  | Description                                   | Required | Default               |
-| -------------------------- | --------------------------------------------- | -------- | --------------------- |
-| VpcId                      | Existing VPC ID                               | Yes      | -                     |
-| PublicSubnet1Id            | Public subnet 1                               | Yes      | -                     |
-| PublicSubnet2Id            | Public subnet 2                               | Yes      | -                     |
-| PrivateSubnet1Id           | Private subnet 1                              | Yes      | -                     |
-| PrivateSubnet2Id           | Private subnet 2                              | Yes      | -                     |
-| CreateKeyPair              | Create key pair                               | No       | true                  |
-| KeyName                    | Key pair name                                 | No       | spring-backend-key    |
-| InstanceType               | EC2 type                                      | No       | t3.small              |
-| SSHLocation                | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
-| DBInstanceClass            | RDS instance type                             | No       | db.t3.micro           |
-| DBAllocatedStorage         | RDS storage, GB (20–100)                      | No       | 20                    |
-| DBName                     | PostgreSQL database name                      | No       | backend               |
-| DBUsername                 | PostgreSQL master username                    | No       | backend               |
-| DBPassword                 | Database password                             | Yes      | -                     |
-| RedisNodeType              | ElastiCache node type                         | No       | cache.t3.micro        |
-| RedisPassword              | Redis password                                | No       | (empty)               |
-| AppBootstrapUsername       | Bootstrap Admin's username                    | No       | admin                 |
-| AppBootstrapPassword       | Bootstrap Admin's password                    | Yes      | -                     |
-| AppEpicEnabled             | Epic Login switch (`APP_EPIC_ENABLED`)        | No       | false                 |
-| AppEpicFhirBase            | Epic FHIR base URL, https                     | If Epic  | (empty)               |
-| AppEpicOauthIssuer         | Epic OIDC issuer, https                       | If Epic  | (empty)               |
-| AppEpicClientId            | Epic client id (NoEcho)                       | If Epic  | (empty)               |
-| AppEpicRedirectUri         | Registered callback URL, https                | If Epic  | (empty)               |
-| AppEpicClientKey           | Active EC P-384 key, one-line PEM (NoEcho)    | If Epic  | (empty)               |
-| AppEpicClientKeyId         | Active key's `kid`                            | If Epic  | (empty)               |
-| AppEpicClientNextKey       | Next key, one-line PEM (NoEcho)               | No       | (empty)               |
-| AppEpicClientNextKeyId     | Next key's `kid`, set with the next key       | No       | (empty)               |
-| AppEpicConnectTimeout      | Outbound Epic connect timeout                 | No       | (empty) = 2s          |
-| AppEpicReadTimeout         | Outbound Epic read timeout                    | No       | (empty) = 5s          |
-| AppEpicMfaEvidenceRequired | Require MFA evidence in `amr` (D17)           | No       | false                 |
-| AppEnvironment             | `service.environment` on every log record     | No       | production            |
-| LogRetentionDays           | Retention of the `/<stack>/backend` log group | No       | 90                    |
+| Parameter                  | Description                                     | Required | Default                 |
+| -------------------------- | ----------------------------------------------- | -------- | ----------------------- |
+| VpcId                      | Existing VPC ID                                 | Yes      | -                       |
+| PublicSubnet1Id            | Public subnet 1                                 | Yes      | -                       |
+| PublicSubnet2Id            | Public subnet 2                                 | Yes      | -                       |
+| PrivateSubnet1Id           | Private subnet 1                                | Yes      | -                       |
+| PrivateSubnet2Id           | Private subnet 2                                | Yes      | -                       |
+| CreateKeyPair              | Create key pair                                 | No       | true                    |
+| KeyName                    | Key pair name                                   | No       | spring-backend-key      |
+| InstanceType               | EC2 type                                        | No       | t3.small                |
+| SSHLocation                | CIDR allowed to SSH to the instance             | No       | 0.0.0.0/0 — narrow it   |
+| DBInstanceClass            | RDS instance type                               | No       | db.t3.micro             |
+| DBAllocatedStorage         | RDS storage, GB (20–100)                        | No       | 20                      |
+| DBName                     | PostgreSQL database name                        | No       | backend                 |
+| DBMasterUsername           | RDS master username (password RDS-managed)      | No       | dbmaster                |
+| DBOwnerLogin               | Owner login (schema owner, migrations)          | No       | backend_owner           |
+| DBAppLogin                 | App login (member of `backend_app`)             | No       | backend_app_login       |
+| DBRetentionLogin           | Retention login (`backend_audit_retention`)     | No       | backend_retention_login |
+| KeyAdminArn                | Deploying role/user; administers the DB key     | Yes      | - (deploy.sh fills it)  |
+| AlarmEmail                 | Email subscribed to the alarm topic             | No       | (empty)                 |
+| RedisNodeType              | ElastiCache node type                           | No       | cache.t3.micro          |
+| AppBootstrapUsername       | Bootstrap Admin's username (password generated) | No       | admin                   |
+| AppEpicEnabled             | Epic Login switch (`APP_EPIC_ENABLED`)          | No       | false                   |
+| AppEpicFhirBase            | Epic FHIR base URL, https                       | If Epic  | (empty)                 |
+| AppEpicOauthIssuer         | Epic OIDC issuer, https                         | If Epic  | (empty)                 |
+| AppEpicClientId            | Epic client id (NoEcho)                         | If Epic  | (empty)                 |
+| AppEpicRedirectUri         | Registered callback URL, https                  | If Epic  | (empty)                 |
+| AppEpicClientKey           | Active EC P-384 key, one-line PEM (NoEcho)      | If Epic  | (empty)                 |
+| AppEpicClientKeyId         | Active key's `kid`                              | If Epic  | (empty)                 |
+| AppEpicClientNextKey       | Next key, one-line PEM (NoEcho)                 | No       | (empty)                 |
+| AppEpicClientNextKeyId     | Next key's `kid`, set with the next key         | No       | (empty)                 |
+| AppEpicConnectTimeout      | Outbound Epic connect timeout                   | No       | (empty) = 2s            |
+| AppEpicReadTimeout         | Outbound Epic read timeout                      | No       | (empty) = 5s            |
+| AppEpicMfaEvidenceRequired | Require MFA evidence in `amr` (D17)             | No       | false                   |
+| AppEnvironment             | `service.environment` on every log record       | No       | production              |
+| LogRetentionDays           | Retention of the `/<stack>/backend` log group   | No       | 90                      |
 
 The `AppEpic*` parameters become the `APP_EPIC_*` variables of
 `backend/README.md`'s "Epic Login" section; with `AppEpicEnabled=false` none is
 read. No default carries a value, and with the switch on the service refuses to
 start until every required one is set and well formed. The two keys and the
-client id are `NoEcho`, but they are still rendered into the instance's
-`/opt/backend/.env` (mode `0600`), as the database and Bootstrap Admin passwords
-are. Give each key as **one line with no line breaks** — the armour and the base64
-run together, e.g.
-`awk 'NF {printf "%s", $0}' key.pem` — because the environment file holds one
-value per line. Never commit a key or a filled-in parameters file.
+client id are `NoEcho`, and the stack writes them into `EpicClientSecretArn`,
+which `start.sh` reads at every start; they never reach UserData or a file on the
+instance (see [Database credentials](#database-credentials)). The other
+`AppEpic*` values are not secret and are written into `/opt/backend/.env`. Give
+each key as **one line with no line breaks** — the armour and the base64 run
+together, e.g. `awk 'NF {printf "%s", $0}' key.pem` — because the stack splices
+it into the secret's JSON, which a line break would break; for the same reason
+none of the three may contain `"` or `\`. Never commit a key or a filled-in
+parameters file.
 
 ### Epic outbound timeouts
 
@@ -472,11 +732,19 @@ but never signs. The service has no expiry or rotation logic of its own: a key i
 published for exactly as long as configuration names it, and every step below is
 an operator's redeploy (`/docs/adr/0013-epic-login.md`, D14).
 
-A redeploy here means changing the variables the service starts with and
-restarting it. The stack's `UserData` writes `/opt/backend/.env` when the
-instance is created, so set each value in **both** places: the stack parameters
-(so a replacement instance gets them) and `/opt/backend/.env` on the running
-instance, followed by `sudo systemctl restart backend`. Each restart's startup
+A redeploy here means changing the values the service starts with and
+restarting it. The keys and the `kid`s travel separately:
+
+- **The keys** (`AppEpicClientKey`, `AppEpicClientNextKey`) live in
+  `EpicClientSecretArn`. Update the stack's parameters — which rewrites the
+  secret and nothing else — and `start.sh` reads the new values at the next
+  restart.
+- **The `kid`s** (`AppEpicClientKeyId`, `AppEpicClientNextKeyId`) are in
+  `/opt/backend/.env`, which UserData writes only when the instance is created.
+  Set them in **both** places: the stack parameters (so a replacement instance
+  gets them) and `/opt/backend/.env` on the running instance.
+
+Then `sudo systemctl restart backend`. Each restart's startup
 record carries `app.epic.client_key_id` and `app.epic.client_next_key_id` (the
 `kid`s, never the keys), so every step leaves a record in the log.
 
@@ -644,13 +912,19 @@ aws elbv2 describe-target-health --target-group-arn $TG_ARN
 ```bash
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP
 
-# Check environment
-sudo cat /opt/backend/.env | grep DATABASE
+# The URL and the secret ARNs the start script reads (no password is in here)
+sudo grep -E '^(DATABASE_|AWS_REGION)' /opt/backend/.env
 
-# Test connection
-sudo dnf install -y postgresql15
-psql -h RDS_ENDPOINT -U backend -d backend
+# Did start.sh read its secrets? An AccessDenied or a missing field shows here
+sudo journalctl -u backend -n 50 --no-pager
 ```
+
+From your own machine, `./db-bootstrap.sh <stack>` doubles as the connection
+test: it signs in as each login over `verify-full` TLS and says which one fails.
+A login refused for its password means its secret changed after the last
+bootstrap; re-running the script re-applies it. A connection refused with
+`pg_hba.conf` and "no encryption" is `rds.force_ssl` refusing a client that did
+not use TLS.
 
 ### Can't Retrieve SSH Key
 

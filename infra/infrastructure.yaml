@@ -77,23 +77,64 @@ Parameters:
     Description: PostgreSQL database name
     Type: String
     Default: backend
+    # db-bootstrap.sh hands the database to the owner login with DDL.
+    AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
+    ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
 
-  DBUsername:
-    Description: PostgreSQL master username
+  # Every database credential lives in Secrets Manager (ADR 0015, as-8): the
+  # master user's password is RDS-managed, and the three logins' passwords are
+  # generated below. These parameters carry login NAMES only, which DDL interpolates
+  # (db-bootstrap.sh), hence the strict pattern (ADR 0015, as-2).
+  DBMasterUsername:
+    Description: RDS master username; its password is RDS-managed in Secrets Manager
     Type: String
-    Default: backend
+    Default: dbmaster
     MinLength: 1
     MaxLength: 16
     AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
 
-  DBPassword:
-    Description: PostgreSQL master password
+  DBOwnerLogin:
+    Description: >-
+      The owner login, which owns the schema and runs the migrations (Flyway
+      in-process until #66 moves migrations out of process)
     Type: String
-    NoEcho: true
-    MinLength: 8
-    MaxLength: 41
-    AllowedPattern: "[a-zA-Z0-9]*"
-    ConstraintDescription: Must contain only alphanumeric characters
+    Default: backend_owner
+    AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
+    ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
+
+  DBAppLogin:
+    Description: The app login, a member of backend_app only (the service's pool from #66)
+    Type: String
+    Default: backend_app_login
+    AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
+    ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
+
+  DBRetentionLogin:
+    Description: >-
+      The retention login, a member of backend_audit_retention only (the audit
+      retention job's pool from #66)
+    Type: String
+    Default: backend_retention_login
+    AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
+    ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
+
+  # KMS
+  KeyAdminArn:
+    Description: >-
+      ARN of the IAM role or user that deploys this stack and administers the
+      database key (deploy.sh fills it from the caller identity). The key policy
+      grants it administration only, never use of the key.
+    Type: String
+    AllowedPattern: "^arn:aws[a-z-]*:iam::[0-9]{12}:(root|role/.+|user/.+)$"
+    ConstraintDescription: an IAM role, user or account-root ARN
+
+  # Monitoring
+  AlarmEmail:
+    Description: >-
+      Optional email address subscribed to the stack's alarm topic (empty for
+      no subscription; subscribe another endpoint to the AlarmTopicArn output)
+    Type: String
+    Default: ""
 
   # Redis Configuration
   RedisNodeType:
@@ -107,23 +148,13 @@ Parameters:
       - cache.t4g.micro
       - cache.t4g.small
 
-  RedisPassword:
-    Description: Redis AUTH token (leave empty for no auth)
-    Type: String
-    NoEcho: true
-    Default: ""
-
   # Application Configuration
   AppBootstrapUsername:
-    Description: Application ADMIN username
+    Description: >-
+      The Bootstrap Admin's username; its first password is generated into the
+      AppBootstrapSecret
     Type: String
     Default: admin
-
-  AppBootstrapPassword:
-    Description: Application ADMIN password
-    Type: String
-    NoEcho: true
-    MinLength: 8
 
   # Epic Login (/docs/adr/0013-epic-login.md). Off unless AppEpicEnabled is true, and
   # then none of the other AppEpic* parameters is read. No default carries a
@@ -151,6 +182,9 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
+    # Held in the EpicClientSecret, whose JSON these are spliced into.
+    AllowedPattern: '^[^"\\]*$'
+    ConstraintDescription: must not contain a double quote or a backslash
 
   AppEpicRedirectUri:
     Description: >-
@@ -166,6 +200,9 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
+    # Held in the EpicClientSecret, whose JSON these are spliced into.
+    AllowedPattern: '^[^"\\]*$'
+    ConstraintDescription: must not contain a double quote or a backslash
 
   AppEpicClientKeyId:
     Description: The active signing key's kid (APP_EPIC_CLIENT_KEY_ID); required when enabled
@@ -179,6 +216,9 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
+    # Held in the EpicClientSecret, whose JSON these are spliced into.
+    AllowedPattern: '^[^"\\]*$'
+    ConstraintDescription: must not contain a double quote or a backslash
 
   AppEpicClientNextKeyId:
     Description: >-
@@ -218,7 +258,31 @@ Parameters:
       Days CloudWatch Logs keeps the application log group before deleting it
     Type: Number
     Default: 90
-    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    AllowedValues:
+      [
+        1,
+        3,
+        5,
+        7,
+        14,
+        30,
+        60,
+        90,
+        120,
+        150,
+        180,
+        365,
+        400,
+        545,
+        731,
+        1096,
+        1827,
+        2192,
+        2557,
+        2922,
+        3288,
+        3653,
+      ]
 
 Mappings:
   # Amazon Linux 2023 AMI ID for ap-southeast-1 (Singapore)
@@ -227,8 +291,8 @@ Mappings:
       AMI: ami-0dc2d3e4c0f9ebd18
 
 Conditions:
-  HasRedisPassword: !Not [!Equals [!Ref RedisPassword, ""]]
   ShouldCreateKeyPair: !Equals [!Ref CreateKeyPair, "true"]
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, ""]]
 
 Resources:
   # ============================================
@@ -364,6 +428,9 @@ Resources:
       Matcher:
         HttpCode: 200
       TargetType: instance
+      Targets:
+        - Id: !Ref EC2Instance
+          Port: 8080
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-TG
@@ -379,8 +446,202 @@ Resources:
           TargetGroupArn: !Ref ALBTargetGroup
 
   # ============================================
+  # Database key (IM8 ck-2, ck-4)
+  # ============================================
+  # One customer-managed key for everything the database leaves at rest: RDS
+  # storage (and with it the automated backups and snapshots), Performance
+  # Insights, and the database secrets. Retained on stack deletion: the final
+  # snapshot DBInstance's DeletionPolicy takes is encrypted under it, and would
+  # be unreadable without it.
+  DBKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub >-
+        ${AWS::StackName} database key: RDS storage, backups, snapshots,
+        Performance Insights and the database secrets
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          # The deploy role administers the key and cannot use it: no Encrypt,
+          # Decrypt or CreateGrant here.
+          - Sid: AdministrationByTheDeployRole
+            Effect: Allow
+            Principal:
+              AWS: !Ref KeyAdminArn
+            Action:
+              - kms:DescribeKey
+              - kms:GetKeyPolicy
+              - kms:PutKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:EnableKeyRotation
+              - kms:DisableKeyRotation
+              - kms:RotateKeyOnDemand
+              - kms:ListKeyRotations
+              - kms:EnableKey
+              - kms:DisableKey
+              - kms:UpdateKeyDescription
+              - kms:CreateAlias
+              - kms:UpdateAlias
+              - kms:DeleteAlias
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:RevokeGrant
+              - kms:ListResourceTags
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: "*"
+          # Use only ever happens through RDS or Secrets Manager, on behalf of a
+          # principal of this account whose own IAM policy also allows it (the
+          # instance role's allows Decrypt through Secrets Manager only).
+          - Sid: UseThroughRdsAndSecretsManagerOnly
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+              - kms:CreateGrant
+              - kms:ListGrants
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService:
+                  - !Sub rds.${AWS::Region}.amazonaws.com
+                  - !Sub secretsmanager.${AWS::Region}.amazonaws.com
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DBKey
+
+  DBKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${AWS::StackName}-database
+      TargetKeyId: !Ref DBKey
+
+  # ============================================
+  # Database credentials (IM8 as-8)
+  # ============================================
+  # The master user's secret is RDS-managed (DBInstance below). These are the
+  # three logins db-bootstrap.sh creates in PostgreSQL, each password generated
+  # here and never seen by CloudFormation parameters, UserData or deploy.sh. No
+  # quote, backslash or semicolon, so a password can never end a SQL literal or
+  # statement it is placed in (ADR 0015, as-2). No rotation yet (#73).
+  DBOwnerSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub ${AWS::StackName} database owner login (schema owner, migrations)
+      KmsKeyId: !Ref DBKey
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBOwnerLogin}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: "'\"\\;"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-db-owner
+
+  DBAppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub ${AWS::StackName} database app login (member of backend_app)
+      KmsKeyId: !Ref DBKey
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBAppLogin}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: "'\"\\;"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-db-app
+
+  DBRetentionSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub ${AWS::StackName} database retention login (member of backend_audit_retention)
+      KmsKeyId: !Ref DBKey
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBRetentionLogin}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: "'\"\\;"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-db-retention
+
+  # The application's own secrets, held the same way so that UserData carries
+  # none: the Bootstrap Admin's first password (generated; smoke.sh replaces it
+  # on the first deploy and writes the new one back here), and the Epic client
+  # credentials (from the NoEcho parameters, empty while Epic Login is off).
+  AppBootstrapSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub ${AWS::StackName} Bootstrap Admin credentials
+      KmsKeyId: !Ref DBKey
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${AppBootstrapUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: "'\"\\;"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app-bootstrap
+
+  EpicClientSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub ${AWS::StackName} Epic Login client id and signing keys
+      KmsKeyId: !Ref DBKey
+      SecretString: !Sub '{"clientId":"${AppEpicClientId}","clientKey":"${AppEpicClientKey}","clientNextKey":"${AppEpicClientNextKey}"}'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-epic-client
+
+  # ============================================
   # RDS PostgreSQL
   # ============================================
+  # IM8 dp-3: the server refuses every connection that is not TLS 1.2 or
+  # higher. log_statement stays none, so the ALTER ROLE ... PASSWORD statements
+  # db-bootstrap.sh runs never reach the PostgreSQL log.
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub ${AWS::StackName} PostgreSQL 15, TLS enforced
+      Family: postgres15
+      Parameters:
+        rds.force_ssl: "1"
+        ssl_min_protocol_version: TLSv1.2
+        log_statement: none
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DBParameterGroup
+
+  # Enhanced Monitoring's publisher (IM8 lm-16).
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-RDSMonitoringRole
+
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -395,17 +656,38 @@ Resources:
   DBInstance:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Metadata:
+      cfn-lint:
+        config:
+          # cfn-lint's data lists every bare major (17 included) as deprecated;
+          # RDS resolves "15" to its current default minor
+          # (describe-db-engine-versions --engine-version 15 --default-only).
+          ignore_checks: [W3691]
     Properties:
       DBInstanceIdentifier: !Sub ${AWS::StackName}-postgres
       Engine: postgres
-      EngineVersion: "15.4"
+      # The major version only: RDS picks its current default minor, and applies
+      # minor versions automatically (ADR 0015, "Database patching"). The family
+      # of DBParameterGroup must match it.
+      EngineVersion: "15"
+      DBParameterGroupName: !Ref DBParameterGroup
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref DBAllocatedStorage
       StorageType: gp3
       StorageEncrypted: true
+      KmsKeyId: !Ref DBKey
+      CopyTagsToSnapshot: true
       DBName: !Ref DBName
-      MasterUsername: !Ref DBUsername
-      MasterUserPassword: !Ref DBPassword
+      MasterUsername: !Ref DBMasterUsername
+      ManageMasterUserPassword: true
+      MasterUserSecret:
+        KmsKeyId: !Ref DBKey
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      EnablePerformanceInsights: true
+      PerformanceInsightsKMSKeyId: !Ref DBKey
+      PerformanceInsightsRetentionPeriod: 7
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
@@ -433,7 +715,7 @@ Resources:
   RedisCluster:
     Type: AWS::ElastiCache::CacheCluster
     Properties:
-      CacheClusterId: !Sub ${AWS::StackName}-redis
+      ClusterName: !Sub ${AWS::StackName}-redis
       Engine: redis
       EngineVersion: "7.0"
       CacheNodeType: !Ref RedisNodeType
@@ -442,8 +724,6 @@ Resources:
       VpcSecurityGroupIds:
         - !Ref RedisSecurityGroup
       CacheSubnetGroupName: !Ref RedisSubnetGroup
-      TransitEncryptionEnabled: !If [HasRedisPassword, true, false]
-      AuthToken: !If [HasRedisPassword, !Ref RedisPassword, !Ref AWS::NoValue]
       PreferredMaintenanceWindow: "sun:05:00-sun:06:00"
       Tags:
         - Key: Name
@@ -467,15 +747,28 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
-        - PolicyName: SecretsManagerAccess
+        # Only the secrets this instance's processes need (ADR 0015, as-8), and
+        # never the RDS-managed master secret, which only the operator's
+        # db-bootstrap.sh reads. The owner secret is the migrate step's; until
+        # #66 the service migrates in process and so still reads it at start.
+        - PolicyName: ReadTheServicesSecrets
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
-                  - secretsmanager:DescribeSecret
-                Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DBOwnerSecret
+                  - !Ref DBAppSecret
+                  - !Ref DBRetentionSecret
+                  - !Ref AppBootstrapSecret
+                  - !Ref EpicClientSecret
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !GetAtt DBKey.Arn
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub secretsmanager.${AWS::Region}.amazonaws.com
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-EC2Role
@@ -504,10 +797,6 @@ Resources:
   # ============================================
   EC2Instance:
     Type: AWS::EC2::Instance
-    DependsOn:
-      - DBInstance
-      - RedisCluster
-      - ALBTargetGroup
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !FindInMap [AWSRegionAMI, "ap-southeast-1", AMI]
@@ -528,18 +817,24 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          set -e
+          # No secret reaches this script, and it traces no command (ADR 0015, "The
+          # bootstrap does not echo"): never add set -x here. cloud-init copies its
+          # output to /var/log/cloud-init-output.log, and smoke.sh fails the deploy if any
+          # secret value appears there. The service's credentials are resolved from
+          # Secrets Manager by /opt/backend/start.sh, below, at every start.
+          set -euo pipefail
 
           # Update system
           dnf update -y
 
-          # Install Java 25 (Amazon Corretto)
-          dnf install -y java-25-amazon-corretto-devel
+          # Install Java 25 (Amazon Corretto), and jq and the AWS CLI for start.sh
+          dnf install -y java-25-amazon-corretto-devel jq awscli-2
 
           # Install CloudWatch agent
-          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-          rpm -U ./amazon-cloudwatch-agent.rpm
-          rm amazon-cloudwatch-agent.rpm
+          curl -fsS --proto '=https' -o /tmp/amazon-cloudwatch-agent.rpm \
+            https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U /tmp/amazon-cloudwatch-agent.rpm
+          rm /tmp/amazon-cloudwatch-agent.rpm
 
           # Create application user
           useradd -m -s /bin/bash springboot
@@ -555,27 +850,40 @@ Resources:
           chown springboot:springboot /var/log/backend
           chmod 0750 /var/log/backend
 
-          # Create environment file
+          # The RDS certificate bundle the JDBC URL validates the server against (IM8
+          # dp-3: sslmode=verify-full checks the chain and the endpoint's host name).
+          curl -fsS --proto '=https' -o /opt/backend/rds-ca-bundle.pem \
+            https://truststore.pki.rds.amazonaws.com/${AWS::Region}/${AWS::Region}-bundle.pem
+          chmod 0644 /opt/backend/rds-ca-bundle.pem
+
+          # Create environment file. It holds no secret value: each *_SECRET_ARN names a
+          # secret start.sh reads at every start. DATABASE_APP_SECRET_ARN and
+          # DATABASE_RETENTION_SECRET_ARN are read from #66, which moves the pools onto
+          # their own logins. APP_AUTHORIZATION_GROUPS_0_* replace the shipped
+          # development role mapping (which names Groups no deployment has, so the
+          # service would refuse to start) with the Admin group alone; see
+          # backend/README.md, "Role mapping", to map more Groups.
           cat > /opt/backend/.env << 'EOF'
-          DATABASE_URL=jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}
-          DATABASE_USERNAME=${DBUsername}
-          DATABASE_PASSWORD=${DBPassword}
+          AWS_REGION=${AWS::Region}
+          DATABASE_URL=jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}?sslmode=verify-full&sslrootcert=/opt/backend/rds-ca-bundle.pem
+          DATABASE_OWNER_SECRET_ARN=${DBOwnerSecret}
+          DATABASE_APP_SECRET_ARN=${DBAppSecret}
+          DATABASE_RETENTION_SECRET_ARN=${DBRetentionSecret}
+          APP_BOOTSTRAP_SECRET_ARN=${AppBootstrapSecret}
+          APP_EPIC_SECRET_ARN=${EpicClientSecret}
           REDIS_HOST=${RedisCluster.RedisEndpoint.Address}
           REDIS_PORT=${RedisCluster.RedisEndpoint.Port}
-          REDIS_PASSWORD=${RedisPassword}
           SERVER_PORT=8080
           SESSION_TIMEOUT=15m
           SESSION_COOKIE_SECURE=false
-          APP_BOOTSTRAP_USERNAME=${AppBootstrapUsername}
-          APP_BOOTSTRAP_PASSWORD=${AppBootstrapPassword}
+          APP_AUTHORIZATION_GROUPS_0_ID=00000000-0000-4000-8000-00000000a001
+          APP_AUTHORIZATION_GROUPS_0_ROLE=Superuser
+          APP_AUTHORIZATION_GROUPS_0_SUPERUSER=true
           APP_EPIC_ENABLED=${AppEpicEnabled}
           APP_EPIC_FHIR_BASE=${AppEpicFhirBase}
           APP_EPIC_OAUTH_ISSUER=${AppEpicOauthIssuer}
-          APP_EPIC_CLIENT_ID=${AppEpicClientId}
           APP_EPIC_REDIRECT_URI=${AppEpicRedirectUri}
-          APP_EPIC_CLIENT_KEY=${AppEpicClientKey}
           APP_EPIC_CLIENT_KEY_ID=${AppEpicClientKeyId}
-          APP_EPIC_CLIENT_NEXT_KEY=${AppEpicClientNextKey}
           APP_EPIC_CLIENT_NEXT_KEY_ID=${AppEpicClientNextKeyId}
           APP_EPIC_CONNECT_TIMEOUT=${AppEpicConnectTimeout}
           APP_EPIC_READ_TIMEOUT=${AppEpicReadTimeout}
@@ -586,6 +894,51 @@ Resources:
 
           chown springboot:springboot /opt/backend/.env
           chmod 600 /opt/backend/.env
+
+          # The service's start script. It resolves every credential from Secrets
+          # Manager, through the instance role, and hands it to the JVM in its
+          # environment only: each value reaches jq on a pipe, never as an argument, is
+          # never written to disk and is never traced. Owned by root, so the service user
+          # cannot change what it runs.
+          cat > /opt/backend/start.sh << 'EOF'
+          #!/bin/bash
+          set -euo pipefail
+
+          secret_json() {
+            aws secretsmanager get-secret-value --region "$AWS_REGION" \
+              --secret-id "$1" --query SecretString --output text
+          }
+          required() {
+            printf '%s' "$1" | jq -er --arg f "$2" '.[$f] | strings'
+          }
+          optional() {
+            printf '%s' "$1" | jq -r --arg f "$2" '.[$f] // ""'
+          }
+
+          # The owner login, until #66: Flyway still migrates in process, and the pool
+          # drops to backend_app with SET ROLE.
+          owner=$(secret_json "$DATABASE_OWNER_SECRET_ARN")
+          DATABASE_USERNAME=$(required "$owner" username)
+          DATABASE_PASSWORD=$(required "$owner" password)
+
+          admin=$(secret_json "$APP_BOOTSTRAP_SECRET_ARN")
+          APP_BOOTSTRAP_USERNAME=$(required "$admin" username)
+          APP_BOOTSTRAP_PASSWORD=$(required "$admin" password)
+
+          # Empty while Epic Login is off, as an unset variable is.
+          epic=$(secret_json "$APP_EPIC_SECRET_ARN")
+          APP_EPIC_CLIENT_ID=$(optional "$epic" clientId)
+          APP_EPIC_CLIENT_KEY=$(optional "$epic" clientKey)
+          APP_EPIC_CLIENT_NEXT_KEY=$(optional "$epic" clientNextKey)
+
+          unset owner admin epic
+          export DATABASE_USERNAME DATABASE_PASSWORD APP_BOOTSTRAP_USERNAME \
+            APP_BOOTSTRAP_PASSWORD APP_EPIC_CLIENT_ID APP_EPIC_CLIENT_KEY \
+            APP_EPIC_CLIENT_NEXT_KEY
+          exec /usr/bin/java -jar /opt/backend/backend.jar
+          EOF
+          chown root:root /opt/backend/start.sh
+          chmod 0755 /opt/backend/start.sh
 
           # CloudWatch agent: ship the log file into the stack's log group. The
           # records are ECS JSON already, so the agent forwards each line as is;
@@ -614,14 +967,15 @@ Resources:
           cat > /etc/systemd/system/backend.service << 'EOF'
           [Unit]
           Description=Spring Boot Backend Application
-          After=network.target
+          Wants=network-online.target
+          After=network-online.target
 
           [Service]
           Type=simple
           User=springboot
           WorkingDirectory=/opt/backend
           EnvironmentFile=/opt/backend/.env
-          ExecStart=/usr/bin/java -jar /opt/backend/backend.jar
+          ExecStart=/opt/backend/start.sh
           Restart=always
           RestartSec=10
           StandardOutput=journal
@@ -642,13 +996,80 @@ Resources:
         - Key: Name
           Value: !Sub ${AWS::StackName}-EC2
 
-  # Register EC2 instance with ALB Target Group
-  TargetGroupAttachment:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
+  # ============================================
+  # Database alarms (IM8 lm-16)
+  # ============================================
+  # The stack's notification target. Alarm messages carry no secret; subscribe
+  # an endpoint with AlarmEmail, or to the AlarmTopicArn output.
+  AlarmTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      TargetGroupArn: !Ref ALBTargetGroup
-      TargetId: !Ref EC2Instance
-      Port: 8080
+      TopicName: !Sub ${AWS::StackName}-alarms
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-alarms
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # Both read Performance Insights counters through CloudWatch's
+  # DB_PERF_INSIGHTS metric math, and fire only when every minute of five has a
+  # non-zero value: one deadlock or one short block is the database working,
+  # five minutes of them is contention. Missing data is not treated as OK, so a
+  # metric that stops arriving shows as INSUFFICIENT_DATA rather than a quiet OK.
+  DBDeadlocksAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-db-deadlocks-sustained
+      AlarmDescription: >-
+        PostgreSQL detected deadlocks in every minute for 5 minutes
+        (Performance Insights db.Concurrency.deadlocks). Find the competing
+        statements in Performance Insights' top SQL for the window.
+      Metrics:
+        - Id: deadlocks
+          Label: Deadlocks per second
+          Expression: !Sub "DB_PERF_INSIGHTS('RDS', '${DBInstance.DbiResourceId}', 'db.Concurrency.deadlocks.avg')"
+          Period: 60
+          ReturnData: true
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 5
+      TreatMissingData: missing
+      AlarmActions:
+        - !Ref AlarmTopic
+      OKActions:
+        - !Ref AlarmTopic
+
+  DBBlockedSessionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-db-blocked-sessions-sustained
+      AlarmDescription: >-
+        PostgreSQL sessions were blocked on a lock in every minute for 5
+        minutes (Performance Insights db.Transactions.blocked_transactions).
+        Find the blocker in Performance Insights' waits (Lock:transactionid,
+        Lock:tuple) for the window.
+      Metrics:
+        - Id: blocked
+          Label: Blocked transactions
+          Expression: !Sub "DB_PERF_INSIGHTS('RDS', '${DBInstance.DbiResourceId}', 'db.Transactions.blocked_transactions.avg')"
+          Period: 60
+          ReturnData: true
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 5
+      TreatMissingData: missing
+      AlarmActions:
+        - !Ref AlarmTopic
+      OKActions:
+        - !Ref AlarmTopic
 
 Outputs:
   VPCId:
@@ -710,9 +1131,55 @@ Outputs:
     Description: RDS PostgreSQL Port
     Value: !GetAtt DBInstance.Endpoint.Port
 
+  DBName:
+    Description: PostgreSQL database name
+    Value: !Ref DBName
+
   DatabaseConnectionString:
-    Description: JDBC Connection String
-    Value: !Sub jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}
+    Description: JDBC Connection String (TLS, server certificate validated)
+    Value: !Sub jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}?sslmode=verify-full
+
+  # Secret ARNs, never values. db-bootstrap.sh and smoke.sh read them with the
+  # operator's own credentials.
+  DBMasterSecretArn:
+    Description: RDS-managed master user secret (operator only; not readable by the instance)
+    Value: !GetAtt DBInstance.MasterUserSecret.SecretArn
+
+  DBOwnerSecretArn:
+    Description: Owner login secret
+    Value: !Ref DBOwnerSecret
+
+  DBAppSecretArn:
+    Description: App login secret
+    Value: !Ref DBAppSecret
+
+  DBRetentionSecretArn:
+    Description: Retention login secret
+    Value: !Ref DBRetentionSecret
+
+  AppBootstrapSecretArn:
+    Description: Bootstrap Admin secret (its current password once smoke.sh has replaced the first one)
+    Value: !Ref AppBootstrapSecret
+
+  EpicClientSecretArn:
+    Description: Epic Login client id and signing keys
+    Value: !Ref EpicClientSecret
+
+  DBKeyArn:
+    Description: Customer-managed key for the database and its secrets
+    Value: !GetAtt DBKey.Arn
+
+  AlarmTopicArn:
+    Description: The stack's notification target for alarms
+    Value: !Ref AlarmTopic
+
+  DBDeadlocksAlarmName:
+    Description: Alarm on sustained deadlocks
+    Value: !Ref DBDeadlocksAlarm
+
+  DBBlockedSessionsAlarmName:
+    Description: Alarm on sustained blocked sessions
+    Value: !Ref DBBlockedSessionsAlarm
 
   RedisEndpoint:
     Description: ElastiCache Redis Endpoint
