@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
@@ -111,7 +112,7 @@ class SelfReadIntegrationTests {
     @AfterEach
     void removeWhatThisTestCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
         created.clear();
     }

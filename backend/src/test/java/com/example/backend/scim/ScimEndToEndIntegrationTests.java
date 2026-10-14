@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
@@ -100,7 +101,7 @@ class ScimEndToEndIntegrationTests {
     @org.junit.jupiter.api.AfterEach
     void removeSeededResources() {
         for (UUID id : seeded) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+            ScimTestRows.delete(jdbc, id);
         }
         seeded.clear();
     }

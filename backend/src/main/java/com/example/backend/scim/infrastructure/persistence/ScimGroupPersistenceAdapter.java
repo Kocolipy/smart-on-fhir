@@ -158,8 +158,10 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * Deletes the Group and advances the version of every User that was a member.
      *
      * <p>The members' versions are advanced BEFORE the delete, because after it there is no
-     * membership row left to read them from. Both happen in the caller's transaction, so a
-     * failure leaves neither.
+     * membership row left to read them from. The memberships are then deleted explicitly, before
+     * the resource row: the member-side foreign keys take no action (ADR 0015), so the database
+     * refuses the Group's deletion while one remains. All of it happens in the caller's
+     * transaction, so a failure leaves none of it.
      */
     @Override
     public boolean deleteById(UUID id, Instant now) {

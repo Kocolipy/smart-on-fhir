@@ -460,18 +460,23 @@ resources: a former `userName`, Group `displayName` or
 connector-scoped `externalId` may be reused by a future resource. Readable profile
 and audit detail expire under the configured audit-retention policy.
 
-**Deleted User** — a User removed with `DELETE`. Deletion removes its
-live rows — profile, emails, credential and password history, Group memberships
-and connector aliases — advances the version of every Group it belonged to,
-revokes its sessions once the deletion commits, and leaves a SCIM tombstone. Every
+**Deleted User** — a User removed with `DELETE`. Deletion advances the version of
+every Group it belonged to, then removes its Group memberships explicitly, in the
+same transaction and before the User itself — the schema never removes a membership
+by cascade, and refuses to delete a User a membership still names (ADR 0015). It
+then removes its other live rows — profile, emails, credential and password history
+and connector aliases — revokes its sessions once the deletion commits, and leaves a
+SCIM tombstone. Every
 later operation on its id is `404`. It is not merely a deactivated User, and nothing
 readable about it survives outside the audit stream; the tombstone is the only
 row that does. The Bootstrap Admin never enters this state because it cannot be
 deleted.
 
 **Deleted SCIM Group** — an ordinary, non-Admin Group removed with `DELETE`.
-Deletion removes its memberships, makes it unavailable through SCIM, and leaves
-a SCIM tombstone. A deleted mapped Group takes its Role from every member, each
+Deletion advances the version of every former member, then removes its memberships
+explicitly, in the same transaction and before the Group itself, exactly as for a
+Deleted User; it then makes the Group unavailable through SCIM and leaves a SCIM
+tombstone. A deleted mapped Group takes its Role from every member, each
 recorded as a `ROLE_REVOKE` and signed out after commit, exactly as removing them
 one by one would; the mapping still names its id, but it confers nothing until
 the deployment replaces the mapping. The Admin group never enters this state

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.authorization.domain.Permission;
@@ -165,7 +166,7 @@ class PasswordChangeLifecycleIntegrationTests {
     @AfterEach
     void removeWhatThisTestCreated() {
         for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+            ScimTestRows.deleteUnreserved(jdbc, id);
         }
         created.clear();
         jdbc.update("UPDATE scim_users SET password_change_required_since = NULL"

@@ -66,7 +66,8 @@ class BackendApplicationTests {
                 versions.add(rows.getString("version"));
             }
             // V2: audit events name the connector token they concern.
-            assertThat(versions).containsExactly("1", "2");
+            // V3: memberships are deleted explicitly, never by cascade (ADR 0015).
+            assertThat(versions).containsExactly("1", "2", "3");
         }
     }
 }
