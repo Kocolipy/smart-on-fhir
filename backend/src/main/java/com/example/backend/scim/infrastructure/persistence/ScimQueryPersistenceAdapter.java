@@ -10,16 +10,17 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Evaluates SCIM collection queries in PostgreSQL.
+ * Evaluates SCIM collection queries in the database.
  *
  * <p>SQL rather than JPQL or the Criteria API, because the query protocol needs things neither
- * expresses directly: {@code NULLS LAST}/{@code NULLS FIRST}, a byte-order collation, a
+ * expresses directly: an explicit position for missing sort values, a byte-order collation, a
  * {@code UNION ALL} of two resource types ordered as one, and correlated subqueries in an
  * {@code ORDER BY}. Every statement comes from {@link ScimQuerySql}, which binds every literal;
  * nothing a client sent is concatenated into one.
  *
  * <p>Returns identities only. The page's resources are loaded afterwards through the ordinary
- * repositories, so there is one way a User or a Group is assembled.
+ * repositories, so there is one way a User or a Group is assembled. A page of no rows
+ * ({@code count=0}) is never queried, since SQL Server rejects {@code FETCH NEXT 0 ROWS}.
  */
 @Repository
 class ScimQueryPersistenceAdapter implements ScimQueryRepository {

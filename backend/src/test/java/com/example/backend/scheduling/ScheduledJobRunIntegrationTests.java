@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -113,7 +113,7 @@ class ScheduledJobRunIntegrationTests {
     @Test
     void aBatchTheBodyCommitsOnTheRetentionPoolDoesNotReleaseTheLock() throws Exception {
         UUID event = UUID.randomUUID();
-        jdbc.update(INSERT_EVENT, event, Timestamp.from(OCCURRED_AT));
+        jdbc.update(INSERT_EVENT, event, OCCURRED_AT.atOffset(ZoneOffset.UTC));
         TransactionTemplate batch = new TransactionTemplate(retentionTransactions);
 
         Optional<String> second = whileARunIsInsideItsBody(ScheduledJob.AUDIT_RETENTION,
