@@ -12,7 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
- * The migration that moves a token's Permissions out of the array column ({@code V5}, ADR 0015)
+ * The migration that moves a token's Permissions out of the array column ({@code V6}, ADR 0015)
  * carries every stored token's Permissions with it: a database migrated only as far as the
  * array, holding a token, is migrated the rest of the way and read back.
  *
@@ -23,8 +23,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
  */
 class ConnectorTokenPermissionsMigrationTests {
 
-    /** The last version before {@code V5}, the migration under test. */
-    private static final String BEFORE_THE_MOVE = "4";
+    /** The last version before {@code V6}, the migration under test. */
+    private static final String BEFORE_THE_MOVE = "5";
 
     @Test
     void a_stored_tokens_permissions_survive_the_move_to_their_own_table() throws Exception {

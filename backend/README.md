@@ -431,13 +431,18 @@ value appears in `application.yaml` — both defaults belong to
 `AuditRetentionPolicy`, so an unset variable reaches the rule as unset and "the
 default is one year" is a fact about the rule rather than about a config file.
 
-Each run logs its schedule at startup and, per run, the rows it deleted and how
-long it took (`event.action: audit.retention`). A run that deleted nothing is
-logged too — "nothing had aged out" and "the job has not run for a month" are
-different facts. The job is serialized on its own `audit-retention` row in
-`scheduled_job_locks`, as the dormancy job is (see below): with several instances
-on the same cron one run deletes, and the others end `job-end` with
-`event.reason: lock-held` and delete nothing.
+The job logs its schedule at startup, and each run logs one summary line, its
+`job-end` (`app.event.action: audit.retention`): `event.outcome`,
+`batch.job.status` (`completed` or `failed`), what it deleted as
+`record=[{type: audit_event, deleted: <n>, batches: <m>}]`, and
+`event.duration_ms`. A run that deleted nothing reports too — "nothing had aged
+out" and "the job has not run for a month" are different facts. A failed run
+reports what it had committed: nothing when its delete failed, and the deleted
+batch when it failed afterwards, since the delete commits on the retention pool
+before the run's lock transaction does. The job is serialized on its
+own `audit-retention` row in `scheduled_job_locks`, as the dormancy job is (see
+below): with several instances on the same cron one run deletes, and each other
+writes one `skipped` line (`event.reason: lock-held`) and deletes nothing.
 
 ### Audit append pool
 
@@ -778,6 +783,20 @@ runners, no container), and `MigrationLoginNamesTests`, `MigrationProfilesTests`
 `theDeployedConfigurationMakesTheRuntimeRoleTheApplicationsOwn` was removed with the
 switch it pinned. The baseline gate after: `Tests run: 4860, Failures: 0, Errors: 0,
 Skipped: 0`, up from 4813 on 3d54d0d; 2:24 min against 2:48.
+
+Logging hardening, 2026-10-14 (#64, ADR 0003): three classes join the fast gate —
+`AuditRetentionRunLogTests` (7 tests), `DatabaseFailureCategoryTests` (26) and
+`DeadlockRetryAdapterTests` (12) — and three full-context classes join the shared
+configuration, adding no context of their own: `DatabaseFailureLogIntegrationTests`
+(7 tests, 3.7 s), `ScimDeadlockRetryIntegrationTests` (2 tests, 3.7 s, a forced
+PostgreSQL deadlock) and `StartupLogConnectionDetailsTests` (2 tests, 38.3 s; each
+runs the migrate step and then `BackendApplication` in child JVMs against a
+database of its own, which makes it the slowest of the three).
+`ScheduledJobRegistrationTests` gains three cases for a failed run's committed
+progress, and `LogEventTests` lost three with the retired `jobSummary` shape. The
+baseline gate after: `Tests run: 4944, Failures: 0, Errors: 0, Skipped: 0`, up from
+4863 measured on a226ae1 (the entry above reads 4860), with 32 context starts, as on
+a226ae1, and Semgrep 0 findings; 7:00 min against 4:28.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

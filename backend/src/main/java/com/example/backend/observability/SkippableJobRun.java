@@ -1,5 +1,6 @@
 package com.example.backend.observability;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -25,5 +26,14 @@ public interface SkippableJobRun {
      */
     default Map<String, Long> counts() {
         return Map.of();
+    }
+
+    /**
+     * What a run that did the work did to each kind of record, written as its {@code job-end}'s
+     * {@code record} array ({@link LogEvent#RECORD}), one element per kind. Empty by default —
+     * no {@code record} field — and ignored for a skipped run, which did nothing.
+     */
+    default List<JobRecord> records() {
+        return List.of();
     }
 }

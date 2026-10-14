@@ -74,8 +74,8 @@ class LogRecordGuardTests {
     void theModuleExposesTheShapesTheAdrNames() {
         assertThat(shapes()).containsExactlyInAnyOrder(
                 "success", "successAtWarn", "refused", "error", "withError", "jobScheduled",
-                "jobStart", "jobEnd", "jobFailed", "jobSummary", "requestEnd", "outboundStart",
-                "outboundEnd", "outboundFailed", "jwksRefetchWarning");
+                "jobStart", "jobEnd", "jobFailed", "requestEnd", "outboundStart",
+                "outboundEnd", "outboundFailed", "jwksRefetchWarning", "deadlockRetried");
     }
 
     /**

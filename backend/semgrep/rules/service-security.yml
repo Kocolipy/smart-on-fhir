@@ -348,8 +348,8 @@ rules:
     severity: ERROR
     message: >-
       Build the record with one of LogEvent's shapes: success, successAtWarn, refused, error,
-      withError, jobScheduled, jobStart, jobEnd, jobFailed, jobSummary, requestEnd,
-      outboundStart, outboundEnd, outboundFailed, jwksRefetchWarning. End it with log(). The
+      withError, jobScheduled, jobStart, jobEnd, jobFailed, requestEnd, outboundStart,
+      outboundEnd, outboundFailed, jwksRefetchWarning, deadlockRetried. End it with log(). The
       shape sets the level, event.outcome, event.duration_ms and the operation's fixed message;
       a call site setting any of them by hand is the drift this rule exists to stop. If no shape
       fits, add one to LogEvent and record it in docs/adr/0003.

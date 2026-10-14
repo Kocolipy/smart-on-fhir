@@ -9,6 +9,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -163,6 +164,7 @@ public class IdentityAdministrationService {
      * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.UNLOCK)
     public IdentitySummary unlock(UUID userId, UUID actorId) {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         ScimUser user = require(userId);
@@ -217,6 +219,7 @@ public class IdentityAdministrationService {
      * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
     @Transactional
+    @RetriedOnDeadlock(Operation.FORCE_PASSWORD_CHANGE)
     public IdentitySummary forcePasswordChange(UUID userId, UUID actorId) {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         ScimUser user = require(userId);

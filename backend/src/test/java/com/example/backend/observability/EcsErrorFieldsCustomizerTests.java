@@ -10,13 +10,16 @@ import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.classic.spi.ThrowableProxyVO;
+import java.io.EOFException;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.slf4j.event.KeyValuePair;
 import org.springframework.boot.logging.StackTracePrinter;
 import org.springframework.boot.logging.logback.StructuredLogEncoder;
 import org.springframework.core.env.Environment;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -180,6 +183,207 @@ class EcsErrorFieldsCustomizerTests {
 
         assertThat(new EcsErrorFieldsCustomizer(printer, converter).stackTrace(event))
                 .isEqualTo("converter");
+    }
+
+    // ---- SQL exception text --------------------------------------------------------------------
+
+    /**
+     * What a driver's refusal reads like: the refused value, the constraint, the schema and the
+     * database all in the message, as PostgreSQL's unique-violation text quotes them.
+     */
+    private static final String DRIVER_TEXT = "ERROR: duplicate key value violates unique"
+            + " constraint \"uq_probe_name\"\n  Detail: Key (name)=(refused-alice) already exists."
+            + "\n  Where: schema probe_schema, database probe_db";
+
+    /** A translated refusal: Spring's wrapper quotes the driver's text and the statement. */
+    private static RuntimeException translatedRefusal() {
+        return new DataIntegrityViolationException(
+                "StatementCallback; SQL [INSERT INTO probe_db.probe_schema.probe VALUES"
+                        + " ('refused-alice')]; " + DRIVER_TEXT,
+                new SQLException(DRIVER_TEXT, "23505", 0));
+    }
+
+    /**
+     * An SQL exception anywhere in the chain: {@code error.message} is the engine-neutral code
+     * and state, never the driver's text, and the record still names the real exception type.
+     */
+    @Test
+    void aChainHoldingAnSqlExceptionHasItsMessageRedactedToTheCodeAndState() {
+        JsonNode record = encoded(withCustomizer(),
+                event(translatedRefusal(), classification(500, "database", true)));
+
+        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState 23505)");
+        assertThat(record.at("/error/type").asText())
+                .isEqualTo("org.springframework.dao.DataIntegrityViolationException");
+    }
+
+    /**
+     * The stack trace keeps every class and every frame, and each {@code Caused by:} line
+     * carries the redacted text in place of the driver's.
+     */
+    @Test
+    void theStackTraceKeepsClassesAndFramesAndRedactsEachCausedByLine() {
+        String stack = encoded(withCustomizer(),
+                event(translatedRefusal(), classification(500, "database", true)))
+                .at("/error/stack_trace").asText();
+
+        assertThat(stack)
+                .startsWith("org.springframework.dao.DataIntegrityViolationException:"
+                        + " SQL error 0 (SQLState 23505)")
+                .contains("Caused by: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                .contains("at " + EcsErrorFieldsCustomizerTests.class.getName()
+                        + ".translatedRefusal(EcsErrorFieldsCustomizerTests.java:");
+    }
+
+    /** No part of the driver's text survives anywhere in the record, under either renderer. */
+    @Test
+    void noPartOfTheDriversTextReachesTheRecordUnderEitherRenderer() {
+        LoggingEvent event = event(translatedRefusal(), classification(500, "database", true));
+
+        for (MockEnvironment environment : List.of(withCustomizer(), withCustomizer(printing()))) {
+            assertThat(rawLine(environment, event))
+                    .doesNotContain("refused-alice")
+                    .doesNotContain("probe_schema")
+                    .doesNotContain("probe_db")
+                    .doesNotContain("uq_probe_name")
+                    .doesNotContain("duplicate key");
+        }
+    }
+
+    /** A suppressed SQL exception is redacted as a cause is, and its frames kept. */
+    @Test
+    void aSuppressedSqlExceptionIsRedactedToo() {
+        IllegalStateException failure = new IllegalStateException("cleanup failed");
+        failure.addSuppressed(new SQLException("permission denied for schema probe_schema",
+                "42501", 0));
+
+        String stack = encoded(withCustomizer(), event(failure, List.of()))
+                .at("/error/stack_trace").asText();
+
+        assertThat(stack)
+                .startsWith("java.lang.IllegalStateException: cleanup failed")
+                .contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 42501)")
+                .doesNotContain("probe_schema");
+    }
+
+    /**
+     * A message beneath the SQL exception — the driver's own cause — is the driver's to have
+     * written, not a quote of the statement, and is kept; a state that is not five letters or
+     * digits is not repeated.
+     */
+    @Test
+    void aCauseBeneathTheSqlExceptionKeepsItsMessageAndAnOddStateIsNotRepeated() {
+        SQLException driver = new SQLException("driver text", "bad\nstate", 4060,
+                new EOFException("connection reset"));
+
+        JsonNode record = encoded(withCustomizer(), event(driver, List.of()));
+
+        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 4060 (SQLState unknown)");
+        assertThat(record.at("/error/stack_trace").asText())
+                .contains("Caused by: java.io.EOFException: connection reset")
+                .doesNotContain("driver text");
+    }
+
+    /**
+     * A cause chain that loops back through its SQL exception is redacted and ends: the loop is
+     * cut where it would repeat, and the driver's text appears nowhere.
+     */
+    @Test
+    void aCyclicChainThroughAnSqlExceptionIsRedactedAndEnds() {
+        SQLException driver = new SQLException("quoted-alice", "23505");
+        IllegalStateException wrapper = new IllegalStateException("wraps quoted-alice", driver);
+        driver.initCause(wrapper);
+
+        String line = rawLine(withCustomizer(), event(wrapper, List.of()));
+
+        assertThat(line)
+                .contains("Caused by: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                .doesNotContain("quoted-alice");
+    }
+
+    /**
+     * A cause chain that loops without an SQL exception in it, beside a suppressed one, keeps its
+     * own messages and ends: only what quotes an SQL exception is redacted.
+     */
+    @Test
+    void aCyclicChainWithoutAnSqlExceptionKeepsItsMessagesAndEnds() {
+        IllegalStateException first = new IllegalStateException("first");
+        IllegalArgumentException second = new IllegalArgumentException("second", first);
+        first.initCause(second);
+        first.addSuppressed(new SQLException("quoted-alice", "23505"));
+
+        String stack = encoded(withCustomizer(), event(first, List.of()))
+                .at("/error/stack_trace").asText();
+
+        assertThat(stack)
+                .startsWith("java.lang.IllegalStateException: first")
+                .contains("Caused by: java.lang.IllegalArgumentException: second")
+                .contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 23505)")
+                .doesNotContain("quoted-alice");
+    }
+
+    /** Two throwables that suppress each other are each written once, and the walk ends. */
+    @Test
+    void mutuallySuppressedThrowablesAreEachWrittenOnce() {
+        IllegalStateException first = new IllegalStateException("first");
+        SQLException second = new SQLException("quoted-alice", "42501");
+        first.addSuppressed(second);
+        second.addSuppressed(first);
+
+        String stack = encoded(withCustomizer(), event(first, List.of()))
+                .at("/error/stack_trace").asText();
+
+        assertThat(stack.split("Suppressed: ", -1)).hasSize(2);
+        assertThat(stack).contains("Suppressed: java.sql.SQLException: SQL error 0 (SQLState 42501)");
+    }
+
+    /**
+     * A tree with no SQL exception in it is the one the formatter writes, a cyclic one with a
+     * suppressed exception included: logback marks the cycle where it repeats, and nothing is
+     * rebuilt to redact.
+     */
+    @Test
+    void aCyclicChainWithNoSqlExceptionEncodesAsTheFormatterAlone() {
+        IllegalStateException first = new IllegalStateException("first");
+        IllegalArgumentException second = new IllegalArgumentException("second", first);
+        first.initCause(second);
+        first.addSuppressed(new IllegalStateException("suppressed"));
+        LoggingEvent event = event(first, List.of());
+
+        assertThat(encoded(withCustomizer(), event)).isEqualTo(encoded(new MockEnvironment(), event));
+    }
+
+    /** An SQL exception that carries no SQLState still says it is one, and quotes nothing. */
+    @Test
+    void anSqlExceptionWithNoStateIsRedactedToAnUnknownState() {
+        JsonNode record = encoded(withCustomizer(),
+                event(new SQLException("quoted-alice", (String) null, 0), List.of()));
+
+        assertThat(record.at("/error/message").asText()).isEqualTo("SQL error 0 (SQLState unknown)");
+    }
+
+    /**
+     * A throwable that only suppresses an SQL exception does not quote it, so its own message is
+     * the record's {@code error.message}.
+     */
+    @Test
+    void aThrowableThatOnlySuppressesAnSqlExceptionKeepsItsOwnMessage() {
+        IllegalStateException failure = new IllegalStateException("cleanup failed");
+        failure.addSuppressed(new SQLException("quoted-alice", "42501"));
+
+        JsonNode record = encoded(withCustomizer(), event(failure, List.of()));
+
+        assertThat(record.at("/error/message").asText()).isEqualTo("cleanup failed");
+    }
+
+    /**
+     * A deserialized proxy carries no live throwable to redact from, so its message is written
+     * as it holds it; the service's own records always carry the live one.
+     */
+    @Test
+    void aProxyWithoutItsThrowableKeepsItsOwnMessage() {
+        assertThat(EcsErrorFieldsCustomizer.message(ThrowableProxyVO.build(new ThrowableProxy(FAILURE))))
+                .isEqualTo("downstream failure");
     }
 
     /** A fresh environment each call: {@link MockEnvironment#withProperty} mutates in place. */

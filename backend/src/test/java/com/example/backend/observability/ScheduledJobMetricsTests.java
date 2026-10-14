@@ -360,6 +360,35 @@ class ScheduledJobMetricsTests {
         assertThat(skip.at("/event/reason").asText()).isEqualTo("lock-held");
     }
 
+    /**
+     * What a run did to each kind of record rides on its {@code job-end} as one {@code record}
+     * array, one object per kind, so the record that says the run ended also says what it did.
+     */
+    @Test
+    void a_runs_records_ride_on_its_job_end_as_one_record_array() {
+        jobs.instrumentLocked("probe", OPERATION, () -> recording(false)).run();
+
+        assertThat(onlyRecord("Scheduled job completed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":3,\"batches\":1}]"));
+    }
+
+    /** A skipped run did nothing, so its one line carries no record of any kind. */
+    @Test
+    void a_skipped_run_carries_no_record() {
+        jobs.instrumentLocked("probe", OPERATION, () -> recording(true)).run();
+
+        assertThat(onlyRecord("Scheduled job skipped: another run holds its lock").has("record"))
+                .isFalse();
+    }
+
+    /** A run that reports records of no kind adds no {@code record} field. */
+    @Test
+    void a_run_with_no_records_adds_no_record_field() {
+        jobs.instrumentLocked("probe", OPERATION, () -> RAN).run();
+
+        assertThat(onlyRecord("Scheduled job completed").has("record")).isFalse();
+    }
+
     @Test
     void every_run_gets_a_run_id_of_its_own() {
         Runnable job = instrument("probe", OPERATION, () -> body.info(INSIDE));
@@ -434,6 +463,24 @@ class ScheduledJobMetricsTests {
     }
 
     /**
+     * A run the database refused for this service's own rights is {@code cert/auth}, still under
+     * {@code error.code} {@code 500}: the code is an HTTP status, never the database's number.
+     */
+    @Test
+    void a_run_refused_its_rights_by_the_database_is_cert_auth_under_500() {
+        Runnable job = instrument("probe", OPERATION, () -> {
+            throw new DataIntegrityViolationException("refused",
+                    new java.sql.SQLException("permission denied", "42501", 229));
+        });
+
+        assertThatThrownBy(job::run).isInstanceOf(DataIntegrityViolationException.class);
+
+        JsonNode end = onlyRecord("Scheduled job failed");
+        assertThat(end.at("/error_category").asText()).isEqualTo("cert/auth");
+        assertThat(end.at("/error_code").asInt()).isEqualTo(500);
+    }
+
+    /**
      * A run that found its lock held ends in one INFO {@code job-end} that says so, and none
      * that claims the work was done.
      */
@@ -499,6 +546,24 @@ class ScheduledJobMetricsTests {
     }
 
     // ---- helpers ----------------------------------------------------------------------------
+
+    private static final tools.jackson.databind.json.JsonMapper JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
+    /** A run that removed three audit events in one batch, or skipped. */
+    private static SkippableJobRun recording(boolean skipped) {
+        return new SkippableJobRun() {
+            @Override
+            public boolean skipped() {
+                return skipped;
+            }
+
+            @Override
+            public List<JobRecord> records() {
+                return List.of(JobRecord.of("audit_event", "deleted", 3L, "batches", 1L));
+            }
+        };
+    }
 
     private void advance(Duration by) {
         now.set(now.get().plus(by));

@@ -33,6 +33,7 @@ FAST_GATE=(
   com/example/backend/audit/application/AuditRetentionServiceTests
   com/example/backend/audit/application/AuditTrailServiceTests
   com/example/backend/audit/config/AuditAppendPoolConfigTests
+  com/example/backend/audit/config/AuditRetentionRunLogTests
   com/example/backend/audit/config/AuditRetentionStartupTests
   com/example/backend/audit/controller/AdminAuditControllerTests
   com/example/backend/audit/domain/AuditEventPageTests
@@ -107,6 +108,7 @@ FAST_GATE=(
   com/example/backend/database/config/MigrationProfilesTests
   com/example/backend/lifecycle/config/ApplicationLifecycleLogTests
   com/example/backend/observability/AccessRefusalLogTests
+  com/example/backend/observability/DatabaseFailureCategoryTests
   com/example/backend/observability/EcsErrorFieldsCustomizerTests
   com/example/backend/observability/EcsTimestampCustomizerTests
   com/example/backend/observability/FeatureLogFieldsTests
@@ -122,6 +124,7 @@ FAST_GATE=(
   com/example/backend/observability/ScimRequestObservationConventionTests
   com/example/backend/observability/SessionHashTests
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
+  com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scim/application/ConnectorAdministrationServiceTests
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests

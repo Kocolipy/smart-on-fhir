@@ -13,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -206,7 +207,103 @@ class ScheduledJobRegistrationTests {
                 .counter().count()).isEqualTo(1);
     }
 
+    /**
+     * A failed run's {@code job-end} says what the run had committed when it failed, in the
+     * {@code record} array its successful runs carry — for a job that declares it.
+     */
+    @Test
+    void a_failed_run_reports_what_it_had_committed_as_its_record() {
+        Runnable job = register(ScheduledJobSpec
+                .of(JOB, OPERATION, CRON, DESCRIPTION, () -> {
+                    throw new IllegalStateException("the probe failed");
+                })
+                .committedOnFailure(List.of(
+                        JobRecord.of("audit_event", "deleted", 0L, "batches", 0L))));
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":0,\"batches\":0}]"));
+    }
+
+    /**
+     * A body that commits transactions of its own reports each as it commits ({@link
+     * JobProgress#committed}), so a run that fails afterwards — its lock transaction's commit
+     * included — counts what had committed, not the schedule's nothing-committed.
+     */
+    @Test
+    void a_failed_run_reports_the_progress_its_body_reported_committed() {
+        Runnable job = register(ScheduledJobSpec
+                .of(JOB, OPERATION, CRON, DESCRIPTION, () -> {
+                    JobProgress.committed(List.of(
+                            JobRecord.of("audit_event", "deleted", 5L, "batches", 1L)));
+                    throw new IllegalStateException("the probe failed after its commit");
+                })
+                .committedOnFailure(List.of(
+                        JobRecord.of("audit_event", "deleted", 0L, "batches", 0L))));
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":5,\"batches\":1}]"));
+    }
+
+    /** What one run reported committed is that run's alone: the next failed run starts over. */
+    @Test
+    void a_runs_reported_progress_does_not_reach_the_next_run() {
+        AtomicInteger run = new AtomicInteger();
+        Runnable job = register(ScheduledJobSpec
+                .of(JOB, OPERATION, CRON, DESCRIPTION, () -> {
+                    if (run.incrementAndGet() == 1) {
+                        JobProgress.committed(List.of(
+                                JobRecord.of("audit_event", "deleted", 5L, "batches", 1L)));
+                    }
+                    throw new IllegalStateException("the probe failed");
+                })
+                .committedOnFailure(List.of(
+                        JobRecord.of("audit_event", "deleted", 0L, "batches", 0L))));
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+        logs.reset();
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":0,\"batches\":0}]"));
+    }
+
+    /** Progress reported outside any scheduled run is nobody's, and is dropped. */
+    @Test
+    void progress_reported_outside_a_run_reaches_no_run() {
+        JobProgress.committed(List.of(JobRecord.of("audit_event", "deleted", 5L, "batches", 1L)));
+        Runnable job = register(ScheduledJobSpec
+                .of(JOB, OPERATION, CRON, DESCRIPTION, () -> {
+                    throw new IllegalStateException("the probe failed");
+                })
+                .committedOnFailure(List.of(
+                        JobRecord.of("audit_event", "deleted", 0L, "batches", 0L))));
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":0,\"batches\":0}]"));
+    }
+
+    /** A job that declares nothing about a failed run's records reports none. */
+    @Test
+    void a_failed_run_of_a_job_declaring_no_records_reports_none() {
+        Runnable job = schedule(() -> {
+            throw new IllegalStateException("the probe failed");
+        });
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").has("record")).isFalse();
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
+
+    private static final tools.jackson.databind.json.JsonMapper JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
 
     /** The probe job with its one declared counter, registered; returns the task it runs. */
     private Runnable schedule(Supplier<? extends SkippableJobRun> task) {

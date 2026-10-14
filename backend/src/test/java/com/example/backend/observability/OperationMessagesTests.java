@@ -30,8 +30,7 @@ import org.junit.jupiter.api.Test;
  * Every operation declares the messages its records need. An operation <em>needs</em> a
  * {@link MessageSlot} when production code hands it to the shape that writes that slot's
  * message — {@link LogEvent#success} or {@link LogEvent#successAtWarn} ({@code SUCCESS}),
- * {@link LogEvent#refused}, {@link LogEvent#error}, {@link LogEvent#jobSummary}, and
- * {@link LogEvent#jobScheduled}, which every {@link ScheduledJobSpec#of} reaches.
+ * {@link LogEvent#refused}, {@link LogEvent#error}, and {@link LogEvent#jobScheduled}, which every {@link ScheduledJobSpec#of} reaches.
  *
  * <p>The call sites are read from the compiled production classes. A method needs, for every
  * operation it names — an {@link Operation} constant, a {@code static final} field holding
@@ -52,8 +51,7 @@ class OperationMessagesTests {
             "successAtWarn", MessageSlot.SUCCESS,
             "refused", MessageSlot.REFUSED,
             "error", MessageSlot.ERROR,
-            "jobScheduled", MessageSlot.SCHEDULED,
-            "jobSummary", MessageSlot.SUMMARY);
+            "jobScheduled", MessageSlot.SCHEDULED);
 
     /** The operations written only by shapes whose message is the same for every operation. */
     private static final Set<Operation> FIXED_MESSAGE_OPERATIONS =
@@ -105,8 +103,8 @@ class OperationMessagesTests {
                 .as("an operation a nested type chooses")
                 .contains(MessageSlot.REFUSED);
         assertThat(needs.get(Operation.AUDIT_RETENTION))
-                .as("an operation a job's identity carries, for its summary and its schedule")
-                .contains(MessageSlot.SUMMARY, MessageSlot.SCHEDULED);
+                .as("an operation a job's identity carries, for its schedule")
+                .contains(MessageSlot.SCHEDULED);
     }
 
     /**

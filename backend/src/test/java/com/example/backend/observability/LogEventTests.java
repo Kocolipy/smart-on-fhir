@@ -395,6 +395,25 @@ class LogEventTests {
         assertThat(fields.get(LogEvent.REASON)).isEqualTo(skipped ? "lock-held" : null);
     }
 
+    /** {@code batch.job.status}: {@code completed} for a run that did the work, else {@code skipped}. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {"false | completed", "true | skipped"})
+    void jobEndStatesTheRunsJobStatus(boolean skipped, String status) {
+        ILoggingEvent record =
+                only(() -> LogEvent.jobEnd(log, Operation.DORMANCY, 42L, skipped));
+
+        assertThat(CapturedLog.fields(record)).containsEntry("batch.job.status", status);
+    }
+
+    /** A failed run's {@code batch.job.status} is {@code failed}. */
+    @Test
+    void jobFailedStatesTheFailedJobStatus() {
+        ILoggingEvent record = only(() -> LogEvent.jobFailed(
+                log, Operation.AUDIT_RETENTION, 7L, ErrorCategory.DATABASE));
+
+        assertThat(CapturedLog.fields(record)).containsEntry("batch.job.status", "failed");
+    }
+
     /**
      * {@code jobFailed}: {@code ERROR} {@code job-end} with {@code error.code} {@code 500}, the
      * given error category, {@code failure}, {@code high} severity and the duration.
@@ -415,20 +434,6 @@ class LogEventTests {
                 .containsEntry(LogEvent.DURATION_MS, 7L)
                 .containsEntry(LogEvent.TYPE, List.of("job-end"))
                 .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention");
-    }
-
-    /** {@code jobSummary}: {@code INFO} {@code batch}/{@code info}, leaving outcome to job-end. */
-    @Test
-    void jobSummaryReportsWhatARunDidWithNoOutcome() {
-        ILoggingEvent record = only(() -> LogEvent.jobSummary(log, Operation.AUDIT_RETENTION));
-
-        assertThat(record.getLevel()).isEqualTo(Level.INFO);
-        assertThat(record.getMessage()).isEqualTo("Audit retention run complete");
-        assertThat(CapturedLog.fields(record))
-                .containsEntry(LogEvent.CATEGORY, List.of("batch"))
-                .containsEntry(LogEvent.TYPE, List.of("info"))
-                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention")
-                .doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
     }
 
     /**
@@ -561,14 +566,6 @@ class LogEventTests {
             "LOGIN | Scheduled job registered"})
     void eachJobsScheduleMessage(Operation operation, String message) {
         assertThat(LogEvent.message(operation, LogEvent.MessageSlot.SCHEDULED)).isEqualTo(message);
-    }
-
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-            "AUDIT_RETENTION | Audit retention run complete",
-            "DORMANCY | Scheduled job run summary"})
-    void eachJobsSummaryMessage(Operation operation, String message) {
-        assertThat(LogEvent.message(operation, LogEvent.MessageSlot.SUMMARY)).isEqualTo(message);
     }
 
     /** An operation's line keeps each message it declares under the slot it declares it for. */
