@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -82,6 +83,10 @@ class JdbcErrorLogRedactionTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    /** The owner login: the one that may change the schema these tests force a fault into. */
+    @Autowired
+    private DatabaseLogins logins;
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -210,7 +215,7 @@ class JdbcErrorLogRedactionTests {
         assertThat(status(existing)).isEqualTo(201);
         logs.reset();
 
-        jdbc.execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_redaction_locale"
+        logins.owner().jdbc().execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_redaction_locale"
                 + " CHECK (locale IS DISTINCT FROM '" + forced + "')");
         MvcResult refusedCreate;
         MvcResult refusedReplace;
@@ -223,7 +228,7 @@ class JdbcErrorLogRedactionTests {
                             .content(userBody(existingUserName, forced)))
                     .andReturn();
         } finally {
-            jdbc.execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_redaction_locale");
+            logins.owner().jdbc().execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_redaction_locale");
         }
 
         assertThat(status(refusedCreate)).isEqualTo(500);

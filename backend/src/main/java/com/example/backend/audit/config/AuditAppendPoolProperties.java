@@ -5,9 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * The sizing of the audit append pool, the dedicated connections fail-open appends commit on
- * (ADR 0004, 2026-10-13 addendum). Only sizing: the pool's URL, credentials and
- * {@code connection-init-sql} are the main datasource's, read from the main pool itself, so there
- * is nothing secret here and nothing that could drift from the main pool's role.
+ * (ADR 0004, 2026-10-13 addendum). Only sizing: the pool's URL and credentials are the main
+ * datasource's, read from the main pool itself, so there is nothing secret here and nothing that
+ * could drift from the main pool's login.
  *
  * <p>Bound from {@code APP_AUDIT_POOL_SIZE} and {@code APP_AUDIT_POOL_TIMEOUT} by relaxed binding;
  * the defaults are this record's, not a placeholder's.

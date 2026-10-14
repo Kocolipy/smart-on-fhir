@@ -296,6 +296,10 @@
                         <excludedEnvironmentVariable>DATABASE_URL</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>DATABASE_USERNAME</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>DATABASE_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_RETENTION_USERNAME</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_RETENTION_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_OWNER_USERNAME</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>DATABASE_OWNER_PASSWORD</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>LOG_FILE</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>LOG_STRUCTURED_FORMAT</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>SPRING_PROFILES_ACTIVE</excludedEnvironmentVariable>

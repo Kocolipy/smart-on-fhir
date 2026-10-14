@@ -11,23 +11,21 @@ spring:
     # fixtures live in `authorization.yaml`, which the test resources do NOT
     # import: their contexts carry a Superuser-only mapping of their own.
     import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:authorization.yaml
+  # The main pool (DataSourceConfig), as the APP LOGIN: a member of `backend_app`
+  # only, with full DML on the tables the application owns the lifecycle of and
+  # INSERT/SELECT only on `audit_events`. That is what makes the audit trail
+  # append-only for THIS application rather than only by convention — an UPDATE or
+  # DELETE from application code is refused by the server with SQLSTATE 42501,
+  # whatever the code intended. Nothing runs on a new connection: the login's
+  # privileges are the pool's. The audit append pool connects as the same login.
+  #
+  # No credential has a fallback: this repository is public, so a deployment that
+  # forgot one fails to start rather than signing in with a published password.
+  # `spring.datasource.hikari.*` settings still bind to this pool.
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
-    username: ${DATABASE_USERNAME:backend}
-    password: ${DATABASE_PASSWORD:backend}
-    hikari:
-      # Every runtime connection assumes `backend_app`, the least-privilege role
-      # the V1 migration creates: full DML on the tables the application owns the
-      # lifecycle of, and INSERT/SELECT only on `audit_events`. That is what makes
-      # the audit trail append-only for THIS application rather than only by
-      # convention — an UPDATE or DELETE from application code is refused by the
-      # server with SQLSTATE 42501, whatever the code intended.
-      #
-      # Runs once per physical connection, and SET ROLE is session-scoped, so it
-      # holds for every statement that connection ever carries. The retention job
-      # is the one exception and arranges it itself, with a transaction-scoped
-      # `SET LOCAL ROLE` that reverts on commit.
-      connection-init-sql: SET ROLE backend_app
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
   jpa:
     hibernate:
       # Flyway migrations (src/main/resources/db/migration) are the only source
@@ -36,19 +34,13 @@ spring:
       ddl-auto: validate
     open-in-view: false
   flyway:
+    # Off in the service. The deployed service never holds the owner credential:
+    # migrations run beforehand in the one-shot migrate step (`java -jar
+    # backend.jar migrate`, the `migrate` profile below), and `ddl-auto: validate`
+    # above still fails this process's start on a schema that drifted. Only the
+    # `local`, `test` and `migrate` profiles turn Flyway on.
+    enabled: false
     baseline-on-migrate: false
-    # Naming a user here is what gives Flyway a connection of its own, outside the
-    # Hikari pool and therefore outside the `SET ROLE` above. It has to be outside
-    # it: `backend_app` cannot create a table, and the role does not exist at all
-    # until the migration that creates it has run — a migration through the pool
-    # would fail on its own first connection, before it could create the role that
-    # connection was told to assume.
-    #
-    # The credentials are the same owning login role the datasource connects as;
-    # what differs is that this connection keeps its privileges instead of
-    # dropping to the runtime role.
-    user: ${DATABASE_USERNAME:backend}
-    password: ${DATABASE_PASSWORD:backend}
   task:
     scheduling:
       pool:
@@ -118,6 +110,14 @@ app:
     # every request and so never bounds a continuously-active session on its
     # own.
     absolute-lifetime: ${APP_SESSION_ABSOLUTE_LIFETIME:8h}
+  datasource:
+    # The retention pool (AuditRetentionPoolConfig), as the RETENTION LOGIN: a
+    # member of `backend_audit_retention` only, which may read and delete audit
+    # events and do nothing else. Used by the audit retention job alone, on the main
+    # pool's database; two connections, 10 s connection timeout. No fallback.
+    retention:
+      username: ${DATABASE_RETENTION_USERNAME}
+      password: ${DATABASE_RETENTION_PASSWORD}
   audit:
     retention:
       # `period` and `schedule` are deliberately absent, not forgotten. Both
@@ -139,9 +139,42 @@ app:
     # Configuration section. A zero or negative window, or a role revocation
     # window not longer than the lockout window, fails startup.
 
+
 # The `management:` block lives in `telemetry.yaml` (imported above), which
 # defines a superset of what main declared here — health, info AND the
 # `prometheus` scrape, plus the histogram settings — so re-declaring a plain
 # `management:` block in this file would shadow the import and silently drop
 # `prometheus` from exposure. The health probe / show-details settings main
 # added are identical to telemetry.yaml's, so nothing is lost by omitting them.
+
+---
+# Where migrations run: a local run, the test suite, and the one-shot migrate step
+# (MigrationStep). Flyway connects as the OWNER LOGIN, on a connection of its own
+# outside every pool, and learns the app and retention logins' NAMES (never their
+# passwords) as placeholders: the migrations grant each its role, quoting the
+# name, after MigrationLoginNames has checked it against ^[a-z][a-z0-9_]{2,30}$.
+# The owner credential has no fallback and is read nowhere else. (The test
+# resources' application.yaml shadows this file; ContainerTestConfiguration gives
+# the test contexts the same settings.)
+spring:
+  config:
+    activate:
+      on-profile: local | test | migrate
+  flyway:
+    enabled: true
+    user: ${DATABASE_OWNER_USERNAME}
+    password: ${DATABASE_OWNER_PASSWORD}
+    placeholders:
+      "[app_login]": ${DATABASE_USERNAME}
+      "[retention_login]": ${DATABASE_RETENTION_USERNAME}
+
+---
+# The migrate step has no pool to borrow a URL from, so Flyway is told the
+# service's database directly. It reads DATABASE_URL, the owner login and the two
+# other logins' names, and no password but the owner's.
+spring:
+  config:
+    activate:
+      on-profile: migrate
+  flyway:
+    url: ${spring.datasource.url}

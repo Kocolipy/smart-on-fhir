@@ -30,14 +30,12 @@ import org.springframework.stereotype.Service;
  * instances on the same cron do not both delete: the second finds the lock held, does
  * nothing, and reports it {@linkplain AuditRetentionRun#skipped skipped}, which
  * {@code ScheduledJobMetrics.instrumentLocked} logs as the run's {@code lock-held} end. The
- * lock is taken before the body runs, and so before the adapter assumes the retention role,
- * as the application's own role, which is the one granted it.
+ * lock is on the main pool, as the app login, which is the one granted it.
  *
- * <p>The body runs inside the transaction the module opened for the lock, and that is
- * load-bearing rather than incidental: the adapter assumes the retention database role with
- * {@code SET LOCAL ROLE}, which needs a transaction to be local to; without one the delete
- * would run as the application's own role and be refused. The lock is the module's, held
- * for the whole run whatever transactions the body opens of its own.
+ * <p>The delete runs on another pool, as the retention login — the one principal the audit
+ * table lets delete — in a transaction of the retention pool's own, which the adapter opens. It
+ * commits inside the run's transaction on the main pool and releases nothing: the lock is the
+ * module's, held for the whole run whatever transactions the body opens of its own (ADR 0005).
  */
 @Service
 public class AuditRetentionService {

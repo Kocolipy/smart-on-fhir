@@ -24,19 +24,21 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p><strong>Beside the main datasource, not instead of it.</strong> Both beans are declared
  * {@code defaultCandidate = false}: they are injected only where asked for by qualifier, so the
- * main pool stays the one {@link DataSource} every other bean is given, and Boot's DataSource,
- * JPA, transaction-manager, {@code JdbcTemplate} and Flyway auto-configurations — which ignore a
- * bean that is not a default candidate — still create the main pool and the one, primary, JPA
- * transaction manager. There is no second transaction manager: the pool's connections
- * auto-commit, so each append is a transaction of its own.
+ * main pool ({@code database.config.DataSourceConfig}) stays the one {@link DataSource} every
+ * other bean is given, and Boot's JPA, transaction-manager, {@code JdbcTemplate} and Flyway
+ * auto-configurations — which ignore a bean that is not a default candidate — still use the main
+ * pool and create the one JPA transaction manager. This pool adds no transaction manager: its
+ * connections auto-commit, so each append is a transaction of its own.
  *
- * <p><strong>The main pool's connection settings, not a copy of them.</strong> The URL, the
- * username, the password and the {@code connection-init-sql} are read off the main pool, so an
- * append connects as the same login and runs as the same runtime role ({@code SET ROLE
- * backend_app} in a deployment) as every other statement the service issues; there is no second
- * set of credentials and no fallback for one. Only the pool's size and its connection timeout are
- * its own ({@link AuditAppendPoolProperties}). The pool starts lazily, on the first append, so a
- * context that records no refusal opens no connection here.
+ * <p><strong>The main pool's login, not a copy of its settings.</strong> The URL, the username and
+ * the password are read off the main pool, so an append connects as the app login — a member of
+ * {@code backend_app} only, which may insert an audit event and never change or delete one — as
+ * every other statement the service issues; there is no second set of credentials, no fallback
+ * for one, and never the owner login. Nothing runs on a new connection: the login's privileges
+ * are the pool's (ADR 0015, "The audit append pool needs its own role switch", resolved by the
+ * separate logins of #66). Only the pool's size and its connection timeout are its own
+ * ({@link AuditAppendPoolProperties}). The pool starts lazily, on the first append, so a context
+ * that records no refusal opens no connection here.
  */
 @Configuration
 @EnableConfigurationProperties(AuditAppendPoolProperties.class)
@@ -61,16 +63,10 @@ public class AuditAppendPoolConfig {
     @Qualifier(POOL_NAME)
     public HikariDataSource auditAppendDataSource(
             HikariDataSource main, AuditAppendPoolProperties settings) {
-        HikariDataSource pool = new HikariDataSource();
-        pool.setPoolName(POOL_NAME);
-        pool.setJdbcUrl(main.getJdbcUrl());
+        HikariDataSource pool = SecondaryPools.onTheMainPoolsDatabase(
+                main, POOL_NAME, settings.size(), settings.timeout());
         pool.setUsername(main.getUsername());
         pool.setPassword(main.getPassword());
-        pool.setDriverClassName(main.getDriverClassName());
-        pool.setConnectionInitSql(main.getConnectionInitSql());
-        pool.setMaximumPoolSize(settings.size());
-        pool.setConnectionTimeout(settings.timeout().toMillis());
-        pool.setAutoCommit(true);
         return pool;
     }
 

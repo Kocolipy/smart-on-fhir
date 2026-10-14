@@ -3,6 +3,7 @@ package com.example.backend.audit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.EcsLogCapture;
 import java.sql.Timestamp;
@@ -27,8 +28,6 @@ import org.springframework.scheduling.config.CronTask;
 import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.scheduling.config.Task;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -40,16 +39,17 @@ import tools.jackson.databind.JsonNode;
  * wrapper writes for a skipped run, and the migration that gives the job its lock row.
  *
  * <p>The overlap is made by the database rather than by a test hook in the job. This test
- * row-locks one of the aged-out events it inserted, so the first run takes the job's lock,
- * reaches its {@code DELETE} and waits there on that row — still inside its transaction, still
- * holding the job's lock — exactly as a slow delete on another instance would. The second run
- * starts only once Postgres reports the first one waiting. Releasing the row lets the first
- * run finish.
+ * row-locks one of the aged-out events it inserted, as the owner login (the app login may not
+ * lock an audit row), so the first run takes the job's lock on the main pool, reaches its
+ * {@code DELETE} on the retention pool and waits there on that row — still inside its run's
+ * transaction, still holding the job's lock — exactly as a slow delete on another instance
+ * would. The second run starts only once Postgres reports that delete waiting, as the retention
+ * login, in {@code pg_stat_activity}: read by the container's superuser, since another login's
+ * query text is hidden from the app login. Releasing the row lets the first run finish.
  *
  * <p>Every event this class inserts has aged out, so the runs under test remove them and
- * nothing is left to clean up. A test cleanup could not delete a row anyway: the table is
- * append-only to every role but retention's, and only the retention adapter may assume that
- * role. That the job keeps what has not aged out is {@code AuditAppendOnlyIntegrationTests}'.
+ * nothing is left to clean up. That the job keeps what has not aged out is
+ * {@code AuditAppendOnlyIntegrationTests}'.
  *
  * <p>The annotations match {@code EcsLogFormatTests}', so the two share one cached context
  * and one Postgres container.
@@ -71,10 +71,14 @@ class AuditRetentionSerializationIntegrationTests {
     private static final String ROW_LOCK_EVENT =
             "SELECT id FROM audit_events WHERE id = ? FOR UPDATE";
 
-    /** A backend waiting on a row lock in the retention delete — the first run, held. */
+    /**
+     * A backend of the retention login waiting on a row lock in the retention delete — the first
+     * run, held, with its delete on the retention pool.
+     */
     private static final String WAITING_RETENTION_DELETES = """
             SELECT count(*) FROM pg_stat_activity
              WHERE wait_event_type = 'Lock'
+               AND usename = 'backend_retention_login'
                AND query LIKE 'DELETE FROM audit_events WHERE occurred_at < %'""";
 
     private static final String FIRST_RUN_THREAD = "retention-first-run";
@@ -89,7 +93,7 @@ class AuditRetentionSerializationIntegrationTests {
     private JdbcTemplate jdbc;
 
     @Autowired
-    private PlatformTransactionManager transactionManager;
+    private DatabaseLogins logins;
 
     @Autowired
     private Environment environment;
@@ -120,9 +124,10 @@ class AuditRetentionSerializationIntegrationTests {
         ExecutorService firstRunner = Executors.newSingleThreadExecutor(
                 runnable -> new Thread(runnable, FIRST_RUN_THREAD));
         try {
-            Future<?> holding = rowHolder.submit(() -> new TransactionTemplate(transactionManager)
+            DatabaseLogins.Login owner = logins.owner();
+            Future<?> holding = rowHolder.submit(() -> owner.transactions()
                     .executeWithoutResult(status -> {
-                        jdbc.queryForList(ROW_LOCK_EVENT, UUID.class, held);
+                        owner.jdbc().queryForList(ROW_LOCK_EVENT, UUID.class, held);
                         rowLocked.countDown();
                         awaitQuietly(releaseRow);
                     }));
@@ -219,9 +224,10 @@ class AuditRetentionSerializationIntegrationTests {
      * delete: the first run has taken the job's lock and is holding it, mid-transaction.
      */
     private void awaitFirstRunWaitingInsideItsDelete() throws InterruptedException {
+        JdbcTemplate observer = logins.superuser().jdbc();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
-            Long waiting = jdbc.queryForObject(WAITING_RETENTION_DELETES, Long.class);
+            Long waiting = observer.queryForObject(WAITING_RETENTION_DELETES, Long.class);
             if (waiting != null && waiting > 0) {
                 return;
             }
@@ -230,9 +236,14 @@ class AuditRetentionSerializationIntegrationTests {
         throw new AssertionError("the first retention run never reached its delete");
     }
 
+    /**
+     * The job's records on one thread. Hikari's own lines are left out: the retention pool starts
+     * on its first use, which may be the run on that thread, and its start is not the job's.
+     */
     private List<JsonNode> onThread(String thread) {
         return logs.records().stream()
                 .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                .filter(record -> !record.at("/log/logger").asText().startsWith("com.zaxxer.hikari"))
                 .toList();
     }
 

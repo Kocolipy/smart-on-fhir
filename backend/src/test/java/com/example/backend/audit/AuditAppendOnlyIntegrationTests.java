@@ -9,6 +9,7 @@ import com.example.backend.SessionCsrf;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.DatabaseLogins;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.application.AuditRetentionService;
@@ -26,9 +27,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -37,7 +35,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,8 +60,9 @@ import org.springframework.web.context.WebApplicationContext;
  *   <li>a write whose audit insert cannot commit is rolled back with it;
  *   <li>a failure event that cannot be appended raises an operational alert and
  *       leaves the original response exactly as it was;
- *   <li>the application's database role may insert and read audit rows and may not
- *       update or delete one, while a separate role reserved for retention may.
+ *   <li>the app login may insert and read audit rows and may not update or delete one;
+ *       the retention login may delete one and may not update it; and the owner login,
+ *       which the grants do not bind, is refused both by the table's own guard.
  * </ul>
  *
  * <p>The insert failure is forced with a trigger installed for the length of one
@@ -76,12 +74,9 @@ import org.springframework.web.context.WebApplicationContext;
  * role name or a column list. A test about privilege enforcement that built its own
  * SQL by concatenation would be demonstrating the shape it exists to rule out.
  *
- * <p>The role assertions run under {@code SET LOCAL ROLE}, because this context's
- * datasource connects as the container's owning role. The deployed service assumes
- * the runtime role on every connection instead, through
- * {@code spring.datasource.hikari.connection-init-sql} — which
- * {@link #theDeployedConfigurationMakesTheRuntimeRoleTheApplicationsOwn()} asserts
- * against the deployed file rather than a test copy of it.
+ * <p>Each privilege assertion connects as the database login it is about
+ * ({@link DatabaseLogins}), on a connection of its own: the server decides by the login,
+ * so the claim is only as good as the login it is made through.
  */
 @SpringBootTest
 @Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
@@ -90,11 +85,6 @@ class AuditAppendOnlyIntegrationTests {
     private static final String USER = "test-user";
 
     private static final String ADMIN = "test-admin";
-
-    private static final String ASSUME_APPLICATION_ROLE = "SET LOCAL ROLE backend_app";
-
-    private static final String ASSUME_RETENTION_ROLE =
-            "SET LOCAL ROLE backend_audit_retention";
 
     private static final String INSERT_EVENT = """
             INSERT INTO audit_events
@@ -173,6 +163,9 @@ class AuditAppendOnlyIntegrationTests {
     private TransactionTemplate transactions;
 
     @Autowired
+    private DatabaseLogins logins;
+
+    @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
@@ -189,7 +182,7 @@ class AuditAppendOnlyIntegrationTests {
 
     @AfterEach
     void removeForcedFailure() {
-        jdbc.execute(DROP_FORCED_FAILURE_TRIGGER);
+        logins.owner().jdbc().execute(DROP_FORCED_FAILURE_TRIGGER);
         restore(USER);
     }
 
@@ -213,7 +206,7 @@ class AuditAppendOnlyIntegrationTests {
             // reaches it either.
             assertThat(sessions.revocations()).doesNotContain(target.id());
         } finally {
-            jdbc.execute(DROP_FORCED_FAILURE_TRIGGER);
+            logins.owner().jdbc().execute(DROP_FORCED_FAILURE_TRIGGER);
             discard(target);
         }
     }
@@ -305,85 +298,115 @@ class AuditAppendOnlyIntegrationTests {
     // Role separation, at the database
 
     @Test
-    void theApplicationsRoleMayInsertAndReadAuditRows() {
-        Integer read = asRole(ASSUME_APPLICATION_ROLE, () ->
-                jdbc.queryForObject(COUNT_EVENTS, Integer.class));
-        assertThat(read).isNotNull();
+    void theAppLoginMayInsertAndReadAuditRows() {
+        JdbcTemplate app = logins.app().jdbc();
+        assertThat(app.queryForObject(COUNT_EVENTS, Integer.class)).isNotNull();
 
         UUID inserted = UUID.randomUUID();
-        asRole(ASSUME_APPLICATION_ROLE, () -> insertEvent(inserted));
+        app.update(INSERT_EVENT, inserted, Timestamp.from(Instant.now()));
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, inserted)).isEqualTo(1);
     }
 
     @Test
-    void theApplicationsRoleMayNotUpdateARecordedEvent() {
+    void theAppLoginMayNotUpdateARecordedEvent() {
         UUID recorded = UUID.randomUUID();
         insertEvent(recorded);
 
-        assertThatThrownBy(() -> asRole(
-                        ASSUME_APPLICATION_ROLE,
-                        () -> jdbc.update(UPDATE_EVENT_OUTCOME, recorded)))
+        assertThatThrownBy(() -> logins.app().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
                 .satisfies(failure -> assertThat(sqlStates(failure))
                         .contains(INSUFFICIENT_PRIVILEGE))
                 .rootCause()
-                .hasMessageContaining("audit_events");
+                .hasMessageContaining("permission denied for table audit_events");
 
         assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
                 .isEqualTo("SUCCESS");
     }
 
     @Test
-    void theApplicationsRoleMayNotDeleteARecordedEvent() {
+    void theAppLoginMayNotDeleteARecordedEvent() {
         UUID recorded = UUID.randomUUID();
         insertEvent(recorded);
 
-        assertThatThrownBy(() -> asRole(
-                        ASSUME_APPLICATION_ROLE, () -> jdbc.update(DELETE_EVENT, recorded)))
+        assertThatThrownBy(() -> logins.app().jdbc().update(DELETE_EVENT, recorded))
                 .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(INSUFFICIENT_PRIVILEGE));
+                        .contains(INSUFFICIENT_PRIVILEGE))
+                .rootCause()
+                .hasMessageContaining("permission denied for table audit_events");
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isEqualTo(1);
     }
 
     /**
-     * The grants alone say nothing about a connection that arrives as the table's
-     * owner — a console session, or a deployment that never set the runtime role.
-     * The table's own trigger refuses that one too, so append-only survives a
-     * misconfiguration instead of depending on one being absent.
+     * The grants say nothing about the owner login, which owns the table — a console
+     * session, or a migration. The table's own guard refuses it a delete as well as an
+     * update, although it administers the retention role, so append-only survives a
+     * misused credential instead of depending on none being used.
      */
     @Test
-    void evenTheOwningRoleIsRefusedByTheTablesOwnGuard() {
+    void theOwnerLoginMayNotDeleteARecordedEvent() {
         UUID recorded = UUID.randomUUID();
         insertEvent(recorded);
 
-        assertThatThrownBy(() -> jdbc.update(DELETE_EVENT, recorded))
+        assertThatThrownBy(() -> logins.owner().jdbc().update(DELETE_EVENT, recorded))
                 .rootCause()
-                .hasMessageContaining("append-only");
-        assertThatThrownBy(() -> jdbc.update(UPDATE_EVENT_OUTCOME, recorded))
-                .rootCause()
-                .hasMessageContaining("append-only");
+                .hasMessageStartingWith("ERROR: audit_events is append-only: backend_owner may not DELETE"
+                        + " a recorded event");
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isEqualTo(1);
     }
 
     @Test
-    void theRetentionRoleMayDeleteButNotInsert() {
+    void theOwnerLoginMayNotUpdateARecordedEvent() {
         UUID recorded = UUID.randomUUID();
         insertEvent(recorded);
 
-        asRole(ASSUME_RETENTION_ROLE, () -> jdbc.update(DELETE_EVENT, recorded));
-        assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isZero();
+        assertThatThrownBy(() -> logins.owner().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
+                .rootCause()
+                .hasMessageStartingWith("ERROR: audit_events is append-only: backend_owner may not UPDATE"
+                        + " a recorded event");
 
-        assertThatThrownBy(() ->
-                        asRole(ASSUME_RETENTION_ROLE, () -> insertEvent(UUID.randomUUID())))
+        assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
+                .isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void theRetentionLoginMayDeleteARecordedEvent() {
+        UUID recorded = UUID.randomUUID();
+        insertEvent(recorded);
+
+        logins.retention().jdbc().update(DELETE_EVENT, recorded);
+
+        assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isZero();
+    }
+
+    /** Retention removes what has aged out and changes nothing: its UPDATE grant is gone. */
+    @Test
+    void theRetentionLoginMayNotUpdateARecordedEvent() {
+        UUID recorded = UUID.randomUUID();
+        insertEvent(recorded);
+
+        assertThatThrownBy(() -> logins.retention().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
+                .satisfies(failure -> assertThat(sqlStates(failure))
+                        .contains(INSUFFICIENT_PRIVILEGE))
+                .rootCause()
+                .hasMessageContaining("permission denied for table audit_events");
+
+        assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
+                .isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void theRetentionLoginMayNotInsertAnEvent() {
+        assertThatThrownBy(() -> logins.retention().jdbc().update(
+                        INSERT_EVENT, UUID.randomUUID(), Timestamp.from(Instant.now())))
                 .satisfies(failure -> assertThat(sqlStates(failure))
                         .contains(INSUFFICIENT_PRIVILEGE));
     }
 
     /**
-     * The retention job goes through the role it is reserved for, so the delete the
-     * application cannot perform is performed by the job that owns it — driven
+     * The retention job deletes through the retention login it is reserved for, so the
+     * delete the app login cannot perform is performed by the job that owns it — driven
      * through the service rather than through SQL this test wrote.
      */
     @Test
@@ -399,48 +422,18 @@ class AuditAppendOnlyIntegrationTests {
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recent)).isEqualTo(1);
     }
 
-    /**
-     * The deployed configuration, read from the file a deployment actually loads.
-     *
-     * <p>The test resources' {@code application.yaml} shadows the main one entirely,
-     * so an assertion through the classpath or through the {@code Environment} would
-     * describe this test context's settings and say nothing about the running
-     * service. This reads the deployed document off disk for that reason.
-     */
-    @Test
-    void theDeployedConfigurationMakesTheRuntimeRoleTheApplicationsOwn() throws IOException {
-        String deployed = Files.readString(Path.of("src/main/resources/application.yaml"));
-
-        assertThat(deployed).contains("connection-init-sql: SET ROLE backend_app");
-        // Flyway needs a connection outside that pool, or the migration that creates
-        // the role would run as a role that does not exist yet.
-        assertThat(deployed).containsPattern("(?s)flyway:.*user: ");
-    }
-
     // Helpers
 
     /**
      * Installs a trigger that refuses every insert into the audit table, for the
-     * length of one test. Dropped in {@code @AfterEach} whether the test passed or
-     * not — a forced failure left behind would poison every test after it.
+     * length of one test, as the owner login — the only one that may change the
+     * table. Dropped in {@code @AfterEach} whether the test passed or not — a forced
+     * failure left behind would poison every test after it.
      */
     private void forceAppendFailure() {
-        jdbc.execute(FORCED_FAILURE_FUNCTION);
-        jdbc.execute(FORCED_FAILURE_TRIGGER);
-    }
-
-    /**
-     * Runs {@code work} in a transaction that has assumed a role.
-     *
-     * <p>{@code assumeRole} is a whole statement from a constant above rather than a
-     * role name spliced into one: a role name concatenated into SQL is an injection
-     * shape even when today's value is a literal.
-     */
-    private <T> T asRole(String assumeRole, Supplier<T> work) {
-        return transactions.execute(status -> {
-            jdbc.execute(assumeRole);
-            return work.get();
-        });
+        JdbcTemplate owner = logins.owner().jdbc();
+        owner.execute(FORCED_FAILURE_FUNCTION);
+        owner.execute(FORCED_FAILURE_TRIGGER);
     }
 
     private int insertEvent(UUID id) {
@@ -484,11 +477,9 @@ class AuditAppendOnlyIntegrationTests {
 
     /** The stored uniqueness form of a userName, which is what the row is keyed on. */
 
+    /** As the retention login, the one principal the table lets delete. */
     private void clearRecordedEvents() {
-        transactions.executeWithoutResult(status -> {
-            jdbc.execute(ASSUME_RETENTION_ROLE);
-            jdbc.update(DELETE_ALL_EVENTS);
-        });
+        logins.retention().jdbc().update(DELETE_ALL_EVENTS);
     }
 
     /**
