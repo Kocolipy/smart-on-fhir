@@ -350,10 +350,15 @@ lands:
 
 - **Edge whitespace is refused** on the keys listed above. This is a validation
   change and lands in the API contract.
-- **SCIM free-text `eq` ignores trailing spaces.** Filters (`eq`, `ne`, `co`, `sw`,
-  `ew`) on attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
+- **SCIM free-text `eq` ignores trailing spaces** (amended 2026-10-15, see
+  "Addendum (2026-10-15)"). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
+  attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
-  compared values, because SQL Server pads the comparison.
+  compared values, because SQL Server pads the comparison. `co`, `sw` and `ew`
+  keep trailing spaces significant: they are `LIKE` against a bound Unicode
+  pattern, which SQL Server does not pad. This bullet first listed `co`, `sw` and
+  `ew` among the operators that ignore trailing spaces and left out the ordering
+  operators; the switchover measured otherwise.
 - **SCIM whitespace-only free text counts as absent.** `pr` and sorting treat an
   empty string as no value (`<> ''`, `NULLIF(…, '')`), and under SQL Server's
   padding a value of only spaces compares equal to `''`. A whitespace-only value
@@ -696,3 +701,26 @@ The fork count stays 2. The memory the switchover's local-development
 documentation states must cover the extra ~2 GB. On a VM as small as the
 `pom.xml` comment's 5.9 GB, that is tight, and is the case for raising the
 documented WSL memory rather than lowering the fork count.
+
+## Addendum (2026-10-15): substring filters keep trailing spaces significant
+
+The "Observable changes" bullet on SCIM free text said that `eq`, `ne`, `co`, `sw`
+and `ew` ignore trailing spaces. The switchover's SCIM query ticket (#70) measured
+the filters on the pinned SQL Server image, and the list was wrong in both
+directions. The bullet now carries the measured list.
+
+- **Padded: `eq`, `ne`, `gt`, `ge`, `lt`, `le`.** These render as `=`, `<>`, `>`,
+  `>=`, `<` and `<=`, and SQL Server pads the shorter operand with spaces before it
+  compares. Against a stored `name.familyName` of `"Trail  "`, `eq "Trail"` and
+  `eq "trail "` match, `ne "Trail"` does not, `ge "trail "` matches, and
+  `gt "trail"` does not, because the padded values are equal.
+- **Not padded: `co`, `sw`, `ew`.** These render as `LIKE` against a bound
+  pattern. The driver sends the pattern as `nvarchar`, and a Unicode `LIKE` keeps
+  trailing spaces significant on both sides. Against the same stored value,
+  `ew "l"` does not match, while `ew "l  "` and `co "l "` do. A substring filter
+  therefore matches as it did on PostgreSQL.
+
+`ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
+pins every one of these results through the SCIM API. The decision is unchanged:
+the padding is accepted as an observable change and not worked around, and the
+API contract and `docs/domain-rules.md` list the corrected operators.
