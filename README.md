@@ -116,17 +116,20 @@ template, the key and the repo from its own location, but writes
 `<stack>-outputs.txt` to the current directory, which is where `cleanup.sh`
 deletes it from. `deploy.sh` builds the shippable JAR by calling
 `scripts/package.sh` — the integrated path, so what reaches the instance has the
-SPA in it. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache Redis
-in `ap-southeast-1`; details, parameters, and troubleshooting are in
-`infra/README.md`.
+SPA in it. The stack provisions ALB + EC2 + RDS for SQL Server 2022 Standard
+Edition (licence-included, a cost change: `infra/README.md`, "Engine, edition and
+cost") + ElastiCache Redis in `ap-southeast-1`; details, parameters, and
+troubleshooting are in `infra/README.md`.
 
 `deploy.sh` prompts for no password: every database credential, and the
 application's own secrets, are generated into AWS Secrets Manager by the stack
-and read by the service at start. It then creates the database logins
-(`db-bootstrap.sh`) and, after shipping the JAR, runs the post-deploy smoke
-(`smoke.sh`) — health, TLS enforcement, a SCIM round trip, the database alarms,
-and a check that no secret value leaked onto the instance; without the JAR it
-still runs that leak check over the instance's boot. `infra/README.md`,
+and read by the service at start. The instance bootstraps the database at boot;
+`deploy.sh` then proves a re-run of that bootstrap a no-op (`db-bootstrap.sh`)
+and, after shipping the JAR, runs the post-deploy smoke (`smoke.sh`) — health,
+the JVM's default trust, TLS enforcement, a SCIM round trip with no development
+fixture account, the database alarms, and a check that no secret value leaked
+onto the instance; without the JAR it still runs that leak check over the
+instance's boot. `infra/README.md`,
 "Database security", has the secrets, the KMS key, TLS and the monitoring.
 
 **Edge throttling is a deployment requirement.** The application has no

@@ -61,157 +61,129 @@ json_field() {
   printf '%s' "$1" | jq -er --arg f "$2" '.[$f] | strings'
 }
 
-# require_login_name <what> <value>: the name pattern infrastructure.yaml enforces,
-# checked again because the name is placed in DDL (ADR 0015, as-2).
-require_login_name() {
-  [[ $2 =~ ^[a-z][a-z0-9_]{2,30}$ ]] || die "$1 must match ^[a-z][a-z0-9_]{2,30}\$"
-}
-
-# --- PostgreSQL over TLS -----------------------------------------------------
+# --- The instance --------------------------------------------------------------
 #
-# DB_HOST is the name the server certificate is checked against (the RDS
-# endpoint), DB_HOSTADDR where the connection actually goes (the tunnel's local
-# end), DB_PORT that address's port, DB_NAME the database and DB_CA_FILE the CA
-# bundle. TLS runs end to end, psql to the server, inside the tunnel.
-
-# fetch_rds_ca_bundle <region> <file>
-fetch_rds_ca_bundle() {
-  curl -fsS --proto '=https' -o "$2" \
-    "https://truststore.pki.rds.amazonaws.com/$1/$1-bundle.pem" ||
-    die "cannot download the RDS CA bundle for $1"
-}
-
-# open_stack_db_tunnel <region>: from the outputs load_stack_outputs read,
-# downloads the RDS CA bundle and opens an SSH tunnel from a local port to the
-# database through the instance (RDS is in private subnets), then sets the DB_*
-# variables psql_as reads. The tunnel carries psql's TLS session unopened, so no
-# credential is ever sent to the instance. The SSH key is KEY_FILE, or
-# <KeyPairName>.pem beside these scripts. close_stack_db_tunnel ends it.
+# The database is in private subnets and is reached from the instance only:
+# the database bootstrap and the TLS check run there, as root, with the
+# instance role's access to the secrets they need, so no database credential
+# is ever sent to the instance from here. The SSH key is KEY_FILE, or
+# <KeyPairName>.pem beside these scripts.
 INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_WORK=""
-TUNNEL_CTL=""
-TUNNEL_TARGET=""
-open_stack_db_tunnel() {
-  local region=$1 key_file db_port
+
+# remote <command>: runs <command> on the instance as ec2-user, from the
+# outputs load_stack_outputs read; stdin and stdout are ours.
+remote() {
+  local key_file
   key_file=${KEY_FILE:-$INFRA_DIR/$(stack_output KeyPairName).pem}
   [[ -r $key_file ]] ||
     die "SSH key $key_file not found: retrieve it (README, \"SSH Key Management\") or set KEY_FILE"
-  TUNNEL_TARGET="ec2-user@$(stack_output EC2PublicIP)"
-  DB_HOST=$(stack_output DBEndpoint)
-  db_port=$(stack_output DBPort)
-  DB_NAME=$(stack_output DBName)
-  require_login_name "the DBName output" "$DB_NAME"
-  DB_WORK=$(mktemp -d)
-  DB_CA_FILE="$DB_WORK/rds-ca-bundle.pem"
-  fetch_rds_ca_bundle "$region" "$DB_CA_FILE"
-  DB_HOSTADDR=127.0.0.1
-  DB_PORT=$((20000 + RANDOM % 20000))
-  TUNNEL_CTL="$DB_WORK/ssh-control"
-  ssh -i "$key_file" -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes \
-    -o BatchMode=yes -o ConnectTimeout=15 -f -N -M -S "$TUNNEL_CTL" \
-    -L "127.0.0.1:$DB_PORT:$DB_HOST:$db_port" "$TUNNEL_TARGET" ||
-    die "cannot open an SSH tunnel to the database through $TUNNEL_TARGET"
+  ssh -i "$key_file" -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 \
+    "ec2-user@$(stack_output EC2PublicIP)" "$1"
 }
 
-close_stack_db_tunnel() {
-  if [[ -n $TUNNEL_CTL ]]; then
-    ssh -S "$TUNNEL_CTL" -O exit "$TUNNEL_TARGET" >/dev/null 2>&1 || true
-    TUNNEL_CTL=""
-  fi
-  if [[ -n $DB_WORK ]]; then
-    rm -rf "$DB_WORK"
-    DB_WORK=""
-  fi
-}
-
-# psql_as <user> <password> [psql args...]: one session, verify-full TLS unless
-# DB_SSLMODE says otherwise. The password is in that psql's environment only.
-psql_as() {
-  local user=$1 password=$2
-  shift 2
-  PGHOST="$DB_HOST" PGHOSTADDR="$DB_HOSTADDR" PGPORT="$DB_PORT" PGDATABASE="$DB_NAME" \
-    PGUSER="$user" PGPASSWORD="$password" PGSSLMODE="${DB_SSLMODE:-verify-full}" \
-    PGSSLROOTCERT="$DB_CA_FILE" PGCONNECT_TIMEOUT=15 PGAPPNAME=infra-deploy \
-    psql -X -q -v ON_ERROR_STOP=1 "$@"
-}
-
-# db_bootstrap_sql: the SQL that creates the three logins and hands the database
-# to the owner login, run as the RDS master user. Re-runnable: it creates what
-# is missing and resets every login's password to its secret's.
-#
-# The owner login gets no CREATEROLE. Instead the two NOLOGIN roles V1 would
-# create are created here first (V1 creates them only IF NOT EXISTS), and the
-# owner holds them WITH ADMIN OPTION, which is all V1's
-# `GRANT backend_app, backend_audit_retention TO CURRENT_USER` needs.
-#
-# The SQL text holds no password (ADR 0015, "The bootstrap does not echo";
-# as-2): psql reads each one from its own environment into a psql variable
-# (\getenv) and quotes it as a literal itself (:'var'). run_db_bootstrap
-# supplies that environment.
-#
-# Reads DB_NAME, OWNER_LOGIN, APP_LOGIN and RETENTION_LOGIN, each checked by the
-# caller with require_login_name, so safe to double-quote.
-db_bootstrap_sql() {
-  local login
-  for login in "$OWNER_LOGIN" "$APP_LOGIN" "$RETENTION_LOGIN" backend_app backend_audit_retention; do
-    printf "SELECT format('CREATE ROLE %%I NOLOGIN', '%s') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s')\n\\gexec\n" \
-      "$login" "$login"
+# wait_for_boot: waits until the instance's UserData has finished, and fails
+# when it failed (the database bootstrap included), showing the end of its log.
+wait_for_boot() {
+  local waited=0
+  until remote true 2>/dev/null; do
+    ((waited < 300)) || die "the instance did not accept SSH within 300 s"
+    sleep 10
+    waited=$((waited + 10))
   done
-  printf '%s\n' \
-    '\getenv owner_password OWNER_PASSWORD' \
-    '\getenv app_password APP_PASSWORD' \
-    '\getenv retention_password RETENTION_PASSWORD'
-  # NOSUPERUSER, NOREPLICATION and NOBYPASSRLS are a new role's defaults, and
-  # only a superuser may state them, which the RDS master user is not.
-  printf 'ALTER ROLE "%s" WITH LOGIN NOCREATEDB NOCREATEROLE PASSWORD :'"'"'%s'"'"';\n' \
-    "$OWNER_LOGIN" owner_password \
-    "$APP_LOGIN" app_password \
-    "$RETENTION_LOGIN" retention_password
-  printf '%s\n' \
-    '\unset owner_password' '\unset app_password' '\unset retention_password' \
-    "GRANT backend_app, backend_audit_retention TO \"$OWNER_LOGIN\" WITH ADMIN OPTION;" \
-    "GRANT backend_app TO \"$APP_LOGIN\";" \
-    "GRANT backend_audit_retention TO \"$RETENTION_LOGIN\";" \
-    "GRANT \"$OWNER_LOGIN\" TO CURRENT_USER;" \
-    "ALTER DATABASE \"$DB_NAME\" OWNER TO \"$OWNER_LOGIN\";" \
-    "REVOKE ALL ON DATABASE \"$DB_NAME\" FROM PUBLIC;" \
-    "GRANT CONNECT ON DATABASE \"$DB_NAME\" TO \"$APP_LOGIN\", \"$RETENTION_LOGIN\";"
-}
-
-# run_db_bootstrap <master-user> <master-password>: db_bootstrap_sql through one
-# psql session as the master user, with OWNER_PASSWORD, APP_PASSWORD and
-# RETENTION_PASSWORD in that psql's environment only (\getenv needs psql 15+).
-run_db_bootstrap() {
-  [[ -n $OWNER_PASSWORD && -n $APP_PASSWORD && -n $RETENTION_PASSWORD ]] ||
-    die "a database login's password is empty"
-  db_bootstrap_sql |
-    OWNER_PASSWORD="$OWNER_PASSWORD" APP_PASSWORD="$APP_PASSWORD" \
-      RETENTION_PASSWORD="$RETENTION_PASSWORD" psql_as "$1" "$2"
-}
-
-# require_psql_getenv: the local psql is 15 or newer, the first with \getenv.
-require_psql_getenv() {
-  local version
-  version=$(psql --version | grep -oE '[0-9]+' | head -n 1)
-  ((${version:-0} >= 15)) || die "psql ${version:-?} is too old: db-bootstrap.sh needs psql 15 or newer (\\getenv)"
-}
-
-# check_tls_enforced <user> <password>: a plaintext session is refused for
-# requiring TLS, and a verify-full session negotiates TLS 1.2 or higher.
-check_tls_enforced() {
-  local out version
-  if out=$(DB_SSLMODE=disable psql_as "$1" "$2" -tAc 'SELECT 1' 2>&1); then
-    die "a non-TLS connection to the database was ACCEPTED (expected rds.force_ssl = 1 to refuse it)"
+  if ! remote 'sudo cloud-init status --wait >/dev/null; test -f /var/log/user-data-complete.log'; then
+    remote 'sudo tail -n 40 /var/log/cloud-init-output.log' || true
+    die "the instance's boot (UserData) failed; the end of its log is above"
   fi
-  [[ $out == *pg_hba.conf* ]] ||
-    die "the non-TLS connection failed, but not because TLS is required: $out"
-  print_info "non-TLS connection refused by the server"
+  print_info "the instance has booted, and its database bootstrap has run"
+}
 
-  version=$(psql_as "$1" "$2" -tAc 'SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()') ||
-    die "the TLS connection (sslmode=verify-full) failed"
-  [[ $version == TLSv1.2 || $version == TLSv1.3 ]] ||
-    die "the TLS connection negotiated '$version', below TLS 1.2"
-  print_info "TLS connection with a validated server certificate: $version"
+# rerun_db_bootstrap: runs the database bootstrap again on the instance (its
+# unit, backend-db-bootstrap.service) and prints its output, which holds no
+# secret. Sets DB_BOOTSTRAP_CHANGES to the number of changes the run made: 0
+# is a no-op.
+DB_BOOTSTRAP_CHANGES=""
+rerun_db_bootstrap() {
+  local since out
+  since=$(remote 'date +%s')
+  if ! remote 'sudo systemctl start backend-db-bootstrap.service'; then
+    remote "sudo journalctl -u backend-db-bootstrap.service --no-pager -o cat --since @$since" || true
+    die "the database bootstrap failed; its output is above"
+  fi
+  out=$(remote "sudo journalctl -u backend-db-bootstrap.service --no-pager -o cat --since @$since")
+  printf '%s\n' "$out"
+  # shellcheck disable=SC2034 # read by db-bootstrap.sh, which sources this file
+  DB_BOOTSTRAP_CHANGES=$(grep -c 'db-init: change:' <<<"$out" || true)
+}
+
+# db_tls_check_script: the sqlcmd half of the TLS check, which
+# check_tls_enforced runs on the instance as root. As the RDS master user, read
+# from Secrets Manager there by root with the instance's own helper
+# (/opt/backend/secret.sh), as the database bootstrap reads it (only a login
+# with VIEW SERVER STATE may read its own session's encrypt_option):
+#   1. a client that asks for no encryption (sqlcmd -No) still gets an
+#      encrypted session: the server forces encryption (rds.force_ssl);
+#   2. a client that cannot validate the server's certificate is refused:
+#      with the RDS CA bundle withheld, sqlcmd -N fails verification;
+#   3. sqlcmd -N with the bundle connects, encrypted.
+# Never -C. The password is in sqlcmd's environment only. The other half, a
+# client that cannot do TLS at all, is tds-plaintext-probe.py.
+db_tls_check_script() {
+  cat <<'SCRIPT'
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null # the instance's files
+. /opt/backend/db-bootstrap.env
+set +a
+# shellcheck source=/dev/null
+. /opt/backend/secret.sh
+login=$(secret "$DB_MASTER_SECRET_ARN" username)
+password=$(secret "$DB_MASTER_SECRET_ARN" password)
+encrypted='SET NOCOUNT ON; SELECT encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID'
+as_master() {
+  SQLCMDPASSWORD="$password" /opt/mssql-tools18/bin/sqlcmd -S "tcp:$DB_HOST,$DB_PORT" -U "$login" \
+    -b -h -1 -W -l 15 "$@"
+}
+out=$(SSL_CERT_FILE="$DB_CA_FILE" as_master -No -Q "$encrypted")
+[[ $out == TRUE ]] || { echo "a session that asked for no encryption is not encrypted ($out)"; exit 1; }
+echo "a session that asked for no encryption was encrypted by the server"
+if out=$(SSL_CERT_FILE=/dev/null as_master -N -Q 'SELECT 1' 2>&1); then
+  echo "a session that could not validate the server's certificate was ACCEPTED"
+  exit 1
+fi
+[[ $out == *"certificate verify failed"* ]] || { echo "that session failed, but not on its certificate: $out"; exit 1; }
+echo "a session that cannot validate the server's certificate is refused"
+out=$(SSL_CERT_FILE="$DB_CA_FILE" as_master -N -Q "$encrypted")
+[[ $out == TRUE ]] || { echo "the validated session is not encrypted ($out)"; exit 1; }
+echo "a session validating the certificate against the RDS CA bundle is encrypted"
+SCRIPT
+}
+
+# check_tls_enforced <region>: the instance's parameter group forces
+# encryption and turns TLS 1.0 and 1.1 off, and is applied; then, on the
+# instance, a client that cannot do TLS is refused (tds-plaintext-probe.py,
+# which sends no credential), and the sqlcmd checks above pass.
+check_tls_enforced() {
+  local region=$1 group params status out line
+  group=$(stack_output DBParameterGroupName)
+  # shellcheck disable=SC2016 # the backticks are JMESPath literals
+  params=$(aws rds describe-db-parameters --db-parameter-group-name "$group" --region "$region" \
+    --query 'Parameters[?ParameterName==`rds.force_ssl` || ParameterName==`rds.tls10` || ParameterName==`rds.tls11`].[ParameterName,ParameterValue]' \
+    --output text | sort | awk '{ printf "%s%s=%s", (NR > 1 ? " " : ""), $1, $2 }')
+  [[ $params == "rds.force_ssl=1 rds.tls10=disabled rds.tls11=disabled" ]] ||
+    die "TLS: parameter group $group has '$params', expected rds.force_ssl=1 rds.tls10=disabled rds.tls11=disabled"
+  status=$(aws rds describe-db-instances --db-instance-identifier "$(stack_output DBInstanceIdentifier)" \
+    --region "$region" --query 'DBInstances[0].DBParameterGroups[0].ParameterApplyStatus' --output text)
+  [[ $status == in-sync ]] || die "TLS: the instance's parameter group is '$status', not in-sync (reboot it)"
+  print_info "TLS: $group forces encryption with TLS 1.0 and 1.1 off, applied to the instance"
+  if ! out=$(remote "python3 -I - '$(stack_output DBEndpoint)' '$(stack_output DBPort)'" \
+    <"$INFRA_DIR/tds-plaintext-probe.py" 2>&1); then
+    die "TLS: $out"
+  fi
+  print_info "TLS: $out"
+  if ! out=$(db_tls_check_script | remote 'sudo bash -s' 2>&1); then
+    die "TLS: $out"
+  fi
+  while IFS= read -r line; do print_info "TLS: $line"; done <<<"$out"
 }
 
 # --- Post-deploy secret-leak check -------------------------------------------
@@ -239,11 +211,35 @@ scan_for_secrets() {
 }
 
 # --- SCIM smoke ----------------------------------------------------------------
+
+# The service's development fixtures, read from the file that defines them so
+# that a fixture added there is checked too.
+AUTHORIZATION_YAML="$INFRA_DIR/../backend/src/main/resources/authorization.yaml"
+
+# dev_fixture_usernames: the userName of every development fixture User, one
+# per line: each baseline-member, dormant-member and Group member value under
+# app.authorization.dev-fixtures. Fails when it finds none, so a reshaped file
+# cannot turn the check into a pass over nothing.
+dev_fixture_usernames() {
+  local names
+  names=$(awk '
+    /^  dev-fixtures:/ { inside = 1; next }
+    inside && /^ {0,2}[^ #]/ { inside = 0 }
+    inside && match($0, /^ +(- )?(baseline-member|dormant-member|member): */) {
+      value = substr($0, RLENGTH + 1)
+      sub(/ *(#.*)?$/, "", value)
+      print value
+    }
+  ' "$AUTHORIZATION_YAML")
+  [[ -n $names ]] || die "no development fixture userName found in $AUTHORIZATION_YAML"
+  printf '%s\n' "$names"
+}
 #
 # scim_smoke <base-url>: signs in as the Bootstrap Admin (ADMIN_USERNAME,
 # ADMIN_PASSWORD), mints a one-day token on a throwaway connector, and over
-# SCIM creates a User, finds it in the list, deletes it and confirms it is gone;
-# then deletes the connector, which revokes the token, and signs out.
+# SCIM creates a User, finds it in the list, finds no development fixture
+# account, deletes the User and confirms it is gone; then deletes the
+# connector, which revokes the token, and signs out.
 #
 # The first sign-in on a fresh stack must replace the seeded password. The new
 # one comes from new_admin_password, and is handed to stage_admin_password
@@ -359,6 +355,18 @@ scim_smoke() (
   [[ $(printf '%s' "$BODY" | jq -r --arg id "$smoke_user" '[.Resources[]? | select(.id == $id)] | length') == 1 ]] ||
     die "SCIM smoke: the created User is missing from the list"
   print_info "SCIM smoke: listed it"
+
+  # No development fixture account exists (APP_DEV_FIXTURES_ENABLED=false): none
+  # of the userNames authorization.yaml seeds them as (dev_fixture_usernames).
+  smoke_fixtures=$(dev_fixture_usernames)
+  for smoke_fixture in $smoke_fixtures; do
+    smoke_filter=$(jq -rn --arg u "$smoke_fixture" '"userName eq \"\($u)\"" | @uri')
+    request GET "/scim/v2/Users?filter=$smoke_filter"
+    expect 200 "SCIM list"
+    [[ $(printf '%s' "$BODY" | jq -r '.totalResults') == 0 ]] ||
+      die "SCIM smoke: the development fixture account $smoke_fixture exists on this stack"
+  done
+  print_info "SCIM smoke: no development fixture account exists"
 
   request DELETE "/scim/v2/Users/$smoke_user"
   expect 204 "SCIM delete"

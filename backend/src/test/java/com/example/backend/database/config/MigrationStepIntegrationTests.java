@@ -15,8 +15,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
- * The migrate step, run as a deployment runs it — its own entry point, on an empty database the
- * owner login owns — and read back as the owner login (ADR 0015, ac-1 and as-2; #66).
+ * The migrate step, run as a deployment runs it — its own entry point, on an empty database whose
+ * {@code db_owner} role the owner login is a member of — and read back as the owner login (ADR
+ * 0015, ac-1 and as-2; #66).
  *
  * <p>The settings arrive as command-line arguments, which the deployed {@code migrate} profile
  * would otherwise supply from the environment: the test resources' {@code application.yaml}
@@ -26,6 +27,11 @@ class MigrationStepIntegrationTests {
 
     private static final String SCHEMA_HISTORY =
             "SELECT version FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank";
+
+    /** Who the owner login is in the database, whether it is in db_owner, and what it applied. */
+    private static final String OWNER_PRINCIPAL_AND_MIGRATIONS = """
+            SELECT CONCAT(USER_NAME(), N'/', IS_ROLEMEMBER(N'db_owner'), N'/',
+                          (SELECT count(*) FROM flyway_schema_history WHERE success = 1))""";
 
     private static final String PUBLIC_TABLES =
             "SELECT count(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo')";
@@ -67,6 +73,23 @@ class MigrationStepIntegrationTests {
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
                 .containsExactly("1");
+    }
+
+    /**
+     * The owner login migrates as a member of {@code db_owner}, under a database user of its own
+     * name, not as the database's owner ({@code dbo}): that is all RDS for SQL Server's master
+     * user can make it, because handing a database to another login needs {@code IMPERSONATE} on
+     * it, which the master user does not hold (infra/README.md, "Database bootstrap"). Every
+     * test database is bootstrapped the same way, so the suite proves {@code V1} under it.
+     */
+    @Test
+    void theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner() throws SQLException {
+        String url = emptyDatabase();
+
+        MigrationStep.main(migrate(url));
+
+        assertThat(asOwner(url).queryForObject(OWNER_PRINCIPAL_AND_MIGRATIONS, String.class))
+                .isEqualTo("backend_owner/1/1");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */

@@ -724,3 +724,61 @@ directions. The bullet now carries the measured list.
 pins every one of these results through the SCIM API. The decision is unchanged:
 the padding is accepted as an observable change and not worked around, and the
 API contract and `docs/domain-rules.md` list the corrected operators.
+## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
+
+The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
+Edition. Five of its findings refine decisions above; none reverses one. The
+first and the TLS one depart from the issue's wording, and wait on the user's
+sign-off.
+
+- **The owner login is a `db_owner` member, not the database's owner.** "Runtime
+  model" names the owner login `db_owner`, and the local init and the tests had
+  made it the database's owner (`ALTER AUTHORIZATION`). RDS's master user, which
+  creates the database, cannot hand it to another login: that needs `IMPERSONATE`
+  on the login, which the master user does not hold. The deployed bootstrap
+  therefore creates a database user for the owner login and adds it to
+  `db_owner`, and the local init and `ContainerTestConfiguration` now do the same,
+  so the suite migrates `V1` under the deployed arrangement
+  (`MigrationStepIntegrationTests.theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner`).
+  The audit trigger refuses `db_owner` members, so it refuses the owner either
+  way.
+- **The bootstrap runs on the instance, as the master user, and its T-SQL is the
+  local init's.** The deployed bootstrap runs in UserData, so the instance role
+  reads the master secret (as-8). It is read by one root-owned script and never
+  reaches the service's process, which `smoke.sh` checks; the role itself cannot
+  tell processes apart, which `infra/README.md` ("Database credentials") records
+  as residual risk. The T-SQL is held twice — in the template and in
+  `backend/scripts/local-db-init.sql` — because a stack cannot read the
+  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
+  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's
+  password is reset, by the shared SQL, only when the calling script found that
+  the login cannot sign in with its secret's.
+- **The server keeps its default collation on RDS too.** Issue #71 names
+  `Latin1_General_100_BIN2_UTF8` as the RDS *server* collation; the instance
+  states `SQL_Latin1_General_CP1_CI_AS` instead, and the database keeps
+  `Latin1_General_100_BIN2_UTF8` as "VARCHAR with database collation" decided.
+  Measured on the pinned image: under a server collated
+  `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2`, `sp_getapplock`
+  raises error 17750 from `sys.xp_userlock` and returns `0`, "granted", for a
+  lock it never took, in every database; under `Latin1_General_100_CI_AS_SC_UTF8`
+  and `Latin1_General_100_CS_AS_SC_UTF8` it takes the lock. The seed lock would
+  silently lock nothing. RDS runs the Windows build, where this was not
+  measured, so the default is kept rather than staking the seed lock on it.
+- **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that
+  asks for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
+  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is
+  dropped unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py`
+  (it sends no real credential). A client that can do TLS but asks for none
+  (`sqlcmd -No`, `encrypt=false`) is encrypted instead of refused, and its
+  session reports `encrypt_option = TRUE`. No RDS for SQL Server parameter
+  refuses that second client: the `sqlserver-se-16.0` family has no counterpart
+  of SQL Server 2022's strict-encryption switch. TLS 1.0 and 1.1 are off in the
+  parameter group (`rds.tls10`, `rds.tls11`). The bootstrap's `sqlcmd -N`
+  validates the RDS certificate against the RDS CA bundle given to it alone
+  (`SSL_CERT_FILE`).
+- **The trust-store password reaches the driver from the environment.**
+  `DATABASE_URL` names the driver-scoped store; its password, from Secrets Manager,
+  is exported as `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`,
+  which Boot binds lower-cased into the driver properties of every pool and the
+  migrate step, and the driver matches property names case-insensitively
+  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).

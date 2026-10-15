@@ -1,10 +1,17 @@
 package com.example.backend.database.config;
 
+import com.microsoft.sqlserver.jdbc.SQLServerDriver;
+import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 /**
  * The service's database as the pool tests see it: one URL, one driver, the app login and the
@@ -71,5 +78,31 @@ public final class DatabaseConnectionsFixture {
             "app.datasource.retention.username=" + RETENTION_LOGIN.username(),
             "app.datasource.retention.password=" + RETENTION_LOGIN.password(),
         };
+    }
+
+    /**
+     * The process environment a context sees, in place of the real one: the variables a deployed
+     * stack's start scripts export (infra/infrastructure.yaml, {@code start.sh} and
+     * {@code migrate.sh}), bound by Boot's environment-variable rules.
+     */
+    public static ApplicationContextInitializer<ConfigurableApplicationContext> environment(
+            Map<String, Object> variables) {
+        return context -> context.getEnvironment().getPropertySources().replace(
+                StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                new SystemEnvironmentPropertySource(
+                        StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, variables));
+    }
+
+    /**
+     * The value the SQL Server driver reads for its connection property {@code name} from
+     * {@code properties} — after its own case-insensitive matching of property names — or
+     * {@code null} when it reads none.
+     */
+    public static String asTheDriverReads(Properties properties, String name) throws SQLException {
+        return Arrays.stream(new SQLServerDriver().getPropertyInfo(URL, properties))
+                .filter(property -> property.name.equals(name))
+                .map(property -> property.value)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("the driver has no property " + name));
     }
 }

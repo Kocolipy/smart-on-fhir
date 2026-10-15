@@ -1,17 +1,20 @@
 #!/bin/bash
-# Creates the database logins on a stack's RDS instance — the owner, app and
-# retention logins, each with the password its Secrets Manager secret holds —
-# and hands the database to the owner login. Re-runnable: it creates what is
-# missing and resets each login's password to its secret's.
+# Re-runs a stack's database bootstrap — the application database with its
+# collation and isolation options, and the owner, app and retention logins —
+# and reports whether the run changed anything.
 #
-# Runs on the operator's machine, with the operator's AWS credentials, because
-# it reads the RDS-managed master secret, and the instance role cannot (ADR
-# 0015, as-8). psql connects through an SSH tunnel to the instance, with TLS
-# from this psql to RDS end to end, so nothing database-related runs on the
-# instance and no credential is sent to it. See infra/README.md, "Database
-# credentials".
+# The bootstrap itself runs on the instance, as root, as the RDS master user:
+# UserData runs it at boot, every migrate step runs it first, and this script
+# runs it on demand (backend-db-bootstrap.service, /opt/backend/db-bootstrap.sh;
+# infra/README.md, "Database bootstrap"). It is idempotent: on a bootstrapped
+# stack a run changes nothing, and with --expect-no-op this script fails if it
+# did. A login whose password no longer matches its secret is reset; that is the
+# one change a re-run on a healthy stack can make.
 #
-# Usage: ./db-bootstrap.sh <stack-name> [region]
+# No database credential passes through this machine or this script: the
+# instance reads the secrets itself, and its output holds none.
+#
+# Usage: ./db-bootstrap.sh [--expect-no-op] <stack-name> [region]
 #   KEY_FILE  the instance's SSH key (default: <KeyPairName>.pem beside this script)
 #
 # Never run with command tracing (bash -x): see lib.sh.
@@ -21,52 +24,29 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 main() {
-  local stack=${1:-} region=${2:-ap-southeast-1} json login password
-  [[ -n $stack ]] || die "usage: $0 <stack-name> [region]"
+  local expect_no_op="" stack region
+  if [[ ${1:-} == --expect-no-op ]]; then
+    expect_no_op=yes
+    shift
+  fi
+  stack=${1:-}
+  region=${2:-ap-southeast-1}
+  [[ -n $stack ]] || die "usage: $0 [--expect-no-op] <stack-name> [region]"
   require_cmd aws
   require_cmd jq
-  require_cmd curl
   require_cmd ssh
-  require_cmd psql "the PostgreSQL client, 15 or newer"
-  require_psql_getenv
 
   load_stack_outputs "$stack" "$region"
-
-  json=$(secret_string "$(stack_output DBMasterSecretArn)" "$region")
-  MASTER_USER=$(json_field "$json" username)
-  MASTER_PASSWORD=$(json_field "$json" password)
-  json=$(secret_string "$(stack_output DBOwnerSecretArn)" "$region")
-  OWNER_LOGIN=$(json_field "$json" username)
-  OWNER_PASSWORD=$(json_field "$json" password)
-  json=$(secret_string "$(stack_output DBAppSecretArn)" "$region")
-  APP_LOGIN=$(json_field "$json" username)
-  APP_PASSWORD=$(json_field "$json" password)
-  json=$(secret_string "$(stack_output DBRetentionSecretArn)" "$region")
-  RETENTION_LOGIN=$(json_field "$json" username)
-  RETENTION_PASSWORD=$(json_field "$json" password)
-  json=""
-
-  require_login_name "the owner login" "$OWNER_LOGIN"
-  require_login_name "the app login" "$APP_LOGIN"
-  require_login_name "the retention login" "$RETENTION_LOGIN"
-
-  trap close_stack_db_tunnel EXIT
-  open_stack_db_tunnel "$region"
-
-  print_info "creating the database logins as the RDS master user (over verify-full TLS)"
-  run_db_bootstrap "$MASTER_USER" "$MASTER_PASSWORD" >/dev/null
-
-  for login in "$OWNER_LOGIN" "$APP_LOGIN" "$RETENTION_LOGIN"; do
-    case $login in
-      "$OWNER_LOGIN") password=$OWNER_PASSWORD ;;
-      "$APP_LOGIN") password=$APP_PASSWORD ;;
-      *) password=$RETENTION_PASSWORD ;;
-    esac
-    [[ $(psql_as "$login" "$password" -tAc 'SELECT current_user') == "$login" ]] ||
-      die "$login cannot sign in with its secret's password"
-    print_info "$login signs in with its secret's password"
-  done
-  print_info "database logins ready on stack $stack"
+  wait_for_boot
+  print_info "re-running the database bootstrap on stack $stack"
+  rerun_db_bootstrap
+  if ((DB_BOOTSTRAP_CHANGES == 0)); then
+    print_info "the re-run was a no-op: the database and its logins were already in place"
+  elif [[ -n $expect_no_op ]]; then
+    die "the re-run changed $DB_BOOTSTRAP_CHANGES thing(s) on a bootstrapped stack (above)"
+  else
+    print_warn "the re-run made $DB_BOOTSTRAP_CHANGES change(s) (above)"
+  fi
 }
 
 main "$@"

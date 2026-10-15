@@ -1,6 +1,7 @@
 # AWS CloudFormation Deployment Guide
 
-Deploy Spring Boot backend to AWS ap-southeast-1 with ALB, EC2, RDS PostgreSQL, and Redis.
+Deploy the Spring Boot backend to AWS ap-southeast-1 with an ALB, EC2, **RDS for
+SQL Server 2022 Standard Edition**, and Redis.
 
 This directory is the repo-root `infra/` folder — a sibling of `backend/` and
 `frontend/`, not part of either app. All commands below are run from `infra/`.
@@ -19,37 +20,46 @@ cd infra
 
 The script prompts for VPC IDs and sizing — **never for a password**: every
 credential is generated into Secrets Manager by the stack (see
-[Database security](#database-security-secrets-key-tls-monitoring)). It deploys
-the stack, retrieves the SSH key, creates the database logins
-(`db-bootstrap.sh`), and runs the [post-deploy smoke](#post-deploy-smoke)
-(`smoke.sh`), which fails the deploy if any secret value leaked: the full smoke
-when you answer yes to the JAR prompt and it deploys the application, and its
-leak check over the boot alone when you answer no.
+[Database security](#database-security-secrets-key-tls-monitoring)). It checks
+the engine version and instance class with RDS, stages the template in S3,
+deploys the stack, retrieves the SSH key, waits for the instance to boot — which
+**bootstraps the database itself** — re-runs that bootstrap to prove it a no-op
+(`db-bootstrap.sh --expect-no-op`), and runs the
+[post-deploy smoke](#post-deploy-smoke) (`smoke.sh`), which fails the deploy if
+any secret value leaked: the full smoke when you answer yes to the JAR prompt and
+it deploys the application, and its leak check over the boot alone when you
+answer no.
 
-Needs, besides the AWS CLI: `jq`, `curl`, `ssh`/`scp`, `openssl`, `base64`
-and the PostgreSQL client `psql`, 15 or newer.
+Needs, besides the AWS CLI: `jq`, `curl`, `ssh`/`scp`, `openssl` and `base64`.
+No database client: everything that talks to the database runs on the instance.
 
 > **Before taking traffic:** attach an AWS WAF web ACL to the ALB. The stack
 > does not create one, and the application has no rate limiter of its own. See
 > [Edge throttling](#edge-throttling-required).
+
+> **Cost:** SQL Server Standard Edition, licence-included, costs far more than
+> the PostgreSQL instance it replaces. Read
+> [Engine, edition and cost](#engine-edition-and-cost) before deploying.
 
 ---
 
 ## Architecture
 
 ```
-Internet → ALB (HTTP:80) → EC2 (8080) → RDS PostgreSQL + Redis
+Internet → ALB (HTTP:80) → EC2 (8080) → RDS for SQL Server (1433) + Redis
            (public)         (public)     (private subnets)
 ```
 
 **Components:**
 
 - Application Load Balancer (internet-facing)
-- EC2 instance (Amazon Linux 2023 + Java 25)
-- RDS PostgreSQL 15 (encrypted under a customer-managed KMS key, TLS enforced,
-  Enhanced Monitoring and Performance Insights, automated backups)
-- Secrets Manager secrets for every database credential and the application's
-  own secrets
+- EC2 instance (Amazon Linux 2023 + Java 25, and `sqlcmd` for the database
+  bootstrap)
+- RDS for SQL Server 2022 Standard Edition, licence-included (encrypted under a
+  customer-managed KMS key, TLS 1.2+ forced, Enhanced Monitoring and Performance
+  Insights, automated backups)
+- Secrets Manager secrets for every database credential, the driver's trust
+  store and the application's own secrets
 - ElastiCache Redis (session storage)
 - An SNS topic as the stack's alarm target, and two database alarms
 - Security groups with proper isolation
@@ -126,10 +136,91 @@ log destination.
 
 ## Database security (secrets, key, TLS, monitoring)
 
-What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on today's RDS
-PostgreSQL (`/docs/adr/0015-sql-server-2022-replaces-postgresql.md`, "Compliance
-resolutions"). It is engine-neutral: the SQL Server switchover re-targets it
-rather than replacing it.
+What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on RDS for SQL
+Server (`/docs/adr/0015-sql-server-2022-replaces-postgresql.md`, "Compliance
+resolutions" and "Standards resolutions"). The PostgreSQL stack's controls were
+re-targeted, not replaced: the same key, the same secrets discipline, the same
+migrate step.
+
+### Engine, edition and cost
+
+- **Engine:** `sqlserver-se`, version `16.00` — SQL Server 2022 — which RDS
+  resolves to its current default build. `deploy.sh` asks RDS for that build
+  before creating anything (`describe-db-engine-versions --default-only`), and
+  `AutoMinorVersionUpgrade` applies newer builds (cumulative updates) in the
+  maintenance window, Sunday 04:00–05:00 UTC (ADR 0015, "Database patching").
+- **Edition: Standard Edition, licence-included.** The SQL Server licence is part
+  of the hourly instance price; there is nothing to bring or to track. It is the
+  edition ADR 0015 chose ("Scope") — Express caps a database at 10 GB, and
+  Developer Edition may not serve production — and choosing it is a
+  stakeholder sign-off.
+- **Instance classes:** Standard Edition does not run on the small classes —
+  no `db.t3.micro` to `db.t3.large` and no Graviton (`db.t4g.*`) — so
+  `DBInstanceClass` allows only classes RDS offers it on: `db.t3.xlarge`
+  (default, 4 vCPU / 16 GiB) and `db.t3.2xlarge`, `db.m5`/`db.m6i` `large` to
+  `2xlarge`, and `db.r5`/`db.r6i` `large` and `xlarge`. `deploy.sh` checks the
+  one you choose is orderable for Standard Edition, licence-included, in the
+  region (`describe-orderable-db-instance-options`) before creating anything.
+
+**This is a cost change.** The smallest Standard Edition instance carries the
+instance price **and** the per-vCPU SQL Server licence, for four vCPUs at least.
+AWS's price list for ap-southeast-1, single-AZ, on demand, read on 2026-10-15:
+
+| Instance                                     | Per hour | Per month (730 h) |
+| -------------------------------------------- | -------- | ----------------- |
+| `db.t3.micro`, PostgreSQL (the old stack)    | US$0.028 | ≈ US$20           |
+| `db.t3.xlarge`, SQL Server SE, licence-incl. | US$1.109 | ≈ US$810          |
+
+— **about 40 times the PostgreSQL instance**, before storage, backups,
+Performance Insights beyond its free tier, and Multi-AZ (which doubles the
+instance price). Prices change; take the current one for the class you choose
+before sign-off:
+
+```bash
+aws pricing get-products --region us-east-1 --service-code AmazonRDS \
+  --filters Type=TERM_MATCH,Field=regionCode,Value=ap-southeast-1 \
+    Type=TERM_MATCH,Field=databaseEngine,Value="SQL Server" \
+    Type=TERM_MATCH,Field=databaseEdition,Value=Standard \
+    Type=TERM_MATCH,Field=licenseModel,Value="License included" \
+    Type=TERM_MATCH,Field=deploymentOption,Value=Single-AZ \
+    Type=TERM_MATCH,Field=instanceType,Value=db.t3.xlarge \
+  --query 'PriceList[0]' --output text |
+  jq -r '.terms.OnDemand[].priceDimensions[] | "\(.pricePerUnit.USD) USD \(.unit): \(.description)"'
+```
+
+An instance that is stopped still bills its storage, and RDS restarts a stopped
+instance after seven days; `cleanup.sh` deletes the stack, after a final
+snapshot that is itself billed until you delete it.
+
+### Collation and time zone
+
+- **The database is collated `Latin1_General_100_BIN2_UTF8`** — UTF-8 storage in
+  code-point order, which the schema and the SCIM sort depend on (ADR 0015,
+  "VARCHAR with database collation"). It is the **database's** collation, set by
+  the bootstrap's `CREATE DATABASE … COLLATE`, which every column takes, and the
+  bootstrap refuses a database it finds with any other collation rather than
+  altering it (an altered collation would not convert existing columns).
+- **The server keeps RDS's default collation**, stated explicitly
+  (`CharacterSetName: SQL_Latin1_General_CP1_CI_AS`). **This deviates from issue
+  #71**, which names `Latin1_General_100_BIN2_UTF8` as the *server* collation,
+  and needs the user's sign-off and the issue's wording amended. The reason,
+  measured on the pinned image (SQL Server 2022 CU27, `MSSQL_COLLATION`): on a
+  server collated `Latin1_General_100_BIN2_UTF8`, every `sp_getapplock` fails
+  with error 17750 (`sys.xp_userlock`: "Could not load the DLL (server
+  internal)") and then returns `0` — "granted" — for a lock it never took. It
+  does so in `master`, in a database collated `BIN2_UTF8` created before the
+  change and in one created after. The service's seed lock is an application
+  lock, so on that server it would silently lock nothing. The cause is the
+  binary server collation, not UTF-8: `Latin1_General_100_BIN2` fails the same
+  way, while `Latin1_General_100_CI_AS_SC_UTF8` and
+  `Latin1_General_100_CS_AS_SC_UTF8` take the lock (`0`, no error). RDS runs
+  SQL Server on Windows and the measurement is the Linux image's; no RDS
+  instance was created to repeat it there, so the server default is kept
+  rather than gambling the seed lock on a platform difference.
+- **The server's time zone is UTC**, stated (`Timezone: UTC`) rather than
+  defaulted: storage is UTC only (ADR 0015, "Storage is UTC only").
+
+Both are fixed when the instance is created; changing either replaces it.
 
 ### Database credentials
 
@@ -137,22 +228,44 @@ rather than replacing it.
 CloudFormation parameter, none is in UserData or in a file on the instance, and
 `deploy.sh` prompts for none.
 
-| Secret (stack output)   | Holds                                        | Created by                                           | Read by                                              |
-| ----------------------- | -------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
-| `DBMasterSecretArn`     | the RDS master user (`DBMasterUsername`)     | RDS (`ManageMasterUserPassword`)                     | the operator only: `db-bootstrap.sh`, `smoke.sh`     |
-| `DBOwnerSecretArn`      | the owner login (`DBOwnerLogin`)             | CloudFormation, generated                            | the instance (see below), `db-bootstrap.sh`          |
-| `DBAppSecretArn`        | the app login (`DBAppLogin`)                 | CloudFormation, generated                            | the instance, `db-bootstrap.sh`, `smoke.sh`          |
-| `DBRetentionSecretArn`  | the retention login (`DBRetentionLogin`)     | CloudFormation, generated                            | the instance, `db-bootstrap.sh`                      |
-| `AppBootstrapSecretArn` | the Bootstrap Admin (`AppBootstrapUsername`) | CloudFormation, generated                            | the instance; `smoke.sh` replaces the first password |
-| `EpicClientSecretArn`   | the Epic client id and signing keys (JSON)   | CloudFormation, from the `AppEpicClient*` parameters | the instance                                         |
+| Secret (stack output)   | Holds                                        | Created by                                           | Read by                                                    |
+| ----------------------- | -------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
+| `DBMasterSecretArn`     | the RDS master user (`DBMasterUsername`)     | RDS (`ManageMasterUserPassword`)                     | the instance's database bootstrap only; `smoke.sh`         |
+| `DBOwnerSecretArn`      | the owner login (`DBOwnerLogin`)             | CloudFormation, generated                            | the bootstrap, the migrate step; `smoke.sh`                |
+| `DBAppSecretArn`        | the app login (`DBAppLogin`)                 | CloudFormation, generated                            | the bootstrap, the service; `smoke.sh`                     |
+| `DBRetentionSecretArn`  | the retention login (`DBRetentionLogin`)     | CloudFormation, generated                            | the bootstrap, the service; `smoke.sh`                     |
+| `DBTrustStoreSecretArn` | the driver-scoped trust store's password     | CloudFormation, generated                            | the boot (builds the store), the service, the migrate step |
+| `AppBootstrapSecretArn` | the Bootstrap Admin (`AppBootstrapUsername`) | CloudFormation, generated                            | the service; `smoke.sh` replaces the first password        |
+| `EpicClientSecretArn`   | the Epic client id and signing keys (JSON)   | CloudFormation, from the `AppEpicClient*` parameters | the service                                                |
 
 Each generated password is 32 characters and excludes `'`, `"`, `\` and `;`.
 Each secret is encrypted under the stack's [database key](#database-key). There
 is no rotation yet (#73).
 
-**The instance role reads only these secrets** — `GetSecretValue` on the five
-ARNs above, and `kms:Decrypt` on the database key through Secrets Manager only.
-It cannot read the master secret, nor any other secret in the account.
+**The instance role reads these seven secrets and nothing else** —
+`GetSecretValue` on the seven ARNs, and `kms:Decrypt` on the database key through
+Secrets Manager only. Within the instance the separation is **per process**:
+each secret is read by one root-owned script into the environment of the one
+process that needs it.
+
+- `/opt/backend/db-bootstrap.sh` (root) reads the master secret and the three
+  login secrets;
+- `/opt/backend/migrate.sh` reads the owner secret and the trust-store password;
+- `/opt/backend/start.sh` reads the app, retention, trust-store, Bootstrap Admin
+  and Epic secrets — never the owner's or the master's.
+
+**The master secret is now readable by the instance role.** The PostgreSQL stack
+kept it on the operator's machine and ran the bootstrap there, through an SSH
+tunnel; this stack runs the bootstrap in UserData, as #71 specifies, so the
+instance must read it. The role cannot tell processes apart, so code running as
+any user on the instance — the service's JVM included, if it were compromised —
+could fetch the master secret through the instance's credentials. Two things
+bound that: the service's own process is never given it (`smoke.sh` checks its
+`/proc/<pid>/environ`), and the master user's reach beyond what the owner secret
+— which the role already had to read for the migrate step — gives is small: the
+owner is `db_owner` of the only application database, and the master user adds
+the server-level rights to create logins and databases. Blocking the service
+user from the instance metadata service would close it; that is follow-up work.
 
 **The service resolves its credentials at every start.** UserData writes
 `/opt/backend/start.sh` (root-owned) and the systemd unit runs it. It reads the
@@ -162,43 +275,7 @@ argument (each reaches `jq` on a pipe) or traced. `/opt/backend/.env` holds the
 secrets' ARNs, never their values. A secret that cannot be read, or lacks its
 password, stops the start before the JVM runs, and systemd retries.
 
-**The logins are created by `db-bootstrap.sh`, on the operator's machine.** On a
-fresh stack something must create the owner, app and retention logins in
-PostgreSQL, and only the master user can. The master secret must not reach the
-instance role, so the script runs where the deploy runs, with the operator's
-own AWS credentials:
-
-1. It reads the master and the three login secrets into shell variables.
-2. It opens an SSH tunnel from a local port to RDS through the instance (RDS is
-   in private subnets), and downloads the RDS CA bundle.
-3. Its local `psql` connects through the tunnel as the master user with
-   `sslmode=verify-full`: TLS runs end to end from the operator's `psql` to RDS,
-   so the instance forwards bytes it cannot read, and no credential is sent to
-   it or runs anything on it.
-4. It pipes the SQL to `psql`'s stdin. The SQL text holds no password: the
-   master's reaches `psql` in `PGPASSWORD`, and each login's in an environment
-   variable `psql` reads into a psql variable (`\getenv`, hence psql 15+) and
-   quotes as a literal itself (`:'var'`) — never a command-line argument, never
-   a file, never the script's own text.
-
-The SQL creates any missing login, sets each login's password to its secret's,
-creates the NOLOGIN roles `backend_app` and `backend_audit_retention` ahead of
-`V1` (which creates them only if they are missing), and gives the owner login
-both of them `WITH ADMIN OPTION` — so the owner needs no `CREATEROLE` — makes
-the app login a member of `backend_app` only and the retention login a member
-of `backend_audit_retention` only, hands the database to the owner login, and
-revokes the database's `PUBLIC` privileges. Re-running it is safe; it also
-re-applies a secret whose value was changed. The parameter group pins
-`log_statement = none`, so the `ALTER ROLE … PASSWORD` statements are never
-logged by PostgreSQL. The alternatives were rejected: a migrate step or UserData
-on the instance would need the master secret in the instance role, and a
-Lambda custom resource would need a PostgreSQL driver it cannot carry inline,
-plus a Secrets Manager endpoint or NAT in the private subnets.
-
 **The service connects as the app and retention logins, never the owner.**
-`start.sh` reads the app and retention secrets; the owner secret is read only by
-the migrate step, which runs before the service (see [Migrate step](#migrate-step)).
-No `SET ROLE` remains: each pool's privileges are its login's.
 **The application's own secrets** are held the same way, so UserData carries no
 secret at all: the Bootstrap Admin's first password (generated), and the Epic
 client id and signing keys. The Epic values still enter through `NoEcho`
@@ -207,6 +284,115 @@ they may contain neither `"` nor `\`. Redis has no password: the stack's
 single-node `CacheCluster` cannot carry an AUTH token (only a replication group
 can), so the old `RedisPassword` parameter, which CloudFormation rejected, is
 gone; Redis is reachable only from the instance's security group.
+
+### Boot sequence
+
+UserData runs once, when the instance is created, with `set -euo pipefail` and
+never `set -x`:
+
+1. **The SQL Server command-line tools.** `sqlcmd` on the Microsoft ODBC Driver
+   18 (`mssql-tools18`, `msodbcsql18`) from Microsoft's signed RHEL 9 package
+   repository; `ACCEPT_EULA=Y` accepts their licence terms, which installing
+   them requires. Then `cfn-init` writes the database bootstrap's three files and
+   the secret-reading helper (`/opt/backend/secret.sh`) from the instance's
+   `AWS::CloudFormation::Init` metadata, and UserData builds the RDS CA bundle
+   and the driver-scoped trust store
+   ([TLS to the database](#tls-to-the-database)).
+2. **The database bootstrap**, as the RDS master user
+   ([Database bootstrap](#database-bootstrap)): UserData starts
+   `backend-db-bootstrap.service`. A failed bootstrap fails the boot, and
+   `deploy.sh` stops there.
+3. **The migrate step** (`backend-migrate.service`, [Migrate step](#migrate-step)).
+4. **The service** (`backend.service`), with the credentials `start.sh` resolves
+   and `APP_DEV_FIXTURES_ENABLED=false`: no development fixture account is ever
+   seeded (ADR 0015, "Admin and fixture seeding are unchanged"); the Bootstrap
+   Admin and the Admin group are seeded by the service itself.
+
+Steps 3 and 4 need the JAR, which does not exist at boot: `deploy.sh` copies it
+once the stack is up and starts them then. The units chain the order: the
+service `Requires=` the migrate step, which `Requires=` the bootstrap, so every
+start of the service after a deploy runs the bootstrap again (a no-op) and the
+migrations before the JVM.
+
+The bootstrap's files are in `cfn-init` metadata rather than UserData because EC2
+caps UserData at 16 KB; for the same reason of size, the template is larger than
+CloudFormation's 51,200-byte inline limit, so `deploy.sh` stages it in S3 and
+creates the stack from its URL (`CFN_TEMPLATE_BUCKET`, or a bucket
+`cfn-templates-<account>-<region>` it creates once, every public access blocked).
+The template holds no secret.
+
+### Database bootstrap
+
+RDS for SQL Server creates no database of its own (the instance has no
+`DBName`), so the instance's bootstrap creates the application database and the
+three logins, as the RDS master user. It runs as root from
+`backend-db-bootstrap.service`: at boot (UserData), before every migrate step,
+and on demand with `./db-bootstrap.sh <stack>`.
+
+`/opt/backend/db-bootstrap.sh`:
+
+1. reads the master secret and the owner, app and retention secrets into shell
+   variables (with `/opt/backend/secret.sh`, the instance's one secret-reading
+   helper, which UserData and `migrate.sh` source too), and checks each login name and `DBName` against
+   `^[a-z][a-z0-9_]{2,30}$` (which CloudFormation also enforces), that the three
+   logins differ, and that no password holds a quote (ADR 0015, as-2);
+2. waits, for up to five minutes, until the master user signs in;
+3. signs in as each login with its secret's password, and names each one that
+   cannot to the SQL (`RESET_LOGINS`, `|`-separated);
+4. runs `/opt/backend/db-bootstrap.sql` as the master user, which
+   - creates each **missing** login with its secret's password (`CREATE LOGIN`,
+     the name wrapped in `QUOTENAME`, the password escaped), and resets the
+     password (`ALTER LOGIN`) of an existing one named in `RESET_LOGINS` — the
+     one way a secret changed by hand is re-applied;
+   - creates the database if it is missing, `COLLATE Latin1_General_100_BIN2_UTF8`,
+     and refuses one found with another collation;
+   - sets compatibility level **160**, `READ_COMMITTED_SNAPSHOT ON` and
+     `ALLOW_SNAPSHOT_ISOLATION ON`, each only if it is not already set — the
+     database creation options ADR 0015 assigns to whatever creates the database,
+     since `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run in a
+     migration's transaction;
+   - makes the owner login a database user of its own name in **`db_owner`**;
+5. signs in as each login again, and fails when one still cannot.
+
+**It creates server logins and the database only.** The roles
+`backend_app` and `backend_audit_retention`, the app and retention logins'
+database users and every grant are `V1`'s, which the migrate step applies as the
+owner login with the login names as Flyway placeholders. The Bootstrap Admin and
+the Admin group are the service's (never the bootstrap's).
+
+**The owner login is a `db_owner` member, not the database's owner.** The master
+user creates the database, so it is its owner (`dbo`); handing it to another
+login (`ALTER AUTHORIZATION`) needs `IMPERSONATE` on that login, which RDS's
+master user does not hold. `db_owner` membership is everything the migrations
+need, and the local init and the tests build their databases the same way, so
+the whole suite runs `V1` under it (`MigrationStepIntegrationTests`).
+
+**It is idempotent: a re-run is a no-op.** Every statement is guarded: a login,
+the database, an option or the membership that is already in place is left
+alone, and each change it does make prints a `db-init: change:` line. A login's
+password is reset only when the login cannot sign in with its secret's —
+re-setting an unchanged password would itself be a change (and could trip SQL
+Server's password-history policy). `./db-bootstrap.sh <stack>` re-runs it and
+counts those lines; `deploy.sh` runs it with `--expect-no-op` right after the
+boot, so a fresh stack proves the re-run changes nothing.
+
+**It echoes no secret** (ADR 0015, "The bootstrap does not echo"). No `set -x`;
+`sqlcmd` runs without `-e`; the signing-in login's password reaches `sqlcmd` as
+`SQLCMDPASSWORD`, and every other value as a `sqlcmd` scripting variable read
+from its environment — `$(DATABASE_OWNER_PASSWORD)` in the SQL, never `-v` on a
+command line, where `ps` would show it. `sqlcmd` does not expand a `$(` inside a
+variable's value, so a generated password holding one is safe. Its output, in
+the journal and the boot log, holds names and outcomes only, and the
+[post-deploy smoke](#post-deploy-smoke) scans both for every secret value.
+
+**One T-SQL, two copies.** The SQL is, from `SET NOCOUNT ON` down, line for line
+`backend/scripts/local-db-init.sql`, which builds the local database the same way
+(the local server's `sa` in place of the master user). A stack cannot read a file
+from this repository, so the text is held twice: `./check-bootstrap-parity.sh`
+fails, with the difference, when the copies drift. `deploy.sh` runs it before
+every deploy; run it yourself after changing either. The shell around the SQL
+is small and differs by design (`sa` and `-C` locally, the master user and `-N`
+here); every decision, the password reset included, is in the shared SQL.
 
 ### Migrate step
 
@@ -222,11 +408,14 @@ On the instance:
 - `backend-migrate.service` (oneshot, `RemainAfterExit=yes`, user `springboot`)
   runs `/opt/backend/migrate.sh` (root-owned). It loads `/opt/backend/.env` and
   `/opt/backend/migrate.env` — the owner secret's ARN and the app and retention
-  logins' **names** — reads the owner secret into its own environment exactly as
-  `start.sh` reads the others (on a pipe, never an argument, never on disk), and
-  `exec`s `java -Dloader.main=com.example.backend.database.config.MigrationStep
+  logins' **names** — reads the owner secret and the trust store's password into
+  its own environment exactly as `start.sh` reads the others (on a pipe, never an
+  argument, never on disk), and `exec`s
+  `java -Dloader.main=com.example.backend.database.config.MigrationStep
 -cp backend.jar org.springframework.boot.loader.launch.PropertiesLauncher`.
   Before any DDL it refuses a login name outside `^[a-z][a-z0-9_]{2,30}$`.
+- It `Requires=` and is ordered `After=` `backend-db-bootstrap.service`, so it
+  never migrates a database the bootstrap could not finish.
 - `backend.service` `Requires=` and is ordered `After=` it, so starting the
   service runs the step first, and a failed migration fails that start before the
   service's JVM runs. A reboot runs the step again (a no-op when nothing is new).
@@ -238,28 +427,23 @@ On the instance:
   which the service never loads, does.
 
 **A deploy runs the migrate step and then the service.** `deploy.sh` copies the
-JAR, stops the service, `systemctl restart backend-migrate`s (which re-runs it
-against the new JAR) and starts the service only if that succeeded. A failed
-migration prints the step's journal and ends the deploy with the service still
-stopped, so a schema the new JAR does not match is never served. Fix the
-migration (or the database) and deploy again.
+JAR, stops the service, `systemctl restart backend-migrate`s (which re-runs the
+bootstrap and then the migrations against the new JAR) and starts the service
+only if that succeeded. A failed migration prints the journal and ends the
+deploy with the service still stopped, so a schema the new JAR does not match is
+never served. Fix the migration (or the database) and deploy again.
 
-The instance role still reads the owner secret, because the migrate step runs on
-the instance; the separation is per process. `smoke.sh` checks it on every
-deploy: the running service's own environment (`/proc/<pid>/environ`) must name
-no `DATABASE_OWNER_*` variable and contain neither the owner secret's ARN nor its
-password, and the migrate step's journal and `migrate.env` join the secret-leak
-scan.
+`smoke.sh` checks the separation on every deploy: the running service's own
+environment (`/proc/<pid>/environ`) must name no `DATABASE_OWNER_*` variable and
+contain neither the owner's nor the master secret's ARN or password, and the
+migrate step's journal and `migrate.env` join the secret-leak scan.
 
-The logins and their memberships come from `db-bootstrap.sh`; the `V3` migration
-grants the memberships again from its placeholders (a no-op on a bootstrapped
-stack) and replaces the retention role switch with the logins themselves.
 ### Database key
 
 One customer-managed KMS key (`DBKeyArn`, alias `alias/<stack>-database`), with
 **automatic rotation enabled**, encrypts RDS storage — and with it the automated
 backups and every snapshot — Performance Insights, the RDS-managed master secret
-and the five secrets above. `StorageEncrypted` stays on.
+and the six secrets above. `StorageEncrypted` stays on.
 
 Its key policy allows exactly two things:
 
@@ -278,34 +462,89 @@ deletion yourself once that snapshot is no longer needed.
 
 ### TLS to the database
 
-- **Server-side:** the stack's own parameter group sets `rds.force_ssl = 1` and
-  `ssl_min_protocol_version = TLSv1.2`, so RDS refuses any connection that is not
-  TLS 1.2 or higher, from any client.
-- **The service:** the JDBC URL carries `sslmode=verify-full` and
-  `sslrootcert=/opt/backend/rds-ca-bundle.pem`, the region's RDS CA bundle
-  UserData downloads, so the driver validates the RDS certificate's chain and
-  host name. Java 25 also refuses TLS 1.0 and 1.1 itself.
-- **The operator's tools** (`db-bootstrap.sh`, `smoke.sh`) use `verify-full`
-  against the same bundle, through the tunnel.
+- **Server-side (IM8 dp-3):** the stack's own parameter group (family
+  `sqlserver-se-16.0`, output `DBParameterGroupName`) sets `rds.force_ssl = 1`,
+  and `rds.tls10` and `rds.tls11` to `disabled`, so the server encrypts **every**
+  session and none runs below TLS 1.2. **A non-TLS connection is refused:** a
+  client that cannot do TLS (its TDS PRELOGIN says `ENCRYPT_NOT_SUP`) is answered
+  `ENCRYPT_REQ`, and its plaintext login is dropped unread. A client that merely
+  *asks* for no encryption but can do TLS (`sqlcmd -No`, a JDBC URL with
+  `encrypt=false`) is not refused: the server encrypts its session instead. No
+  RDS for SQL Server setting refuses that client — the `sqlserver-se-16.0`
+  family's TLS parameters are `rds.force_ssl`, `rds.tls10`/`11`/`12`,
+  `rds.fips` and the cipher switches, and SQL Server 2022's "force strict
+  encryption" (TDS 8.0 only) is not among them — so either way no session to
+  this server is ever plaintext.
+- **The service:** `DATABASE_URL` is
+  `jdbc:sqlserver://<endpoint>:1433;databaseName=<DBName>;encrypt=true;trustStore=/opt/backend/rds-truststore.p12;trustStoreType=PKCS12`,
+  and `database.yaml` adds `sslProtocol=TLSv1.2` for every connection. There is
+  no `trustServerCertificate`, so the driver validates RDS's certificate chain
+  against the trust store and its name against the endpoint.
+- **The driver-scoped trust store** (ADR 0015, "The RDS CA trust store is
+  driver-scoped"): at boot UserData downloads the region's RDS CA bundle
+  (`https://truststore.pki.rds.amazonaws.com/<region>/<region>-bundle.pem`) and
+  imports every certificate in it into `/opt/backend/rds-truststore.p12`, a
+  PKCS12 store under the password `DBTrustStoreSecretArn` holds (`keytool` reads
+  it from its environment, `-storepass:env`). Only the SQL Server driver opens
+  it, named by the JDBC URL; `start.sh` and `migrate.sh` hand it its password as
+  `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`, which Boot
+  binds into the driver properties every pool and the migrate step's connection
+  are opened with, never into the URL. **The JVM's default trust store is
+  untouched** — there is no `-Djavax.net.ssl.trustStore` — so the identity
+  provider's discovery document and JWKS, and every other Epic call, keep
+  validating against the JDK's own CAs. The service makes those calls on a
+  launch's first use, never at startup (ADR 0013), so `smoke.sh` proves it
+  directly: the running JVM has no `javax.net.ssl.trustStore` (`jcmd
+VM.system_properties`), and the same JDK, as the service user and with its
+  default trust store, fetches Epic's discovery document and the JWKS it names
+  when Epic Login is on (a public AWS HTTPS endpoint when it is off).
+- **The bootstrap's `sqlcmd`:** `-N` (encryption mandatory), **never `-C`**, so
+  the ODBC driver validates RDS's certificate chain and its name against the
+  endpoint. The RDS CA bundle is given to `sqlcmd` alone, as `SSL_CERT_FILE` in
+  its own environment, which the driver's OpenSSL reads; the operating system's
+  trust store is not changed, so no other program on the instance gains trust in
+  it. Tested against a SQL Server whose certificate only a test CA vouched for:
+  without the bundle, with an unrelated CA, or by an address the certificate does
+  not name, `sqlcmd -N` refuses with `certificate verify failed`.
 
-`smoke.sh` proves it on every deploy: a plaintext session is refused for
-requiring TLS, and a `verify-full` session negotiates TLS 1.2 or higher.
+`smoke.sh` proves it on every deploy: the parameter group holds the three
+values and is in sync on the instance; then, on the instance:
+
+- **a client that cannot do TLS is refused** — `tds-plaintext-probe.py`
+  (standard-library Python, piped to the instance's `python3`) speaks TDS
+  itself: a PRELOGIN saying `ENCRYPT_NOT_SUP`, then a plaintext LOGIN7 for a
+  login that does not exist with a random password, so no credential travels in
+  the clear. It passes only when the server drops that login unanswered; a
+  server that answers it at all, even with a failed-login error, accepted a
+  plaintext session. Against SQL Server 2022 CU27 with forced encryption the
+  probe reports `ENCRYPT_REQ` and the dropped login; without it, the server
+  answers in plaintext and the probe fails;
+- a session that asks for no encryption (`sqlcmd -No`) is encrypted anyway
+  (`encrypt_option` `TRUE`), one that cannot validate the certificate is
+  refused, and one that validates it connects, encrypted.
 
 ### Database monitoring
 
 - **Enhanced Monitoring** every 60 seconds (`RDSMonitoringRole`).
 - **Performance Insights**, 7 days' retention, encrypted under the database key.
-- **Alarms**, both on Performance Insights counters through CloudWatch's
-  `DB_PERF_INSIGHTS` metric math, each firing only when **every minute of five**
-  is above zero, and both notifying the stack's notification target, the SNS
-  topic `AlarmTopicArn`, on alarm and on recovery:
+- **Alarms**, both on SQL Server's own performance counters, which RDS for SQL
+  Server publishes through Performance Insights only — the `AWS/RDS` CloudWatch
+  namespace has no deadlock or blocking metric for it — read through
+  CloudWatch's `DB_PERF_INSIGHTS` metric math. Each fires only when **every
+  minute of five** is above zero, and both notify the stack's notification
+  target, the SNS topic `AlarmTopicArn`, on alarm and on recovery:
 
-  | Alarm (stack output)         | Counter                                | Fires on                                   |
-  | ---------------------------- | -------------------------------------- | ------------------------------------------ |
-  | `DBDeadlocksAlarmName`       | `db.Concurrency.deadlocks`             | deadlocks in every minute for 5 minutes    |
-  | `DBBlockedSessionsAlarmName` | `db.Transactions.blocked_transactions` | blocked sessions in every minute for 5 min |
+  | Alarm (stack output)         | Performance Insights counter              | Fires on                                   |
+  | ---------------------------- | ----------------------------------------- | ------------------------------------------ |
+  | `DBDeadlocksAlarmName`       | `db.Locks.Number of Deadlocks/sec`        | deadlocks in every minute for 5 minutes    |
+  | `DBBlockedSessionsAlarmName` | `db.General Statistics.Processes blocked` | blocked sessions in every minute for 5 min |
 
-  Missing data is not treated as OK: a counter that stops arriving shows as
+  Both need Performance Insights on (the stack turns it on), and neither needs
+  Enhanced Monitoring or a custom metric. `smoke.sh` checks that the instance's
+  Performance Insights offers both counters
+  (`aws pi list-available-resource-metrics`), so a renamed counter fails the
+  deploy rather than leaving an alarm on a metric that never arrives. Missing
+  data is not treated as OK: a counter that stops arriving shows as
   `INSUFFICIENT_DATA`, not as a quiet `OK`. Give `AlarmEmail` to subscribe an
   address (AWS mails a confirmation link first), or subscribe any other endpoint
   to `AlarmTopicArn`.
@@ -316,67 +555,84 @@ requiring TLS, and a `verify-full` session negotiates TLS 1.2 or higher.
 first failure. `deploy.sh` runs it after deploying the JAR; run it yourself after
 any later deploy.
 
-`./smoke.sh --leaks-only <stack> [region]` runs step 5 alone, over the sources
-that exist before the service does — the rendered UserData, the cloud-init logs
-and `/opt/backend/.env` — and needs neither the JAR nor `psql`. `deploy.sh` runs
-it when you decline the JAR prompt, so every deploy scans the boot.
+`./smoke.sh --leaks-only <stack> [region]` runs step 6 alone, over the sources
+that exist before the service does — the rendered UserData, the `cfn-init`
+metadata and logs, the cloud-init logs, the env files and the database
+bootstrap's journal — and needs no JAR. `deploy.sh` runs it when you decline the
+JAR prompt, so every deploy scans the boot.
 
-1. **Health:** `/actuator/health` through the ALB answers `200`.
-2. **TLS:** as the app login, through the tunnel, a plaintext session is refused
-   and a `verify-full` session negotiates TLS 1.2+.
+1. **Health:** `/actuator/health` through the ALB answers `200`. **JVM trust:**
+   the service's JVM keeps the JDK's default trust store, and that JDK fetches
+   the identity provider's discovery document and JWKS over it
+   ([TLS to the database](#tls-to-the-database)).
+2. **TLS:** see [TLS to the database](#tls-to-the-database).
 3. **SCIM:** as the Bootstrap Admin, it mints a one-day token on a throwaway
-   connector, then over SCIM creates a User, finds it in the list, deletes it and
-   confirms it is gone, then deletes the connector (revoking the token) and
-   signs out. On a fresh stack the first sign-in must replace the seeded
-   password: the smoke generates a new one, stores it in `AppBootstrapSecretArn`
-   as `AWSPENDING`, changes it, then promotes it to `AWSCURRENT`. **After the
-   first smoke the secret holds the Bootstrap Admin's current password** — read
-   it from there. If the promotion fails after the change, the message names the
-   pending version to promote by hand.
-4. **Alarms:** both exist and notify `AlarmTopicArn` (it warns when nobody is
-   subscribed yet).
-5. **Secret leaks:** every database password (the master's included), the
-   Bootstrap Admin's current and previous passwords and the Epic credentials
-   are searched for in the **rendered UserData** (read back from EC2), the
-   instance's `/var/log/cloud-init-output.log` and `/var/log/cloud-init.log`,
-   `/opt/backend/.env`, the service's journal and its log file. A match fails
-   the deploy, naming the secret and the file, never printing the value.
+   connector, then over SCIM creates a User, finds it in the list, finds **no
+   development fixture account** — none of the userNames
+   `backend/src/main/resources/authorization.yaml` gives its fixtures
+   (`app.authorization.dev-fixtures`), read from that file so that a fixture
+   added there is checked too — deletes the User and confirms it is gone,
+   then deletes the connector (revoking the token) and signs out. On a fresh
+   stack the first sign-in must replace the seeded password: the smoke generates
+   a new one, stores it in `AppBootstrapSecretArn` as `AWSPENDING`, changes it,
+   then promotes it to `AWSCURRENT`. **After the first smoke the secret holds the
+   Bootstrap Admin's current password** — read it from there. If the promotion
+   fails after the change, the message names the pending version to promote by
+   hand.
+4. **Alarms:** both exist, notify `AlarmTopicArn` (it warns when nobody is
+   subscribed yet), and read counters the instance offers.
+5. **Owner and master logins:** the running service's environment holds no part
+   of the owner or the master secret.
+6. **Secret leaks:** every database password (the master's included), the
+   trust store's password, the Bootstrap Admin's current and previous passwords
+   and the Epic credentials are searched for in the **rendered UserData** (read
+   back from EC2), the instance's **`cfn-init` metadata**, the instance's
+   `/var/log/cloud-init-output.log`, `/var/log/cloud-init.log`,
+   `/var/log/cfn-init.log` and `/var/log/cfn-init-cmd.log`, `/opt/backend/.env`,
+   `migrate.env` and `db-bootstrap.env`, the bootstrap's, the migrate step's and
+   the service's journals, and the service's log file. A match fails the deploy,
+   naming the secret and the file, never printing the value.
 
 **Bootstrap hygiene.** UserData runs with `set -euo pipefail` and never with
 `set -x`, and holds no secret to begin with. `deploy.sh`, `db-bootstrap.sh`,
-`smoke.sh` and `start.sh` keep each secret in a shell variable: it reaches a
-process on a pipe, through a process substitution or in that one process's
-environment — never as a command-line argument, never in a file (the smoke's
-cookie jar, in a private temporary directory removed on exit, is the one
-exception) — and is never printed. Never run them with `bash -x`.
+`smoke.sh`, and on the instance `db-bootstrap.sh`, `start.sh` and `migrate.sh`,
+keep each secret in a shell variable: it reaches a process on a pipe, through a
+process substitution or in that one process's environment — never as a
+command-line argument, never in a file (the smoke's cookie jar, in a private
+temporary directory removed on exit, is the one exception) — and is never
+printed. Never run them with `bash -x`.
 
 ### An existing stack
 
-These changes replace the master user's credential, change the owner login and
-re-key storage (`KmsKeyId` cannot change in place), so an existing stack does
-not update into them: deploy a fresh stack. The application holds no data that
-must be kept (ADR 0015).
+The move to SQL Server replaces the database engine, and with it the instance;
+the application holds no data that must be kept (ADR 0015). An existing
+PostgreSQL stack does not update into this template: delete it (`cleanup.sh`)
+and deploy a fresh stack.
 
 ---
 
 ## Prerequisites
 
 1. **Existing VPC in ap-southeast-1** with:
-   - 2 public subnets (different AZs) for ALB
+   - 2 public subnets (different AZs) for ALB; the instance's (public subnet 1)
+     reaches the internet through the Internet Gateway, to install the SQL
+     Server tools and fetch the RDS CA bundle at boot
    - 2 private subnets (different AZs) for RDS/Redis
    - Internet Gateway attached
 
 2. **AWS CLI** configured, as a principal that may create the stack's
-   resources (IAM, KMS, RDS, Secrets Manager, CloudWatch, SNS included) — this
-   principal becomes the database key's administrator (`KeyAdminArn`):
+   resources (IAM, KMS, RDS, Secrets Manager, CloudWatch, SNS included), read RDS
+   engine versions and orderable options, and create and write the S3 bucket the
+   template is staged in — this principal becomes the database key's
+   administrator (`KeyAdminArn`):
 
    ```bash
    aws configure
    # Set region: ap-southeast-1
    ```
 
-   Plus `jq`, `curl`, `ssh`/`scp`, `openssl`, `base64` and `psql` (the PostgreSQL
-   client, 15 or newer) on the machine you deploy from.
+   Plus `jq`, `curl`, `ssh`/`scp`, `openssl` and `base64` on the machine you
+   deploy from.
 
 3. **Application built** — the _integrated_ JAR (SPA + backend), from the repo
    root:
@@ -404,15 +660,20 @@ must be kept (ADR 0015).
 
 It prompts for no password. In order, it:
 
-1. creates the stack and waits for it;
-2. writes `<stack>-outputs.txt` (no secret value in it);
-3. retrieves the SSH key into `<KeyName>.pem` (mode `0400`) when the stack created
+1. checks that RDS resolves SQL Server `16.00` Standard Edition and that the
+   instance class you chose is orderable for it, licence-included;
+2. stages the template in S3 and creates the stack from it, and waits for it;
+3. writes `<stack>-outputs.txt` (no secret value in it);
+4. retrieves the SSH key into `<KeyName>.pem` (mode `0400`) when the stack created
    the key pair;
-4. creates the database logins: `./db-bootstrap.sh <stack>`;
-5. on a yes to the JAR prompt, builds and deploys the integrated JAR, starts the
-   service, and runs `./smoke.sh <stack>`, failing the deploy on any failed check;
-   on a no, runs `./smoke.sh --leaks-only <stack>`, failing the deploy on a
-   leaked secret.
+5. waits for the instance's boot — which installed `sqlcmd` and ran the database
+   bootstrap — to finish, failing on a failed boot, then re-runs the bootstrap
+   and fails unless the re-run changed nothing:
+   `./db-bootstrap.sh --expect-no-op <stack>`;
+6. on a yes to the JAR prompt, builds and deploys the integrated JAR, runs the
+   migrate step, starts the service, and runs `./smoke.sh <stack>`, failing the
+   deploy on any failed check; on a no, runs `./smoke.sh --leaks-only <stack>`,
+   failing the deploy on a leaked secret.
 
 The only User a deployment is seeded with is the Bootstrap Admin
 (`AppBootstrapUsername`), whose first password is generated into
@@ -436,23 +697,28 @@ cp parameters.template.json parameters.json
 # role's or user's ARN (aws sts get-caller-identity; for an assumed role, the
 # role's ARN from aws iam get-role, path included)
 
-# 3. Deploy stack
+# 3. Stage the template in S3: it is larger than --template-body accepts
+BUCKET=cfn-templates-$(aws sts get-caller-identity --query Account --output text)-ap-southeast-1
+aws s3 cp infrastructure.yaml s3://$BUCKET/spring-backend/infrastructure.yaml
+
+# 4. Deploy stack
 aws cloudformation create-stack \
   --stack-name spring-backend \
-  --template-body file://infrastructure.yaml \
+  --template-url https://$BUCKET.s3.ap-southeast-1.amazonaws.com/spring-backend/infrastructure.yaml \
   --parameters file://parameters.json \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ap-southeast-1
 
-# 4. Wait for completion (15-20 minutes)
+# 5. Wait for completion (20-40 minutes: RDS for SQL Server is slow to create)
 aws cloudformation wait stack-create-complete \
   --stack-name spring-backend \
   --region ap-southeast-1
 
-# 5. Retrieve the SSH key (below), then create the database logins
-./db-bootstrap.sh spring-backend
+# 6. Retrieve the SSH key (below), then confirm the boot's database bootstrap
+#    and that a re-run is a no-op
+./db-bootstrap.sh --expect-no-op spring-backend
 
-# 6. Deploy the application (below), then the post-deploy smoke
+# 7. Deploy the application (below), then the post-deploy smoke
 ./smoke.sh spring-backend
 ```
 
@@ -508,8 +774,9 @@ Set in `parameters.json`:
 
 ## Deploy Application
 
-On a fresh stack, run `./db-bootstrap.sh <stack>` first: the service's first
-start connects as the owner login, which that script creates.
+The instance bootstraps the database at boot, so the JAR can be deployed as soon
+as the stack is up and the boot has finished (`./db-bootstrap.sh <stack>` waits
+for it). Starting the migrate step re-runs the bootstrap first.
 
 ```bash
 # Get EC2 IP
@@ -534,7 +801,7 @@ sudo systemctl start backend
 sudo systemctl enable backend
 ENDSSH
 
-# Then check it: health, TLS, SCIM, alarms and secret leaks
+# Then check it: health, TLS, SCIM and fixtures, alarms and secret leaks
 ./smoke.sh spring-backend
 ```
 
@@ -701,11 +968,11 @@ of silently disarming an alert.
 | KeyName                    | Key pair name                                   | No       | spring-backend-key      |
 | InstanceType               | EC2 type                                        | No       | t3.small                |
 | SSHLocation                | CIDR allowed to SSH to the instance             | No       | 0.0.0.0/0 — narrow it   |
-| DBInstanceClass            | RDS instance type                               | No       | db.t3.micro             |
+| DBInstanceClass            | SQL Server SE class (see "Engine, edition…")    | No       | db.t3.xlarge            |
 | DBAllocatedStorage         | RDS storage, GB (20–100)                        | No       | 20                      |
-| DBName                     | PostgreSQL database name                        | No       | backend                 |
+| DBName                     | Database the bootstrap creates                  | No       | backend                 |
 | DBMasterUsername           | RDS master username (password RDS-managed)      | No       | dbmaster                |
-| DBOwnerLogin               | Owner login (schema owner, migrations)          | No       | backend_owner           |
+| DBOwnerLogin               | Owner login (`db_owner`, migrations)            | No       | backend_owner           |
 | DBAppLogin                 | App login (member of `backend_app`)             | No       | backend_app_login       |
 | DBRetentionLogin           | Retention login (`backend_audit_retention`)     | No       | backend_retention_login |
 | KeyAdminArn                | Deploying role/user; administers the DB key     | Yes      | - (deploy.sh fills it)  |
@@ -841,6 +1108,7 @@ one request end to end.
 ```bash
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP
 sudo journalctl -u backend -f              # stdout
+sudo journalctl -u backend-db-bootstrap    # the database bootstrap's runs
 sudo tail -f /var/log/backend/backend.json # the file the agent ships
 ```
 
@@ -864,8 +1132,8 @@ scp -i spring-backend-key.pem \
   ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
-# The migrate step runs against the new JAR first; the service starts only if it
-# succeeded (see "Migrate step").
+# The migrate step (after the database bootstrap, a no-op) runs against the new
+# JAR first; the service starts only if it succeeded (see "Migrate step").
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
 set -euo pipefail
 sudo systemctl stop backend
@@ -958,11 +1226,21 @@ sudo journalctl -u backend -n 50 --no-pager
 ```
 
 From your own machine, `./db-bootstrap.sh <stack>` doubles as the connection
-test: it signs in as each login over `verify-full` TLS and says which one fails.
-A login refused for its password means its secret changed after the last
-bootstrap; re-running the script re-applies it. A connection refused with
-`pg_hba.conf` and "no encryption" is `rds.force_ssl` refusing a client that did
-not use TLS.
+test: the bootstrap signs in as each login over validated TLS, and resets the
+password of one whose secret changed (a `db-init: change: reset the password`
+line). Its journal on the instance is `sudo journalctl -u backend-db-bootstrap`.
+
+- `certificate verify failed` (from `sqlcmd`) or `PKIX path building failed` /
+  `trustAnchors parameter must be non-empty` (from the service's driver): the RDS
+  CA bundle or the trust store is missing or stale, or the trust-store password
+  did not reach the driver. Check `/opt/backend/rds-ca-bundle.pem` and
+  `/opt/backend/rds-truststore.p12` exist (`sudo keytool -list -storetype PKCS12
+-keystore /opt/backend/rds-truststore.p12 -storepass:env P` with `P` exported
+  from `DBTrustStoreSecretArn`, in a shell you then close).
+- `keystore password was incorrect`: the store was built under another password
+  than `DBTrustStoreSecretArn` holds now; rebuild it as UserData does.
+- `Login failed for user`: the login's password differs from its secret — re-run
+  `./db-bootstrap.sh <stack>`.
 
 ### Can't Retrieve SSH Key
 
