@@ -12,9 +12,11 @@ import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -48,7 +50,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The ticket's demo oracle: a parameterized RFC 7644 fixture set run over the real filter chain
- * against real PostgreSQL, seeded with Users and Groups — including a DELETED User — and every
+ * against real SQL Server, seeded with Users and Groups — including a DELETED User — and every
  * fixture's audit event read back with SQL.
  *
  * <p><strong>Scoping on a shared database.</strong> Other test classes leave resources in the
@@ -83,20 +85,18 @@ class ScimQueryProtocolIntegrationTests {
     private static final String SCOPE = "externalId pr";
 
     private static final String LATEST_EVENT = """
-            SELECT operation, resource_type, result_count, filter_shape, outcome, subject_id,
+            SELECT TOP 1 operation, resource_type, result_count, filter_shape, outcome, subject_id,
                    http_method, http_path
               FROM audit_events
              WHERE actor_id = ?
-             ORDER BY occurred_at DESC
-             LIMIT 1""";
+             ORDER BY occurred_at DESC""";
 
     /** The latest event's columns a bulk read must leave empty. */
     private static final String LATEST_EVENT_REST = """
-            SELECT resource_id, changed_paths, error_code, outcome
+            SELECT TOP 1 resource_id, changed_paths, error_code, outcome
               FROM audit_events
              WHERE actor_id = ?
-             ORDER BY occurred_at DESC
-             LIMIT 1""";
+             ORDER BY occurred_at DESC""";
 
     @Autowired
     private WebApplicationContext context;
@@ -182,9 +182,7 @@ class ScimQueryProtocolIntegrationTests {
 
     @AfterAll
     void removeOnlyWhatThisClassCreated() {
-        for (UUID id : created) {
-            ScimTestRows.delete(jdbc, id);
-        }
+        deleteAll(created);
     }
 
     // ---- the RFC fixture set -------------------------------------------------------------------
@@ -262,6 +260,14 @@ class ScimQueryProtocolIntegrationTests {
                         "qp-Carol", "qp-dave"),
                 users("not (userName eq \"qp-alice\" or userName eq \"qp-bob\")",
                         "qp-Carol", "qp-dave"),
+                // not over an attribute with no value: the comparison is FALSE, never unknown, so
+                // its negation selects the resource (Carol has no displayName and no locale, Dave
+                // no familyName and no locale, Carol no email at all)
+                users("not (displayName eq \"bob jones\")", "qp-alice", "qp-Carol", "qp-dave"),
+                users("not (locale sw \"en\")", "qp-Carol", "qp-dave"),
+                users("not (name.familyName gt \"0\")", "qp-dave"),
+                users("not (emails.primary eq true)", "qp-bob", "qp-Carol"),
+                users("not (emails[type eq \"home\"])", "qp-bob", "qp-Carol"),
                 // common attributes and meta
                 users("id eq \"{qp-alice}\"", "qp-alice"),
                 users("meta.resourceType eq \"User\"", "qp-alice", "qp-bob", "qp-Carol", "qp-dave"),
@@ -295,7 +301,9 @@ class ScimQueryProtocolIntegrationTests {
                 groups("meta pr", "qp-empty", "qp-Engineering", "qp-support"),
                 groups("meta.location eq \"" + BASE_URI + "/Groups/{qp-support}\"", "qp-support"),
                 groups("displayName pr and not (displayName eq \"qp-empty\")",
-                        "qp-Engineering", "qp-support"));
+                        "qp-Engineering", "qp-support"),
+                // qp-empty has no member, so no member's label equals anything
+                groups("not (members.display eq \"qp-Carol\")", "qp-empty", "qp-Engineering"));
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -569,9 +577,7 @@ class ScimQueryProtocolIntegrationTests {
                         order.equals("ascending") ? expected : expected.reversed());
             }
         } finally {
-            for (UUID id : mine) {
-                ScimTestRows.delete(jdbc, id);
-            }
+            deleteAll(mine);
         }
     }
 
@@ -604,17 +610,9 @@ class ScimQueryProtocolIntegrationTests {
                     List.of("qp-presence-1", "qp-presence-2"));
             expected.put("emails[type pr]", List.of("qp-presence-1"));
 
-            for (Map.Entry<String, List<String>> query : expected.entrySet()) {
-                JsonNode page = body(mvc.perform(asWriter(get(USERS)
-                                .param("filter", "externalId eq \"presence\" and " + query.getKey())))
-                        .andReturn());
-
-                assertThat(names(page)).as(query.getKey()).containsExactlyElementsOf(query.getValue());
-            }
+            assertUserFilters("externalId eq \"presence\"", expected);
         } finally {
-            for (UUID id : mine) {
-                ScimTestRows.delete(jdbc, id);
-            }
+            deleteAll(mine);
         }
     }
 
@@ -646,6 +644,8 @@ class ScimQueryProtocolIntegrationTests {
      * The tie-breaker: resources with equal sort keys come back in id order, both ways, so
      * stateless paging over a tie returns each resource exactly once. {@code active} ties three
      * Users; {@code emails.type} ties alice and bob, whose primary-or-first email is a work one.
+     * The id order is SQL Server's {@code UNIQUEIDENTIFIER} order, a documented deviation from
+     * the text order of the ids (ADR 0015).
      */
     @ParameterizedTest
     @CsvSource({"active,ascending", "active,descending", "emails.type,ascending"})
@@ -663,7 +663,7 @@ class ScimQueryProtocolIntegrationTests {
                 : List.of("qp-alice", "qp-bob");
         List<String> tiedInResponse = names.stream().filter(ties::contains).toList();
         List<String> byId = ties.stream()
-                .sorted((a, b) -> ids.get(a).toString().compareTo(ids.get(b).toString()))
+                .sorted(Comparator.comparing(name -> sqlServerOrder(ids.get(name))))
                 .toList();
         assertThat(tiedInResponse).containsExactlyElementsOf(byId);
         if (sortBy.equals("active")) {
@@ -783,9 +783,7 @@ class ScimQueryProtocolIntegrationTests {
             assertThat(page.get("Resources").size()).isEqualTo(200);
             assertThat(latestEvent().get("result_count")).isEqualTo(200);
         } finally {
-            for (UUID id : mine) {
-                ScimTestRows.delete(jdbc, id);
-            }
+            deleteAll(mine);
         }
     }
 
@@ -1096,7 +1094,260 @@ class ScimQueryProtocolIntegrationTests {
         assertThat(eventCount()).as("a single-resource retrieval is not audited").isEqualTo(before);
     }
 
+    // ---- SQL Server specifics ------------------------------------------------------------------
+
+    /**
+     * A substring filter matches {@code [}, {@code %} and {@code _} as the characters they are.
+     * SQL Server's {@code LIKE} reads {@code [b]} as a class matching any {@code b} and
+     * {@code [%_]} as one matching either character, so an unescaped pattern would select all
+     * three Users for those two filters. The Users are this test's own and are removed after.
+     */
+    @Test
+    void a_substring_filter_matches_brackets_percent_and_underscore_literally() throws Exception {
+        List<UUID> mine = new ArrayList<>();
+        try {
+            for (String displayName : List.of("x[b][%_]y", "xb%y", "x_by")) {
+                mine.add(create(USERS, """
+                        {"schemas":["%s"],"userName":"qp-like-%d","externalId":"like",
+                         "displayName":"%s"}"""
+                        .formatted(USER_SCHEMA, mine.size() + 1, displayName)));
+            }
+            Map<String, List<String>> expected = new LinkedHashMap<>();
+            expected.put("displayName co \"[b]\"", List.of("qp-like-1"));
+            expected.put("displayName co \"[%_]\"", List.of("qp-like-1"));
+            expected.put("displayName co \"[\"", List.of("qp-like-1"));
+            expected.put("displayName sw \"x[\"", List.of("qp-like-1"));
+            expected.put("displayName ew \"%_]y\"", List.of("qp-like-1"));
+            expected.put("displayName co \"%\"", List.of("qp-like-1", "qp-like-2"));
+            expected.put("displayName co \"_\"", List.of("qp-like-1", "qp-like-3"));
+
+            assertUserFilters("externalId eq \"like\"", expected);
+        } finally {
+            deleteAll(mine);
+        }
+    }
+
+    /**
+     * An id is rendered in lower case and matched in lower case, although SQL Server renders a
+     * {@code UNIQUEIDENTIFIER} in upper case: {@code id}, {@code members.value} and
+     * {@code groups.value} find the resource by the text the API returned for it. Ids are
+     * case-exact, so the upper-case text of the same id finds nothing.
+     */
+    @Test
+    void id_and_membership_filters_match_the_lower_case_ids_the_api_renders() throws Exception {
+        String alice = ids.get("qp-alice").toString();
+        String carol = ids.get("qp-Carol").toString();
+        String support = ids.get("qp-support").toString();
+
+        JsonNode byId = body(mvc.perform(asWriter(get(USERS)
+                        .param("filter", "id eq \"" + alice + "\""))).andReturn());
+        assertThat(names(byId)).containsExactly("qp-alice");
+        assertThat(byId.get("Resources").get(0).get("id").asText()).isEqualTo(alice);
+        assertThat(names(body(mvc.perform(asWriter(get(GROUPS)
+                        .param("filter", "members.value eq \"" + carol + "\""))).andReturn())))
+                .containsExactly("qp-support");
+        assertThat(names(body(mvc.perform(asWriter(get(USERS)
+                        .param("filter", "groups.value eq \"" + support + "\""))).andReturn())))
+                .containsExactly("qp-Carol");
+        assertThat(names(body(mvc.perform(asWriter(get(USERS)
+                        .param("filter", "id eq \"" + alice.toUpperCase(Locale.ROOT) + "\"")))
+                .andReturn()))).isEmpty();
+        assertThat(names(body(mvc.perform(asWriter(get(GROUPS)
+                        .param("filter", "members.value eq \""
+                                + carol.toUpperCase(Locale.ROOT) + "\"")))
+                .andReturn()))).isEmpty();
+    }
+
+    /**
+     * A sort over every kind of attribute, both ways, with a missing value present wherever the
+     * kind can lack one: case-insensitive text, a boolean and a case-exact reference, each through
+     * a multi-valued attribute's first value too, a date-time and the id. A missing value is last
+     * ascending and first descending. The three Users have no tied keys, so each descending order
+     * is exactly the ascending one reversed. The Users and Groups are this test's own.
+     */
+    @Test
+    void a_sort_by_each_attribute_kind_orders_both_ways_with_missing_values_at_the_end()
+            throws Exception {
+        List<UUID> mine = new ArrayList<>();
+        try {
+            UUID first = create(USERS, """
+                    {"schemas":["%s"],"userName":"qp-kind-1","externalId":"kinds",
+                     "name":{"familyName":"Beta"},
+                     "emails":[{"value":"k1@kinds.example","primary":true}]}"""
+                    .formatted(USER_SCHEMA));
+            mine.add(first);
+            UUID second = create(USERS, """
+                    {"schemas":["%s"],"userName":"qp-kind-2","externalId":"kinds",
+                     "name":{"familyName":"alpha"},
+                     "emails":[{"value":"k2@kinds.example"}]}"""
+                    .formatted(USER_SCHEMA));
+            mine.add(second);
+            UUID third = create(USERS, """
+                    {"schemas":["%s"],"userName":"qp-kind-3","externalId":"kinds"}"""
+                    .formatted(USER_SCHEMA));
+            mine.add(third);
+            // Upper-case B: in byte order "qp-kind-B" precedes "qp-kind-a"; lower-cased it follows.
+            UUID groupOfFirst = create(GROUPS, """
+                    {"schemas":["%s"],"displayName":"qp-kind-B","members":[{"value":"%s"}]}"""
+                    .formatted(GROUP_SCHEMA, first));
+            mine.add(groupOfFirst);
+            UUID groupOfSecond = create(GROUPS, """
+                    {"schemas":["%s"],"displayName":"qp-kind-a","members":[{"value":"%s"}]}"""
+                    .formatted(GROUP_SCHEMA, second));
+            mine.add(groupOfSecond);
+            List<String> byGroupRef = groupOfFirst.toString().compareTo(groupOfSecond.toString()) < 0
+                    ? List.of("qp-kind-1", "qp-kind-2", "qp-kind-3")
+                    : List.of("qp-kind-2", "qp-kind-1", "qp-kind-3");
+            Map<UUID, String> userNames = Map.of(
+                    first, "qp-kind-1", second, "qp-kind-2", third, "qp-kind-3");
+            List<String> byId = Stream.of(first, second, third)
+                    .sorted(Comparator.comparing(UUID::toString))
+                    .map(userNames::get)
+                    .toList();
+
+            Map<String, List<String>> ascending = new LinkedHashMap<>();
+            ascending.put("name.familyName", List.of("qp-kind-2", "qp-kind-1", "qp-kind-3"));
+            ascending.put("emails.value", List.of("qp-kind-1", "qp-kind-2", "qp-kind-3"));
+            ascending.put("emails.primary", List.of("qp-kind-2", "qp-kind-1", "qp-kind-3"));
+            ascending.put("groups.display", List.of("qp-kind-2", "qp-kind-1", "qp-kind-3"));
+            ascending.put("groups.$ref", byGroupRef);
+            ascending.put("meta.created", List.of("qp-kind-1", "qp-kind-2", "qp-kind-3"));
+            ascending.put("id", byId);
+
+            for (Map.Entry<String, List<String>> sort : ascending.entrySet()) {
+                for (String order : List.of("ascending", "descending")) {
+                    JsonNode page = body(mvc.perform(asWriter(get(USERS)
+                                    .param("filter", "externalId eq \"kinds\"")
+                                    .param("sortBy", sort.getKey())
+                                    .param("sortOrder", order)))
+                            .andReturn());
+
+                    assertThat(names(page)).as(sort.getKey() + " " + order)
+                            .containsExactlyElementsOf(order.equals("ascending")
+                                    ? sort.getValue()
+                                    : sort.getValue().reversed());
+                }
+            }
+        } finally {
+            deleteAll(mine);
+        }
+    }
+
+    /**
+     * A base-search sort by a boolean only Users have: every Group projects a typed NULL in its
+     * branch and sorts as missing — last ascending, first descending — around Bob's {@code false}
+     * and the three {@code true}s.
+     */
+    @Test
+    void the_base_search_sorts_by_a_boolean_one_type_lacks_with_that_type_as_missing()
+            throws Exception {
+        List<String> groupNames = List.of("qp-empty", "qp-Engineering", "qp-support");
+        List<String> activeUsers = List.of("qp-alice", "qp-Carol", "qp-dave");
+        for (String order : List.of("ascending", "descending")) {
+            List<String> names = names(body(mvc.perform(asWriter(post(BASE + "/.search"))
+                            .contentType(SCIM_JSON)
+                            .content(searchBody(Map.of(
+                                    "filter", SCOPE, "sortBy", "active", "sortOrder", order))))
+                    .andReturn()));
+
+            assertThat(names).as(order).hasSize(7);
+            if (order.equals("ascending")) {
+                assertThat(names.getFirst()).isEqualTo("qp-bob");
+                assertThat(names.subList(1, 4)).containsExactlyInAnyOrderElementsOf(activeUsers);
+                assertThat(names.subList(4, 7)).containsExactlyInAnyOrderElementsOf(groupNames);
+            } else {
+                assertThat(names.subList(0, 3)).containsExactlyInAnyOrderElementsOf(groupNames);
+                assertThat(names.subList(3, 6)).containsExactlyInAnyOrderElementsOf(activeUsers);
+                assertThat(names.getLast()).isEqualTo("qp-bob");
+            }
+        }
+    }
+
+    /**
+     * A documented deviation (ADR 0015, "Observable changes"): SQL Server pads a text comparison,
+     * so {@code eq}, {@code ne} and the ordering operators on free text ignore trailing spaces in
+     * the stored value and in the filter's. {@code co}, {@code sw} and {@code ew} are
+     * {@code LIKE} against a bound Unicode pattern, where SQL Server keeps trailing spaces
+     * significant, so they match as before: {@code ew "l"} does not find {@code "Trail  "}. (A
+     * whitespace-only value counting as absent cannot be reached through the API, which refuses
+     * a blank free-text value.) The User is this test's own and is removed after.
+     */
+    @Test
+    void free_text_equality_ignores_trailing_spaces_and_substrings_do_not() throws Exception {
+        UUID mine = create(USERS, """
+                {"schemas":["%s"],"userName":"qp-padded","externalId":"padded",
+                 "name":{"familyName":"Trail  "}}""".formatted(USER_SCHEMA));
+        try {
+            Map<String, List<String>> expected = new LinkedHashMap<>();
+            expected.put("name.familyName eq \"Trail\"", List.of("qp-padded"));
+            expected.put("name.familyName eq \"trail \"", List.of("qp-padded"));
+            expected.put("name.familyName ne \"Trail\"", List.of());
+            expected.put("name.familyName gt \"trail\"", List.of());
+            expected.put("name.familyName ge \"trail \"", List.of("qp-padded"));
+            expected.put("name.familyName ew \"l\"", List.of());
+            expected.put("name.familyName ew \"l  \"", List.of("qp-padded"));
+            expected.put("name.familyName co \"l \"", List.of("qp-padded"));
+
+            assertUserFilters("externalId eq \"padded\"", expected);
+        } finally {
+            deleteAll(List.of(mine));
+        }
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
+
+    /**
+     * Asserts that each filter in {@code expected}, joined to {@code scope} with {@code and},
+     * selects exactly its listed Users, by {@code userName}, in order.
+     */
+    private void assertUserFilters(String scope, Map<String, List<String>> expected)
+            throws Exception {
+        for (Map.Entry<String, List<String>> query : expected.entrySet()) {
+            JsonNode page = body(mvc.perform(asWriter(get(USERS)
+                            .param("filter", scope + " and " + query.getKey())))
+                    .andReturn());
+
+            assertThat(names(page)).as(query.getKey())
+                    .containsExactlyElementsOf(query.getValue());
+        }
+    }
+
+    /** Removes the resources a test created for itself. */
+    private void deleteAll(List<UUID> created) {
+        for (UUID id : created) {
+            ScimTestRows.delete(jdbc, id);
+        }
+    }
+
+    /** Creates a resource from {@code body} at {@code endpoint} and returns its id. */
+    private UUID create(String endpoint, String body) throws Exception {
+        MvcResult result = mvc.perform(asWriter(post(endpoint)).contentType(SCIM_JSON)
+                        .content(body))
+                .andReturn();
+        assertThat(result.getResponse().getStatus())
+                .as(result.getResponse().getContentAsString())
+                .isEqualTo(201);
+        return UUID.fromString(body(result).get("id").asText());
+    }
+
+    /**
+     * The bytes of a UUID's text form, most significant first, as SQL Server orders a
+     * {@code UNIQUEIDENTIFIER}: the last six bytes, then the two before them, then the first
+     * three groups each read from their last byte. Measured on the pinned SQL Server image by
+     * ordering sixteen ids that each set one byte.
+     */
+    private static final int[] SQL_SERVER_UUID_SIGNIFICANCE =
+            {10, 11, 12, 13, 14, 15, 8, 9, 7, 6, 5, 4, 3, 2, 1, 0};
+
+    /** A key whose text order is SQL Server's {@code UNIQUEIDENTIFIER} order. */
+    private static String sqlServerOrder(UUID id) {
+        String hex = id.toString().replace("-", "");
+        StringBuilder key = new StringBuilder();
+        for (int index : SQL_SERVER_UUID_SIGNIFICANCE) {
+            key.append(hex, 2 * index, 2 * index + 2);
+        }
+        return key.toString();
+    }
 
     private static Arguments users(String filter, String... expected) {
         return Arguments.of(USERS, filter, List.of(expected));

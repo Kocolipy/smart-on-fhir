@@ -27,20 +27,32 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Translates a {@link ScimQuery} into SQL, with every literal bound.
+ * Translates a {@link ScimQuery} into T-SQL for SQL Server 2022 (compatibility level 160), with
+ * every literal bound (ADR 0015).
  *
- * <p><strong>The common subset, with the engine words in one place.</strong> Every statement is
- * written in SQL that both PostgreSQL and SQL Server 2022 (compatibility level 160) accept, so the
- * protocol's semantics are proved on one engine before the move to the other (ADR 0015). Three
- * constants at the top of the class are the only engine-specific text: the byte-order collation
- * ({@link #BYTE_ORDER_COLLATION}) and the types a NULL is cast to where the union's other branch
- * has a boolean ({@link #NULL_BOOLEAN_TYPE}) or a timestamp ({@link #NULL_TIMESTAMP_TYPE}).
- * Everything else keeps to the subset: {@code OFFSET … ROWS FETCH NEXT … ROWS ONLY} rather than
- * {@code LIMIT}; a {@code CASE} flag rather than {@code NULLS FIRST/LAST}; {@code CONCAT} rather
- * than {@code ||}; {@code (1=1)} and {@code (1=0)} rather than boolean literals, which SQL Server
- * lacks; and casts to {@code VARCHAR} with an explicit length rather than to {@code text}. A
- * resource id rendered as text is lower-cased, because a driver may return a UUID's text in upper
- * case and the API renders ids in lower case.
+ * <p><strong>The engine words in one place.</strong> Four constants at the top of the class are
+ * the only SQL Server-specific text: the binary UTF-8 collation text sorts and range comparisons
+ * use ({@link #BYTE_ORDER_COLLATION}), the types a NULL is cast to where the union's other branch
+ * has a boolean ({@link #NULL_BOOLEAN_TYPE}) or a timestamp ({@link #NULL_TIMESTAMP_TYPE}), and
+ * {@link #FIRST_ROW} for a multi-valued attribute's first value. The rest reads the same on most
+ * engines: {@code OFFSET … ROWS FETCH NEXT … ROWS ONLY} for the page; a {@code CASE} flag for
+ * where a missing value sorts, since SQL Server has no {@code NULLS FIRST/LAST} and sorts a bare
+ * {@code NULL} first; {@code CONCAT} for string building; {@code (1=1)} and {@code (1=0)} for
+ * constant predicates, since SQL Server has no boolean literal; and casts to {@code VARCHAR} with
+ * an explicit length. A resource id rendered as text is lower-cased, because SQL Server renders a
+ * {@code UNIQUEIDENTIFIER} in upper case and the API renders ids in lower case. A boolean
+ * attribute is a {@code BIT} column, compared with a bound Java boolean, which the driver sends as
+ * a {@code BIT}. A {@code LIKE} pattern escapes {@code [} as well as {@code %} and {@code _},
+ * since SQL Server reads {@code [} as the start of a character class.
+ *
+ * <p><strong>What SQL Server changes</strong> (ADR 0015, "Observable changes"). It pads a text
+ * comparison with spaces, so {@code eq}, {@code ne}, {@code gt}, {@code ge}, {@code lt} and
+ * {@code le} on free text ignore trailing spaces, and a whitespace-only value equals {@code ''}
+ * and so counts as absent for {@code pr} and sorting. {@code co}, {@code sw} and {@code ew} keep
+ * trailing spaces significant: a {@code LIKE} against the bound Unicode pattern is not padded. The {@code id} tie-break follows SQL Server's
+ * {@code UNIQUEIDENTIFIER} order. Case-insensitive comparison is {@code LOWER} under the binary
+ * collation, which differs from Java's {@code toLowerCase(Locale.ROOT)} for the characters spike
+ * V4 lists.
  *
  * <p><strong>No client text becomes statement text.</strong> The only strings concatenated
  * into a statement are the fixed fragments in this class, selected by exhaustive switches over
@@ -48,8 +60,8 @@ import java.util.UUID;
  * generated name and referenced as {@code :pN}. {@code ScimQuerySqlTests} holds that as a
  * property: a literal never appears in the statement, whatever it contains.
  *
- * <p><strong>Two-valued logic.</strong> Every predicate this renders is TRUE or FALSE, never
- * NULL: each comparison is guarded as {@code (x IS NOT NULL AND x <op> :p)}, and the bound operand
+ * <p><strong>Two-valued logic.</strong> SQL Server has no boolean expressions to fall back on, so
+ * every predicate this renders is TRUE or FALSE, never NULL, by construction: each comparison is guarded as {@code (x IS NOT NULL AND x <op> :p)}, and the bound operand
  * is never NULL, so an attribute with no value fails a comparison instead of making it unknown,
  * and SQL's {@code NOT NULL = NULL} never leaks into {@code not (...)}. {@code ne} is rendered as
  * {@code NOT (eq)}, which is the domain's definition of it.
@@ -63,25 +75,31 @@ import java.util.UUID;
  */
 final class ScimQuerySql {
 
-    // --- engine words: the only text in this class outside the common subset ---------------
+    // --- engine words: the only SQL Server-specific text in this class ---------------------
 
-    /** The byte-order (code-point order) collation text sorts and range comparisons use. */
-    private static final String BYTE_ORDER_COLLATION = "\"C\"";
+    /**
+     * The binary (code-point order) collation text sorts and range comparisons use: the
+     * database's own collation, named so the order never depends on a column's or a server's.
+     */
+    private static final String BYTE_ORDER_COLLATION = "Latin1_General_100_BIN2_UTF8";
 
     /** The SQL type a branch's NULL takes where the union's other branch has a boolean. */
-    private static final String NULL_BOOLEAN_TYPE = "boolean";
+    private static final String NULL_BOOLEAN_TYPE = "BIT";
 
     /** The SQL type a branch's NULL takes where the union's other branch has a timestamp. */
-    private static final String NULL_TIMESTAMP_TYPE = "timestamptz";
+    private static final String NULL_TIMESTAMP_TYPE = "DATETIMEOFFSET(6)";
 
-    // --- common-subset constants: the same text on both engines -----------------------------
+    /** Selects a correlated subquery's first row, in the subquery's own ORDER BY. */
+    private static final String FIRST_ROW = "SELECT TOP 1 ";
+
+    // --- portable constants -----------------------------------------------------------------
 
     /**
      * The type a branch's text NULL takes: a {@code VARCHAR} with an explicit length (SQL Server
      * reads a bare {@code VARCHAR} in a cast as {@code VARCHAR(30)}), as wide as the widest text
      * column a sort key reads — 256 code points, which SQL Server's UTF-8 {@code VARCHAR} stores
-     * in up to 1024 bytes. Both engines widen a union's column to its wider branch, so the NULL is
-     * never what narrows a value.
+     * in up to 1024 bytes (ADR 0015's column inventory). A union's column takes its wider branch,
+     * so the NULL is never what narrows a value; widening a sort column means widening this.
      */
     private static final String NULL_TEXT_TYPE = "VARCHAR(1024)";
 
@@ -152,8 +170,8 @@ final class ScimQuerySql {
     /**
      * The requested sort's ORDER BY keys. A missing value sorts as if greater than every present
      * one — last ascending, first descending — through a leading flag key in the sort's own
-     * direction, because the engines disagree on where a bare {@code NULL} sorts and only one of
-     * them has {@code NULLS FIRST/LAST}.
+     * direction, because SQL Server sorts a bare {@code NULL} first and has no
+     * {@code NULLS FIRST/LAST}.
      */
     private static String sortOrder(ScimSort sort) {
         String direction = sort.descending() ? " DESC" : " ASC";
@@ -378,9 +396,8 @@ final class ScimQuerySql {
         Attribute attribute = found.get();
         ScimFilterPath path = attribute.path();
         String value = attribute.multiValued()
-                ? "(SELECT " + rowColumn(path) + " FROM " + rows(path.parent())
-                        + " ORDER BY " + firstValueOrder(path.parent())
-                        + " OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY)"
+                ? "(" + FIRST_ROW + rowColumn(path) + " FROM " + rows(path.parent())
+                        + " ORDER BY " + firstValueOrder(path.parent()) + ")"
                 : column(path, type);
         if (!attribute.isTextual()) {
             return value;
