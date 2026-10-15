@@ -497,7 +497,21 @@ syntax and semantics over the attributes this service advertises: it makes no
 unadvertised attribute queryable, and a filter on `password` is
 `400 invalidFilter`. Sorting takes one
 attribute, puts missing values last ascending and first descending, and breaks ties
-by `id`. The same query may be sent as a `SearchRequest` body to `/Users/.search`,
+by `id`. SQL Server, the directory's database, makes these filter and sort
+deviations, documented in `backend/docs/openapi.yaml` and recorded in
+`docs/adr/0015-sql-server-2022-replaces-postgresql.md` ("Observable changes" and
+its 2026-10-15 addendum): `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text
+(`name.*`, `displayName`, `locale`, `timezone`, `preferredLanguage` and the like)
+ignore trailing spaces in the stored and the compared value, because SQL Server
+pads the comparison, while `co`, `sw` and `ew` keep them significant, because a
+`LIKE` against the bound pattern is not padded; a whitespace-only free-text value counts
+as absent to `pr` and sorts as missing; ties broken by `id` follow SQL Server's
+`uniqueidentifier` order rather than the ids' text order; and case-insensitive
+comparison uses SQL Server's `LOWER`, which leaves some upper-case letters outside
+ASCII, Latin-1, Latin Extended-A and -B, modern Greek and Cyrillic unchanged (the
+Kelvin, Ohm and Angstrom signs, capital sharp s, Georgian Mtavruli, Cherokee and
+supplementary-plane scripts among them), lower-cases `İ` to `i`, and has no
+final-sigma rule (spike V4 lists every code point). The same query may be sent as a `SearchRequest` body to `/Users/.search`,
 `/Groups/.search`, or the base `/.search`, which spans both types and treats an
 attribute one type lacks as having no value there. `PUT`, `PATCH`, and
 `DELETE` of an existing resource accept an optional `If-Match`, as RFC 7644
