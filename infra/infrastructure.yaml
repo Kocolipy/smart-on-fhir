@@ -47,10 +47,13 @@ Parameters:
       - t3.medium
       - t3.large
 
+  # No default: the instance has a public IP and its role reads the RDS master
+  # secret, so who may reach port 22 is the operator's explicit choice — their
+  # own address as a /32, ideally. deploy.sh asks for it and refuses a /0 range
+  # unless the operator confirms it (infra/README.md, "Parameters Reference").
   SSHLocation:
-    Description: IP address range that can SSH to EC2 instances
+    Description: CIDR range that can SSH to the EC2 instance (no default; e.g. your public IP as x.x.x.x/32)
     Type: String
-    Default: 0.0.0.0/0
     AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
     ConstraintDescription: Must be a valid IP CIDR range (x.x.x.x/x)
 
@@ -1131,8 +1134,12 @@ Resources:
             rm /tmp/amazon-cloudwatch-agent.rpm
 
             useradd -m -s /bin/bash springboot
-            mkdir -p /opt/backend
-            chown springboot:springboot /opt/backend
+            # root:root 0755, never the service user's: root runs or sources files
+            # here (db-bootstrap.*, secret.sh, start.sh, migrate.sh), and a
+            # directory's owner can rename or replace any file in it. springboot
+            # writes nothing here; it reads the JAR and the trust store. smoke.sh
+            # checks it (infra/README.md, "File ownership on the instance").
+            install -d -o root -g root -m 0755 /opt/backend
             # The service's rolling log; the CloudWatch agent (root) reads it.
             mkdir -p /var/log/backend
             chown springboot:springboot /var/log/backend
@@ -1210,7 +1217,10 @@ Resources:
             APP_ENVIRONMENT=${AppEnvironment}
             LOG_FILE=/var/log/backend/backend.json
             EOF
-            chown springboot:springboot /opt/backend/.env
+            # root's, as migrate.env is: systemd reads every EnvironmentFile as root
+            # before it starts the unit's process, so springboot never opens it, and
+            # root's own reads of it (smoke.sh) see only what root wrote.
+            chown root:root /opt/backend/.env
             chmod 600 /opt/backend/.env
 
             # The service's start script (root-owned): every credential from Secrets

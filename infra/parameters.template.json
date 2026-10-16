@@ -33,7 +33,7 @@
   },
   {
     "ParameterKey": "SSHLocation",
-    "ParameterValue": "0.0.0.0/0"
+    "ParameterValue": "X.X.X.X/32"
   },
   {
     "ParameterKey": "DBInstanceClass",

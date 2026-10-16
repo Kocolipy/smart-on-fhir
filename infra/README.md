@@ -271,6 +271,38 @@ process that needs it.
 - `/opt/backend/start.sh` reads the app, retention, trust-store, Bootstrap Admin
   and Epic secrets — never the owner's or the master's.
 
+#### File ownership on the instance
+
+**`/opt/backend` is `root:root 0755`, and the service user `springboot` owns
+nothing in it.** Root runs or sources files there — `db-bootstrap.sh` (run by
+`backend-db-bootstrap.service` as root), `db-bootstrap.env` (its
+`EnvironmentFile`), `secret.sh` (sourced by `db-bootstrap.sh`, UserData and
+`smoke.sh`'s on-instance checks), `start.sh` and `migrate.sh` — and whoever owns
+a directory can rename or replace any file in it, whatever the file's own mode.
+A `springboot`-owned directory would let the service user swap a file root runs,
+take root, and read the RDS master secret with it.
+
+| Path                       | Owner and mode         | Read by                                              |
+| -------------------------- | ---------------------- | ---------------------------------------------------- |
+| `/opt/backend/`            | `root:root 0755`       | everyone (the units' `WorkingDirectory`)             |
+| `db-bootstrap.sh`          | `root:root 0700`       | root (the bootstrap unit)                            |
+| `db-bootstrap.env`, `.sql` | `root:root 0600`       | root                                                 |
+| `secret.sh`                | `root:root 0644`       | root; `migrate.sh` as `springboot`                   |
+| `start.sh`, `migrate.sh`   | `root:root 0755`       | the service and migrate units, as `springboot`       |
+| `.env`, `migrate.env`      | `root:root 0600`       | systemd, as root, before it starts a unit's process  |
+| `backend.jar`              | `root:root 0644`       | the service and the migrate step, as `springboot`    |
+| `rds-ca-bundle.pem`        | `root:root 0644`       | `sqlcmd` (root); the trust store is built from it    |
+| `rds-truststore.p12`       | `root:springboot 0640` | the JDBC driver, in the service and the migrate step |
+
+`springboot` writes nothing under `/opt/backend`: its only writable path is the
+log directory, `/var/log/backend` (`springboot:springboot 0750`). The env files
+are root's because systemd reads every `EnvironmentFile` as root before it drops
+to the unit's `User=`, so the service user never opens them — and `smoke.sh`,
+which reads `.env` as root, reads only what root wrote. `deploy.sh` installs the
+JAR as `root:root 0644`. `smoke.sh` checks all of it (`check_file_ownership`):
+every path above and the three unit files are owned by root and not writable by
+`springboot`, and `springboot` owns nothing under `/opt/backend`.
+
 **The master secret is now readable by the instance role.** The previous stack
 kept it on the operator's machine and ran the bootstrap there, through an SSH
 tunnel; this stack runs the bootstrap in UserData, as #71 specifies, so the
@@ -572,12 +604,17 @@ values and is in sync on the instance; then, on the instance:
 first failure. `deploy.sh` runs it after deploying the JAR; run it yourself after
 any later deploy.
 
-`./smoke.sh --leaks-only <stack> [region]` runs step 6 alone, over the sources
+`./smoke.sh --leaks-only <stack> [region]` runs steps 0 and 6 alone, step 6 over the sources
 that exist before the service does — the rendered UserData, the `cfn-init`
 metadata and logs, the cloud-init logs, the env files and the database
 bootstrap's journal — and needs no JAR. `deploy.sh` runs it when you decline the
 JAR prompt, so every deploy scans the boot.
 
+0. **Ownership:** `/opt/backend`, every file root runs, sources or reads there
+   and the three systemd units are owned by root and not writable by
+   `springboot`, and `springboot` owns nothing under `/opt/backend`
+   ([File ownership on the instance](#file-ownership-on-the-instance)). The JAR
+   is checked when it is there.
 1. **Health:** `/actuator/health` through the ALB answers `200`. **JVM trust:**
    the service's JVM keeps the JDK's default trust store, and that JDK fetches
    the identity provider's discovery document and JWKS over it
@@ -625,6 +662,18 @@ The move to SQL Server replaces the database engine, and with it the instance;
 the application holds no data that must be kept (ADR 0015). An existing stack
 on the previous engine does not update into this template: delete it
 (`cleanup.sh`) and deploy a fresh stack.
+
+An instance this template created before
+[File ownership on the instance](#file-ownership-on-the-instance) was tightened
+has a `springboot`-owned `/opt/backend`, `.env` and JAR. UserData runs only when
+an instance is created, so a stack update does not change them, and the smoke's
+ownership step fails on that instance. Fix it once, on the instance:
+
+```bash
+sudo chown root:root /opt/backend /opt/backend/.env /opt/backend/backend.jar
+sudo chmod 0755 /opt/backend && sudo chmod 0600 /opt/backend/.env && sudo chmod 0644 /opt/backend/backend.jar
+sudo find /opt/backend -user springboot   # must print nothing
+```
 
 ---
 
@@ -675,7 +724,10 @@ on the previous engine does not update into this template: delete it
 ./deploy.sh
 ```
 
-It prompts for no password. In order, it:
+It prompts for no password. It requires the CIDR allowed to SSH to the
+instance — your own public IP as `x.x.x.x/32`; there is no default — and refuses
+a `/0` range (the whole internet) unless you type the confirmation it asks for.
+In order, it:
 
 1. checks that RDS resolves SQL Server `16.00` Standard Edition and that the
    instance class you chose is orderable for it, licence-included;
@@ -710,9 +762,11 @@ aws secretsmanager get-secret-value --secret-id <AppBootstrapSecretArn> \
 
 # 2. Configure parameters (no secret goes in it)
 cp parameters.template.json parameters.json
-# Edit parameters.json: VPC and subnet IDs, and KeyAdminArn — your deploying
-# role's or user's ARN (aws sts get-caller-identity; for an assumed role, the
-# role's ARN from aws iam get-role, path included)
+# Edit parameters.json: VPC and subnet IDs, SSHLocation — the CIDR allowed to
+# reach port 22, your own public IP as x.x.x.x/32 (the X.X.X.X/32 placeholder
+# fails the template's pattern, and there is no default) — and KeyAdminArn —
+# your deploying role's or user's ARN (aws sts get-caller-identity; for an
+# assumed role, the role's ARN from aws iam get-role, path included)
 
 # 3. Stage the template in S3: it is larger than --template-body accepts
 BUCKET=cfn-templates-$(aws sts get-caller-identity --query Account --output text)-ap-southeast-1
@@ -812,7 +866,7 @@ scp -i spring-backend-key.pem \
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
 set -euo pipefail
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
-sudo chown springboot:springboot /opt/backend/backend.jar
+sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
 sudo systemctl restart backend-migrate
 sudo systemctl start backend
 sudo systemctl enable backend
@@ -984,7 +1038,7 @@ of silently disarming an alert.
 | CreateKeyPair              | Create key pair                                 | No       | true                    |
 | KeyName                    | Key pair name                                   | No       | spring-backend-key      |
 | InstanceType               | EC2 type                                        | No       | t3.small                |
-| SSHLocation                | CIDR allowed to SSH to the instance             | No       | 0.0.0.0/0 — narrow it   |
+| SSHLocation                | CIDR allowed to SSH to the instance             | Yes      | - (your IP as a /32)    |
 | DBInstanceClass            | SQL Server SE class (see "Engine, edition…")    | No       | db.t3.xlarge            |
 | DBAllocatedStorage         | RDS storage, GB (20–100)                        | No       | 20                      |
 | DBName                     | Database the bootstrap creates                  | No       | backend                 |
@@ -1155,7 +1209,7 @@ ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
 set -euo pipefail
 sudo systemctl stop backend
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
-sudo chown springboot:springboot /opt/backend/backend.jar
+sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
 sudo systemctl restart backend-migrate
 sudo systemctl start backend
 ENDSSH

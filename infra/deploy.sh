@@ -110,8 +110,20 @@ get_inputs() {
     read -r -p "Enter EC2 instance type (default: t3.small): " INSTANCE_TYPE
     INSTANCE_TYPE=${INSTANCE_TYPE:-t3.small}
 
-    read -r -p "Enter your IP for SSH access (e.g., 1.2.3.4/32): " SSH_LOCATION
-    SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
+    # Required, with no default: the instance has a public IP and its role reads
+    # the RDS master secret, so port 22 is open only to the range named here —
+    # your own public IP as a /32, ideally. A /0 range (the whole internet) is
+    # refused unless confirmed.
+    read -r -p "Enter the CIDR allowed to SSH to the instance (your public IP as x.x.x.x/32): " SSH_LOCATION
+    [ -n "$SSH_LOCATION" ] || die "the SSH CIDR is required; there is no default"
+    [[ $SSH_LOCATION =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] ||
+        die "the SSH CIDR must look like x.x.x.x/n, e.g. 203.0.113.10/32"
+    if [[ $SSH_LOCATION == */0 ]]; then
+        print_warn "${SSH_LOCATION} opens SSH to the whole internet"
+        local confirm_open
+        read -r -p "Type 'open to the internet' to allow it: " confirm_open
+        [ "$confirm_open" = "open to the internet" ] || die "refused ${SSH_LOCATION}; give a narrower CIDR"
+    fi
 
     # Database configuration. No password: the master user's is RDS-managed and
     # the three logins' are generated, all in Secrets Manager.
@@ -294,7 +306,7 @@ Next Steps (deploy.sh does 1-3 when you answer yes to the JAR prompt):
    (equivalently: scripts/package.sh — 'cd backend && ./mvnw clean package' is
    backend-only and produces a JAR with no SPA)
 3. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
-   then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
+   then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
    and: sudo systemctl stop backend && sudo systemctl restart backend-migrate && sudo systemctl start backend && sudo systemctl enable backend
    (the migrate step re-runs the database bootstrap, then the migrations as the owner login; if it fails, do not start the service)
 4. Post-deploy smoke (health, TLS, SCIM, alarms, secret leaks): ./smoke.sh ${STACK_NAME} ${AWS_REGION}
@@ -408,7 +420,7 @@ deploy_jar() {
         "ec2-user@${EC2_IP}" << 'ENDSSH'
 set -euo pipefail
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
-sudo chown springboot:springboot /opt/backend/backend.jar
+sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
 sudo systemctl stop backend
 if ! sudo systemctl restart backend-migrate; then
     sudo journalctl -u backend-db-bootstrap -u backend-migrate -n 50 --no-pager || true
