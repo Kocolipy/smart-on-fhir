@@ -730,7 +730,7 @@ Resources:
       # master and tempdb compare names as the database does. Fixed at
       # creation: changing it replaces the instance.
       #
-      # The service's seed lock is a row lock (V2, scim_seed_locks), so it no
+      # The service's seed lock is a row lock (V1, scim_seed_locks), so it no
       # longer depends on the server collation. Flyway's own migration lock
       # still does: Flyway guards every migration with sp_getapplock, and on a
       # server collated Latin1_General_100_BIN2_UTF8 on the Linux image

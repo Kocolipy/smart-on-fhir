@@ -868,6 +868,9 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
   the seed lock was an application lock no longer holds. A missing row fails the
   start ("the migration that creates it has not run"), as a missing job-lock row
   does (ADR 0005).
+  Folded into `V1__initial_schema.sql` before the switchover reached `main`,
+  so a fresh database has one migration; the table, row and grant are
+  unchanged.
 - **Grant.** `backend_app` holds `SELECT` on the table and nothing else. An
   `UPDLOCK` read needs no more (measured), so the runtime role can lock the row
   but cannot change or delete it.

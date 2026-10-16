@@ -1212,9 +1212,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
-    "mtime": 1792117211.3236876,
-    "seen": 1792123081.4994862,
-    "ast_hash": "039a80e34670c17ccfcf396061bf0895",
+    "mtime": 1792127961.2601113,
+    "seen": 1792129162.6317878,
+    "ast_hash": "67441c090563a110e5c3eb2ef0de8dd3",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/ContainerTestConfiguration.java": {
@@ -2400,15 +2400,15 @@
     "semantic_hash": ""
   },
   "infra/README.md": {
-    "mtime": 1792122492.8624609,
-    "seen": 1792123081.499791,
-    "ast_hash": "988230fdf722008adb25b23d98390e4d",
+    "mtime": 1792127992.0287611,
+    "seen": 1792129162.649606,
+    "ast_hash": "0cb3f444c473b1facd0464b2276451c2",
     "semantic_hash": ""
   },
   "infra/infrastructure.yaml": {
-    "mtime": 1792116115.7329056,
-    "seen": 1792123081.4997914,
-    "ast_hash": "9d8658eab29fb1c913580dd32abdfaa6",
+    "mtime": 1792127972.316239,
+    "seen": 1792129162.649607,
+    "ast_hash": "96ef2f85c52c371cf0ade7c14add5252",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/SelfReadService.java": {
@@ -2616,9 +2616,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapter.java": {
-    "mtime": 1792115824.6565216,
-    "seen": 1792123081.499471,
-    "ast_hash": "f10c406c5c47b3fb82286f1730a1c750",
+    "mtime": 1792127970.0762134,
+    "seen": 1792129162.6307886,
+    "ast_hash": "4ae737cfca510b4291ab4995abbf8a75",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/SeededBootstrapAdminTestConfiguration.java": {
@@ -4950,9 +4950,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0015-sql-server-2022-replaces-postgresql.md": {
-    "mtime": 1792122492.8629131,
-    "seen": 1792123081.499785,
-    "ast_hash": "bd004ad48a008d4e38622b57c0cc9f01",
+    "mtime": 1792128138.9470415,
+    "seen": 1792129162.6493876,
+    "ast_hash": "a3271508f82645d75daa66b4dcaf6397",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/audit/domain/AuditAttribute.java": {
@@ -5304,9 +5304,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/database/config/MigrationStepIntegrationTests.java": {
-    "mtime": 1792115824.6855085,
-    "seen": 1792123081.499581,
-    "ast_hash": "cbf7ef8e3d674e24e030fcf6b25e0bf1",
+    "mtime": 1792128657.2241623,
+    "seen": 1792129162.6380959,
+    "ast_hash": "16f5816f885dce7d312773caf9f873cb",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/observability/CauseChain.java": {
