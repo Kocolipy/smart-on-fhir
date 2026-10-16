@@ -592,7 +592,7 @@ or configuration file issues `SET ROLE`):
 | ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
 | **app login**       | `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | the main pool (`app`) and the audit append pool (`audit-append`)            | `backend_app`             |
 | **retention login** | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | the audit retention job's own pool (`retention`) and nothing else           | `backend_audit_retention` |
-| **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | — (owns the database)     |
+| **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | `db_owner`                |
 
 `DATABASE_URL` is the one database all three reach. **Neither it nor any of the six
 login variables has a default** — this repository is public — so a missing one
@@ -624,7 +624,11 @@ The pools: how each reaches the database is one module's, `DatabaseConnections`
 (`database.config`): the URL, the driver, and every driver property under
 `spring.datasource.hikari.data-source-properties` — set in
 `src/main/resources/database.yaml`: `encrypt=true`, `sslProtocol=TLSv1.2` and
-`loginTimeout=15`, with the trust store to come — reach the main, audit append
+`loginTimeout=15`, and on the deployed stack the driver-scoped trust store's
+password, which arrives from the environment as
+`SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD` while
+`DATABASE_URL` names the store (`/infra/README.md`, "TLS to the database") —
+reach the main, audit append
 and retention pools alike, and the migrate step's owner connection too
 (`MigrationConnection`). Set such a property there, for the service and the
 migrate step both, and never on one pool. A pool states only its name, login,
@@ -687,18 +691,28 @@ the init's, since `up --wait` does not wait for a one-shot to finish
 `backend` database with its creation options — collation
 `Latin1_General_100_BIN2_UTF8`, compatibility level 160, `READ_COMMITTED_SNAPSHOT`
 and `ALLOW_SNAPSHOT_ISOLATION` on, none of which a migration can set — and the
-owner, app and retention logins from `.env`, and makes the owner login the
-database's owner. It is idempotent: it leaves what exists and resets each
-login's password, so `make infra-up` after changing `.env` applies it. It echoes
+owner, app and retention logins from `.env`, and makes the owner login a member
+of the database's `db_owner` role — not the database's owner, because RDS's master
+user, which runs the deployed bootstrap, cannot hand a database to another login,
+and local, test and deployed databases are built alike. It is idempotent: it
+leaves what exists, and resets the password of a login whose `.env` password no
+longer signs in, so `make infra-up` after changing `.env` applies it and a run
+that finds everything in place changes nothing. Its T-SQL is the deployed
+bootstrap's, line for line (`infra/check-bootstrap-parity.sh`). It echoes
 no secret: values reach `sqlcmd` as scripting variables from the environment,
 never as arguments, and `sqlcmd` runs without `-e`. The roles, the app and
 retention logins' database users and their grants come from `V1`, so the init
-grants nothing. A deployment creates the database and the logins with its own
-bootstrap instead.
+grants nothing. A deployment creates the database and the logins with the same
+T-SQL, run on its instance as the RDS master user (`infra/README.md`, "Database
+bootstrap").
 
-The server keeps its default collation and only the database is collated
-`Latin1_General_100_BIN2_UTF8`: a server collated `BIN2_UTF8` cannot load the
-internal procedures behind `sp_getapplock`, which the seed lock takes.
+The local server keeps its default collation and only the database is collated
+`Latin1_General_100_BIN2_UTF8`. The deployed RDS server is collated
+`Latin1_General_100_BIN2_UTF8` too (`infra/README.md`, "Collation and time
+zone"), but on this image a server collated `BIN2_UTF8`
+cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
+guard every migration. The service's own seed lock is a row lock and needs
+neither (ADR 0015, "Addendum (2026-10-16)").
 
 The `.env` variables it reads:
 
@@ -706,7 +720,7 @@ The `.env` variables it reads:
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MSSQL_SA_PASSWORD`                                          | The local server's `sa` password, read by compose for the server and its init only; the backend never sees it. SQL Server's policy applies: 8+ characters from three of upper case, lower case, digits and symbols. |
 | `DATABASE_URL`                                               | `jdbc:sqlserver://localhost:1433;databaseName=backend`. No default.                                                                                                                                                 |
-| `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | The owner login, created by the init and made the database's owner.                                                                                                                                                 |
+| `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | The owner login, created by the init and made a member of the database's `db_owner` role.                                                                                                                           |
 | `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | The app login.                                                                                                                                                                                                      |
 | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | The retention login.                                                                                                                                                                                                |
 

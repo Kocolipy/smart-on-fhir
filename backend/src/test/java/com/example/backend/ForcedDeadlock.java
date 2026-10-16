@@ -21,15 +21,21 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * <p>The deadlock is real: SQL Server lets no statement raise error 1205 itself. A trigger, made
  * by the owner login, fires on an insert, update or delete of a row of {@code table} whose
  * {@code column} reads {@code value} — so nothing another test writes is touched — and in the
- * writer's transaction takes an application lock and then asks for a row of a table of its own.
- * A partner connection holds that row. Once the writer waits on it, observed in
- * {@code sys.dm_exec_requests}, the partner asks for the application lock the writer holds, and
- * the two wait on each other. The partner runs at {@code DEADLOCK_PRIORITY HIGH}, so the server
- * breaks the cycle by failing the writer's transaction with error 1205 — exactly as it fails a
- * deadlock between two of the service's own writers, which is
- * {@code ScimDeadlockRetryIntegrationTests}'. The partner then gives the application lock back
- * and waits for the next writer, or, for {@link #once}, lets go of its row so every later write
- * goes through. Closing stops the partner and drops the trigger and its table.
+ * writer's transaction updates one row of a table of its own, the gate, and then asks for the
+ * other, the hold. A partner connection holds the hold row. Once the writer waits on it,
+ * observed in {@code sys.dm_exec_requests}, the partner reads the gate row with a shared lock,
+ * which the writer's exclusive lock blocks, and the two wait on each other. The partner runs at
+ * {@code DEADLOCK_PRIORITY HIGH}, so the server breaks the cycle by failing the writer's
+ * transaction with error 1205 — exactly as it fails a deadlock between two of the service's own
+ * writers, which is {@code ScimDeadlockRetryIntegrationTests}'. The partner's read is a locking
+ * read-committed one ({@code READCOMMITTEDLOCK}), whose shared lock ends with the statement, so
+ * it keeps only its hold on the hold row and waits for the next writer, or, for {@link #once},
+ * lets go of the hold row so every later write goes through. Closing stops the partner and drops
+ * the trigger and its table.
+ *
+ * <p>Row locks only, no application lock: {@code sp_getapplock} fails on a server collated
+ * {@code Latin1_General_100_BIN2_UTF8} on the pinned image (error 17750), and the table's primary
+ * key keeps each statement to its own row, so the writer's update never touches the hold row.
  */
 public final class ForcedDeadlock implements AutoCloseable {
 
@@ -40,13 +46,11 @@ public final class ForcedDeadlock implements AutoCloseable {
             SELECT count(*) FROM sys.dm_exec_requests
              WHERE blocking_session_id = ? AND wait_type = 'LCK_M_U'""";
 
-    /** The partner asking for the application lock the writer's trigger holds, as long as it takes. */
-    private static final String TAKE_THE_WRITERS_LOCK = """
-            EXEC sp_getapplock @Resource = ?, @LockMode = N'Exclusive', @LockOwner = N'Session',
-                @LockTimeout = -1""";
+    /** The row the partner holds for as long as it runs, and the writer's trigger waits on. */
+    private static final int HOLD_ROW = 1;
 
-    private static final String GIVE_IT_BACK =
-            "EXEC sp_releaseapplock @Resource = ?, @LockOwner = N'Session'";
+    /** The row the writer's trigger updates first, and the partner then waits to read. */
+    private static final int GATE_ROW = 2;
 
     private final JdbcTemplate owner;
 
@@ -84,8 +88,10 @@ public final class ForcedDeadlock implements AutoCloseable {
         String literal = value.toString().replace("'", "''");
         String name = "forced_deadlock_" + UUID.randomUUID().toString().replace("-", "");
         JdbcTemplate owner = logins.owner().jdbc();
-        owner.execute("CREATE TABLE " + name + " (id INT NOT NULL)");
-        owner.execute("INSERT INTO " + name + " (id) VALUES (1)");
+        owner.execute("CREATE TABLE " + name
+                + " (id INT NOT NULL PRIMARY KEY, writes INT NOT NULL DEFAULT 0)");
+        owner.execute("INSERT INTO " + name + " (id) VALUES (" + HOLD_ROW + "), (" + GATE_ROW
+                + ")");
         // Owned by the schema's owner, as the table is, so the writer — the app login — reaches
         // the table through the trigger's ownership chain and needs no right to it.
         owner.execute("""
@@ -97,13 +103,11 @@ public final class ForcedDeadlock implements AutoCloseable {
                        OR EXISTS (SELECT 1 FROM deleted
                                    WHERE LOWER(CONVERT(NVARCHAR(4000), %3$s)) = LOWER(N'%4$s'))
                     BEGIN
-                        DECLARE @granted INT, @row INT;
-                        EXEC @granted = sp_getapplock @Resource = N'%1$s',
-                            @LockMode = N'Exclusive', @LockOwner = N'Transaction',
-                            @LockTimeout = -1;
-                        SELECT @row = id FROM %1$s WITH (UPDLOCK, ROWLOCK);
+                        DECLARE @row INT;
+                        UPDATE %1$s WITH (ROWLOCK) SET writes = writes + 1 WHERE id = %6$d;
+                        SELECT @row = id FROM %1$s WITH (UPDLOCK, ROWLOCK) WHERE id = %5$d;
                     END
-                END""".formatted(name, table, column, literal));
+                END""".formatted(name, table, column, literal, HOLD_ROW, GATE_ROW));
         AtomicBoolean closed = new AtomicBoolean();
         PartnerStart started = new PartnerStart();
         CompletableFuture<Void> partner = CompletableFuture.runAsync(() -> partner(
@@ -132,7 +136,7 @@ public final class ForcedDeadlock implements AutoCloseable {
                 // A false positive of formatted-sql-string: the table is this class's own, named
                 // from a random UUID's hex digits, never from anything a caller passed.
                 statement.executeQuery("SELECT id FROM " + name // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
-                        + " WITH (UPDLOCK, ROWLOCK)").close();
+                        + " WITH (UPDLOCK, ROWLOCK) WHERE id = " + HOLD_ROW).close();
                 try (ResultSet spid = statement.executeQuery("SELECT @@SPID")) {
                     spid.next();
                     session = spid.getInt(1);
@@ -144,14 +148,12 @@ public final class ForcedDeadlock implements AutoCloseable {
                     Thread.sleep(10);
                     continue;
                 }
-                // Waits on the writer's application lock: the cycle the server breaks by failing
-                // the writer, after which this is granted and given straight back.
-                try (PreparedStatement take = holder.prepareStatement(TAKE_THE_WRITERS_LOCK);
-                        PreparedStatement giveBack = holder.prepareStatement(GIVE_IT_BACK)) {
-                    take.setString(1, name);
-                    take.execute();
-                    giveBack.setString(1, name);
-                    giveBack.execute();
+                // Waits on the writer's gate row: the cycle the server breaks by failing the
+                // writer, after which the read is granted, and its shared lock ends with it.
+                try (Statement read = holder.createStatement()) {
+                    // The same false positive: this class's own table, as above.
+                    read.executeQuery("SELECT id FROM " + name // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
+                            + " WITH (READCOMMITTEDLOCK, ROWLOCK) WHERE id = " + GATE_ROW).close();
                 }
                 if (once) {
                     break;

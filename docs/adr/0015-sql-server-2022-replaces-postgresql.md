@@ -144,11 +144,13 @@ are one record.
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
   Server's `LOWER`. (Added 2026-10-14, #68.) The collation is the **database's**,
-  set by `CREATE DATABASE … COLLATE`; the server keeps its default collation. On
-  the pinned image a server collated `BIN2_UTF8` (`MSSQL_COLLATION`) cannot load the
-  internal extended procedures behind `sp_getapplock` and a T-SQL `sp_executesql`
-  (error 17750, "Could not load the DLL (server internal)"), and the seed lock is an
-  application lock.
+  set by `CREATE DATABASE … COLLATE`. The deployed RDS server is collated
+  `Latin1_General_100_BIN2_UTF8` as well. The local and test servers keep their
+  default collation: on the pinned image a server collated `BIN2_UTF8`
+  (`MSSQL_COLLATION`) cannot load the internal extended procedures behind
+  `sp_getapplock` and a T-SQL `sp_executesql` (error 17750, "Could not load the
+  DLL (server internal)"). Flyway guards every migration with `sp_getapplock`, so
+  on such a server nothing migrates (Addendum (2026-10-16)).
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
   listing at `SNAPSHOT`.** Readers do not block writers, as with PostgreSQL's MVCC
   today. The listing's count and page must see one consistent view; SQL Server's
@@ -200,7 +202,8 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of `FOR UPDATE SKIP LOCKED`. Spike
   V3 verified that `READPAST` skips a held row under read-committed snapshot
   without waiting, so the `sp_getapplock` fallback is not needed. The seed lock
-  becomes `sp_getapplock` on a fixed resource name, transaction-owned.
+  becomes `sp_getapplock` on a fixed resource name, transaction-owned — superseded
+  by a row lock on `scim_seed_locks` (Addendum (2026-10-16)).
 - **`audit_events` is clustered on `(occurred_at, id)`**, with a non-clustered
   primary key on `id`. A random-UUID clustered key fragments on every insert into
   the highest-volume table, while retention deletes by `occurred_at` and the
@@ -724,3 +727,123 @@ directions. The bullet now carries the measured list.
 pins every one of these results through the SCIM API. The decision is unchanged:
 the padding is accepted as an observable change and not worked around, and the
 API contract and `docs/domain-rules.md` list the corrected operators.
+## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
+
+The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
+Edition. Five of its findings refine decisions above; none reverses one. The
+first and the TLS one depart from the issue's wording, and wait on the user's
+sign-off.
+
+- **The owner login is a `db_owner` member, not the database's owner.** "Runtime
+  model" names the owner login `db_owner`, and the local init and the tests had
+  made it the database's owner (`ALTER AUTHORIZATION`). RDS's master user, which
+  creates the database, cannot hand it to another login: that needs `IMPERSONATE`
+  on the login, which the master user does not hold. The deployed bootstrap
+  therefore creates a database user for the owner login and adds it to
+  `db_owner`, and the local init and `ContainerTestConfiguration` now do the same,
+  so the suite migrates `V1` under the deployed arrangement
+  (`MigrationStepIntegrationTests.theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner`).
+  The audit trigger refuses `db_owner` members, so it refuses the owner either
+  way.
+- **The bootstrap runs on the instance, as the master user, and its T-SQL is the
+  local init's.** The deployed bootstrap runs in UserData, so the instance role
+  reads the master secret (as-8). It is read by one root-owned script and never
+  reaches the service's process, which `smoke.sh` checks; the role itself cannot
+  tell processes apart, which `infra/README.md` ("Database credentials") records
+  as residual risk. The T-SQL is held twice — in the template and in
+  `backend/scripts/local-db-init.sql` — because a stack cannot read the
+  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
+  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's
+  password is reset, by the shared SQL, only when the calling script found that
+  the login cannot sign in with its secret's.
+- **The server keeps its default collation on RDS too.** Issue #71 names
+  `Latin1_General_100_BIN2_UTF8` as the RDS *server* collation; the instance
+  states `SQL_Latin1_General_CP1_CI_AS` instead, and the database keeps
+  `Latin1_General_100_BIN2_UTF8` as "VARCHAR with database collation" decided.
+  Measured on the pinned image: under a server collated
+  `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2`, `sp_getapplock`
+  raises error 17750 from `sys.xp_userlock` and returns `0`, "granted", for a
+  lock it never took, in every database; under `Latin1_General_100_CI_AS_SC_UTF8`
+  and `Latin1_General_100_CS_AS_SC_UTF8` it takes the lock. The seed lock would
+  silently lock nothing. RDS runs the Windows build, where this was not
+  measured, so the default is kept rather than staking the seed lock on it.
+  (Superseded 2026-10-16: the seed lock no longer depends on `sp_getapplock`,
+  and the RDS server is now collated `Latin1_General_100_BIN2_UTF8`; see the
+  next addendum.)
+- **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that
+  asks for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
+  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is
+  dropped unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py`
+  (it sends no real credential). A client that can do TLS but asks for none
+  (`sqlcmd -No`, `encrypt=false`) is encrypted instead of refused, and its
+  session reports `encrypt_option = TRUE`. No RDS for SQL Server parameter
+  refuses that second client: the `sqlserver-se-16.0` family has no counterpart
+  of SQL Server 2022's strict-encryption switch. TLS 1.0 and 1.1 are off in the
+  parameter group (`rds.tls10`, `rds.tls11`). The bootstrap's `sqlcmd -N`
+  validates the RDS certificate against the RDS CA bundle given to it alone
+  (`SSL_CERT_FILE`).
+- **The trust-store password reaches the driver from the environment.**
+  `DATABASE_URL` names the driver-scoped store; its password, from Secrets Manager,
+  is exported as `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`,
+  which Boot binds lower-cased into the driver properties of every pool and the
+  migrate step, and the driver matches property names case-insensitively
+  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
+
+## Addendum (2026-10-16): the seed lock is a row lock
+
+The seed lock moves off `sp_getapplock`, so that it holds under the server
+collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
+
+- **Why.** On the pinned image (SQL Server 2022 CU27 for Linux), a server
+  collated `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load
+  the internal extended procedures `xp_userlock` (behind `sp_getapplock`) and
+  `sp_executesql` when T-SQL calls them: error 17750, "Could not load the DLL
+  (server internal)". Through the driver the seed lock's batch failed with that
+  error; in `sqlcmd`, `sp_getapplock` also returned `0`, "granted", for a lock it
+  never took. The driver's own prepared-statement calls (`sp_prepexec`, an RPC)
+  are unaffected, and so is `EXEC (@string)`.
+- **The row.** `V2__scim_seed_lock_row.sql` creates `scim_seed_locks` and inserts
+  its one row, `ScimSeed`. `ScimSeedLockAdapter` takes that row with
+  `SELECT … WITH (UPDLOCK, ROWLOCK)` and no `READPAST`: a second start waits for the
+  first start's seeding to commit, then reads what it seeded. The migration
+  inserts the row, so there is one to lock on a fresh database too — the reason
+  the seed lock was an application lock no longer holds. A missing row fails the
+  start ("the migration that creates it has not run"), as a missing job-lock row
+  does (ADR 0005).
+- **Grant.** `backend_app` holds `SELECT` on the table and nothing else. An
+  `UPDLOCK` read needs no more (measured), so the runtime role can lock the row
+  but cannot change or delete it.
+- **Bounded wait.** The statement's query timeout is 60 s (`TimedJdbc`). A wait
+  that runs out reaches the adapter as Spring's `QueryTimeoutException`
+  (`SQLTimeoutException`, `HY008`), which it rethrows as
+  `CannotAcquireLockException`, "the seeding lock was not granted within 60 s":
+  `database` in the mapping, as before. `Propagation.MANDATORY` stays.
+- **The rest of the service's T-SQL.** `ForcedDeadlock` (test) closes its cycle
+  on two rows of its own table rather than on an application lock. The partner
+  reads the writer's row with `READCOMMITTEDLOCK`, so its shared lock ends with
+  the statement. The bootstrap (`local-db-init.sql` and the template's copy) runs
+  its per-database step through `EXEC (@ddl)`, with the owner's name escaped
+  into the batch, instead of `sys.sp_executesql`.
+- **Flyway's own lock.** Flyway 12.4's SQL Server support guards every migration
+  with `EXEC sp_getapplock … @LockOwner = 'Session'`, and there is no setting to
+  turn it off. On a `BIN2_UTF8` server on the pinned image it fails with 17750
+  (`FlywaySqlException: Unable to acquire SQL Server application lock`), so no
+  database migrates there.
+- **Decision: only the RDS server is collated `Latin1_General_100_BIN2_UTF8`.**
+  The instance's `CharacterSetName` is `Latin1_General_100_BIN2_UTF8`, as issue
+  #71 names it. The test containers and the local compose server keep their
+  default server collation, because they run the Linux image, where Flyway
+  could not migrate. The database is `Latin1_General_100_BIN2_UTF8` everywhere.
+  Flyway's lock is not replaced: a plugin overriding it worked in a prototype,
+  but it would depend on Flyway's internal SQL Server classes and change how
+  migrations are serialized.
+- **Risk: untested on Windows.** RDS for SQL Server runs the Windows build,
+  which could not be measured here. If it has the same defect, the first
+  deploy fails loudly, never silently. `backend-migrate.service` fails with
+  that `FlywaySqlException` and 17750, and `backend.service`, which `Requires=`
+  it, never starts, so the deploy's health check and smoke fail.
+  - The way out is a server collation that takes the lock: RDS's default, or
+    `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
+    take it on the Linux image. Changing the collation replaces the instance.
+  - The suite does not reproduce this one deployed setting (`infra/README.md`,
+    "Collation and time zone").

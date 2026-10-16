@@ -37,7 +37,7 @@
   },
   {
     "ParameterKey": "DBInstanceClass",
-    "ParameterValue": "db.t3.micro"
+    "ParameterValue": "db.t3.xlarge"
   },
   {
     "ParameterKey": "DBAllocatedStorage",

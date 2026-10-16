@@ -49,13 +49,20 @@ print_info "Stack status: ${STACK_STATUS}"
 echo
 print_warn "WARNING: This will delete the following resources:"
 echo "  - EC2 Instance and its data"
-echo "  - RDS Database (a final snapshot will be created)"
-echo "  - The database and application secrets (scheduled for deletion by Secrets Manager)"
+echo "  - The RDS for SQL Server instance (Standard Edition, licence-included, billed"
+echo "    by the hour until deleted); RDS takes a final snapshot (<stack>-sqlserver)"
+echo "  - Its parameter group (rds.force_ssl), subnet group and monitoring role"
+echo "  - The database and application secrets, the RDS-managed master secret and the"
+echo "    trust-store password (scheduled for deletion by Secrets Manager)"
 echo "  (The database KMS key is RETAINED: the final snapshot is encrypted under it."
-echo "   Schedule its deletion yourself once the snapshot is no longer needed.)"
+echo "   Schedule its deletion yourself once the snapshot is no longer needed."
+echo "   The final snapshot is RETAINED too, and is billed until you delete it.)"
+echo "  (The application log group is RETAINED.)"
 echo "  - ElastiCache Redis cluster"
-echo "  - VPC and all networking components"
-echo "  - NAT Gateway and Elastic IP"
+echo "  - The ALB, the security groups and the alarm topic"
+echo "  The VPC and its subnets are yours, not the stack's, and are left alone."
+echo "  The staged template in s3://cfn-templates-<account>-<region>/${STACK_NAME}/ is"
+echo "  left too; remove it with: aws s3 rm --recursive s3://<bucket>/${STACK_NAME}/"
 echo
 read -p "Are you sure you want to proceed? (yes/no): " CONFIRM
 
@@ -72,7 +79,7 @@ aws cloudformation delete-stack \
     --region ${AWS_REGION}
 
 print_info "Deletion initiated. Waiting for completion..."
-print_warn "This may take 10-15 minutes..."
+print_warn "This may take 15-30 minutes (RDS for SQL Server takes its final snapshot first)..."
 
 aws cloudformation wait stack-delete-complete \
     --stack-name ${STACK_NAME} \

@@ -81,7 +81,9 @@ public class ContainerTestConfiguration {
      * {@value #COLLATION}. A server collated {@code BIN2_UTF8} ({@code MSSQL_COLLATION}) fails to
      * load the internal extended procedures behind {@code sp_getapplock} and a T-SQL
      * {@code sp_executesql} ("Could not load the DLL (server internal)", error 17750) on this
-     * image, and the seed lock is an application lock.
+     * image. Nothing of the service's own calls either any more — the seed lock is a row lock
+     * (ADR 0015's 2026-10-16 addendum) — but Flyway takes {@code sp_getapplock} to guard every
+     * migration, so on such a server no context could migrate its database.
      */
     private static final MSSQLServerContainer SQL_SERVER =
             new MSSQLServerContainer(DockerImageName.parse(SQL_SERVER_IMAGE)
@@ -176,10 +178,13 @@ public class ContainerTestConfiguration {
     }
 
     /**
-     * A new, empty database with the deployment's creation options, owned by the owner login, as
-     * a deployment's bootstrap leaves one, and its JDBC URL — each context's, and a test's that
-     * migrates a database itself rather than through a context. Named from a counter, so the
-     * statements hold no caller's text.
+     * A new, empty database with the deployment's creation options, and the owner login a member
+     * of its {@code db_owner} role under a database user of its own name, as a deployment's
+     * bootstrap leaves one (infra's {@code db-bootstrap.sql}, and the local init), and its JDBC
+     * URL — each context's, and a test's that migrates a database itself rather than through a
+     * context. The database's owner ({@code dbo}) stays the login that created it: on RDS that is
+     * the master user, which cannot hand a database to another login. Named from a counter, so
+     * the statements hold no caller's text.
      */
     public static String emptyDatabase() throws SQLException {
         String name = "database_" + DATABASES.incrementAndGet();
@@ -189,7 +194,9 @@ public class ContainerTestConfiguration {
             statement.execute("ALTER DATABASE " + name + " SET COMPATIBILITY_LEVEL = 160");
             statement.execute("ALTER DATABASE " + name + " SET READ_COMMITTED_SNAPSHOT ON");
             statement.execute("ALTER DATABASE " + name + " SET ALLOW_SNAPSHOT_ISOLATION ON");
-            statement.execute("ALTER AUTHORIZATION ON DATABASE::" + name + " TO " + OWNER_LOGIN);
+            statement.execute("USE " + name + "; CREATE USER " + OWNER_LOGIN + " FOR LOGIN "
+                    + OWNER_LOGIN + " WITH DEFAULT_SCHEMA = dbo; ALTER ROLE db_owner ADD MEMBER "
+                    + OWNER_LOGIN);
         }
         return url(name);
     }

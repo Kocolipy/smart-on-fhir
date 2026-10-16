@@ -396,9 +396,10 @@ Every other database failure is `database`. Two rows need more than a state:
   login is refused by its grants first. (On PostgreSQL the trigger raised
   `triggered_data_change_violation`, `27000`, for the same reason.)
 
-- **An application lock not granted.** The seeding lock (`sp_getapplock`) answers
-  with a status rather than an error; a negative one fails the start as Spring's
-  `CannotAcquireLockException`, a `DataAccessException`, and so `database`.
+- **The seeding lock not granted.** The seeding lock is a row lock (ADR 0015's
+  2026-10-16 addendum) bounded by a 60 s query timeout; a wait that runs out fails
+  the start as Spring's `CannotAcquireLockException`, a `DataAccessException`, and
+  so `database`.
 
 `DatabaseFailureLogIntegrationTests` drives the failures the suite can produce on
 SQL Server — the unique violation, truncation, conversion error, permission
@@ -411,8 +412,8 @@ retries a token rotation; `DeadlockRetryAdapterTests` holds the retry's rules an
 `DeadlockRetryRulesTests` shows each architecture rule failing on the shape it
 forbids. The contract fixtures produce every documented `503` through
 `ForcedDeadlock`: SQL Server lets no statement raise `1205`, so it makes a real
-deadlock — a trigger on the write's row takes an application lock and waits on a row
-a partner connection holds, which then asks for that application lock at a higher
+deadlock — a trigger on the write's row updates one row of a table of its own and
+waits on another a partner connection holds, which then reads the first at a higher
 deadlock priority.
 
 **No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the

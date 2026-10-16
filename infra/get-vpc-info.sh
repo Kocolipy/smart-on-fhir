@@ -117,7 +117,7 @@ fi
 echo
 
 # Get Private Subnets
-print_header "PRIVATE SUBNETS (for RDS & Redis)"
+print_header "PRIVATE SUBNETS (for RDS for SQL Server & Redis)"
 PRIVATE_SUBNETS=$(aws ec2 describe-subnets \
     --region ${REGION} \
     --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" \
@@ -134,7 +134,7 @@ if [ -n "$PRIVATE_SUBNETS" ]; then
         --output text)
     
     if [ "$PRIVATE_COUNT" -lt 2 ]; then
-        print_warn "Only $PRIVATE_COUNT private subnet(s) found. Need at least 2 in different AZs for RDS."
+        print_warn "Only $PRIVATE_COUNT private subnet(s) found. RDS for SQL Server needs at least 2 in different AZs (its subnet group)."
     else
         print_info "✓ Found $PRIVATE_COUNT private subnet(s)"
     fi
@@ -175,10 +175,6 @@ PRIVATE_SUBNET_2=$(aws ec2 describe-subnets \
     --output text)
 
 cat << EOF
-{
-  "ParameterKey": "UseExistingVPC",
-  "ParameterValue": "true"
-},
 {
   "ParameterKey": "VpcId",
   "ParameterValue": "${VPC_ID}"
@@ -224,12 +220,17 @@ else
 fi
 
 if [ "$PRIVATE_SUBNET_1" == "None" ] || [ "$PRIVATE_SUBNET_2" == "None" ]; then
-    echo "❌ Need at least 2 private subnets in different AZs"
+    echo "❌ Need at least 2 private subnets in different AZs (RDS for SQL Server, Redis)"
     ALL_GOOD=false
 else
     echo "✓ Private subnets available"
 fi
 
+echo
+
+echo "Note: at boot the EC2 instance (public subnet 1) downloads the SQL Server command-line"
+echo "tools from packages.microsoft.com and the RDS CA bundle from truststore.pki.rds.amazonaws.com,"
+echo "so that subnet needs a route to the Internet Gateway."
 echo
 
 if [ "$ALL_GOOD" = true ]; then

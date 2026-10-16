@@ -331,7 +331,7 @@ class AuditAppendOnlyIntegrationTests {
     }
 
     /**
-     * The grants say nothing about the owner login, which owns the database — a console
+     * The grants say nothing about the owner login, a member of db_owner — a console
      * session, or a migration. The table's own guard refuses it a delete as well as an
      * update, although it could make itself a member of the retention role, so append-only
      * survives a misused credential instead of depending on none being used.
