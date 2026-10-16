@@ -602,8 +602,9 @@ fails startup. The test JVMs drop all of them (`pom.xml`).
   owns (the `scim_*` directory tables and `user_counters`) and narrower grants
   where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`
   and `audit_events`, no `UPDATE` on `scim_user_password_history`, and
-  `SELECT`/`UPDATE` only on `scheduled_job_locks`, so the app login cannot remove
-  the row a job serializes on. An `UPDATE` or `DELETE` of a recorded event from
+  `SELECT` only on `scheduled_job_locks` and `scim_seed_locks` (a locking read
+  needs no more), so the app login cannot change or remove
+  the row a job or seeding serializes on. An `UPDATE` or `DELETE` of a recorded event from
   application code is refused by the server. The migrations' `GRANT` statements
   are the exact list; a later migration that adds a table the application writes
   must grant `backend_app` on it. A refusal is SQL Server error 229.

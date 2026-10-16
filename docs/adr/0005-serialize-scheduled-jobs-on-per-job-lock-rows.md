@@ -163,6 +163,16 @@ two batches skips (`AuditRetentionSerializationIntegrationTests`).
 The runtime role still holds `SELECT, UPDATE` on the table and no `INSERT` or `DELETE`:
 `UPDLOCK` needs the right to update the row, as `FOR UPDATE` did.
 
+## Amendment (2026-10-16): the job lock grant is `SELECT` alone
+
+The superseding note above kept `SELECT, UPDATE` on `scheduled_job_locks`, on the
+belief that `UPDLOCK` needs the right to update the row as `FOR UPDATE` did. It does
+not: SQL Server checks a locking read's permissions as a `SELECT`'s, and the
+application never updates the row, so V1 now grants `SELECT` alone, as it does on
+`scim_seed_locks` (ADR 0015, which records the measurement). `ScheduledJobRunIntegrationTests`
+holds both halves: every run takes the lock as the app login, and that login's `UPDATE`
+of a job row is refused (error 229).
+
 ## Alternatives considered
 
 **`pg_try_advisory_xact_lock(hashtext(name))`.** Same transaction scoping with no table. Not
