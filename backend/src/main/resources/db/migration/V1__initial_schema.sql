@@ -1,6 +1,6 @@
 -- The complete schema, in T-SQL for SQL Server 2022 (ADR 0015). The application is
 -- pre-production and a fresh database is the only supported starting state, so the
--- schema is one migration rather than a history of them; the PostgreSQL migrations
+-- schema is one migration rather than a history of them; the earlier migrations
 -- of the engine-neutral preparation (#62–#66) are folded into it. A change from here
 -- on is a new migration.
 --
@@ -20,7 +20,7 @@
 -- Types, chosen once for the whole schema:
 --
 --   UNIQUEIDENTIFIER   every id. Hibernate and the driver bind `UUID` directly.
---   DATETIMEOFFSET(6)  every instant, microseconds as PostgreSQL stored them. The
+--   DATETIMEOFFSET(6)  every instant, in whole microseconds. The
 --                      application writes every one at offset +00:00 (Hibernate's
 --                      `jdbc.time_zone` is UTC, hand-written JDBC binds an
 --                      OffsetDateTime at UTC), and no column default reads the
@@ -30,7 +30,7 @@
 --   VARBINARY          the one byte string, a token digest.
 --   VARCHAR            every string, stored as UTF-8 under the database collation
 --                      Latin1_General_100_BIN2_UTF8: code-point order, and
---                      case-sensitive equality, as PostgreSQL's COLLATE "C" gave.
+--                      case-sensitive equality.
 --                      VARCHAR(n) counts BYTES, while the application's limits count
 --                      code points, so every column that may hold any Unicode text
 --                      is four times its limit (a code point is at most four bytes
@@ -39,7 +39,7 @@
 --                      An unbounded one is VARCHAR(MAX). The column inventory in the
 --                      switchover's pull request classifies every one of them.
 --
--- Every constraint keeps the name it had on PostgreSQL: the persistence adapters
+-- Every constraint keeps the name it had before the switchover: the persistence adapters
 -- translate a unique violation by the constraint or index name the driver reports
 -- (IntegrityViolations), so a renamed one would silently stop being translated.
 
@@ -116,7 +116,7 @@ CREATE TABLE scim_resources (
 -- A filtered unique index rather than a UNIQUE constraint: SQL Server's unique
 -- constraints treat NULLs as equal, so a constraint would admit only one
 -- unprotected resource. The filter keeps NULL — the ordinary case — out of the
--- index, which is what PostgreSQL's constraint meant.
+-- index, so any number of resources may be unprotected and each reserved name is held once.
 CREATE UNIQUE INDEX uq_scim_resources_reserved_name
     ON scim_resources (reserved_name)
     WHERE reserved_name IS NOT NULL;

@@ -305,7 +305,7 @@ and these do not have one until their trigger narrows the scope.
 Login" means anything on that path: `backend/.../auth/epic/`, the Epic routes'
 security or session handling, `logInFromEpic`, the SPA's handling of the
 launch landing, and the launcher setup itself. `make epic-integration-test`
-starts Postgres, Redis and the launcher (compose profile `epic-launcher`), runs
+starts SQL Server, Redis and the launcher (compose profile `epic-launcher`), runs
 the backend in the `dev` profile with a freshly generated key and the
 `APP_EPIC_*` values in `backend/README.md`, "Local Epic launcher", and runs
 `npm run test:e2e:epic`, the Playwright `epic` project. It is separate from the

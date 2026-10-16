@@ -17,7 +17,7 @@ a reviewer to notice. The check lives in `src/test/java/com/example/backend/cont
 The fixtures are `ScimConformanceFixtureTests` (the SCIM namespace: generic RFC 7643/7644
 conformance, both resource types through the same fixtures, with the cases themselves in
 `ScimConformanceCases`) and `ApiContractFixtureTests` (the application API and the actuator). Both
-go through the real filter chain, Postgres and Redis.
+go through the real filter chain, SQL Server and Redis.
 
 `OpenApiContractTests` shows the checker reporting each kind of drift on a planted response, and
 fails if the document starts using a schema keyword the validator does not implement.

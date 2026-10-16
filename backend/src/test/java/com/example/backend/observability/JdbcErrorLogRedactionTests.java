@@ -43,14 +43,14 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A write the database refuses, through the real stack against the real Postgres schema, and
+ * A write the database refuses, through the real stack against the real SQL Server schema, and
  * the whole log stream it produces searched for the value that was refused.
  *
- * <p>Postgres quotes the refused value in the message of every constraint violation — a unique
- * violation as {@code Key (normalized_user_name)=(...) already exists}, a CHECK or NOT NULL
- * violation as {@code Failing row contains (...)} — and Hibernate's JDBC error logger writes that
- * message out as it stands. The call is inside Hibernate, so Semgrep's {@code
- * be-log-sensitive-value} cannot see it; only a test of the emitted bytes can.
+ * <p>SQL Server quotes the refused value in the message of a unique violation — {@code The
+ * duplicate key value is (...)} — and names the constraint, the table and the database in that of
+ * a CHECK violation, and Hibernate's JDBC error logger writes that message out as it stands. The
+ * call is inside Hibernate, so Semgrep's {@code be-log-sensitive-value} cannot see it; only a
+ * test of the emitted bytes can.
  *
  * <p>The capture is {@link EcsLogCapture} on the root logger, at the levels the context resolved
  * from the imported {@code log-levels.yaml}: a record from any logger is caught whether or not
@@ -201,8 +201,8 @@ class JdbcErrorLogRedactionTests {
 
     /**
      * A violation of a constraint that is not the live-name uniqueness — a CHECK added for this
-     * test alone, which Postgres reports by quoting the whole failing row — on a create and on a
-     * replace. Neither the refused value nor the {@code userName} in the same row reaches a log
+     * test alone, which SQL Server reports by naming it, its table and its database — on a
+     * create and on a replace. Neither the refused value nor the {@code userName} in the same row reaches a log
      * record, while the application's own fault record for each does.
      */
     @Test

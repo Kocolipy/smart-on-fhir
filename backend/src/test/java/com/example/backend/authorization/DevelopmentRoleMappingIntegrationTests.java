@@ -51,7 +51,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Everything is real: the application started with {@code authorization.yaml}'s mapping and
  * its development fixtures enabled, so the Groups and Users signed in as here are the ones startup
- * seeded into Postgres; logins go through the real filter chain, and the session is read back out
+ * seeded into SQL Server; logins go through the real filter chain, and the session is read back out
  * of the indexed Redis store. Starting at all is itself the evidence that every mapped Group id
  * resolved, since startup refuses a mapping naming a Group that does not exist.
  */

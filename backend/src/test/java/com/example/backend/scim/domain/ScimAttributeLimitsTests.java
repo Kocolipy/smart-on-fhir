@@ -121,7 +121,7 @@ class ScimAttributeLimitsTests {
 
     /**
      * The other C0 controls and DEL: refused in a name, at both ends of the range, and kept
-     * everywhere else, since PostgreSQL stores them and a formatted name may carry a tab.
+     * everywhere else, since the database stores them and a formatted name may carry a tab.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("userAttributes")

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The beans {@link LoginLockoutConfig} contributes — above all, an application clock that never
- * yields more precision than a PostgreSQL {@code timestamptz} keeps.
+ * yields more precision than a {@code DATETIMEOFFSET(6)} column keeps.
  *
  * <p>A SCIM resource's {@code meta.created} and {@code meta.lastModified} are rendered from the
  * instant the write used and then read back from the database on every later {@code GET}. With

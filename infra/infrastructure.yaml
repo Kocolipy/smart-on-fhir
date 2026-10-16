@@ -57,7 +57,7 @@ Parameters:
   # RDS Configuration
   # Standard Edition, licence-included, runs on none of the small classes (no
   # db.t3.micro to db.t3.large, no Graviton): these are the classes RDS offers
-  # it on, cheapest first. A cost change against the PostgreSQL stack's
+  # it on, cheapest first. A cost change against the previous stack's
   # db.t3.micro; see infra/README.md, "Engine, edition and cost".
   DBInstanceClass:
     Description: RDS for SQL Server Standard Edition instance class (licence-included)

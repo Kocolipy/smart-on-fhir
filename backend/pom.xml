@@ -262,7 +262,7 @@
               starts its own SQL Server and Redis (ContainerTestConfiguration), so contexts
               split across forks cost a migrated database each, not a container start.
               A SQL Server container idles at ~0.9 GB, so the two forks need ~2 GB more
-              than they did on PostgreSQL (ADR 0015, V6).
+              than two containers of the previous engine (ADR 0015, V6).
               Override with -DforkCount=1 to debug a test in one JVM.
 
               The forks take classes from one shared queue, so the class that starts last

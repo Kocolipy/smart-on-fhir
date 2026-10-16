@@ -1311,7 +1311,7 @@ class AuditTrailServiceTests {
      * receives nothing.
      *
      * <p>The behavioural claims — the row outlives a caller that rolls back, and an append beats a
-     * main pool every connection of which is held — are asserted against real Postgres in
+     * main pool every connection of which is held — are asserted against real SQL Server in
      * {@code AuditAppendOnlyIntegrationTests.aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack}
      * and {@code AuditAppendPoolStarvationIntegrationTests}. Neither can reach this constructor
      * under mutation testing: the service is a singleton built once while the Spring context

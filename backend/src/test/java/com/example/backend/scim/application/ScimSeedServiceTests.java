@@ -268,7 +268,7 @@ class ScimSeedServiceTests {
     /**
      * A User already holding the baseline fixture's name — one provisioned before the fixtures
      * were enabled — is left alone: not replaced, not re-hashed, and found by a lookup rather than
-     * by a failed INSERT, which against Postgres would abort the seed transaction.
+     * by a failed INSERT, whose constraint violation would mark the seed transaction for rollback.
      */
     @Test
     void the_baseline_fixture_leaves_an_existing_user_under_its_name_alone() {

@@ -410,8 +410,8 @@ class ScimStoredLengthIntegrationTests {
      * Each stored User attribute — one or more per table: {@code scim_users}, its emails and
      * {@code scim_external_ids} — holding U+0000 is {@code 400 invalidValue} on every verb that
      * can write it, naming the attribute and not the value, and the refusal changes nothing and
-     * is audited as an invalid value. PostgreSQL cannot store the character at all, so before
-     * this check the write failed at the statement and surfaced as a fault.
+     * is audited as an invalid value. SQL Server could store the character; it is refused as input
+     * hygiene, because it is hostile in logs and terminals (ADR 0015).
      */
     @ParameterizedTest(name = "{1} {0}")
     @MethodSource("userAttributesByVerb")
@@ -492,7 +492,7 @@ class ScimStoredLengthIntegrationTests {
 
     /**
      * The names refuse every C0 control, not only NUL, because they are what an administrator
-     * reads and what the logs carry; elsewhere PostgreSQL stores the other controls and so does
+     * reads and what the logs carry; elsewhere the database stores the other controls and so does
      * this service — a tab in {@code name.formatted} round-trips.
      */
     @Test

@@ -43,7 +43,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code externalId} is read-write on Users and Groups (issue #54), over the real filter chain
- * against a real Postgres.
+ * against a real SQL Server.
  *
  * <p>Every test runs as two connectors, A and B, each holding its own alias for the same resource,
  * and asserts the STORED alias of both through the connector-scoped port after each write: a PUT

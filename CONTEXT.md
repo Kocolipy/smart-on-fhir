@@ -390,8 +390,8 @@ across instances.
 
 ### Database
 
-From ADR 0015. The three logins and the migrate step already exist on PostgreSQL
-(#66); the switchover makes them SQL Server principals. Every term here names a
+From ADR 0015. The three logins are SQL Server principals, and the migrate step
+is the only holder of the owner login. Every term here names a
 database principal, never the sign-in operation: write "database login" or one of
 the qualified names below, and keep a bare **Login** for the operation under
 Authentication.

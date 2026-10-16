@@ -34,8 +34,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * nobody, and nothing recorded against the User the trimmed name would have found.
  *
  * <p>The store here compares names as SQL Server does, trailing spaces ignored, so {@code ada }
- * would find {@code ada} if it were ever looked up. On PostgreSQL the lookup itself tells the two
- * apart; the refusal has to hold on either engine, which only a store that pads can show.
+ * would find {@code ada} if it were ever looked up: only a store that pads can show that the
+ * refusal is decided before the lookup rather than by it.
  */
 class PasswordLoginEdgeWhitespaceTests {
 

@@ -526,7 +526,7 @@ final class ScimConformanceCases {
         });
 
         // -- 400 invalidValue: a character the column or the name refuses, never a 500 --
-        // U+0000 is refused in every stored string, since PostgreSQL cannot store it; a name also
+        // U+0000 is refused in every stored string, as input hygiene (ADR 0015); a name also
         // refuses every other C0 control and DEL. The values are JSON escapes, so the body is
         // what a connector actually sends, and the refusal never echoes them.
         String nul = name() + "\\" + "u0000x";

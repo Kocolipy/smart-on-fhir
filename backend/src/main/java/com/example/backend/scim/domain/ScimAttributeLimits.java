@@ -13,20 +13,21 @@ import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbid
  * fault. RFC 7643 has no {@code maxLength} characteristic, so the rules are advertised in
  * {@code docs/openapi.yaml} and in the refusal's {@code detail}, not in {@code /Schemas}.
  *
- * <p>Lengths are counted in Unicode code points, which is what PostgreSQL's
- * {@code VARCHAR(n)} counts in a UTF-8 database. Counting UTF-16 units instead would refuse a
- * 256-character name made of supplementary characters that the column stores without
- * complaint.
+ * <p>Lengths are counted in Unicode code points. A column holding a limited attribute is a UTF-8
+ * {@code VARCHAR} four times the limit in bytes (ADR 0015), a code point taking at most four, so
+ * every value within the limit fits. Counting UTF-16 units instead would refuse a 256-character
+ * name made of supplementary characters that the column stores without complaint.
  *
  * <p>The two unique names are also checked in their NORMALIZED form, because that is a column
  * of the same width too: NFKC can expand a character into several (U+FDFA becomes eighteen), so
  * a {@code userName} that fits can normalize into one that does not.
  *
- * <p>No stored string may contain U+0000: JSON can carry it, but PostgreSQL refuses it in any
- * {@code text} or {@code varchar}, so the write would fail below every check. {@code userName} and
- * {@code displayName}, of a User and of a Group, additionally refuse every other C0 control and
- * DEL. PostgreSQL stores those, but these two are the names shown to an administrator and written
- * into logs, where a newline or an escape sequence forges a line or repaints a terminal. The
+ * <p>No stored string may contain U+0000: JSON can carry it, but it is hostile in logs and
+ * terminals, which take it for the end of a string, so it is refused as input hygiene (ADR 0015).
+ * {@code userName} and {@code displayName}, of a User and of a Group, additionally refuse every
+ * other C0 control and DEL. The database stores those, but these two are the names shown to an
+ * administrator and written into logs, where a newline or an escape sequence forges a line or
+ * repaints a terminal. The
  * other attributes keep them, because a connector may legitimately send, say, a tab in a
  * formatted name, and nothing renders those as a heading.
  *

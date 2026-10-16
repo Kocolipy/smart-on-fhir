@@ -414,11 +414,11 @@ edge whitespace is an unknown account, decided before any lookup: the same bare
 nothing recorded against the User the trimmed name would find. An Epic `id_token`
 whose `iss` or `sub` has edge whitespace is an invalid token (`INVALID_CLAIMS`).
 The reason is the engine, not the value: SQL Server ignores trailing spaces when it
-compares, so `alice` and `alice ` would collide or match there and not on
-PostgreSQL; refusing them keeps a key meaning the same on either
-(`docs/adr/0015-sql-server-2022-replaces-postgresql.md`).
+compares, so `alice` and `alice ` would collide as keys and match each other in a
+lookup; refusing them keeps a key meaning exactly the value the connector holds
+(ADR 0015).
 
-**Normalized SCIM storage** — the PostgreSQL representation of the target model.
+**Normalized SCIM storage** — the SQL Server representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
 connector aliases, resource versions, connector tokens, audit events, and
 tombstones use constrained related tables. JSON resource blobs are not the
@@ -498,9 +498,8 @@ unadvertised attribute queryable, and a filter on `password` is
 `400 invalidFilter`. Sorting takes one
 attribute, puts missing values last ascending and first descending, and breaks ties
 by `id`. SQL Server, the directory's database, makes these filter and sort
-deviations, documented in `backend/docs/openapi.yaml` and recorded in
-`docs/adr/0015-sql-server-2022-replaces-postgresql.md` ("Observable changes" and
-its 2026-10-15 addendum): `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text
+deviations, documented in `backend/docs/openapi.yaml` and recorded in ADR 0015
+("Observable changes" and its 2026-10-15 addendum): `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text
 (`name.*`, `displayName`, `locale`, `timezone`, `preferredLanguage` and the like)
 ignore trailing spaces in the stored and the compared value, because SQL Server
 pads the comparison, while `co`, `sw` and `ew` keep them significant, because a

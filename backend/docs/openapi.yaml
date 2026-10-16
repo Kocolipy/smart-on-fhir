@@ -89,7 +89,7 @@ info:
     `INVALID_VALUE`. Only a taken live name is `409 uniqueness`.
 
     **Forbidden characters.** No stored User or Group string may contain U+0000
-    (NUL): JSON can carry it as `\u0000`, but PostgreSQL cannot store it. `userName`
+    (NUL): JSON can carry it as `\u0000`, but it is hostile in logs and terminals. `userName`
     and `displayName`, of a User and of a Group, additionally refuse every other C0
     control (U+0001 to U+001F, newline and tab included) and DEL (U+007F), because they
     are the names an administrator reads and the logs carry, where a control forges a

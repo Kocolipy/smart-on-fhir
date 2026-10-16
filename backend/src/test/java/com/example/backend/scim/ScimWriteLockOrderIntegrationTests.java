@@ -35,7 +35,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Two real writers on Postgres whose lock sets overlap, released together: a User write and a
+ * Two real writers on SQL Server whose lock sets overlap, released together: a User write and a
  * Group write that each advance the other's version. Each locks the rows its write will touch in
  * the one canonical order before changing anything, so neither can hold a row the other already
  * waits for — the pair serializes instead of deadlocking.

@@ -149,7 +149,7 @@ class AuthControllerTests {
         LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
         controller = new AuthController(
                 new LoginService(manager, attempts, identities, outcomes),
-                // The same flow against Postgres and Redis, the security filter chain included, is
+                // The same flow against SQL Server and Redis, the security filter chain included, is
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
                         users,

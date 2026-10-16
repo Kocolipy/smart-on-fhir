@@ -61,7 +61,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      *
      * <p>That is the window a dormancy job has to survive: the candidate list is read before each
      * User is locked, so by the locked read a candidate may have logged in, been deactivated, or —
-     * were the query's filter ever lost — be the Bootstrap Admin. Against Postgres the window takes
+     * were the query's filter ever lost — be the Bootstrap Admin. Against SQL Server the window takes
      * two transactions to hit; here it is one call, and the job must decide again on the locked
      * read either way.
      */
@@ -102,9 +102,9 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     /**
      * Makes every lookup by name compare as SQL Server's {@code =} does: trailing spaces ignored on
-     * both sides, so {@code ada } finds {@code ada} (ADR 0015). PostgreSQL compares them, so a
-     * caller relying on the database to tell the two apart would behave differently on the other
-     * engine; a test of a refusal that must come before any lookup needs this stand-in to show it.
+     * both sides, so {@code ada } finds {@code ada} (ADR 0015). A store that compared them exactly
+     * would tell the two apart by itself, so a test of a refusal that must come before any lookup
+     * needs this stand-in to show it.
      */
     public void ignoreTrailingSpacesInNameLookupsAsSqlServerDoes() {
         ignoresTrailingSpaces = true;

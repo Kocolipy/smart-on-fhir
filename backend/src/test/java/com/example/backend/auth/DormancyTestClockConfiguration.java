@@ -13,10 +13,10 @@ import org.springframework.context.annotation.Primary;
  * <p>{@code @Primary} over the production {@code Clock} bean rather than replacing it, so every
  * collaborator that injects a {@code Clock} — the login path, the SCIM writes, the audit trail,
  * seeding — reads the same simulated time. Truncated to microseconds, which is what
- * {@code TIMESTAMPTZ} stores, so a timestamp read back compares equal to the instant written.
+ * {@code DATETIMEOFFSET(6)} stores, so a timestamp read back compares equal to the instant written.
  *
  * <p>A top-level class, imported, for the reason {@code InMemorySessionRegistryConfiguration} is:
- * a nested configuration would give its test class a context and a Postgres database of its own
+ * a nested configuration would give its test class a context and a database of its own
  * even when another class imported an identical one.
  */
 @TestConfiguration

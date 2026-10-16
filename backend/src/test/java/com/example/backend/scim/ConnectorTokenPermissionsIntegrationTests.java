@@ -39,7 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0010) —
- * driven over HTTP through both real security chains against real Postgres, with the token
+ * driven over HTTP through both real security chains against real SQL Server, with the token
  * rows and audit rows read back with SQL.
  *
  * <p>The administrator's session is built directly with exactly the Permissions each case

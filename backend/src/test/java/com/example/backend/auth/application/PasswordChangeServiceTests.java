@@ -36,7 +36,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * The self-service change against the in-memory directory: what an accepted change writes, and
- * what each refusal leaves behind. The same flow over HTTP, against Postgres and Redis, is
+ * what each refusal leaves behind. The same flow over HTTP, against SQL Server and Redis, is
  * {@code PasswordChangeLifecycleIntegrationTests}.
  */
 class PasswordChangeServiceTests {
