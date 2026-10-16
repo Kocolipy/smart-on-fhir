@@ -62,6 +62,10 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      * account port's narrow writes were: the statement bypasses any managed copy of these
      * rows, so a stale one must not survive the call.
      *
+     * <p>Each id is a bound parameter of its own, and SQL Server refuses a request with more
+     * than 2,100, so {@code ids} holds at most {@link BoundIdChunks#MAX_IDS}:
+     * {@link RepresentationChange#advanceIn} issues one statement per chunk, in one transaction.
+     *
      * @return how many rows were advanced
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)

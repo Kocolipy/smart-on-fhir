@@ -908,3 +908,34 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
     take it on the Linux image. Changing the collation replaces the instance.
   - The suite does not reproduce this one deployed setting (`infra/README.md`,
     "Collation and time zone").
+
+## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks
+
+SQL Server refuses a request carrying more than 2,100 parameters (error 8003),
+and Hibernate binds each element of a collection parameter as one. PostgreSQL
+has no such ceiling, so the switchover left two statements whose `IN` list a SCIM
+client sizes without a cap. A Group with more than about 2,099 members could not
+be created with them, renamed or deleted (`500`), a User in that many Groups
+could not be deleted, and the administrative listing failed once the directory
+held that many Groups.
+
+- **The rule.** A statement whose `IN` list has no cap of its own is issued once
+  per chunk of at most 2,000 ids (`BoundIdChunks`), in the caller's transaction.
+  That covers the version advance (`RepresentationChange#advanceIn`), which a
+  rename, a delete or a membership change sizes by membership, and the Group
+  adapter's membership read, which the listing sizes by the directory. A list a
+  page bounds (`ScimPageRequest.MAX_COUNT`, 200) or the role mapping bounds (an
+  operator's configuration) binds whole.
+- **No new deadlock.** Every row a version advance names is already locked, one
+  row per statement in `ScimWriteLocks.ORDER`, by `ScimWriteLockAdapter`, so its
+  chunks take no new lock.
+- **Held by** `ScimLargeMembershipIntegrationTests`: 2,200 members or Groups,
+  every path above, on the test container.
+
+The same day's review corrected V1's grant on `scheduled_job_locks` to `SELECT`
+alone. A locking read (`UPDLOCK`) needs only `SELECT` permission, as the seed
+lock's addendum above measured, and the application never updates a job row
+(ADR 0005, amendment of 2026-10-16). Changing V1 changes its checksum, so a database
+migrated from the earlier V1 fails Flyway's validation at the next migrate. A
+fresh database is the only supported starting state: recreate such a database
+(locally, remove the compose volume) rather than repairing the history.

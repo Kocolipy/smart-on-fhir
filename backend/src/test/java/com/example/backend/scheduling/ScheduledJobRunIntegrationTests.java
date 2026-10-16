@@ -8,6 +8,7 @@ import com.example.backend.DatabaseLogins;
 import com.example.backend.database.ConnectionQualifiers;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -20,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -184,6 +186,24 @@ class ScheduledJobRunIntegrationTests {
 
         assertThat(runs.run(ScheduledJob.DORMANCY, () -> "the next run's work"))
                 .contains("the next run's work");
+    }
+
+    /**
+     * The job rows are the migration's, and the service's grants let it lock a row and nothing
+     * else: a locking read ({@code UPDLOCK}) needs only {@code SELECT}, so the runtime role holds
+     * no {@code UPDATE} and cannot rewrite the row a job serializes on. Every test above takes the
+     * lock as that same role, so they hold that {@code SELECT} is enough.
+     */
+    @Test
+    void theServiceCannotRewriteAJobsRow() {
+        assertThatThrownBy(() -> jdbc.update(
+                        "UPDATE scheduled_job_locks SET job_name = job_name WHERE job_name = ?",
+                        ScheduledJob.DORMANCY.jobName()))
+                .rootCause()
+                .asInstanceOf(InstanceOfAssertFactories.throwable(SQLException.class))
+                .extracting(SQLException::getErrorCode)
+                .as("error 229, a permission denied")
+                .isEqualTo(229);
     }
 
     /**

@@ -855,13 +855,15 @@ GRANT SELECT, INSERT, DELETE         ON scim_user_password_history       TO back
 -- Tombstones may be written and read, never changed or removed.
 GRANT SELECT, INSERT                 ON scim_tombstones                  TO backend_app;
 GRANT SELECT, INSERT                 ON audit_events                     TO backend_app;
--- A job's row lock is an update lock, taken by a statement the role may run only
--- with UPDATE as well as SELECT. No INSERT or DELETE: the job set is fixed by
--- migrations, so the runtime role cannot remove the row a job serializes on.
-GRANT SELECT, UPDATE                 ON scheduled_job_locks              TO backend_app;
--- SELECT alone: a locking read (UPDLOCK) needs no more, so the runtime role can
--- take the seed row's lock and can neither change nor remove the row it
--- serializes on.
+-- SELECT alone on both lock tables. A job's row lock and the seed row's lock
+-- are update locks taken by a locking read (`SELECT ... WITH (UPDLOCK, ...)`),
+-- and SQL Server checks a SELECT's permissions whatever its lock hints: the
+-- statement needs SELECT and nothing more. The application never writes either
+-- table — ScheduledJobLockAdapter and ScimSeedLockAdapter only read — and the
+-- row set is fixed by this migration, so the runtime role can take each lock and
+-- can neither change nor remove the row it serializes on
+-- (ScheduledJobRunIntegrationTests, ScimSeedIntegrationTests).
+GRANT SELECT                         ON scheduled_job_locks              TO backend_app;
 GRANT SELECT                         ON scim_seed_locks                  TO backend_app;
 GRANT SELECT                         ON flyway_schema_history            TO backend_app;
 

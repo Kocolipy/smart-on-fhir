@@ -33,7 +33,8 @@ import java.util.UUID;
  * </ul>
  *
  * <p>Pure: it decides from the sets it is given and touches nothing until {@link #advanceIn},
- * which issues at most one statement. Locking is not its concern, but it relies on the lock
+ * which issues one statement per {@link BoundIdChunks chunk} of ids — one for any write naming
+ * at most {@link BoundIdChunks#MAX_IDS}. Locking is not its concern, but it relies on the lock
  * module ({@link ScimWriteLockAdapter}): every resource it names is one the write already holds,
  * locked in the canonical order before the write began, so the bulk update takes no new lock and
  * the order it updates rows in cannot matter. The module locks a superset of what is decided
@@ -172,12 +173,20 @@ final class RepresentationChange {
     }
 
     /**
-     * Advances every resource this change names, in one statement, and none when it names none —
-     * an empty {@code IN} list is not portable SQL, and there would be nothing for it to match.
+     * Advances every resource this change names, and none when it names none — an empty
+     * {@code IN} list is not portable SQL, and there would be nothing for it to match.
+     *
+     * <p>One statement per {@link BoundIdChunks chunk} of at most {@link BoundIdChunks#MAX_IDS}
+     * ids, all in the caller's transaction: SQL Server refuses a request binding more than 2,100
+     * parameters, and nothing caps how many resources a write changes — renaming or deleting a
+     * Group advances every member, and a Group's membership has no limit. Chunking adds no
+     * deadlock risk: every row named here is already locked, in the canonical order, by
+     * {@link ScimWriteLockAdapter}, so the statements take no new lock. Each statement flushes
+     * before and clears after, as one did.
      */
     void advanceIn(ScimResourceJpaRepository resources) {
-        if (!advanced.isEmpty()) {
-            resources.advanceVersions(advanced, at);
+        for (List<UUID> chunk : BoundIdChunks.of(advanced)) {
+            resources.advanceVersions(chunk, at);
         }
     }
 

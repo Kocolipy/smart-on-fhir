@@ -1,6 +1,9 @@
 #!/bin/bash
 # Post-deploy smoke of a running stack. Exits non-zero on the first failed check:
 #
+#   0. ownership     /opt/backend and every file root runs, sources or reads
+#                    there are root's and not writable by the service user
+#                    (also under --leaks-only)
 #   1. health        /actuator/health through the ALB answers 200
 #      JVM trust     the service's JVM keeps the JDK's default trust store, and
 #                    that JDK fetches the identity provider's discovery
@@ -33,7 +36,7 @@
 # smoke".
 #
 # Usage: ./smoke.sh [--leaks-only] <stack-name> [region]
-#   --leaks-only  step 6 alone, over the sources that exist before the JAR is
+#   --leaks-only  steps 0 and 6 alone, step 6 over the sources that exist before the JAR is
 #                 deployed: the rendered UserData and the cfn-init metadata, the
 #                 cloud-init and cfn-init logs, the env files and the database
 #                 bootstrap's journal. deploy.sh runs this when the JAR is not
@@ -265,6 +268,51 @@ SCRIPT
   while IFS= read -r line; do print_info "JVM trust: $line"; done <<<"$out"
 }
 
+# Nothing root runs, sources or reads under /opt/backend is the service user's to
+# change (infra/README.md, "File ownership on the instance"): the directory and
+# every file in it are root's, none is writable by springboot, and springboot
+# owns nothing there. A directory's owner can rename or replace any file in it,
+# so a springboot-owned /opt/backend would let the service user swap a file root
+# runs. The JAR is checked when it is there; before the first deploy it is not.
+check_file_ownership() {
+  local out line
+  # shellcheck disable=SC2016 # expanded on the instance, not here
+  if ! out=$(remote 'sudo bash -s' 2>&1 <<'SCRIPT'
+set -euo pipefail
+paths=(/opt/backend /opt/backend/db-bootstrap.sh /opt/backend/db-bootstrap.env
+  /opt/backend/db-bootstrap.sql /opt/backend/secret.sh /opt/backend/start.sh
+  /opt/backend/migrate.sh /opt/backend/migrate.env /opt/backend/.env
+  /opt/backend/rds-ca-bundle.pem /opt/backend/rds-truststore.p12
+  /etc/systemd/system/backend-db-bootstrap.service
+  /etc/systemd/system/backend-migrate.service /etc/systemd/system/backend.service)
+[[ ! -e /opt/backend/backend.jar ]] || paths+=(/opt/backend/backend.jar)
+failed=0
+for path in "${paths[@]}"; do
+  if [[ ! -e $path ]]; then
+    echo "$path is missing"
+    failed=1
+  elif [[ $(stat -c %U "$path") != root ]]; then
+    echo "$path is owned by $(stat -c %U "$path"), not root"
+    failed=1
+  elif sudo -u springboot test -w "$path"; then
+    echo "$path is writable by springboot"
+    failed=1
+  fi
+done
+owned=$(find /opt/backend -user springboot -print)
+if [[ -n $owned ]]; then
+  echo "springboot owns files under /opt/backend: ${owned//$'\n'/ }"
+  failed=1
+fi
+((failed == 0)) || exit 1
+echo "all ${#paths[@]} paths root runs, sources or reads (/opt/backend, its files, the units) are root's and not writable by springboot"
+SCRIPT
+  ); then
+    die "file ownership: $out"
+  fi
+  while IFS= read -r line; do print_info "file ownership: $line"; done <<<"$out"
+}
+
 main() {
   local leaks_only="" json cmd
   if [[ ${1:-} == --leaks-only ]]; then
@@ -278,6 +326,8 @@ main() {
 
   load_stack_outputs "$STACK" "$REGION"
   ADMIN_SECRET_ARN=$(stack_output AppBootstrapSecretArn)
+
+  check_file_ownership
 
   if [[ -n $leaks_only ]]; then
     check_secret_leaks boot-only
