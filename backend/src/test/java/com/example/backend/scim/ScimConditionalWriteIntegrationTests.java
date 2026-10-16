@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -55,7 +56,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Conditional User writes driven over the real filter chain, against a real Postgres and a real,
+ * Conditional User writes driven over the real filter chain, against a real SQL Server and a real,
  * indexed Redis session store — the layers where the ticket's guarantees are actually decided:
  * the resource lock that turns a race into one {@code 412}, the columns a replacement leaves
  * alone, the history rows and their trim, and whether a live session survives.
@@ -739,9 +740,10 @@ class ScimConditionalWriteIntegrationTests {
                 SELECT changed_paths FROM audit_events
                  WHERE operation = 'SCIM_USER_REPLACE' AND subject_id = ? AND outcome = 'SUCCESS'
                 """, String.class, user)).isEqualTo("password");
-        Map<String, Object> revoked = jdbc.queryForMap("""
+        Map<String, Object> revoked = jdbc.queryForObject("""
                 SELECT outcome, actor_id, changed_paths, status_class FROM audit_events
-                 WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""", user);
+                 WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""",
+                UuidColumnRows.ROWS, user);
         assertThat(revoked).containsEntry("outcome", "SUCCESS")
                 .containsEntry("actor_id", connectorA)
                 .containsEntry("changed_paths", "password")
@@ -870,9 +872,10 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(adminMembersExcept(adminGroup)).contains(kept, bootstrapAdmin)
                 .doesNotContain(byRemove, byReplace, byPut);
         for (UUID removed : List.of(byRemove, byReplace, byPut)) {
-            assertThat(jdbc.queryForMap("""
+            assertThat(jdbc.queryForObject("""
                     SELECT outcome, actor_id, changed_paths FROM audit_events
-                     WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""", removed))
+                     WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""",
+                    UuidColumnRows.ROWS, removed))
                     .containsEntry("outcome", "SUCCESS")
                     .containsEntry("actor_id", connectorA)
                     .containsEntry("changed_paths", "groups");

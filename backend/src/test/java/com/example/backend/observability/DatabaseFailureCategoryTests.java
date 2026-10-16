@@ -223,9 +223,9 @@ class DatabaseFailureCategoryTests {
                 .isEqualTo(ErrorCategory.DATABASE);
     }
 
-    /** PostgreSQL's victim state names no failure SQL Server reports, so nothing retries on it. */
+    /** SQLState {@code 40P01} names no failure SQL Server reports, so nothing retries on it. */
     @Test
-    void postgresDeadlockStateIsNoLongerADeadlock() {
+    void aDeadlockVictimStateWithoutError1205IsNoDeadlock() {
         assertThat(DatabaseFailureCategory.deadlock(new SQLException("x", "40P01", 0))).isFalse();
     }
 
