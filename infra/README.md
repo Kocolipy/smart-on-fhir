@@ -200,23 +200,41 @@ snapshot that is itself billed until you delete it.
   the bootstrap's `CREATE DATABASE … COLLATE`, which every column takes, and the
   bootstrap refuses a database it finds with any other collation rather than
   altering it (an altered collation would not convert existing columns).
-- **The server keeps RDS's default collation**, stated explicitly
-  (`CharacterSetName: SQL_Latin1_General_CP1_CI_AS`). **This deviates from issue
-  #71**, which names `Latin1_General_100_BIN2_UTF8` as the *server* collation,
-  and needs the user's sign-off and the issue's wording amended. The reason,
-  measured on the pinned image (SQL Server 2022 CU27, `MSSQL_COLLATION`): on a
-  server collated `Latin1_General_100_BIN2_UTF8`, every `sp_getapplock` fails
-  with error 17750 (`sys.xp_userlock`: "Could not load the DLL (server
-  internal)") and then returns `0` — "granted" — for a lock it never took. It
-  does so in `master`, in a database collated `BIN2_UTF8` created before the
-  change and in one created after. The service's seed lock is an application
-  lock, so on that server it would silently lock nothing. The cause is the
-  binary server collation, not UTF-8: `Latin1_General_100_BIN2` fails the same
-  way, while `Latin1_General_100_CI_AS_SC_UTF8` and
-  `Latin1_General_100_CS_AS_SC_UTF8` take the lock (`0`, no error). RDS runs
-  SQL Server on Windows and the measurement is the Linux image's; no RDS
-  instance was created to repeat it there, so the server default is kept
-  rather than gambling the seed lock on a platform difference.
+- **The server is collated `Latin1_General_100_BIN2_UTF8` too**
+  (`CharacterSetName`), as issue #71 names it, so `master` and `tempdb`
+  compare names as the database does. It is fixed at creation; changing it
+  replaces the instance.
+- **The seed lock no longer depends on the server collation.** On the pinned
+  Linux image (SQL Server 2022 CU27, `MSSQL_COLLATION`), a server collated
+  `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load the
+  internal extended procedures behind `sp_getapplock` (`sys.xp_userlock`) and a
+  T-SQL `sp_executesql`: error 17750, "Could not load the DLL (server
+  internal)". The seed lock is now a row lock on `scim_seed_locks` (`V2`), and
+  the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0015,
+  "Addendum (2026-10-16)").
+- **Untested risk: Flyway on the Windows build.** Flyway guards every
+  migration with `sp_getapplock`. On a BIN2_UTF8 server on the Linux image it
+  fails with 17750. RDS runs SQL Server on Windows, and no RDS instance was
+  created to check whether the defect exists there.
+- **What a failed first migrate looks like.** If the Windows build has the
+  same defect, the failure is loud, not silent:
+  - `backend-migrate.service` fails, so `backend.service`, which `Requires=`
+    it, never starts.
+  - The deploy's health check and smoke fail.
+  - `sudo journalctl -u backend-migrate` shows `FlywaySqlException: Unable to
+    acquire SQL Server application lock` with `Error Code : 17750`.
+  - On a later deploy, `deploy.sh` prints that journal and stops with the
+    service still stopped.
+  - The way out is a server collation that does not fail. On the Linux image,
+    `Latin1_General_100_CI_AS_SC_UTF8` and `Latin1_General_100_CS_AS_SC_UTF8`
+    take the lock, and RDS's default does too. Changing `CharacterSetName`
+    replaces the instance, which costs nothing on a stack that never migrated.
+- **Local and test servers keep their default server collation.** Their
+  databases are still `Latin1_General_100_BIN2_UTF8`. The compose server and
+  the test containers run that Linux image, where a BIN2_UTF8 server would fail
+  every Flyway migration. Replacing Flyway's lock was considered and declined.
+  So the deployed server's collation is the one setting the suite does not
+  reproduce.
 - **The server's time zone is UTC**, stated (`Timezone: UTC`) rather than
   defaulted: storage is UTC only (ADR 0015, "Storage is UTC only").
 

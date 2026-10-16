@@ -19,10 +19,11 @@ services:
       # SQL Server takes what memory it can see unless told otherwise; this caps
       # its own use below the container's limit.
       MSSQL_MEMORY_LIMIT_MB: "2048"
-      # The server keeps its default collation. The database is created with
+      # This server keeps its default collation (the deployed RDS server is
+      # Latin1_General_100_BIN2_UTF8; infra/README.md). The database is created with
       # Latin1_General_100_BIN2_UTF8 by the init below (ADR 0015); a server collated
       # BIN2_UTF8 cannot load the internal procedures behind sp_getapplock, which
-      # the seed lock uses.
+      # Flyway takes to guard every migration (the seed lock is a row lock).
     mem_limit: 3g
     ports:
       - "1433:1433"

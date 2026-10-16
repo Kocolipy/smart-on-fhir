@@ -58,8 +58,9 @@ BEGIN
         PRINT N'db-init: change: reset the password of login ' + @name;
     END;
 END;
--- The collation is the database's, never the server's (ADR 0015). A database
--- found with another one is refused: altering it would not convert its columns.
+-- The collation set here is the database's; the server's is fixed when the
+-- server is created (ADR 0015). A database found with another one is
+-- refused: altering it would not convert its columns.
 IF DB_ID(@database) IS NULL
 BEGIN
     SET @ddl = N'CREATE DATABASE ' + QUOTENAME(@database) + N' COLLATE ' + @collation;
@@ -87,6 +88,7 @@ END;
 -- The owner login: a database user of its own name, in db_owner. A login
 -- already mapped into the database (as dbo, or by another name) keeps it.
 SET @ddl = N'USE ' + QUOTENAME(@database) + N';
+DECLARE @owner SYSNAME = N''' + REPLACE(@owner, N'''', N'''''') + N''';
 DECLARE @id INT = (SELECT principal_id FROM sys.database_principals WHERE sid = SUSER_SID(@owner)),
     @do NVARCHAR(400);
 IF @id IS NULL
@@ -103,7 +105,7 @@ BEGIN
     EXEC (@do);
     PRINT N''db-init: change: added '' + @owner + N'' to db_owner'';
 END;';
-EXEC sys.sp_executesql @ddl, N'@owner SYSNAME', @owner = @owner;
+EXEC (@ddl);
 SELECT CONCAT(N'db-init: ', name COLLATE DATABASE_DEFAULT, N' (',
               collation_name COLLATE DATABASE_DEFAULT, N', level ', compatibility_level,
               N', RCSI ', is_read_committed_snapshot_on,

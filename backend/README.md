@@ -706,9 +706,13 @@ grants nothing. A deployment creates the database and the logins with the same
 T-SQL, run on its instance as the RDS master user (`infra/README.md`, "Database
 bootstrap").
 
-The server keeps its default collation and only the database is collated
-`Latin1_General_100_BIN2_UTF8`: a server collated `BIN2_UTF8` cannot load the
-internal procedures behind `sp_getapplock`, which the seed lock takes.
+The local server keeps its default collation and only the database is collated
+`Latin1_General_100_BIN2_UTF8`. The deployed RDS server is collated
+`Latin1_General_100_BIN2_UTF8` too (`infra/README.md`, "Collation and time
+zone"), but on this image a server collated `BIN2_UTF8`
+cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
+guard every migration. The service's own seed lock is a row lock and needs
+neither (ADR 0015, "Addendum (2026-10-16)").
 
 The `.env` variables it reads:
 

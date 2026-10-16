@@ -725,18 +725,23 @@ Resources:
       # DBParameterGroup must match it.
       EngineVersion: "16.00"
       AutoMinorVersionUpgrade: true
-      # DEVIATION from issue #71, which names Latin1_General_100_BIN2_UTF8 as the
-      # SERVER collation; pending the user's sign-off (infra/README.md, "Collation
-      # and time zone"). The server keeps RDS's default, stated so that it is not
-      # left to chance; Latin1_General_100_BIN2_UTF8 is the DATABASE's (the
-      # bootstrap's CREATE DATABASE ... COLLATE), which every column takes. On
-      # the pinned SQL Server 2022 CU27 image, a server collated
-      # Latin1_General_100_BIN2_UTF8 (or Latin1_General_100_BIN2) fails every
-      # sp_getapplock with error 17750 (xp_userlock: "Could not load the DLL
-      # (server internal)") and returns 0, a lock it did not take; the
-      # service's seed lock is one (ADR 0015). The CI_AS_SC_UTF8 and
-      # CS_AS_SC_UTF8 server collations do not. Fixed at creation.
-      CharacterSetName: SQL_Latin1_General_CP1_CI_AS
+      # The SERVER collation issue #71 names, and the database's too (the
+      # bootstrap's CREATE DATABASE ... COLLATE, which every column takes), so
+      # master and tempdb compare names as the database does. Fixed at
+      # creation: changing it replaces the instance.
+      #
+      # The service's seed lock is a row lock (V2, scim_seed_locks), so it no
+      # longer depends on the server collation. Flyway's own migration lock
+      # still does: Flyway guards every migration with sp_getapplock, and on a
+      # server collated Latin1_General_100_BIN2_UTF8 on the Linux image
+      # (SQL Server 2022 CU27) that fails with error 17750 (xp_userlock:
+      # "Could not load the DLL (server internal)"). RDS runs the Windows
+      # build, which is untested. If it has the same defect, the first
+      # deploy's migrate.sh fails loudly ("Unable to acquire SQL Server
+      # application lock", 17750) and the service never starts; it does not
+      # fail silently (infra/README.md, "Collation and time zone"; ADR 0015,
+      # 2026-10-16 addendum).
+      CharacterSetName: Latin1_General_100_BIN2_UTF8
       # Storage is UTC only (ADR 0015): the server's clock and SYSDATETIMEOFFSET
       # are UTC, stated rather than defaulted.
       Timezone: UTC
@@ -945,8 +950,9 @@ Resources:
                         PRINT N'db-init: change: reset the password of login ' + @name;
                     END;
                 END;
-                -- The collation is the database's, never the server's (ADR 0015). A database
-                -- found with another one is refused: altering it would not convert its columns.
+                -- The collation set here is the database's; the server's is fixed when the
+                -- server is created (ADR 0015). A database found with another one is
+                -- refused: altering it would not convert its columns.
                 IF DB_ID(@database) IS NULL
                 BEGIN
                     SET @ddl = N'CREATE DATABASE ' + QUOTENAME(@database) + N' COLLATE ' + @collation;
@@ -974,6 +980,7 @@ Resources:
                 -- The owner login: a database user of its own name, in db_owner. A login
                 -- already mapped into the database (as dbo, or by another name) keeps it.
                 SET @ddl = N'USE ' + QUOTENAME(@database) + N';
+                DECLARE @owner SYSNAME = N''' + REPLACE(@owner, N'''', N'''''') + N''';
                 DECLARE @id INT = (SELECT principal_id FROM sys.database_principals WHERE sid = SUSER_SID(@owner)),
                     @do NVARCHAR(400);
                 IF @id IS NULL
@@ -990,7 +997,7 @@ Resources:
                     EXEC (@do);
                     PRINT N''db-init: change: added '' + @owner + N'' to db_owner'';
                 END;';
-                EXEC sys.sp_executesql @ddl, N'@owner SYSNAME', @owner = @owner;
+                EXEC (@ddl);
                 SELECT CONCAT(N'db-init: ', name COLLATE DATABASE_DEFAULT, N' (',
                               collation_name COLLATE DATABASE_DEFAULT, N', level ', compatibility_level,
                               N', RCSI ', is_read_committed_snapshot_on,
