@@ -21,7 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * The fail-open append adapter on its own, against the real Postgres and the audit append pool,
+ * The fail-open append adapter on its own, against the real SQL Server and the audit append pool,
  * constructed by the test rather than taken from the context — so its construction, and every
  * value its {@code INSERT} binds, is something a test observes. Read back through the listing's
  * own adapter: what a fail-open event recorded is what an administrator would see.

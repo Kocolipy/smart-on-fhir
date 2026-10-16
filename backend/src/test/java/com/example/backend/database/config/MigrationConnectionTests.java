@@ -75,6 +75,26 @@ class MigrationConnectionTests {
                 });
     }
 
+    /**
+     * The deployed migrate step is given the trust-store password the way the service is: in its
+     * environment, which {@code migrate.sh} exports from Secrets Manager. Its owner connection's
+     * driver reads it as its {@code trustStorePassword}.
+     */
+    @Test
+    void theMigrationStepsDriverReadsTheTrustStorePasswordFromTheEnvironment() {
+        new ApplicationContextRunner().withUserConfiguration(MigrationConfig.class)
+                .withInitializer(DatabaseConnectionsFixture.environment(Map.of(
+                        "SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD",
+                        "the-trust-stores")))
+                .run(context -> {
+                    SimpleDriverDataSource owner = new SimpleDriverDataSource();
+                    context.getBean(MigrationConnection.class).customize(flywayOn(owner));
+                    assertThat(DatabaseConnectionsFixture.asTheDriverReads(
+                                    owner.getConnectionProperties(), "trustStorePassword"))
+                            .isEqualTo("the-trust-stores");
+                });
+    }
+
     /** Never a migration over a connection the properties could not reach. */
     @Test
     void aConnectionThePropertiesCannotReachFailsTheStart() {

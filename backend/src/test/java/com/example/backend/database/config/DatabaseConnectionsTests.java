@@ -27,8 +27,8 @@ class DatabaseConnectionsTests {
         try (HikariDataSource pool = CONNECTIONS.pool("retention", RETENTION, 2, Duration.ofSeconds(10))) {
 
             assertThat(List.of(pool.getJdbcUrl(), pool.getDriverClassName()))
-                    .containsExactly("jdbc:postgresql://db.internal:5432/backend",
-                            "org.postgresql.Driver");
+                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
+                            "com.microsoft.sqlserver.jdbc.SQLServerDriver");
         }
     }
 
@@ -89,7 +89,7 @@ class DatabaseConnectionsTests {
 
             assertThat(List.<Object>of(pool.getPoolName(), pool.getConnectionTimeout(),
                             pool.getJdbcUrl(), pool.getUsername(), pool.getDataSourceProperties()))
-                    .containsExactly("app", 10_000L, "jdbc:postgresql://db.internal:5432/backend",
+                    .containsExactly("app", 10_000L, "jdbc:sqlserver://db.internal:1433;databaseName=backend",
                             "backend_retention_login",
                             driverProperties(Map.of("sslmode", "verify-full", "loginTimeout", "15")));
         }

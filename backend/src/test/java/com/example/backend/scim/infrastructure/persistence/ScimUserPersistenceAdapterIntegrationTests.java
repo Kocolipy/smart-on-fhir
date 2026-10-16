@@ -29,7 +29,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The User store against a real Postgres, asserting only that it stores what it was given. The
+ * The User store against a real SQL Server, asserting only that it stores what it was given. The
  * login-state rules — a Reactivation, the Dormancy lock, a connector-set password owing a change —
  * are the login-state module's and are asserted in {@code LoginStateServiceTests}; the store must
  * hold none of them, so each case here hands it a value no rule would produce and reads back that
@@ -42,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(ContainerTestConfiguration.class)
 class ScimUserPersistenceAdapterIntegrationTests {
 
-    /** Whole microseconds, so the instant survives the {@code timestamptz} column unchanged. */
+    /** Whole microseconds, so the instant survives the {@code DATETIMEOFFSET(6)} column unchanged. */
     private static final Instant EARLIER = Instant.parse("2026-03-01T08:00:00Z");
 
     private static final Instant LATER = Instant.parse("2026-05-01T08:00:00Z");

@@ -83,7 +83,7 @@ class ApiContractFixtureTests {
 
     /** Documented statuses no fixture can produce here, each with the reason. */
     private static final Set<String> NOT_PRODUCIBLE = Set.of(
-            // Needs a dependency to be DOWN; this context's Postgres and Redis are up by design.
+            // Needs a dependency to be DOWN; this context's SQL Server and Redis are up by design.
             "GET /actuator/health 503",
             // Needs Epic Login OFF; this context has it on, to serve the JWKS. The switch-off 404
             // is EpicReleaseGateIntegrationTests', in a context with no Epic variable at all.
@@ -468,8 +468,9 @@ class ApiContractFixtureTests {
                 t -> {
                     Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                     UUID locked = t.userId(t.provision(true));
-                    t.jdbc.update("UPDATE scim_users SET locked_at = now(), lock_cause = 'FAILURES'"
-                            + " WHERE resource_id = ?", locked);
+                    t.jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
+                            + " WHERE resource_id = ?",
+                            java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC), locked);
                     // Settled, so it is required to change nothing yet and the forced change writes.
                     String settled = t.provision(true);
                     t.settle(settled);

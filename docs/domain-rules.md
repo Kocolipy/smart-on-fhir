@@ -414,11 +414,11 @@ edge whitespace is an unknown account, decided before any lookup: the same bare
 nothing recorded against the User the trimmed name would find. An Epic `id_token`
 whose `iss` or `sub` has edge whitespace is an invalid token (`INVALID_CLAIMS`).
 The reason is the engine, not the value: SQL Server ignores trailing spaces when it
-compares, so `alice` and `alice ` would collide or match there and not on
-PostgreSQL; refusing them keeps a key meaning the same on either
-(`docs/adr/0015-sql-server-2022-replaces-postgresql.md`).
+compares, so `alice` and `alice ` would collide as keys and match each other in a
+lookup; refusing them keeps a key meaning exactly the value the connector holds
+(ADR 0015).
 
-**Normalized SCIM storage** — the PostgreSQL representation of the target model.
+**Normalized SCIM storage** — the SQL Server representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
 connector aliases, resource versions, connector tokens, audit events, and
 tombstones use constrained related tables. JSON resource blobs are not the
@@ -497,7 +497,20 @@ syntax and semantics over the attributes this service advertises: it makes no
 unadvertised attribute queryable, and a filter on `password` is
 `400 invalidFilter`. Sorting takes one
 attribute, puts missing values last ascending and first descending, and breaks ties
-by `id`. The same query may be sent as a `SearchRequest` body to `/Users/.search`,
+by `id`. SQL Server, the directory's database, makes these filter and sort
+deviations, documented in `backend/docs/openapi.yaml` and recorded in ADR 0015
+("Observable changes" and its 2026-10-15 addendum): `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text
+(`name.*`, `displayName`, `locale`, `timezone`, `preferredLanguage` and the like)
+ignore trailing spaces in the stored and the compared value, because SQL Server
+pads the comparison, while `co`, `sw` and `ew` keep them significant, because a
+`LIKE` against the bound pattern is not padded; a whitespace-only free-text value counts
+as absent to `pr` and sorts as missing; ties broken by `id` follow SQL Server's
+`uniqueidentifier` order rather than the ids' text order; and case-insensitive
+comparison uses SQL Server's `LOWER`, which leaves some upper-case letters outside
+ASCII, Latin-1, Latin Extended-A and -B, modern Greek and Cyrillic unchanged (the
+Kelvin, Ohm and Angstrom signs, capital sharp s, Georgian Mtavruli, Cherokee and
+supplementary-plane scripts among them), lower-cases `İ` to `i`, and has no
+final-sigma rule (spike V4 lists every code point). The same query may be sent as a `SearchRequest` body to `/Users/.search`,
 `/Groups/.search`, or the base `/.search`, which spans both types and treats an
 attribute one type lacks as having no value there. `PUT`, `PATCH`, and
 `DELETE` of an existing resource accept an optional `If-Match`, as RFC 7644
@@ -612,7 +625,10 @@ its own scheduled job lock row, deleting every audit event older than the
 retention period: 365 days unless deployment configuration says otherwise, and
 never less than 90. A configured period below the floor stops startup rather than
 shortening the trail, because 90 days is the shortest window in which an
-investigation into a User's activity is still possible.
+investigation into a User's activity is still possible. It deletes in batches of
+at most 4,000 events, each committed on its own, so an audit append never waits
+behind a run, and a run that fails part-way keeps what it deleted for the next run
+to finish; the job's lock is held across every batch.
 
 ### Access model
 
@@ -1064,7 +1080,7 @@ backdated `dormant` fixture is locked without waiting for 04:00.
 
 **Scheduled job lock** — how the dormancy job and the audit retention job are
 serialized: each run takes its own job's row in `scheduled_job_locks` with
-`FOR UPDATE SKIP LOCKED` and holds it for the run's own transaction, which lasts the
+`WITH (UPDLOCK, ROWLOCK, READPAST)` and holds it for the run's own transaction, which lasts the
 whole run, every batch included (ADR 0005). A second run of the
 same job, on any instance, skips; another job holds a different row and never waits. Inside a run, each User is
 re-read under its resource lock and decided again, so no User is processed twice.

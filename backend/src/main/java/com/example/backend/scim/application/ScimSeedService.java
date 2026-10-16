@@ -42,10 +42,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <h2>Idempotent by looking first, under a lock</h2>
  *
  * <p>Every write is preceded by a read that decides whether it is needed, and no write is ever
- * expected to fail. That is deliberate: against Postgres a unique-key violation aborts the whole
- * transaction and marks it rollback-only, so a seed that INSERTed and caught the violation as
- * "it is already there" failed every restart against a seeded database. Catching does not undo
- * the abort.
+ * expected to fail. That is deliberate: a unique-key violation leaves the transaction unusable
+ * even where SQL Server rolls back only the failed statement — the exception marks the Spring
+ * transaction rollback-only as it leaves the repository, and Hibernate's session may not be
+ * flushed after it — so a seed that INSERTed and caught the violation as "it is already there"
+ * would fail every restart against a seeded database. Catching does not undo either.
  *
  * <p>Read-then-write alone would let two instances starting together both read "absent", so the
  * transaction first takes {@link ScimSeedLock}. The second instance waits, then reads what the

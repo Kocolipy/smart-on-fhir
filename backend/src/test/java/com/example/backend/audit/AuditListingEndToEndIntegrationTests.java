@@ -70,7 +70,7 @@ import tools.jackson.databind.json.JsonMapper;
  * filter value, and every profile value it provisioned. Before searching for their absence it
  * asserts the text it searched holds the events that would have carried them.
  *
- * <p>Shares {@code DormancyIntegrationTests}'s context — and so its Postgres and its clock — and
+ * <p>Shares {@code DormancyIntegrationTests}'s context — and so its database and its clock — and
  * follows its discipline: every User it asserts about is its own, and dormancy is produced by
  * backdating that User's basis, never by moving the clock.
  */

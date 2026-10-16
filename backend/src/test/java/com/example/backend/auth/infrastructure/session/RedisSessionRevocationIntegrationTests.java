@@ -153,7 +153,7 @@ class RedisSessionRevocationIntegrationTests {
      * hide the row. Deleting the {@code scim_resources} row cascades to
      * {@code scim_users} and everything keyed off it. Without this the fixed
      * {@code userName}s here (e.g. "before-rename") survive into a second run
-     * against a reused Postgres and collide on {@code uq_scim_users_normalized_user_name}.
+     * against a reused database and collide on {@code uq_scim_users_normalized_user_name}.
      */
     @AfterEach
     void removeSeededIdentities() {

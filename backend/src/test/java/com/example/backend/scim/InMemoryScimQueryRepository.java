@@ -12,9 +12,10 @@ import java.util.UUID;
  * of the use cases.
  *
  * <p>Evaluates only the unfiltered, unsorted query — the default order and the page. Filtering
- * and sorting are the SQL translation's job and are tested against PostgreSQL, so this fake
+ * and sorting are the SQL translation's job and are tested against SQL Server, so this fake
  * refuses them rather than carrying a second evaluator that could agree with a unit test and
- * disagree with the database.
+ * disagree with the database — over where a missing value sorts, or over SQL Server's
+ * trailing-space-insensitive equality on free text, which no evaluator here has to imitate.
  */
 public final class InMemoryScimQueryRepository implements ScimQueryRepository {
 
@@ -39,7 +40,7 @@ public final class InMemoryScimQueryRepository implements ScimQueryRepository {
     public ScimQuery.Result query(ScimQuery query, UUID connectorId, String baseUri) {
         if (query.filter() != null || query.sort() != null) {
             throw new UnsupportedOperationException(
-                    "filtering and sorting are tested against PostgreSQL");
+                    "filtering and sorting are tested against SQL Server");
         }
         queries++;
         List<ScimQuery.Hit> all = new ArrayList<>();

@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * No lock to take in memory: a single-threaded test has no second writer to exclude. Each request
  * is recorded, so a test can assert a write asked to lock the token it addresses;
- * {@code ConnectorTokenRotationRaceIntegrationTests} holds what the lock does on Postgres.
+ * {@code ConnectorTokenRotationRaceIntegrationTests} holds what the lock does on SQL Server.
  */
 public final class InMemoryConnectorTokenLocks implements ConnectorTokenLocks {
 

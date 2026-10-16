@@ -19,6 +19,8 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +53,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * SCIM DELETE driven over the real filter chain, against a real Postgres and a real, indexed
+ * SCIM DELETE driven over the real filter chain, against a real SQL Server and a real, indexed
  * Redis session store: the {@code 204}, the {@code 404} for everything that follows, the
  * tombstone the schema lets exist, the reusable {@code userName}, and whether a live session
  * survives.
@@ -213,21 +215,22 @@ class ScimDeletionIntegrationTests {
     @Test
     void the_tombstone_table_has_no_column_that_could_hold_a_readable_value() {
         List<Map<String, Object>> columns = jdbc.queryForList("""
-                SELECT column_name, data_type, character_maximum_length
-                  FROM information_schema.columns
-                 WHERE table_schema = 'public' AND table_name = 'scim_tombstones'
-                 ORDER BY ordinal_position""");
+                SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+                  FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'scim_tombstones'
+                 ORDER BY ORDINAL_POSITION""");
 
         assertThat(columns).extracting(column -> column.get("column_name") + ":"
                         + column.get("data_type"))
                 .containsExactly(
-                        "resource_id:uuid",
-                        "resource_type:character varying",
-                        "deleted_at:timestamp with time zone");
+                        "resource_id:uniqueidentifier",
+                        "resource_type:varchar",
+                        "deleted_at:datetimeoffset");
         assertThat(columns.get(1).get("character_maximum_length")).isEqualTo(16);
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO scim_tombstones (resource_id, resource_type, deleted_at)
-                VALUES (?, 'ada@work.example', now())""", UUID.randomUUID()))
+                VALUES (?, 'ada@work.example', ?)""", UUID.randomUUID(),
+                OffsetDateTime.now(ZoneOffset.UTC)))
                 .as("the only text column accepts the two resource type names and nothing else")
                 .isInstanceOf(DataAccessException.class);
     }
@@ -309,11 +312,14 @@ class ScimDeletionIntegrationTests {
         assertThatThrownBy(() -> jdbc.update(
                 "DELETE FROM scim_tombstones WHERE resource_id = ?", user))
                 .isInstanceOf(DataAccessException.class)
-                .rootCause().hasMessageContaining("permission denied for table scim_tombstones");
+                .rootCause().hasMessageContaining(
+                        "The DELETE permission was denied on the object 'scim_tombstones'");
         assertThatThrownBy(() -> jdbc.update(
-                "UPDATE scim_tombstones SET deleted_at = now() WHERE resource_id = ?", user))
+                "UPDATE scim_tombstones SET deleted_at = ? WHERE resource_id = ?",
+                OffsetDateTime.now(ZoneOffset.UTC), user))
                 .isInstanceOf(DataAccessException.class)
-                .rootCause().hasMessageContaining("permission denied for table scim_tombstones");
+                .rootCause().hasMessageContaining(
+                        "The UPDATE permission was denied on the object 'scim_tombstones'");
         assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
                 .as("both refused statements left the tombstone in place")
                 .isEqualTo(1);
@@ -483,18 +489,21 @@ class ScimDeletionIntegrationTests {
         assertThat(status(conditional(tokenA, delete(USERS + "/" + user), user))).isEqualTo(204);
 
         assertThat(sessionRepository.findById(session.getId())).isNull();
+        // The actor's id is read back as its text, which SQL Server renders upper-case.
         Map<String, Object> deleted = jdbc.queryForMap("""
-                SELECT outcome, actor_id, resource_type, status_class FROM audit_events
+                SELECT outcome, LOWER(CAST(actor_id AS VARCHAR(36))) AS actor_id, resource_type,
+                       status_class
+                  FROM audit_events
                  WHERE operation = 'SCIM_USER_DELETE' AND subject_id = ?""", user);
         assertThat(deleted).containsEntry("outcome", "SUCCESS")
-                .containsEntry("actor_id", connectorA)
+                .containsEntry("actor_id", connectorA.toString())
                 .containsEntry("resource_type", "User")
                 .containsEntry("status_class", "ok");
         Map<String, Object> revoked = jdbc.queryForMap("""
-                SELECT outcome, actor_id FROM audit_events
+                SELECT outcome, LOWER(CAST(actor_id AS VARCHAR(36))) AS actor_id FROM audit_events
                  WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""", user);
         assertThat(revoked).containsEntry("outcome", "SUCCESS")
-                .containsEntry("actor_id", connectorA);
+                .containsEntry("actor_id", connectorA.toString());
     }
 
     /**

@@ -6,13 +6,13 @@ Date: 2026-09-30
 
 Accepted.
 
-To be superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
-PostgreSQL): the row is taken with `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of
-`FOR UPDATE SKIP LOCKED`, or, if spike V3 finds `READPAST` does not skip a held row,
-with `sp_getapplock` per job name. The retention job also takes the lock as the app
-login rather than before assuming a role. One serialization point per job name, held
-for the run's transaction, is unchanged. The superseding note lands with the ticket
-that changes the mechanism.
+Superseded in part by ADR 0015 (SQL Server 2022 replaces PostgreSQL), as of the
+switchover's locking ticket (#69, 2026-10-14): `SKIP LOCKED` → `READPAST`. The row is
+taken with `SELECT … WITH (UPDLOCK, ROWLOCK, READPAST)` in place of
+`SELECT … FOR UPDATE SKIP LOCKED`; spike V3 verified that `READPAST` skips a held row
+under read-committed snapshot without waiting, so the `sp_getapplock` fallback was not
+needed. The per-job lock row model — one row per job name, held for the run's
+transaction — is unchanged. See the superseding note at the end.
 
 ## Context
 
@@ -134,6 +134,44 @@ A new job that must not overlap itself therefore needs a `ScheduledJob` member, 
 its name and `Operation`, and the migration row. Its service hands its body to
 `ScheduledJobRunService.run`, and its schedule config names it in a `ScheduledJobSpec`
 from that member.
+
+## Superseding note (2026-10-14): `READPAST` on SQL Server (ADR 0015)
+
+The engine is SQL Server 2022 (ADR 0015), and `SKIP LOCKED` → `READPAST`.
+`ScheduledJobLockAdapter`, still the one place the lock syntax is written, takes the
+run's row with `SELECT job_name FROM scheduled_job_locks WITH (UPDLOCK, ROWLOCK,
+READPAST) WHERE job_name = ?` inside the run's transaction. The row's update lock is
+held until that transaction ends; a second run of the same job reads past the held row
+and gets nothing back without waiting, and a run of the other job locks a different
+row. Spike V3 verified all three under read-committed snapshot (ADR 0015, "Verified
+behaviour"), so the `sp_getapplock` fallback named before the spike was not needed.
+`ScheduledJobRunIntegrationTests` observes the race in `sys.dm_tran_locks`: one
+granted update lock on the job's row, and none left behind by the run that skipped.
+
+The empty result is still followed by a plain count, which does not wait for the lock,
+so a missing row still fails the run loudly rather than reading as held. Each of the two
+statements has a 60 s query timeout (ADR 0015, "Bounded timeouts"): `READPAST` never
+waits on a held row, but would on a lock above it, and the run then fails rather than
+holding its scheduler thread.
+
+The lock's lifetime is the 2026-10-13 amendment's, unchanged: the run's transaction on
+the main pool, as the app login, spanning the whole run. The audit retention job now
+deletes in batches of 4,000, each committed on the retention pool's own transaction
+manager; none of those commits releases the lock, so a second instance started between
+two batches skips (`AuditRetentionSerializationIntegrationTests`).
+
+The runtime role still holds `SELECT, UPDATE` on the table and no `INSERT` or `DELETE`:
+`UPDLOCK` needs the right to update the row, as `FOR UPDATE` did.
+
+## Amendment (2026-10-16): the job lock grant is `SELECT` alone
+
+The superseding note above kept `SELECT, UPDATE` on `scheduled_job_locks`, on the
+belief that `UPDLOCK` needs the right to update the row as `FOR UPDATE` did. It does
+not: SQL Server checks a locking read's permissions as a `SELECT`'s, and the
+application never updates the row, so V1 now grants `SELECT` alone, as it does on
+`scim_seed_locks` (ADR 0015, which records the measurement). `ScheduledJobRunIntegrationTests`
+holds both halves: every run takes the lock as the app login, and that login's `UPDATE`
+of a job row is refused (error 229).
 
 ## Alternatives considered
 

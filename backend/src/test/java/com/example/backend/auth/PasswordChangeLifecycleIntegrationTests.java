@@ -10,6 +10,7 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.auth.application.DormancyService;
@@ -62,7 +63,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The ticket's three end-to-end paths, over real HTTP through the real filter chain, against a real
- * Postgres and a real, indexed Redis session store — no in-memory session registry, so "every other
+ * SQL Server and a real, indexed Redis session store — no in-memory session registry, so "every other
  * session is gone" is observed as a cookie that no longer authenticates rather than as a call a fake
  * recorded.
  *
@@ -225,13 +226,14 @@ class PasswordChangeLifecycleIntegrationTests {
 
         // The stored state: flag cleared, version advanced, a redacted event.
         assertThat(jdbc.queryForObject(
-                "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?",
                 OffsetDateTime.class, userId)).isNull();
         assertThat(scimVersion(userId)).isEqualTo(versionBefore + 1);
         assertThat(failedAttempts(userId)).isZero();
-        List<Map<String, Object>> events = jdbc.queryForList(
-                "SELECT * FROM audit_events WHERE subject_id = ?::uuid AND operation = 'PASSWORD_CHANGE'"
-                        + " AND outcome = 'SUCCESS'", userId);
+        List<Map<String, Object>> events = jdbc.query("""
+                SELECT * FROM audit_events
+                 WHERE subject_id = ? AND operation = 'PASSWORD_CHANGE' AND outcome = 'SUCCESS'""",
+                UuidColumnRows.ROWS, userId);
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.get("actor_id").toString()).isEqualTo(userId);
             assertThat(event.get("changed_paths").toString()).contains("password");
@@ -329,8 +331,8 @@ class PasswordChangeLifecycleIntegrationTests {
         }
 
         assertThat(jdbc.queryForObject(
-                "SELECT locked_at IS NOT NULL FROM scim_users WHERE resource_id = ?::uuid",
-                Boolean.class, userId)).isTrue();
+                "SELECT locked_at FROM scim_users WHERE resource_id = ?",
+                OffsetDateTime.class, userId)).isNotNull();
         assertThat(status(get("/api/auth/me"), confined))
                 .as("imposing the lock ended every session")
                 .isEqualTo(401);
@@ -364,10 +366,10 @@ class PasswordChangeLifecycleIntegrationTests {
 
         assertThat(run.locked()).contains(UUID.fromString(userId));
         assertThat(jdbc.queryForObject(
-                "SELECT lock_cause FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT lock_cause FROM scim_users WHERE resource_id = ?",
                 String.class, userId)).isEqualTo("DORMANCY");
         assertThat(jdbc.queryForObject(
-                "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT active FROM scim_users WHERE resource_id = ?",
                 Boolean.class, userId)).as("active is never written").isTrue();
         assertThat(sessionRepository.findByPrincipalName(userId))
                 .as("the locked User's confined sessions are revoked")
@@ -392,10 +394,10 @@ class PasswordChangeLifecycleIntegrationTests {
                 .as("91 days since creation, but none since the change")
                 .doesNotContain(UUID.fromString(userId));
         assertThat(jdbc.queryForObject(
-                "SELECT locked_at IS NULL FROM scim_users WHERE resource_id = ?::uuid",
-                Boolean.class, userId)).isTrue();
+                "SELECT locked_at FROM scim_users WHERE resource_id = ?",
+                OffsetDateTime.class, userId)).isNull();
 
-        jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?::uuid",
+        jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?",
                 clock.instant().minus(Duration.ofDays(1)).atOffset(ZoneOffset.UTC), userId);
         logIn("lifecycle-settled", NEW_PASSWORD, "USER", false);
         assertThat(lastAuthenticatedAt(userId))
@@ -404,7 +406,7 @@ class PasswordChangeLifecycleIntegrationTests {
     }
 
     private void backdateCreation(String userId, Duration ago) {
-        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?::uuid",
+        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?",
                 clock.instant().minus(ago).atOffset(ZoneOffset.UTC), userId);
     }
 
@@ -475,7 +477,7 @@ class PasswordChangeLifecycleIntegrationTests {
                 .containsExactlyInAnyOrder(null, "REUSED", "REUSED");
 
         String audited = jdbc.queryForList(
-                "SELECT * FROM audit_events WHERE subject_id = ?::uuid", userId).toString();
+                "SELECT * FROM audit_events WHERE subject_id = ?", userId).toString();
         for (String secret : List.of(CONNECTOR_PASSWORD, NEW_PASSWORD, second, storedHash(userId))) {
             assertThat(audited).doesNotContain(secret);
         }
@@ -563,26 +565,26 @@ class PasswordChangeLifecycleIntegrationTests {
     /** The User's remembered hashes, newest first, as the database holds them. */
     private List<String> historyOf(String userId) {
         return jdbc.queryForList("""
-                SELECT password_hash FROM scim_user_password_history WHERE user_id = ?::uuid
+                SELECT password_hash FROM scim_user_password_history WHERE user_id = ?
                 ORDER BY set_at DESC, id""", String.class, userId);
     }
 
     private String storedHash(String userId) {
         return jdbc.queryForObject(
-                "SELECT password_hash FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT password_hash FROM scim_users WHERE resource_id = ?",
                 String.class, userId);
     }
 
     private boolean changeRequired(String userId) {
         return jdbc.queryForObject("""
-                SELECT password_change_required_since IS NOT NULL FROM scim_users
-                WHERE resource_id = ?::uuid""", Boolean.class, userId);
+                SELECT password_change_required_since FROM scim_users
+                WHERE resource_id = ?""", OffsetDateTime.class, userId) != null;
     }
 
     /** The error codes of this operation's events about the User, in no particular order. */
     private List<String> auditCodes(String operation, String userId) {
         return jdbc.queryForList("""
-                SELECT error_code FROM audit_events WHERE operation = ? AND subject_id = ?::uuid""",
+                SELECT error_code FROM audit_events WHERE operation = ? AND subject_id = ?""",
                 String.class, operation, userId);
     }
     /**
@@ -592,8 +594,8 @@ class PasswordChangeLifecycleIntegrationTests {
      */
     private String idOf(String userName) {
         return jdbc.queryForObject(
-                "SELECT resource_id::text FROM scim_users WHERE normalized_user_name = ?",
-                String.class, userName.toLowerCase(java.util.Locale.ROOT));
+                "SELECT resource_id FROM scim_users WHERE normalized_user_name = ?",
+                UUID.class, userName.toLowerCase(java.util.Locale.ROOT)).toString();
     }
 
     private void assertConfined(Cookie session) throws Exception {
@@ -719,19 +721,19 @@ class PasswordChangeLifecycleIntegrationTests {
 
     private Instant lastAuthenticatedAt(String userId) {
         OffsetDateTime stored = jdbc.queryForObject(
-                "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?",
                 OffsetDateTime.class, userId);
         return stored == null ? null : stored.toInstant();
     }
 
     private long scimVersion(String userId) {
         return jdbc.queryForObject(
-                "SELECT version FROM scim_resources WHERE id = ?::uuid", Long.class, userId);
+                "SELECT version FROM scim_resources WHERE id = ?", Long.class, userId);
     }
 
     private int failedAttempts(String userId) {
         return jdbc.queryForObject(
-                "SELECT failed_login_attempts FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT failed_login_attempts FROM scim_users WHERE resource_id = ?",
                 Integer.class, userId);
     }
 

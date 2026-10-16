@@ -3,10 +3,13 @@
 # AWS CloudFormation Deployment Script for Spring Boot Backend
 #
 # Prompts for no password: every credential is generated into Secrets Manager
-# by the stack (infra/README.md, "Database credentials"). After the stack, it
-# creates the database logins (db-bootstrap.sh) and runs the post-deploy smoke
-# (smoke.sh), which fails the deploy on a leaked secret: the full smoke once the
-# JAR is deployed, and its leak check over the boot alone when it is not.
+# by the stack (infra/README.md, "Database credentials"). The stack's instance
+# bootstraps the database itself at boot; this script waits for that boot,
+# re-runs the bootstrap to prove it a no-op (db-bootstrap.sh --expect-no-op),
+# and runs the post-deploy smoke (smoke.sh), which fails the deploy on a leaked
+# secret: the full smoke once the JAR is deployed, and its leak check over the
+# boot alone when it is not. The template exceeds CloudFormation's inline
+# template-body limit, so it is staged in S3 first (stage_template).
 # Never run with command tracing (bash -x): see lib.sh.
 
 set -euo pipefail
@@ -27,13 +30,16 @@ check_prerequisites() {
     for cmd in aws jq curl ssh scp openssl base64; do
         require_cmd "$cmd"
     done
-    require_cmd psql "the PostgreSQL client, 15 or newer, creates the database logins"
-    require_psql_getenv
 
     if ! aws sts get-caller-identity &> /dev/null; then
         print_error "AWS CLI is not configured. Run 'aws configure' first."
         exit 1
     fi
+
+    # The stack's bootstrap SQL must be the local init's (infra/README.md,
+    # "Database bootstrap"): a template whose copy has drifted is not deployed.
+    "${SCRIPT_DIR}/check-bootstrap-parity.sh" ||
+        die "the template's database bootstrap SQL differs from backend/scripts/local-db-init.sql"
 
     print_info "Prerequisites check passed"
 }
@@ -104,8 +110,20 @@ get_inputs() {
     read -r -p "Enter EC2 instance type (default: t3.small): " INSTANCE_TYPE
     INSTANCE_TYPE=${INSTANCE_TYPE:-t3.small}
 
-    read -r -p "Enter your IP for SSH access (e.g., 1.2.3.4/32): " SSH_LOCATION
-    SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
+    # Required, with no default: the instance has a public IP and its role reads
+    # the RDS master secret, so port 22 is open only to the range named here —
+    # your own public IP as a /32, ideally. A /0 range (the whole internet) is
+    # refused unless confirmed.
+    read -r -p "Enter the CIDR allowed to SSH to the instance (your public IP as x.x.x.x/32): " SSH_LOCATION
+    [ -n "$SSH_LOCATION" ] || die "the SSH CIDR is required; there is no default"
+    [[ $SSH_LOCATION =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] ||
+        die "the SSH CIDR must look like x.x.x.x/n, e.g. 203.0.113.10/32"
+    if [[ $SSH_LOCATION == */0 ]]; then
+        print_warn "${SSH_LOCATION} opens SSH to the whole internet"
+        local confirm_open
+        read -r -p "Type 'open to the internet' to allow it: " confirm_open
+        [ "$confirm_open" = "open to the internet" ] || die "refused ${SSH_LOCATION}; give a narrower CIDR"
+    fi
 
     # Database configuration. No password: the master user's is RDS-managed and
     # the three logins' are generated, all in Secrets Manager.
@@ -113,8 +131,12 @@ get_inputs() {
     read -r -p "Enter database name (default: backend): " DB_NAME
     DB_NAME=${DB_NAME:-backend}
 
-    read -r -p "Enter RDS instance class (default: db.t3.micro): " DB_INSTANCE_CLASS
-    DB_INSTANCE_CLASS=${DB_INSTANCE_CLASS:-db.t3.micro}
+    # RDS for SQL Server Standard Edition, licence-included: it runs on none of
+    # the small classes, and costs far more than the previous stack's
+    # db.t3.micro did (README, "Engine, edition and cost").
+    print_warn "SQL Server Standard Edition (licence-included) bills its licence by the hour: see README, \"Engine, edition and cost\""
+    read -r -p "Enter RDS instance class (default: db.t3.xlarge, the smallest SE runs on): " DB_INSTANCE_CLASS
+    DB_INSTANCE_CLASS=${DB_INSTANCE_CLASS:-db.t3.xlarge}
 
     local default_admin
     default_admin=$(default_key_admin_arn)
@@ -133,6 +155,46 @@ get_inputs() {
     print_info "Application Configuration"
     read -r -p "Enter application ADMIN username (default: admin): " APP_BOOTSTRAP_USERNAME
     APP_BOOTSTRAP_USERNAME=${APP_BOOTSTRAP_USERNAME:-admin}
+}
+
+# The engine and class RDS will actually be asked for: the template names the
+# major version 16.00 (SQL Server 2022), which RDS resolves to its default
+# build, and the instance class must be orderable for Standard Edition,
+# licence-included, in this region. Checked before anything is created.
+check_engine_and_class() {
+    local version
+    version=$(aws rds describe-db-engine-versions --engine sqlserver-se --engine-version 16.00 \
+        --default-only --region "${AWS_REGION}" --query 'DBEngineVersions[0].EngineVersion' --output text)
+    [[ -n $version && $version != None ]] ||
+        die "RDS offers no default SQL Server 2022 (16.00) Standard Edition build in ${AWS_REGION}"
+    print_info "RDS resolves engine version 16.00 to ${version}"
+    [[ $(aws rds describe-orderable-db-instance-options --engine sqlserver-se --engine-version "$version" \
+        --license-model license-included --db-instance-class "${DB_INSTANCE_CLASS}" --region "${AWS_REGION}" \
+        --query 'length(OrderableDBInstanceOptions)' --output text) != 0 ]] ||
+        die "${DB_INSTANCE_CLASS} is not orderable for SQL Server Standard Edition, licence-included, in ${AWS_REGION}"
+    print_info "${DB_INSTANCE_CLASS} is orderable for SQL Server Standard Edition, licence-included"
+}
+
+# The template is larger than create-stack's 51,200-byte --template-body
+# limit, so it goes to S3 and the stack is created from its URL. The bucket is
+# CFN_TEMPLATE_BUCKET, or one this script creates once per account and region
+# with every public access blocked. The template holds no secret.
+stage_template() {
+    local account bucket key
+    account=$(aws sts get-caller-identity --query Account --output text)
+    bucket=${CFN_TEMPLATE_BUCKET:-cfn-templates-${account}-${AWS_REGION}}
+    if ! aws s3api head-bucket --bucket "$bucket" --region "${AWS_REGION}" 2>/dev/null; then
+        print_info "Creating the template bucket ${bucket}"
+        aws s3api create-bucket --bucket "$bucket" --region "${AWS_REGION}" \
+            --create-bucket-configuration "LocationConstraint=${AWS_REGION}" >/dev/null
+        aws s3api put-public-access-block --bucket "$bucket" --region "${AWS_REGION}" \
+            --public-access-block-configuration \
+            BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+    fi
+    key="${STACK_NAME}/infrastructure-$(date +%Y%m%d%H%M%S).yaml"
+    aws s3 cp "${SCRIPT_DIR}/infrastructure.yaml" "s3://${bucket}/${key}" --region "${AWS_REGION}" >/dev/null
+    TEMPLATE_URL="https://${bucket}.s3.${AWS_REGION}.amazonaws.com/${key}"
+    print_info "Template staged at ${TEMPLATE_URL}"
 }
 
 # Create parameters file. It holds no secret.
@@ -168,7 +230,7 @@ deploy_stack() {
 
     aws cloudformation create-stack \
         --stack-name "${STACK_NAME}" \
-        --template-body "file://${SCRIPT_DIR}/infrastructure.yaml" \
+        --template-url "${TEMPLATE_URL}" \
         --parameters "file://${PARAMETERS_FILE}" \
         --capabilities CAPABILITY_NAMED_IAM \
         --region "${AWS_REGION}"
@@ -238,14 +300,15 @@ SSH Command:
 ${SSH_COMMAND}
 
 Next Steps (deploy.sh does 1-3 when you answer yes to the JAR prompt):
-1. Database logins: ./db-bootstrap.sh ${STACK_NAME} ${AWS_REGION}
+1. The database and its logins were bootstrapped by the instance at boot; to
+   re-run that (a no-op on a healthy stack): ./db-bootstrap.sh ${STACK_NAME} ${AWS_REGION}
 2. Build the integrated JAR (SPA + backend), from the repo root: make package
    (equivalently: scripts/package.sh — 'cd backend && ./mvnw clean package' is
    backend-only and produces a JAR with no SPA)
 3. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
-   then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
+   then on the instance: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
    and: sudo systemctl stop backend && sudo systemctl restart backend-migrate && sudo systemctl start backend && sudo systemctl enable backend
-   (the migrate step runs the migrations as the owner login; if it fails, do not start the service)
+   (the migrate step re-runs the database bootstrap, then the migrations as the owner login; if it fails, do not start the service)
 4. Post-deploy smoke (health, TLS, SCIM, alarms, secret leaks): ./smoke.sh ${STACK_NAME} ${AWS_REGION}
 5. The Bootstrap Admin's password: aws secretsmanager get-secret-value --secret-id ${ADMIN_SECRET_ARN} --query SecretString --output text
 EOF
@@ -275,21 +338,11 @@ retrieve_ssh_key() {
     chmod 400 "$KEY_FILE"
 }
 
-# The SSH daemon on a fresh instance answers a little after the stack completes.
-wait_for_ssh() {
-    local waited=0
-    until ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
-        -o ConnectTimeout=10 "ec2-user@${EC2_IP}" true 2>/dev/null; do
-        ((waited < 300)) || die "the instance did not accept SSH within 300 s"
-        sleep 10
-        waited=$((waited + 10))
-    done
-}
-
-# Create the owner, app and retention logins in PostgreSQL.
+# The instance bootstraps the database at boot (UserData). Wait for that
+# boot, then run the bootstrap again: on a fresh stack the re-run must change
+# nothing, which proves it idempotent before anything depends on it.
 bootstrap_database() {
-    wait_for_ssh
-    "${SCRIPT_DIR}/db-bootstrap.sh" "${STACK_NAME}" "${AWS_REGION}"
+    "${SCRIPT_DIR}/db-bootstrap.sh" --expect-no-op "${STACK_NAME}" "${AWS_REGION}"
 }
 
 # Prompt for JAR deployment
@@ -357,20 +410,20 @@ deploy_jar() {
 
     print_info "Migrating the schema (migrate step), then starting the application..."
 
-    # The migrate step runs first, as the owner login, against the new JAR; the
-    # service is stopped while it runs and is started only once it succeeded. A
-    # failed migration ends this script with the service still stopped, so a
-    # schema the new JAR does not match is never served (infra/README.md,
-    # "Migrate step").
+    # The migrate step runs first — after the database bootstrap, which its unit
+    # requires — as the owner login, against the new JAR; the service is stopped
+    # while it runs and is started only once it succeeded. A failed migration
+    # ends this script with the service still stopped, so a schema the new JAR
+    # does not match is never served (infra/README.md, "Migrate step").
     ssh -i "$KEY_FILE" \
         -o StrictHostKeyChecking=accept-new \
         "ec2-user@${EC2_IP}" << 'ENDSSH'
 set -euo pipefail
 sudo mv /tmp/backend.jar /opt/backend/backend.jar
-sudo chown springboot:springboot /opt/backend/backend.jar
+sudo chown root:root /opt/backend/backend.jar && sudo chmod 0644 /opt/backend/backend.jar
 sudo systemctl stop backend
 if ! sudo systemctl restart backend-migrate; then
-    sudo journalctl -u backend-migrate -n 50 --no-pager || true
+    sudo journalctl -u backend-db-bootstrap -u backend-migrate -n 50 --no-pager || true
     echo "the migrate step failed; the service was not started" >&2
     exit 1
 fi
@@ -393,7 +446,9 @@ main() {
 
     check_prerequisites
     get_inputs
+    check_engine_and_class
     create_parameters_file
+    stage_template
     deploy_stack
     display_outputs
     retrieve_ssh_key

@@ -530,7 +530,7 @@ class EpicLoginIntegrationTests {
         EPIC.signInFromEpic(practitioner, null);
 
         assertThat(jdbc.queryForList(
-                "SELECT error_code || '/' || login_method FROM audit_events"
+                "SELECT error_code + '/' + login_method FROM audit_events"
                         + " WHERE operation = 'LOGIN_FAILURE' AND subject_id = ?",
                 String.class, EPIC.practitioners().idOf(practitioner)))
                 .containsExactly("ACCOUNT_DISABLED/sso");

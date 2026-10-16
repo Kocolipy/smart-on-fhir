@@ -15,8 +15,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
- * The migrate step, run as a deployment runs it — its own entry point, on an empty database the
- * owner login owns — and read back as the owner login (ADR 0015, ac-1 and as-2; #66).
+ * The migrate step, run as a deployment runs it — its own entry point, on an empty database whose
+ * {@code db_owner} role the owner login is a member of — and read back as the owner login (ADR
+ * 0015, ac-1 and as-2; #66).
  *
  * <p>The settings arrive as command-line arguments, which the deployed {@code migrate} profile
  * would otherwise supply from the environment: the test resources' {@code application.yaml}
@@ -25,10 +26,15 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 class MigrationStepIntegrationTests {
 
     private static final String SCHEMA_HISTORY =
-            "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank";
+            "SELECT version FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank";
+
+    /** Who the owner login is in the database, whether it is in db_owner, and what it applied. */
+    private static final String OWNER_PRINCIPAL_AND_MIGRATIONS = """
+            SELECT CONCAT(USER_NAME(), N'/', IS_ROLEMEMBER(N'db_owner'), N'/',
+                          (SELECT count(*) FROM flyway_schema_history WHERE success = 1))""";
 
     private static final String PUBLIC_TABLES =
-            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'";
+            "SELECT count(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo')";
 
     private static String[] migrate(String url, String appLogin, String retentionLogin) {
         return new String[] {
@@ -66,7 +72,24 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6");
+                .containsExactly("1");
+    }
+
+    /**
+     * The owner login migrates as a member of {@code db_owner}, under a database user of its own
+     * name, not as the database's owner ({@code dbo}): that is all RDS for SQL Server's master
+     * user can make it, because handing a database to another login needs {@code IMPERSONATE} on
+     * it, which the master user does not hold (infra/README.md, "Database bootstrap"). Every
+     * test database is bootstrapped the same way, so the suite proves the migrations under it.
+     */
+    @Test
+    void theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner() throws SQLException {
+        String url = emptyDatabase();
+
+        MigrationStep.main(migrate(url));
+
+        assertThat(asOwner(url).queryForObject(OWNER_PRINCIPAL_AND_MIGRATIONS, String.class))
+                .isEqualTo("backend_owner/1/1");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */
@@ -115,26 +138,28 @@ class MigrationStepIntegrationTests {
 
     /**
      * The owner's connection is opened with the driver properties every pool's is: here one that
-     * demands TLS of a server that offers none, so the step fails before any migration runs rather
-     * than migrating over a connection the deployment said must be encrypted.
+     * demands strict (TDS 8.0) encryption of a server that does not offer it, so the TLS handshake
+     * fails and the step with it, before any migration runs, rather than migrating over a
+     * connection opened without the deployment's settings.
      */
     @Test
     void theOwnersConnectionIsOpenedWithTheServicesDriverProperties() throws SQLException {
         String url = emptyDatabase();
         String[] args = Stream.concat(Stream.of(migrate(url)),
-                        Stream.of("--spring.datasource.hikari.data-source-properties.sslmode=require"))
+                        Stream.of("--spring.datasource.hikari.data-source-properties.encrypt=strict"))
                 .toArray(String[]::new);
 
         assertThatThrownBy(() -> MigrationStep.main(args))
-                .hasRootCauseMessage("The server does not support SSL.");
+                .rootCause()
+                .hasMessage("SSL peer shut down incorrectly");
 
         assertThat(asOwner(url).queryForObject(PUBLIC_TABLES, Integer.class)).isZero();
     }
 
     /**
      * A migration that fails ends the entry point with the failure, so the process exits non-zero
-     * and a deployment that runs it first never starts the service: here {@code V3} names a login
-     * that does not exist, so neither it nor any migration after it is applied.
+     * and a deployment that runs it first never starts the service: here {@code V1} names a login
+     * that does not exist, so it is rolled back and recorded as applied nowhere.
      */
     @Test
     void aFailingMigrationFailsTheStep() throws SQLException {
@@ -142,9 +167,9 @@ class MigrationStepIntegrationTests {
 
         assertThatThrownBy(() -> MigrationStep.main(
                         migrate(url, "no_such_login", "backend_retention_login")))
-                .hasRootCauseMessage("ERROR: role \"no_such_login\" does not exist");
+                .rootCause()
+                .hasMessageContaining("'no_such_login' is not a valid login");
 
-        assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1", "2");
+        assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class)).isEmpty();
     }
 }

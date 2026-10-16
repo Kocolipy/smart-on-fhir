@@ -121,21 +121,15 @@ class AuditAppendOnlyIntegrationTests {
     private static final String CHANGE_REQUIRED_SINCE_OF_USER =
             "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?";
 
-    private static final String FORCED_FAILURE_FUNCTION = """
-            CREATE OR REPLACE FUNCTION forced_append_failure() RETURNS trigger
-                LANGUAGE plpgsql AS $$
-            BEGIN
-                RAISE EXCEPTION 'forced audit append failure';
-            END
-            $$""";
-
     private static final String FORCED_FAILURE_TRIGGER = """
             CREATE TRIGGER forced_append_failure
-                BEFORE INSERT ON audit_events
-                FOR EACH ROW EXECUTE FUNCTION forced_append_failure()""";
+                ON audit_events
+                AFTER INSERT
+            AS
+                THROW 50000, 'forced audit append failure', 1;""";
 
     private static final String DROP_FORCED_FAILURE_TRIGGER =
-            "DROP TRIGGER IF EXISTS forced_append_failure ON audit_events";
+            "DROP TRIGGER IF EXISTS forced_append_failure";
 
     @Autowired
     private WebApplicationContext context;
@@ -290,8 +284,8 @@ class AuditAppendOnlyIntegrationTests {
         assertThat(jdbc.queryForList(EVENTS_BY_OPERATION, AuditOperation.LOGIN_FAILURE.name()))
                 .as("the failure event outlived the rollback")
                 .singleElement()
-                .satisfies(row ->
-                        assertThat(row.get("subject_id")).hasToString(subjectId.toString()));
+                .satisfies(row -> assertThat(UUID.fromString(String.valueOf(row.get("subject_id"))))
+                        .isEqualTo(subjectId));
     }
 
     // Role separation, at the database
@@ -313,10 +307,10 @@ class AuditAppendOnlyIntegrationTests {
         insertEvent(recorded);
 
         assertThatThrownBy(() -> logins.app().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
-                .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.PERMISSION_DENIED.errorCode()))
                 .rootCause()
-                .hasMessageContaining("permission denied for table audit_events");
+                .hasMessageContaining("The UPDATE permission was denied on the object 'audit_events'");
 
         assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
                 .isEqualTo("SUCCESS");
@@ -328,19 +322,19 @@ class AuditAppendOnlyIntegrationTests {
         insertEvent(recorded);
 
         assertThatThrownBy(() -> logins.app().jdbc().update(DELETE_EVENT, recorded))
-                .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.PERMISSION_DENIED.errorCode()))
                 .rootCause()
-                .hasMessageContaining("permission denied for table audit_events");
+                .hasMessageContaining("The DELETE permission was denied on the object 'audit_events'");
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isEqualTo(1);
     }
 
     /**
-     * The grants say nothing about the owner login, which owns the table — a console
+     * The grants say nothing about the owner login, a member of db_owner — a console
      * session, or a migration. The table's own guard refuses it a delete as well as an
-     * update, although it administers the retention role, so append-only survives a
-     * misused credential instead of depending on none being used.
+     * update, although it could make itself a member of the retention role, so append-only
+     * survives a misused credential instead of depending on none being used.
      */
     @Test
     void theOwnerLoginMayNotDeleteARecordedEvent() {
@@ -348,8 +342,10 @@ class AuditAppendOnlyIntegrationTests {
         insertEvent(recorded);
 
         assertThatThrownBy(() -> logins.owner().jdbc().update(DELETE_EVENT, recorded))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.AUDIT_TRIGGER_REFUSAL.errorCode()))
                 .rootCause()
-                .hasMessageStartingWith("ERROR: audit_events is append-only: backend_owner may not DELETE"
+                .hasMessage("audit_events is append-only: backend_owner may not DELETE"
                         + " a recorded event");
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isEqualTo(1);
@@ -361,12 +357,43 @@ class AuditAppendOnlyIntegrationTests {
         insertEvent(recorded);
 
         assertThatThrownBy(() -> logins.owner().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.AUDIT_TRIGGER_REFUSAL.errorCode()))
                 .rootCause()
-                .hasMessageStartingWith("ERROR: audit_events is append-only: backend_owner may not UPDATE"
+                .hasMessage("audit_events is append-only: backend_owner may not UPDATE"
                         + " a recorded event");
 
         assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
                 .isEqualTo("SUCCESS");
+    }
+
+    /**
+     * An UPDATE is told from a DELETE by the columns it sets, not by the rows it found, so
+     * one that matches nothing is refused as an UPDATE all the same.
+     */
+    @Test
+    void theOwnerLoginMayNotUpdateEvenWhereNoEventMatches() {
+        assertThatThrownBy(() -> logins.owner().jdbc().update(UPDATE_EVENT_OUTCOME,
+                        UUID.randomUUID()))
+                .rootCause()
+                .hasMessage("audit_events is append-only: backend_owner may not UPDATE"
+                        + " a recorded event");
+    }
+
+    /**
+     * A sysadmin enters the database as its owner, and is refused by the guard as the owner
+     * is: no principal of the server may delete an audit row but the retention login.
+     */
+    @Test
+    void theServersAdministratorMayNotDeleteARecordedEvent() {
+        UUID recorded = UUID.randomUUID();
+        insertEvent(recorded);
+
+        assertThatThrownBy(() -> logins.superuser().jdbc().update(DELETE_EVENT, recorded))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.AUDIT_TRIGGER_REFUSAL.errorCode()));
+
+        assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recorded)).isEqualTo(1);
     }
 
     @Test
@@ -386,10 +413,10 @@ class AuditAppendOnlyIntegrationTests {
         insertEvent(recorded);
 
         assertThatThrownBy(() -> logins.retention().jdbc().update(UPDATE_EVENT_OUTCOME, recorded))
-                .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()))
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.PERMISSION_DENIED.errorCode()))
                 .rootCause()
-                .hasMessageContaining("permission denied for table audit_events");
+                .hasMessageContaining("The UPDATE permission was denied on the object 'audit_events'");
 
         assertThat(jdbc.queryForObject(OUTCOME_OF_EVENT, String.class, recorded))
                 .isEqualTo("SUCCESS");
@@ -399,8 +426,8 @@ class AuditAppendOnlyIntegrationTests {
     void theRetentionLoginMayNotInsertAnEvent() {
         assertThatThrownBy(() -> logins.retention().jdbc().update(
                         INSERT_EVENT, UUID.randomUUID(), Instant.now().atOffset(ZoneOffset.UTC)))
-                .satisfies(failure -> assertThat(sqlStates(failure))
-                        .contains(SqlFailures.PERMISSION_DENIED.sqlState()));
+                .satisfies(failure -> assertThat(errorCodes(failure))
+                        .contains(SqlFailures.PERMISSION_DENIED.errorCode()));
     }
 
     /**
@@ -430,9 +457,7 @@ class AuditAppendOnlyIntegrationTests {
      * failure left behind would poison every test after it.
      */
     private void forceAppendFailure() {
-        JdbcTemplate owner = logins.owner().jdbc();
-        owner.execute(FORCED_FAILURE_FUNCTION);
-        owner.execute(FORCED_FAILURE_TRIGGER);
+        logins.owner().jdbc().execute(FORCED_FAILURE_TRIGGER);
     }
 
     private int insertEvent(UUID id) {
@@ -451,15 +476,15 @@ class AuditAppendOnlyIntegrationTests {
         return jdbc.queryForList(ALL_EVENTS);
     }
 
-    /** Every SQLSTATE in the failure's cause chain. */
-    private static List<String> sqlStates(Throwable failure) {
-        List<String> states = new ArrayList<>();
+    /** Every SQL Server error number in the failure's cause chain. */
+    private static List<Integer> errorCodes(Throwable failure) {
+        List<Integer> codes = new ArrayList<>();
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof SQLException sql) {
-                states.add(sql.getSQLState());
+                codes.add(sql.getErrorCode());
             }
         }
-        return states;
+        return codes;
     }
 
     private static String refusedCredentials() {

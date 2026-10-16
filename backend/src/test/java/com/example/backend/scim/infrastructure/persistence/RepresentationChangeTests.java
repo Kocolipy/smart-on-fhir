@@ -1,16 +1,22 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -259,8 +265,33 @@ class RepresentationChangeTests {
             RepresentationChange.groupCreated(List.of(ALICE, BOB, ALICE), NOW)
                     .advanceIn(resources);
 
-            verify(resources).advanceVersions(Set.of(ALICE, BOB), NOW);
+            verify(resources).advanceVersions(
+                    argThat(ids -> Set.copyOf(ids).equals(Set.of(ALICE, BOB)) && ids.size() == 2),
+                    eq(NOW));
             verifyNoMoreInteractions(resources);
+        }
+
+        /**
+         * More resources than SQL Server binds in one request (2,100 parameters) go out as
+         * statements of at most 2,000 ids each, together naming every resource exactly once — 4,500
+         * ids are three statements: 2,000, 2,000 and 500.
+         */
+        @Test
+        void a_change_naming_more_than_one_request_binds_is_split_into_statements_of_2000() {
+            ScimResourceJpaRepository resources = mock(ScimResourceJpaRepository.class);
+            List<UUID> members = IntStream.range(0, 4_500).mapToObj(i -> UUID.randomUUID()).toList();
+            List<Collection<UUID>> statements = new ArrayList<>();
+            when(resources.advanceVersions(anyCollection(), eq(NOW))).thenAnswer(call -> {
+                Collection<UUID> ids = call.getArgument(0);
+                statements.add(List.copyOf(ids));
+                return ids.size();
+            });
+
+            RepresentationChange.groupDeleted(members, NOW).advanceIn(resources);
+
+            assertThat(statements).extracting(Collection::size).containsExactly(2_000, 2_000, 500);
+            assertThat(statements.stream().flatMap(Collection::stream))
+                    .containsExactlyInAnyOrderElementsOf(members);
         }
 
         @Test

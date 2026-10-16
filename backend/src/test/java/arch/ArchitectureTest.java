@@ -355,8 +355,9 @@ public class ArchitectureTest {
                     "the dormancy job's Role revocation, joining the run's batch transaction: a"
                             + " scheduled path, which the next run covers"),
             Map.entry("com.example.backend.audit.infrastructure.persistence.AuditEventRetentionAdapter"
-                            + "#deleteOccurredBefore",
-                    "the audit retention job's delete: a scheduled path, which the next run covers"),
+                            + "#deleteBatchOccurredBefore",
+                    "a batch of the audit retention job's delete: a scheduled path, which the next"
+                            + " run covers"),
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
                     "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
                             + " the outermost boundary a retry belongs at"));
@@ -704,8 +705,10 @@ public class ArchitectureTest {
             // (backend/AGENTS.md).
             // scim reaches web for one thing: the connector administration adapter is on the
             // application chain, so its deadlocked writes' 503 is the application API's ApiError,
-            // answered by that API's own fault handler (ADR 0015's as-13).
-            Map.entry("scim", Set.of("audit", "authorization", "observability", "web")),
+            // answered by that API's own fault handler (ADR 0015's as-13). It reaches database for
+            // TimedJdbc: the seed lock's row-lock wait is bounded as every lock statement is (ADR
+            // 0015, "Bounded timeouts"), as the scheduled-job lock's is.
+            Map.entry("scim", Set.of("audit", "authorization", "database", "observability", "web")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
             // counter and lifecycle are leaves, which no entry names: removing one must not break
             // another module.

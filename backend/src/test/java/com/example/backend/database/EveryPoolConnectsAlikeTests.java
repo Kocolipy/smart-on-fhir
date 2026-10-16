@@ -1,5 +1,6 @@
 package com.example.backend.database;
 
+import static com.example.backend.database.config.DatabaseConnectionsFixture.asTheDriverReads;
 import static com.example.backend.database.config.DatabaseConnectionsFixture.driverProperties;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -7,6 +8,7 @@ import com.example.backend.audit.config.AuditAppendPoolConfig;
 import com.example.backend.audit.config.AuditRetentionPoolConfig;
 import com.example.backend.database.config.DatabaseConnectionsFixture;
 import com.zaxxer.hikari.HikariDataSource;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,29 @@ class EveryPoolConnectsAlikeTests {
                                 "sslrootcert", "/etc/rds-ca.pem", "loginTimeout", "15"))));
     }
 
+    /**
+     * The deployed stack's trust-store password reaches every pool's driver from the process
+     * environment alone (infra/README.md, "TLS to the database"): {@code start.sh} exports it as
+     * this variable after reading it from Secrets Manager, so it is in no file and no URL. The
+     * environment-variable binding lower-cases the key; the driver matches property names
+     * case-insensitively, so it reads the value as its {@code trustStorePassword}.
+     */
+    @Test
+    void theDeploymentsTrustStorePasswordReachesEveryPoolsDriverFromTheEnvironment() {
+        contexts.withInitializer(DatabaseConnectionsFixture.environment(Map.of(
+                        "SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD",
+                        "the-trust-stores")))
+                .run(context -> {
+                    List<String> read = new ArrayList<>();
+                    for (String pool : POOLS) {
+                        read.add(asTheDriverReads(context.getBean(pool, HikariDataSource.class)
+                                .getDataSourceProperties(), "trustStorePassword"));
+                    }
+                    assertThat(read).containsExactly(
+                            "the-trust-stores", "the-trust-stores", "the-trust-stores");
+                });
+    }
+
     /** One database for all of them, through one driver. */
     @Test
     void everyPoolReachesTheMainPoolsDatabaseThroughItsDriver() {
@@ -52,8 +77,8 @@ class EveryPoolConnectsAlikeTests {
                         .map(pool -> context.getBean(pool, HikariDataSource.class))
                         .map(pool -> List.of(pool.getJdbcUrl(), pool.getDriverClassName()))
                         .toList())
-                .containsOnly(List.of("jdbc:postgresql://db.internal:5432/backend",
-                        "org.postgresql.Driver")));
+                .containsOnly(List.of("jdbc:sqlserver://db.internal:1433;databaseName=backend",
+                        "com.microsoft.sqlserver.jdbc.SQLServerDriver")));
     }
 
     /**

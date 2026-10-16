@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -193,7 +194,7 @@ class ScimEncodedPathAuthorizationIntegrationTests {
         assertThat(refusal.at("/http/response/status_code").asInt()).isEqualTo(403);
         assertThat(refusal.at("/scim/connector/id").asText()).isEqualTo(connector.toString());
 
-        List<Map<String, Object>> audited = jdbc.queryForList(EVENTS, connector);
+        List<Map<String, Object>> audited = jdbc.query(EVENTS, UuidColumnRows.ROWS, connector);
         assertThat(audited).hasSize(auditedBefore + 1);
         Map<String, Object> row = audited.getLast();
         assertThat(row.get("actor_id")).hasToString(connector.toString());

@@ -416,8 +416,8 @@ public final class ScimFilterParser {
 
     /**
      * A {@code \\uXXXX} escape, decoded. A NUL is refused: no stored attribute can contain one —
-     * PostgreSQL text cannot hold it — so it could match nothing, and passing it on would turn a
-     * client's filter into the database's encoding error rather than a {@code 400}.
+     * every write refuses it — so it could match nothing, and refusing it here answers the client
+     * with a {@code 400} rather than a filter that silently matches nothing.
      */
     private char unicodeEscape() {
         if (position + 4 > text.length()) {

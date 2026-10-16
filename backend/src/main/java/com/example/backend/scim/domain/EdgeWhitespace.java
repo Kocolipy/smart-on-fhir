@@ -6,9 +6,9 @@ package com.example.backend.scim.domain;
  * held to (ADR 0015, "Leading or trailing whitespace is refused on every unique or lookup key").
  *
  * <p>The reason is the database underneath, not the value: SQL Server pads {@code =} comparisons
- * and unique constraints, so {@code alice} and {@code alice } collide or match there while they
- * are distinct on PostgreSQL. Refusing edge whitespace on every key keeps a key meaning the same
- * thing on either engine. Whitespace inside a value is not at an edge and is accepted.
+ * and unique constraints, so {@code alice} and {@code alice } would collide as keys and match each
+ * other in a lookup. Refusing edge whitespace on every key keeps a key meaning exactly the value
+ * its holder sent. Whitespace inside a value is not at an edge and is accepted.
  *
  * <p><b>Whitespace</b> is Unicode's {@code White_Space} property, exactly: the space separators
  * ({@code Zs}, U+0020, U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000), the line and

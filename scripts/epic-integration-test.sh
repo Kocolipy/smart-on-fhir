@@ -3,7 +3,7 @@
 # the SMART Health IT launcher standing in for Epic (/docs/adr/0013-epic-login.md).
 # frontend/AGENTS.md carries its trigger and when it passes.
 #
-# Brings up Postgres, Redis and the launcher (the compose `epic-launcher`
+# Brings up SQL Server, Redis and the launcher (the compose `epic-launcher`
 # profile), starts the backend in the local and dev profiles with Epic Login pointed at the
 # launcher, then runs the Playwright `epic` project, which starts the Vite dev
 # server itself. Everything this script started is torn down again unless
@@ -15,7 +15,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd openssl
-stack_up "Postgres, Redis and the SMART launcher" epic-launcher
+stack_up "SQL Server, Redis and the SMART launcher" epic-launcher
 
 # Where the browser and the backend reach the launcher — compose.yaml publishes
 # it on 9009 — and so the issuer it reports: the launcher derives every URL it

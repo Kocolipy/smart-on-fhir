@@ -44,10 +44,22 @@ public class DataSourceConfig {
 
     static final Duration CONNECTION_TIMEOUT = Duration.ofSeconds(10);
 
-    /** How every pool reaches the database, read as Boot reads the main pool's settings. */
+    /**
+     * How every pool reaches the database, read as Boot reads the main pool's settings.
+     *
+     * <p>The URL has no fallback ({@code DATABASE_URL}, ADR 0015), so a start without it is refused
+     * here, by the variable's name: an unset variable reaches this point as its own unresolved
+     * placeholder, which the driver lookup would otherwise report only as a URL that is not JDBC.
+     * The message never quotes the value, which may carry a trust store's password.
+     */
     @Bean
     public DatabaseConnections databaseConnections(
             DataSourceProperties properties, DatabaseConnectionProperties connectionProperties) {
+        String url = properties.getUrl();
+        if (url == null || url.isBlank() || url.startsWith("${")) {
+            throw new IllegalStateException("The service's database URL is not set: set"
+                    + " DATABASE_URL (spring.datasource.url); it has no default");
+        }
         return new DatabaseConnections(
                 properties.determineUrl(),
                 properties.determineDriverClassName(),

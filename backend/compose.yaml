@@ -1,24 +1,73 @@
-# Exact patch + digest on both dependency images. These back the tests — Playwright runs
-# against a real Postgres and a real Redis — so a floating `18-alpine` tag means
-# a green run today and an unexplained red one after an upstream rebuild.
-# Refresh both tag and digest together (see /README.md, "Toolchain pins").
+# Exact patch + digest on every dependency image. These back the tests — Playwright
+# runs against a real SQL Server and a real Redis — so a floating tag means a green
+# run today and an unexplained red one after an upstream rebuild. Refresh tag and
+# digest together (see /README.md, "Toolchain pins").
+#
+# SQL Server reads its sa password, and the init the three logins, from
+# backend/.env, which compose reads for interpolation (copy .env.example). x86_64
+# only: the image has no arm64 build, and Apple Silicon runs it only through slow,
+# unsupported emulation (backend/README.md).
 services:
-  postgres:
-    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+  sqlserver:
+    # SQL Server 2022 CU27, Developer Edition (free for development and test use).
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+    platform: linux/amd64
     environment:
-      POSTGRES_DB: backend
-      POSTGRES_USER: backend
-      POSTGRES_PASSWORD: backend
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-}
+      # SQL Server takes what memory it can see unless told otherwise; this caps
+      # its own use below the container's limit.
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+      # This server keeps its default collation (the deployed RDS server is
+      # Latin1_General_100_BIN2_UTF8; infra/README.md). The database is created with
+      # Latin1_General_100_BIN2_UTF8 by the init below (ADR 0015); a server collated
+      # BIN2_UTF8 cannot load the internal procedures behind sp_getapplock, which
+      # Flyway takes to guard every migration (the seed lock is a row lock).
+    mem_limit: 3g
     ports:
-      - "5432:5432"
+      - "1433:1433"
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - sqlserver-data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U backend"]
+      # The password reaches sqlcmd through its environment, not its arguments.
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' -o /dev/null"]
       interval: 5s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     restart: unless-stopped
+
+  # One-shot and idempotent: once SQL Server is healthy, creates the database with
+  # its creation options (collation, compatibility level 160, read-committed
+  # snapshot, snapshot isolation) and the owner, app and retention logins from
+  # backend/.env, then exits non-zero on any failure. Echoes no secret
+  # (scripts/local-db-init.sh). Run in the foreground, so its exit status is the
+  # caller's: `make infra-up` runs it after `up --wait` (which does not wait for a
+  # one-shot to finish) with `docker compose run --rm sqlserver-init`, every time,
+  # which applies a changed .env. Its own profile keeps it out of a plain `up`.
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+    platform: linux/amd64
+    profiles: ["init"]
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-}
+      # The database DATABASE_URL in .env.example names.
+      DATABASE_NAME: backend
+      DATABASE_OWNER_USERNAME: ${DATABASE_OWNER_USERNAME:-}
+      DATABASE_OWNER_PASSWORD: ${DATABASE_OWNER_PASSWORD:-}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-}
+      DATABASE_RETENTION_USERNAME: ${DATABASE_RETENTION_USERNAME:-}
+      DATABASE_RETENTION_PASSWORD: ${DATABASE_RETENTION_PASSWORD:-}
+    volumes:
+      - ./scripts/local-db-init.sh:/init/local-db-init.sh:ro
+      - ./scripts/local-db-init.sql:/init/local-db-init.sql:ro
+    entrypoint: ["/bin/bash", "/init/local-db-init.sh"]
+    restart: "no"
 
   redis:
     image: redis:8.2.10-alpine@sha256:8d02c1dc547ea659066d2ca18fce4e80f0a84cfe56a61af2ced2c2a48de3597c
@@ -37,7 +86,7 @@ services:
   # The SMART Health IT launcher: a local stand-in for Epic, for a real SMART EHR
   # launch with no Epic sandbox (/docs/adr/0013-epic-login.md).
   # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
-  # `make infra-up` still starts only Postgres and Redis. Start it with
+  # `make infra-up` still starts only SQL Server and Redis. Start it with
   # `make epic-launcher-up`; backend/README.md, "Local Epic launcher", has the
   # APP_EPIC_* values that point at it. Upstream publishes `latest` only, so the
   # digest is the pin.
@@ -64,5 +113,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  sqlserver-data:
   redis-data:

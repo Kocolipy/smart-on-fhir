@@ -333,18 +333,20 @@ alert cannot leak what the event withheld.
 
 **The database category mapping** (ADR 0015, "Standards resolutions").
 `DatabaseFailureCategory` decides the category of a failure the database raised,
-keyed on what every engine reports — the SQLState of the `SQLException` in the
-cause chain, and Spring's data-access and transaction hierarchy — and never on a
-driver's class. The scheduled-job module and the app-wide handler both classify
-through it.
+keyed on what the engine reports — the vendor error number and SQLState of the
+`SQLException` in the cause chain, and Spring's data-access and transaction
+hierarchy — and never on a driver's class. The scheduled-job module and the
+app-wide handler both classify through it. SQL Server's rows key on the error
+number: its driver derives a server error's SQLState from the error's state number,
+and the deadlock victim and the snapshot conflict share one (`40001`).
 
-| Failure                                               | SQLState today, on PostgreSQL                                            | `error.category` | `error.follow_up_action`                 | Level   |
-| ----------------------------------------------------- | ------------------------------------------------------------------------ | ---------------- | ---------------------------------------- | ------- |
-| Deadlock, first occurrence, retried                   | `40P01`                                                                  | `database`       | — (`retry.attempt=1`, `reason=deadlock`) | `WARN`  |
-| Deadlock (repeat), snapshot or serialization conflict | `40P01`, `40001`                                                         | `database`       | `true` (investigate)                     | `ERROR` |
-| Untranslated unique violation, truncation, conversion | `23505`, `22001`, `22P02` (class `22`/`23`)                              | `database`       | `true` (investigate)                     | `ERROR` |
-| Lock not acquired or timed out; audit-trigger refusal | `55P03`, `57014`; the trigger: `27000` (below)                           | `database`       | `true` (investigate)                     | `ERROR` |
-| TLS trust failure, refused login, permission denied   | an `SSLException` or `CertificateException` beneath; class `28`; `42501` | `cert/auth`      | `true` (check configuration)             | `ERROR` |
+| Failure                                               | What SQL Server reports                                                         | `error.category` | `error.follow_up_action`                 | Level   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------- | ---------------------------------------- | ------- |
+| Deadlock, first occurrence, retried                   | error `1205` (under `40001`)                                                    | `database`       | — (`retry.attempt=1`, `reason=deadlock`) | `WARN`  |
+| Deadlock (repeat), snapshot conflict                  | `1205`; `3960`                                                                  | `database`       | `true` (investigate)                     | `ERROR` |
+| Untranslated unique violation, truncation, conversion | `2627`, `2601`; `2628`; `245`, `8114`                                           | `database`       | `true` (investigate)                     | `ERROR` |
+| Lock not acquired or timed out; audit-trigger refusal | `1222`; the driver's timeout, `HY008`; an application lock not granted; `50001` | `database`       | `true` (investigate)                     | `ERROR` |
+| TLS trust failure, refused login, permission denied   | an `SSLException` or `CertificateException` beneath; `18456`; `229`             | `cert/auth`      | `true` (check configuration)             | `ERROR` |
 
 Every other database failure is `database`. Two rows need more than a state:
 
@@ -365,8 +367,9 @@ Every other database failure is `database`. Two rows need more than a state:
   `server-error` `ApiError` on the application chain, the connector administration
   adapter's included. A deadlock the retry did not see — on a path not retried —
   stays the generic `500`, so `docs/openapi.yaml` lists the `503` on the retried
-  writes alone. A deadlock is `DatabaseFailureCategory.deadlock`: SQLState `40P01`
-  in the cause chain. `app.retry.attempt` is the issue's `retry.attempt`, under the
+  writes alone. A deadlock is `DatabaseFailureCategory.deadlock`: error `1205`
+  under `40001` in the cause chain — never the snapshot conflict (`3960`) that
+  shares the state. `app.retry.attempt` is the issue's `retry.attempt`, under the
   `app` namespace as the JWKS refetch's is, since ECS names no such field.
 
   **Coverage and placement are rules, not conventions** (`ArchitectureTest`). Every
@@ -387,25 +390,31 @@ Every other database failure is `database`. Two rows need more than a state:
   path reaches a port or another bean before it throws or returns.
 
 - **The audit trigger's refusal** (ADR 0004's 2026-10-14 addendum). The append-only
-  trigger raises `triggered_data_change_violation` (`27000`), the SQL standard's
-  state for a change a trigger refused, so it is `database` and can never be
-  mistaken for the permission refusal (`42501`) a missing grant raises. Before
-  `V4__audit_trigger_refusal_state.sql` it raised `42501` and was classified
-  `cert/auth`. V4 changes only the state: the guard is V3's role-membership test
-  (ADR 0004's superseding note), so what reaches it is a principal the grants let
-  through — the owner login — and the app login is refused by its grants first.
+  trigger throws its own error, `50001`, so it is `database` and can never be
+  mistaken for the permission refusal (`229`) a missing grant raises. What reaches
+  the trigger is a principal the grants let through — the owner login — and the app
+  login is refused by its grants first. (On PostgreSQL the trigger raised
+  `triggered_data_change_violation`, `27000`, for the same reason.)
+
+- **The seeding lock not granted.** The seeding lock is a row lock (ADR 0015's
+  2026-10-16 addendum) bounded by a 60 s query timeout; a wait that runs out fails
+  the start as Spring's `CannotAcquireLockException`, a `DataAccessException`, and
+  so `database`.
 
 `DatabaseFailureLogIntegrationTests` drives the failures the suite can produce on
-PostgreSQL — the unique violation, truncation, conversion error, permission
+SQL Server — the unique violation, truncation, conversion error, permission
 refusal, lock not acquired, audit-trigger refusal and refused login — and asserts
-each record's `error.code` and `error.category`; `DatabaseFailureCategoryTests`
-holds every row, the deadlock, serialization and TLS ones included.
-`ScimDeadlockRetryIntegrationTests` forces a real deadlock on a User PUT, once and
-then again on its retry, which answers `503`, and retries a token rotation;
-`DeadlockRetryAdapterTests` holds the retry's rules and `DeadlockRetryRulesTests`
-shows each architecture rule failing on the shape it forbids. The contract
-fixtures produce every documented `503` through `ForcedDeadlock`, a trigger that
-raises the victim's SQLState on the write's row.
+each record's `error.code`, `error.category` and redacted `SQL Server error <n>`;
+`DatabaseFailureCategoryTests` holds every row, the deadlock, snapshot-conflict and
+TLS ones included. `ScimDeadlockRetryIntegrationTests` forces a real deadlock on a
+User PUT, retried and completed, and one on its retry too, which answers `503`, and
+retries a token rotation; `DeadlockRetryAdapterTests` holds the retry's rules and
+`DeadlockRetryRulesTests` shows each architecture rule failing on the shape it
+forbids. The contract fixtures produce every documented `503` through
+`ForcedDeadlock`: SQL Server lets no statement raise `1205`, so it makes a real
+deadlock — a trigger on the write's row updates one row of a table of its own and
+waits on another a partner connection holds, which then reads the first at a higher
+deadlock priority.
 
 **No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the
 request (`RequestFault`), and `RequestIdFilter` then writes that request's record at
@@ -425,17 +434,17 @@ writes `error.message` and `error.stack_trace` from a redacted copy of the
 exception tree (`SqlExceptionRedaction`):
 
 - the message of every `SQLException` in the tree, causes and suppressed ones
-  included, becomes `SQL error <vendor code> (SQLState <state>)`, an SQLState that
-  is not five letters or digits being written `unknown`;
+  included, becomes `SQL Server error <n>`, the server's error number (`0` for a
+  failure the driver raised itself), with no SQLState;
 - the message of every throwable with an `SQLException` beneath it in its cause
   chain becomes that one's redacted message, because it quotes it;
 - a cause beneath the `SQLException` (the socket failure a driver reports) keeps
   its message, and every class name and frame is kept.
 
 The rule is keyed on the generic `SQLException`, never a driver's class, and the
-message is engine-neutral: the SQL Server switchover (ADR 0015) changes only its
-wording, to `SQL Server error <n>`. It holds in the structured layouts, console and
-file, which every deployment runs. The pattern layout a developer may opt into
+message names only the error number: the SQL Server switchover (ADR 0015) gave it
+that wording in place of `SQL error <vendor code> (SQLState <state>)`. It holds in
+the structured layouts, console and file, which every deployment runs. The pattern layout a developer may opt into
 locally (`LOG_STRUCTURED_FORMAT` empty) prints an attached exception as the JVM
 does; the call sites that attach a redacted copy (above) are what stays redacted
 there. `EcsErrorFieldsCustomizerTests` holds the rule under both of the encoder's

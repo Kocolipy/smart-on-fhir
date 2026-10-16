@@ -42,7 +42,7 @@ import tools.jackson.databind.json.JsonMapper;
  * The ticket's demo oracle over real HTTP: two sessions belonging to different Users each call
  * {@code GET /api/self} and receive only their own record.
  *
- * <p>Everything is real — Users and Groups provisioned over SCIM into Postgres, logins through the
+ * <p>Everything is real — Users and Groups provisioned over SCIM into SQL Server, logins through the
  * real filter chain, sessions held in the indexed Redis store and carried between requests as the
  * cookie a browser would hold. So "the session's User" is the stable id the login wrote into the
  * session's principal index, not a fixture this test placed there.
@@ -279,13 +279,13 @@ class SelfReadIntegrationTests {
 
     private int failedAttempts(String userId) {
         return jdbc.queryForObject(
-                "SELECT failed_login_attempts FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT failed_login_attempts FROM scim_users WHERE resource_id = ?",
                 Integer.class, userId);
     }
 
     private Instant lastAuthenticatedAt(String userId) {
         OffsetDateTime stored = jdbc.queryForObject(
-                "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?::uuid",
+                "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?",
                 OffsetDateTime.class, userId);
         assertThat(stored).as("the login recorded an authentication").isNotNull();
         return stored.toInstant();

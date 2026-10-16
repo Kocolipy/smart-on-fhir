@@ -30,7 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * The default lockout threshold is 3 (#98): the 2nd consecutive failure leaves a User
  * unlocked and the 3rd locks it, counted through the real {@link LoginAttemptService}
- * against real Postgres.
+ * against real SQL Server.
  *
  * <p>The test resources' {@code application.yaml} shadows the deployed one, so the
  * threshold this context runs with is the test profile's. The first assertion ties the

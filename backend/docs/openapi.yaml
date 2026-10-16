@@ -89,7 +89,7 @@ info:
     `INVALID_VALUE`. Only a taken live name is `409 uniqueness`.
 
     **Forbidden characters.** No stored User or Group string may contain U+0000
-    (NUL): JSON can carry it as `\u0000`, but PostgreSQL cannot store it. `userName`
+    (NUL): JSON can carry it as `\u0000`, but it is hostile in logs and terminals. `userName`
     and `displayName`, of a User and of a Group, additionally refuse every other C0
     control (U+0001 to U+001F, newline and tab included) and DEL (U+007F), because they
     are the names an administrator reads and the logs carry, where a control forges a
@@ -1425,6 +1425,26 @@ paths:
         equal keys are ordered by `id`. Text sorts in byte order, lower-cased first for a
         case-insensitive attribute. An unsortable `sortBy` or unknown `sortOrder` is
         `400 invalidValue`. With no `sortBy` the order is by normalized `userName`.
+
+        **Filter and sort deviations on SQL Server** — the directory's database pads text
+        comparisons and has its own `LOWER` and UUID order, so:
+        - `eq`, `ne`, `gt`, `ge`, `lt` and `le` on a free-text attribute (`name.*`,
+          `displayName`, `locale`, `timezone`, `preferredLanguage` and the like) ignore
+          trailing spaces in the stored and the compared value: `eq "Smith"` matches a
+          stored `"Smith  "`. `co`, `sw` and `ew` keep trailing spaces significant.
+        - A whitespace-only free-text value counts as absent: it fails `pr` and sorts as a
+          missing value.
+        - Resources with equal sort keys are ordered by `id` in SQL Server's
+          `uniqueidentifier` order, not the text order of the ids. Paging is still a total
+          order; only which tied resource comes first differs.
+        - A case-insensitive comparison or sort lower-cases with SQL Server's `LOWER`, which
+          differs from Unicode default lower-casing for some characters: 582 upper-case code
+          points stay unchanged (among them U+212A KELVIN SIGN, U+2126 OHM SIGN, U+212B
+          ANGSTROM SIGN, U+1E9E capital sharp s, Georgian Mtavruli, Cherokee and
+          supplementary-plane scripts such as Deseret), so they compare case-sensitively;
+          U+03D2–U+03D4 are lower-cased; `İ` (U+0130) lower-cases to `i`; and there is no
+          final-sigma rule. ASCII, Latin-1, Latin Extended-A and -B, modern Greek and
+          Cyrillic compare case-insensitively as expected.
 
         **Paging** — `startIndex` is one-based and defaults to 1 (anything lower becomes
         1); `count` defaults to 100, is capped at 200, and a negative value becomes 0;

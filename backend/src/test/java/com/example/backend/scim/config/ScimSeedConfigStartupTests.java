@@ -36,7 +36,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * <p>The runner is taken from a real context, with {@code app.dev-fixtures} bound as a deployment's
  * configuration is, and run as startup runs it; a runner that throws is a failed startup. The
  * directory behind it is in memory, so each test controls exactly which Groups exist.
- * {@code DevelopmentRoleMappingIntegrationTests} proves the same step against Postgres, by starting
+ * {@code DevelopmentRoleMappingIntegrationTests} proves the same step against SQL Server, by starting
  * with the shipped development mapping at all.
  */
 class ScimSeedConfigStartupTests {

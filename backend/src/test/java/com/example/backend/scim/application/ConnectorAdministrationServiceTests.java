@@ -42,7 +42,7 @@ import org.junit.jupiter.api.Test;
  * <p>At this level the claims are about what the use case decides: which events it
  * records, what the overlap arithmetic does to the stored rows, and that a delete
  * takes tokens and aliases with it. That a request arriving over HTTP produces those
- * decisions, and that the rows genuinely land in Postgres, is
+ * decisions, and that the rows genuinely land in SQL Server, is
  * {@code ScimConnectorLifecycleIntegrationTests}' claim rather than this one's.
  */
 class ConnectorAdministrationServiceTests {
@@ -454,7 +454,7 @@ class ConnectorAdministrationServiceTests {
         /**
          * Rotation and revocation each lock the token they address before reading it, so a second
          * writer waits for the first and then reads what it committed.
-         * {@code ConnectorTokenRotationRaceIntegrationTests} holds the race itself on Postgres.
+         * {@code ConnectorTokenRotationRaceIntegrationTests} holds the race itself on SQL Server.
          */
         @Test
         void rotation_and_revocation_each_lock_the_token_they_address() {

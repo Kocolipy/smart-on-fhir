@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
@@ -55,7 +56,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * The whole connector lifecycle driven through the real filter chains against a real
- * Postgres, with the audit rows read back out of the database with SQL.
+ * SQL Server, with the audit rows read back out of the database with SQL.
  *
  * <p>This is the ticket's demo oracle. It is deliberately not a service-level test:
  * what is claimed is that an Admin's browser request and a connector's bearer request
@@ -509,8 +510,8 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     private List<Map<String, Object>> eventsOf(AuditOperation operation, UUID connectorId) {
-        return jdbc.queryForList(
-                EVENTS_BY_OPERATION_AND_SUBJECT, operation.name(), connectorId);
+        return jdbc.query(EVENTS_BY_OPERATION_AND_SUBJECT, UuidColumnRows.ROWS,
+                operation.name(), connectorId);
     }
 
     private void assertOneEvent(AuditOperation operation, UUID connectorId) {

@@ -39,7 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0010) —
- * driven over HTTP through both real security chains against real Postgres, with the token
+ * driven over HTTP through both real security chains against real SQL Server, with the token
  * rows and audit rows read back with SQL.
  *
  * <p>The administrator's session is built directly with exactly the Permissions each case
@@ -67,7 +67,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     };
 
     private static final String TOKEN_PERMISSIONS =
-            "SELECT string_agg(permission, ',' ORDER BY permission) AS permissions"
+            "SELECT STRING_AGG(permission, ',') WITHIN GROUP (ORDER BY permission) AS permissions"
             + " FROM scim_connector_token_permissions WHERE token_id = ?";
 
     private static final String PERMISSION_ROWS =
@@ -283,7 +283,9 @@ class ConnectorTokenPermissionsIntegrationTests {
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
 
         assertThat(events("ACCESS_DENIED", connector)).hasSize(2).allSatisfy(row -> {
-            assertThat(row.get("actor_id")).hasToString(connector.toString());
+            // SQL Server renders a UNIQUEIDENTIFIER read back as text upper-case.
+            assertThat(String.valueOf(row.get("actor_id")))
+                    .isEqualToIgnoringCase(connector.toString());
             assertThat(row.get("resource_type")).isEqualTo("ScimConnector");
             assertThat(row.get("error_code")).isEqualTo("INSUFFICIENT_PERMISSIONS");
             assertThat(row.get("permissions")).as("never the missing Permission").isNull();

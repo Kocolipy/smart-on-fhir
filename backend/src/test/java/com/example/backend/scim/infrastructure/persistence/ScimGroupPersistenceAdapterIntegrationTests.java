@@ -21,7 +21,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The Group store against a real Postgres, when a Group's deletion commits while a read of it is
+ * The Group store against a real SQL Server, when a Group's deletion commits while a read of it is
  * running. Each read must see the Group whole or not at all, never a Group row whose resource has
  * gone.
  *

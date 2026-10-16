@@ -95,9 +95,11 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * <p>A violation here has one more possible cause than in {@link #create}: the
      * reservation is unique too, so a second attempt to seed the same Admin group violates
      * it. Seeding never expects either: it looks the reservation up first under its lock,
-     * because against Postgres a violation aborts the transaction and cannot be caught and
-     * continued past. A taken {@code displayName} arrives as the duplicate it is; a taken
-     * reservation is rethrown as the integrity violation, and either one fails startup.
+     * because a violation cannot be caught and continued past: SQL Server rolls back only the
+     * failed statement, but the exception marks the transaction rollback-only as it leaves the
+     * repository, and Hibernate's session may not be flushed after it. A taken
+     * {@code displayName} arrives as the duplicate it is; a taken reservation is rethrown as the
+     * integrity violation, and either one fails startup.
      */
     @Override
     public ScimGroup createReserved(ScimGroup group, ReservedResourceName reservedName) {
@@ -321,9 +323,15 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * committing between the two leaves a Group read with the members it had or with none. That
      * is a stale read rather than a failure, since a Group with no rows here is a legitimate
      * empty Group.
+     *
+     * <p>One statement per {@link BoundIdChunks chunk} of Group ids: the administrative listing
+     * reads every Group in the directory, which a connector may grow past the 2,100 parameters
+     * SQL Server binds in one request. Each Group's members all come from its own chunk's
+     * statement, so each Group's order is that statement's.
      */
     private Map<UUID, List<ScimGroupMember>> membersOf(Collection<UUID> groupIds) {
-        return memberships.findMembersOfGroups(groupIds).stream()
+        return BoundIdChunks.of(groupIds).stream()
+                .flatMap(chunk -> memberships.findMembersOfGroups(chunk).stream())
                 .collect(Collectors.groupingBy(
                         ScimGroupMemberRow::groupId,
                         Collectors.mapping(

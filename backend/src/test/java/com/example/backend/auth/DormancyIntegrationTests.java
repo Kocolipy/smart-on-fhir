@@ -7,6 +7,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.IdentityAdministrationService;
@@ -61,7 +62,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The dormancy job end to end (ADR 0011), against a real Postgres, the real seeded identities,
+ * The dormancy job end to end (ADR 0011), against a real SQL Server, the real seeded identities,
  * the real role mapping and the real job lock: the lockout at the lockout window with
  * {@code DORMANCY}, every mapped Group membership removed at the role-revocation window and the
  * unmapped ones kept, a re-added membership removed again, the Bootstrap Admin's exemption, an
@@ -234,7 +235,7 @@ class DormancyIntegrationTests {
     /**
      * The candidate queries spell the verdict's boundary a second time, in SQL — the basis as
      * {@code coalesce(last_authenticated_at, created_at)} and "strictly before the cutoff" as
-     * {@code <} — so this pins the two together where they could drift: on what Postgres stores,
+     * {@code <} — so this pins the two together where they could drift: on what the database stores,
      * one microsecond either side of each window and exactly on it, for each basis. A query
      * narrower than the verdict would leave a due User unprocessed; the job re-deciding on the
      * locked read only guards the other direction.
@@ -310,16 +311,17 @@ class DormancyIntegrationTests {
     @Test
     void theSchemaKeepsTheLockAndItsCauseTogether() {
         UUID ada = createSettledUser("dormancy-schema");
+        OffsetDateTime now = clock.instant().atOffset(ZoneOffset.UTC);
 
         assertThatThrownBy(() -> jdbc.update(
-                "UPDATE scim_users SET locked_at = now() WHERE resource_id = ?", ada))
+                "UPDATE scim_users SET locked_at = ? WHERE resource_id = ?", now, ada))
                 .hasMessageContaining("ck_scim_users_lock_cause");
         assertThatThrownBy(() -> jdbc.update(
                 "UPDATE scim_users SET lock_cause = 'DORMANCY' WHERE resource_id = ?", ada))
                 .hasMessageContaining("ck_scim_users_lock_cause");
         assertThatThrownBy(() -> jdbc.update(
-                "UPDATE scim_users SET locked_at = now(), lock_cause = 'OTHER'"
-                        + " WHERE resource_id = ?", ada))
+                "UPDATE scim_users SET locked_at = ?, lock_cause = 'OTHER'"
+                        + " WHERE resource_id = ?", now, ada))
                 .hasMessageContaining("ck_scim_users_lock_cause");
     }
 
@@ -850,10 +852,10 @@ class DormancyIntegrationTests {
     }
 
     private List<Map<String, Object>> auditRows(String operation, UUID subject) {
-        return jdbc.queryForList("""
+        return jdbc.query("""
                 SELECT outcome, actor_id, resource_type, changed_paths, role_name, error_code
                   FROM audit_events
                  WHERE operation = ? AND subject_id = ?
-                 ORDER BY occurred_at""", operation, subject);
+                 ORDER BY occurred_at""", UuidColumnRows.ROWS, operation, subject);
     }
 }

@@ -32,7 +32,7 @@ rather than from this file.
 
 `infra/` is deployment material, not an app — neither app's gates build or test
 it. Mind the name clash: `make infra-up` / `infra-down` / `infra-logs` start the
-**local Docker dependencies** (Postgres + Redis) and have nothing to do with
+**local Docker dependencies** (SQL Server + Redis) and have nothing to do with
 this directory. See `/infra/README.md`.
 
 ## Paths
@@ -167,12 +167,13 @@ already matches at any depth.
   variables must carry the `VITE_` prefix and be documented in
   `frontend/README.md`.
 - `backend/` requires `.env`; copy `backend/.env.example` first. It also needs
-  Postgres and Redis — `make infra-up` from the repo root, which also creates
-  the local app and retention database logins
-  (`backend/scripts/local-db-logins.sh`), or `docker compose up` in `backend/`
-  followed by that script. `.env` sets `SPRING_PROFILES_ACTIVE=local`, the
-  profile that runs the migrations at startup; outside `local`, `test` and
-  `migrate`, Flyway is off.
+  SQL Server and Redis — `make infra-up` from the repo root, which also runs
+  the one-shot `sqlserver-init` compose service
+  (`backend/scripts/local-db-init.sh`) to create the local database and its
+  owner, app and retention logins from `.env`, or `docker compose up --wait`
+  in `backend/` followed by `docker compose run --rm sqlserver-init`. `.env`
+  sets `SPRING_PROFILES_ACTIVE=local`, the profile that runs the migrations at
+  startup; outside `local`, `test` and `migrate`, Flyway is off.
 - The backend connects as **three database logins** — app, retention and owner
   (`DATABASE_USERNAME`/`DATABASE_PASSWORD`,
   `DATABASE_RETENTION_USERNAME`/`DATABASE_RETENTION_PASSWORD`,

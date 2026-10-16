@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.observability.LogEvent.Operation;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -21,7 +23,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Failures the real PostgreSQL schema raises, recorded through a production {@code ERROR} shape —
+ * Failures the real SQL Server schema raises, recorded through a production {@code ERROR} shape —
  * a scheduled run's {@code job-end}, through {@link ScheduledJobMetrics} — and encoded by the
  * deployed ECS encoder with its customizers, then read back field by field.
  *
@@ -32,7 +34,8 @@ import tools.jackson.databind.JsonNode;
  *       appear in no emitted field — {@code message}, {@code error.message},
  *       {@code error.stack_trace} — nor anywhere else in the stream. Every statement names its
  *       table by database and schema, so the driver's text and Spring's translated message,
- *       which quotes the statement, both carry all three; only the redaction keeps them out.
+ *       which quotes the statement, both carry all three; only the redaction keeps them out. In
+ *       their place the record says {@code SQL Server error <n>} (ADR 0015).
  *   <li><strong>Classification.</strong> {@code error.code} is the HTTP status the failure is
  *       answered with ({@code 500} off any request), never the database's error number, and
  *       {@code error.category} is ADR 0015's mapping for the failure.
@@ -80,20 +83,20 @@ class DatabaseFailureLogIntegrationTests {
         int suffix = ThreadLocalRandom.current().nextInt(100_000, 1_000_000);
         schema = "redaction_probe_" + suffix;
         refusedSchema = "redaction_refused_" + suffix;
-        database = jdbc.queryForObject("SELECT current_database()", String.class);
+        database = jdbc.queryForObject("SELECT DB_NAME()", String.class);
         asOwner("CREATE SCHEMA " + schema,
-                "CREATE TABLE " + schema + ".probe (name varchar(64) UNIQUE, code varchar(8))",
-                "GRANT USAGE ON SCHEMA " + schema + " TO backend_app",
+                "CREATE TABLE " + schema + ".probe (name VARCHAR(64) UNIQUE, code VARCHAR(8))",
                 "GRANT SELECT, INSERT, UPDATE ON " + schema + ".probe TO backend_app",
                 "CREATE SCHEMA " + refusedSchema,
-                "CREATE TABLE " + refusedSchema + ".secret (name varchar(64))");
+                "CREATE TABLE " + refusedSchema + ".secret (name VARCHAR(64))");
         logs = EcsLogCapture.attach(environment);
     }
 
     @AfterEach
     void dropSchemas() {
         logs.close();
-        asOwner("DROP SCHEMA " + schema + " CASCADE", "DROP SCHEMA " + refusedSchema + " CASCADE");
+        asOwner("DROP TABLE " + schema + ".probe", "DROP SCHEMA " + schema,
+                "DROP TABLE " + refusedSchema + ".secret", "DROP SCHEMA " + refusedSchema);
     }
 
     // ---- the four failures that quote what they refused ---------------------------------------
@@ -104,7 +107,7 @@ class DatabaseFailureLogIntegrationTests {
 
         JsonNode end = failedRun("INSERT INTO " + probe() + " (name) VALUES ('" + value + "')");
 
-        assertRedacted(end, SqlFailures.UNIQUE_VIOLATION);
+        assertRedacted(end, SqlFailures.UNIQUE_CONSTRAINT_VIOLATION);
         assertClassified(end, "database");
     }
 
@@ -117,11 +120,15 @@ class DatabaseFailureLogIntegrationTests {
         assertClassified(end, "database");
     }
 
+    /** The stored value, read as a number: the conversion quotes it. */
     @Test
     void aConversionErrorIsADatabaseErrorQuotingNothing() {
-        JsonNode end = failedRun("SELECT CAST('" + value + "' AS integer) FROM " + probe());
+        jdbc.execute("INSERT INTO " + probe() + " (name) VALUES ('" + value + "')");
 
-        assertRedacted(end, SqlFailures.INVALID_TEXT_REPRESENTATION);
+        JsonNode end = failedRun("SELECT CAST(name AS INT) FROM " + probe()
+                + " WHERE name = '" + value + "'");
+
+        assertRedacted(end, SqlFailures.VALUE_CONVERSION_FAILED);
         assertClassified(end, "database");
     }
 
@@ -152,10 +159,10 @@ class DatabaseFailureLogIntegrationTests {
 
         JsonNode end = holder.transactions().execute(status -> {
             status.setRollbackOnly();
-            holding.execute("SELECT name FROM " + probe() + " WHERE name = '" + value
-                    + "' FOR UPDATE");
-            return failedRun("SELECT name FROM " + probe() + " WHERE name = '" + value
-                    + "' FOR UPDATE NOWAIT");
+            holding.queryForList("SELECT name FROM " + probe() + " WITH (UPDLOCK, ROWLOCK)"
+                    + " WHERE name = '" + value + "'");
+            return failedRun("SELECT name FROM " + probe() + " WITH (UPDLOCK, ROWLOCK, NOWAIT)"
+                    + " WHERE name = '" + value + "'");
         });
 
         assertRedacted(end, SqlFailures.LOCK_NOT_AVAILABLE);
@@ -166,10 +173,10 @@ class DatabaseFailureLogIntegrationTests {
      * The audit table's append-only trigger refusing a delete (ADR 0004): a database failure to
      * investigate, never a permission refusal, so the trigger cannot be mistaken for a grant that
      * is missing. The app login has no grant to delete with, so the grant would refuse it first
-     * ({@code 42501}); the owner login owns the table, so its delete reaches the trigger, which
-     * refuses it as an administrator of the retention role rather than the job it is reserved
-     * for. The event is inserted and the delete refused in one transaction, which the refusal
-     * rolls back, so the append-only table keeps nothing of the test.
+     * (229); the owner login owns the table, so its delete reaches the trigger, which refuses
+     * every principal but the retention role. The event is inserted and the delete refused in one
+     * transaction, which the refusal rolls back, so the append-only table keeps nothing of the
+     * test.
      */
     @Test
     void anAuditTriggerRefusalIsADatabaseError() {
@@ -179,8 +186,8 @@ class DatabaseFailureLogIntegrationTests {
         JsonNode end = failedRun(() -> owner.transactions().executeWithoutResult(status -> {
             UUID event = UUID.randomUUID();
             asOwner.update("INSERT INTO audit_events (id, occurred_at, operation, outcome,"
-                    + " resource_type, status_class) VALUES (?, now(), 'LOGOUT',"
-                    + " 'SUCCESS', 'User', 'ok')", event);
+                    + " resource_type, status_class) VALUES (?, ?, 'LOGOUT',"
+                    + " 'SUCCESS', 'User', 'ok')", event, OffsetDateTime.now(ZoneOffset.UTC));
             asOwner.update("DELETE FROM audit_events WHERE id = ?", event);
         }));
 
@@ -199,7 +206,7 @@ class DatabaseFailureLogIntegrationTests {
         JsonNode end = failedRun(() -> refused.execute("SELECT 1"));
 
         assertThat(end.at("/error/message").asText())
-                .isEqualTo(SqlFailures.INVALID_PASSWORD.redacted());
+                .isEqualTo(SqlFailures.LOGIN_FAILED.redacted());
         assertClassified(end, "cert/auth");
     }
 
@@ -209,8 +216,12 @@ class DatabaseFailureLogIntegrationTests {
         return database + "." + schema + ".probe";
     }
 
+    /**
+     * Runs {@code statement} on the app login's pool, reading whatever rows it returns: SQL Server
+     * reports an error a query meets as its rows are read, not when the statement is sent.
+     */
     private JsonNode failedRun(String statement) {
-        return failedRun(() -> jdbc.execute(statement));
+        return failedRun(() -> jdbc.query(statement, (row, index) -> row.getObject(1)));
     }
 
     /**
@@ -237,19 +248,18 @@ class DatabaseFailureLogIntegrationTests {
     /**
      * No field the record emits — and nothing else in the stream — carries the refused value,
      * the database name or the schema names, while the record still names the failure by its
-     * SQLState and keeps the stack.
+     * error number and keeps the stack.
      */
     private void assertRedacted(JsonNode end, SqlFailures.Failure failure) {
-        String state = failure.sqlState();
         List<String> forbidden = List.of(value, database, schema, refusedSchema);
         for (String field : List.of("/message", "/error/message", "/error/stack_trace")) {
             assertThat(end.at(field).asText()).as(field).doesNotContain(forbidden);
         }
         assertThat(logs.lines()).as("the whole stream").doesNotContain(forbidden);
-        assertThat(end.at("/error/message").asText()).contains("(SQLState " + state + ")");
+        assertThat(end.at("/error/message").asText()).isEqualTo(failure.redacted());
         assertThat(end.at("/error/stack_trace").asText())
                 .contains("Caused by: ")
-                .contains("(SQLState " + state + ")")
+                .contains(failure.redacted())
                 .contains("\tat " + getClass().getName());
     }
 

@@ -33,11 +33,11 @@
   },
   {
     "ParameterKey": "SSHLocation",
-    "ParameterValue": "0.0.0.0/0"
+    "ParameterValue": "X.X.X.X/32"
   },
   {
     "ParameterKey": "DBInstanceClass",
-    "ParameterValue": "db.t3.micro"
+    "ParameterValue": "db.t3.xlarge"
   },
   {
     "ParameterKey": "DBAllocatedStorage",

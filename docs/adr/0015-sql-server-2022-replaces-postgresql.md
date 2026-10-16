@@ -4,10 +4,12 @@ Date: 2026-10-12
 
 ## Status
 
-Accepted as the decision. Its implementation lands across later tickets: the
-engine-neutral preparation on PostgreSQL (#62–#66), the verification spikes (#67)
-and the switchover (#68–#72). Until the switchover merges, the backend still runs
-on PostgreSQL, and this ADR describes the target, not the running system.
+Accepted, and implemented. The engine-neutral preparation on PostgreSQL (#62–#66),
+the verification spikes (#67) and the switchover on the integration branch
+`mssql-cutover` (#68–#72) have landed: the backend runs on SQL Server 2022 locally
+and in tests, the deployed stack is RDS for SQL Server (#71), and PostgreSQL
+support is removed. This ADR describes the running system. "Verified behaviour"
+closes with the switchover's own measurements.
 
 Some decisions below depended on verification spikes (V1–V6). The spikes ran on
 2026-10-12 against a SQL Server 2022 container. The table under "Open verification
@@ -16,11 +18,11 @@ evidence. No decision's fallback was taken; V2 added one binding rule, under
 "Storage is UTC only". A failed spike amends this ADR rather than being absorbed
 silently in code.
 
-This ADR will supersede in part ADR 0004 (how the audit trail's append-only rule is
+This ADR supersedes in part ADR 0004 (how the audit trail's append-only rule is
 enforced in the database; the fail-closed/fail-open axis is unchanged) and ADR 0005
-(the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). The
-superseding notes on those two ADRs land with the tickets that change those
-mechanisms.
+(the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). Both carry
+their superseding notes: ADR 0005's landed with the locking ticket (#69), and ADR
+0004's with the switchover's last ticket (#72).
 
 It also records a deviation from the App-Standards recommendation of PostgreSQL
 for production (Standalone User Access Control Q6, User SSO Q5).
@@ -143,7 +145,14 @@ are one record.
   with `COLLATE "C"`, which the SCIM sort relies on. Equality and the unique
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
-  Server's `LOWER`.
+  Server's `LOWER`. (Added 2026-10-14, #68.) The collation is the **database's**,
+  set by `CREATE DATABASE … COLLATE`. The deployed RDS server is collated
+  `Latin1_General_100_BIN2_UTF8` as well. The local and test servers keep their
+  default collation: on the pinned image a server collated `BIN2_UTF8`
+  (`MSSQL_COLLATION`) cannot load the internal extended procedures behind
+  `sp_getapplock` and a T-SQL `sp_executesql` (error 17750, "Could not load the
+  DLL (server internal)"). Flyway guards every migration with `sp_getapplock`, so
+  on such a server nothing migrates (Addendum (2026-10-16)).
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
   listing at `SNAPSHOT`.** Readers do not block writers, as with PostgreSQL's MVCC
   today. The listing's count and page must see one consistent view; SQL Server's
@@ -195,7 +204,8 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of `FOR UPDATE SKIP LOCKED`. Spike
   V3 verified that `READPAST` skips a held row under read-committed snapshot
   without waiting, so the `sp_getapplock` fallback is not needed. The seed lock
-  becomes `sp_getapplock` on a fixed resource name, transaction-owned.
+  becomes `sp_getapplock` on a fixed resource name, transaction-owned — superseded
+  by a row lock on `scim_seed_locks` (Addendum (2026-10-16)).
 - **`audit_events` is clustered on `(occurred_at, id)`**, with a non-clustered
   primary key on `id`. A random-UUID clustered key fragments on every insert into
   the highest-volume table, while retention deletes by `occurred_at` and the
@@ -345,10 +355,15 @@ lands:
 
 - **Edge whitespace is refused** on the keys listed above. This is a validation
   change and lands in the API contract.
-- **SCIM free-text `eq` ignores trailing spaces.** Filters (`eq`, `ne`, `co`, `sw`,
-  `ew`) on attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
+- **SCIM free-text `eq` ignores trailing spaces** (amended 2026-10-15, see
+  "Addendum (2026-10-15)"). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
+  attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
-  compared values, because SQL Server pads the comparison.
+  compared values, because SQL Server pads the comparison. `co`, `sw` and `ew`
+  keep trailing spaces significant: they are `LIKE` against a bound Unicode
+  pattern, which SQL Server does not pad. This bullet first listed `co`, `sw` and
+  `ew` among the operators that ignore trailing spaces and left out the ordering
+  operators; the switchover measured otherwise.
 - **SCIM whitespace-only free text counts as absent.** `pr` and sorting treat an
   empty string as no value (`<> ''`, `NULLIF(…, '')`), and under SQL Server's
   padding a value of only spaces compares equal to `''`. A whitespace-only value
@@ -559,7 +574,8 @@ missing job row:                                 [] in 3 ms; count [0] in 5 ms
 A held row returns nothing immediately, without blocking. The row returns once the
 holder ends, whether it commits or rolls back. Another job's row is not skipped.
 `ScheduledJobLockAdapter`'s plain-count follow-up does not wait for the lock, so it
-still tells a held row from a missing one. ADR 0005 needs no amendment.
+still tells a held row from a missing one. ADR 0005's decision needs no amendment
+beyond the superseding note recording the new statement (`SKIP LOCKED` → `READPAST`).
 
 ### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
 
@@ -690,3 +706,236 @@ The fork count stays 2. The memory the switchover's local-development
 documentation states must cover the extra ~2 GB. On a VM as small as the
 `pom.xml` comment's 5.9 GB, that is tight, and is the case for raising the
 documented WSL memory rather than lowering the fork count.
+
+### The switchover: the suite before and after (2026-10-16)
+
+Consequences requires the suite's runtime before and after, and a context count
+that does not rise. Both are `./scripts/verify.sh` from `backend/`, on the 24-vCPU,
+47 GB WSL2 host of V6; the context count is the gate log's
+`grep -c 'Started .* in .* seconds'`.
+
+| Run                                          | Wall-clock | Maven `Total time` | Tests (run / failed / errors) | Contexts | Semgrep    |
+| -------------------------------------------- | ---------- | ------------------ | ----------------------------- | -------- | ---------- |
+| PostgreSQL, 6e8a882 (#68's baseline)         | 308 s      | 04:48 min          | 5033 / 0 / 0                  | 32       | 0 findings |
+| SQL Server, 95ee952 (#71 merged, before #72) | 437 s      | 07:14 min          | 5122 / 21 / 11                | 33       | 0 findings |
+| SQL Server, #72, run 1                       | 489 s      | 07:49 min          | 5122 / 0 / 0                  | 33       | 1 finding  |
+| SQL Server, #72, run 2                       | 427 s      | 06:44 min          | 5122 / 0 / 0                  | 32       | 0 findings |
+| SQL Server, #72, run 3 (`make verify`)       | 436 s      | 06:39 min          | 5122 / 0 / 0                  | 34       | 0 findings |
+| SQL Server, #72, run 4 (`V1` comments)       | 396 s      | 06:34 min          | 5122 / 1 / 0                  | 34       | not run    |
+| SQL Server, #72, final run (`GATE_EXIT=0`)   | 458 s      | 07:18 min          | 5122 / 0 / 0                  | 33       | 0 findings |
+
+- **Contexts.** 33 in the final gate against 32 on PostgreSQL, and 32 to 34
+  across the #72 runs. No configuration was added. The extra starts are the
+  shared configuration rebooting after a `@DirtiesContext` eviction: which class
+  boots it depends on where the forks place the two `@DirtiesContext` classes,
+  which is why the count read 31 to 33 between runs on PostgreSQL and in #68 too.
+  Run 3's wall-clock includes the frontend gate.
+- **Runtime.** The final gate took 458 s against 308 s, 150 s (49%) more; the
+  four green-test runs took 396 to 489 s. That is well above V6's projection of
+  about 290 s, which left query cost inside the tests out. The 95ee952 row stopped
+  at its red tests before its scan (the scan ran on its own, 0 findings), and its
+  failing waits ran to their patience. Run 1's finding was a concatenated SQL
+  string in a test, fixed before run 2. Run 4's one failure was
+  `RefusalLogIntegrationTests.a_non_admin_admin_read_is_one_refusal_record`, which
+  captured six `ERROR` records from Spring Session's minute cleanup task of an
+  already stopped context ("LettuceConnectionFactory has been STOPPED") firing at
+  11:00:00 inside its capture window; the final run, on the same tree, passed it.
+  During the #72 runs a 12-vCPU virtual machine outside the suite ran on the same
+  host (load average 3.9 to 7.3), so part of the difference may be the host
+  rather than the engine.
+- **The 32 red tests at 95ee952.** They were the tests #68 and #69 assigned to
+  #72, in ten integration classes. Eight compared ids read back with an untyped
+  `getObject`, which the driver answers with the upper-case text of the id (V2),
+  and four still sent PostgreSQL SQL (`?::uuid`, `resource_id::text`,
+  `locked_at IS NOT NULL` as a value, `now()`, `||`); two did both. The tests now
+  read a row's `UNIQUEIDENTIFIER` columns as `UUID` (`UuidColumnRows`) and send
+  T-SQL; no production code changed for them.
+- **End to end.** `make integration-test` passed 60 Playwright tests, and
+  `make epic-integration-test` passed the Epic project's 7, against a local stack
+  on the pinned SQL Server image, the first on a freshly initialised database.
+- **Deployed stack: unverified, pending the user's own deploy.** The criterion is
+  that a stack deployed with `infra/deploy.sh` comes up, migrates, and serves SCIM
+  create, list and delete. The switchover did not run it: the user deploys and
+  verifies the AWS stack themselves. Until then nothing here shows the deployed
+  stack's behaviour, including the untested Windows build's `sp_getapplock` under
+  the `Latin1_General_100_BIN2_UTF8` server collation (Addendum (2026-10-16),
+  "Risk: untested on Windows"). `V1`'s comments were reworded in #72, which changes
+  its Flyway checksum, so a stack already deployed from `mssql-cutover` must be
+  recreated rather than updated.
+
+## Addendum (2026-10-15): substring filters keep trailing spaces significant
+
+The "Observable changes" bullet on SCIM free text said that `eq`, `ne`, `co`, `sw`
+and `ew` ignore trailing spaces. The switchover's SCIM query ticket (#70) measured
+the filters on the pinned SQL Server image, and the list was wrong in both
+directions. The bullet now carries the measured list.
+
+- **Padded: `eq`, `ne`, `gt`, `ge`, `lt`, `le`.** These render as `=`, `<>`, `>`,
+  `>=`, `<` and `<=`, and SQL Server pads the shorter operand with spaces before it
+  compares. Against a stored `name.familyName` of `"Trail  "`, `eq "Trail"` and
+  `eq "trail "` match, `ne "Trail"` does not, `ge "trail "` matches, and
+  `gt "trail"` does not, because the padded values are equal.
+- **Not padded: `co`, `sw`, `ew`.** These render as `LIKE` against a bound
+  pattern. The driver sends the pattern as `nvarchar`, and a Unicode `LIKE` keeps
+  trailing spaces significant on both sides. Against the same stored value,
+  `ew "l"` does not match, while `ew "l  "` and `co "l "` do. A substring filter
+  therefore matches as it did on PostgreSQL.
+
+`ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
+pins every one of these results through the SCIM API. The decision is unchanged:
+the padding is accepted as an observable change and not worked around, and the
+API contract and `docs/domain-rules.md` list the corrected operators.
+## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
+
+The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
+Edition. Five of its findings refine decisions above; none reverses one. The
+first and the TLS one depart from the issue's wording, and wait on the user's
+sign-off.
+
+- **The owner login is a `db_owner` member, not the database's owner.** "Runtime
+  model" names the owner login `db_owner`, and the local init and the tests had
+  made it the database's owner (`ALTER AUTHORIZATION`). RDS's master user, which
+  creates the database, cannot hand it to another login: that needs `IMPERSONATE`
+  on the login, which the master user does not hold. The deployed bootstrap
+  therefore creates a database user for the owner login and adds it to
+  `db_owner`, and the local init and `ContainerTestConfiguration` now do the same,
+  so the suite migrates `V1` under the deployed arrangement
+  (`MigrationStepIntegrationTests.theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner`).
+  The audit trigger refuses `db_owner` members, so it refuses the owner either
+  way.
+- **The bootstrap runs on the instance, as the master user, and its T-SQL is the
+  local init's.** The deployed bootstrap runs in UserData, so the instance role
+  reads the master secret (as-8). It is read by one root-owned script and never
+  reaches the service's process, which `smoke.sh` checks; the role itself cannot
+  tell processes apart, which `infra/README.md` ("Database credentials") records
+  as residual risk. The T-SQL is held twice — in the template and in
+  `backend/scripts/local-db-init.sql` — because a stack cannot read the
+  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
+  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's
+  password is reset, by the shared SQL, only when the calling script found that
+  the login cannot sign in with its secret's.
+- **The server keeps its default collation on RDS too.** Issue #71 names
+  `Latin1_General_100_BIN2_UTF8` as the RDS *server* collation; the instance
+  states `SQL_Latin1_General_CP1_CI_AS` instead, and the database keeps
+  `Latin1_General_100_BIN2_UTF8` as "VARCHAR with database collation" decided.
+  Measured on the pinned image: under a server collated
+  `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2`, `sp_getapplock`
+  raises error 17750 from `sys.xp_userlock` and returns `0`, "granted", for a
+  lock it never took, in every database; under `Latin1_General_100_CI_AS_SC_UTF8`
+  and `Latin1_General_100_CS_AS_SC_UTF8` it takes the lock. The seed lock would
+  silently lock nothing. RDS runs the Windows build, where this was not
+  measured, so the default is kept rather than staking the seed lock on it.
+  (Superseded 2026-10-16: the seed lock no longer depends on `sp_getapplock`,
+  and the RDS server is now collated `Latin1_General_100_BIN2_UTF8`; see the
+  next addendum.)
+- **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that
+  asks for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
+  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is
+  dropped unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py`
+  (it sends no real credential). A client that can do TLS but asks for none
+  (`sqlcmd -No`, `encrypt=false`) is encrypted instead of refused, and its
+  session reports `encrypt_option = TRUE`. No RDS for SQL Server parameter
+  refuses that second client: the `sqlserver-se-16.0` family has no counterpart
+  of SQL Server 2022's strict-encryption switch. TLS 1.0 and 1.1 are off in the
+  parameter group (`rds.tls10`, `rds.tls11`). The bootstrap's `sqlcmd -N`
+  validates the RDS certificate against the RDS CA bundle given to it alone
+  (`SSL_CERT_FILE`).
+- **The trust-store password reaches the driver from the environment.**
+  `DATABASE_URL` names the driver-scoped store; its password, from Secrets Manager,
+  is exported as `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`,
+  which Boot binds lower-cased into the driver properties of every pool and the
+  migrate step, and the driver matches property names case-insensitively
+  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
+
+## Addendum (2026-10-16): the seed lock is a row lock
+
+The seed lock moves off `sp_getapplock`, so that it holds under the server
+collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
+
+- **Why.** On the pinned image (SQL Server 2022 CU27 for Linux), a server
+  collated `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load
+  the internal extended procedures `xp_userlock` (behind `sp_getapplock`) and
+  `sp_executesql` when T-SQL calls them: error 17750, "Could not load the DLL
+  (server internal)". Through the driver the seed lock's batch failed with that
+  error; in `sqlcmd`, `sp_getapplock` also returned `0`, "granted", for a lock it
+  never took. The driver's own prepared-statement calls (`sp_prepexec`, an RPC)
+  are unaffected, and so is `EXEC (@string)`.
+- **The row.** `V2__scim_seed_lock_row.sql` creates `scim_seed_locks` and inserts
+  its one row, `ScimSeed`. `ScimSeedLockAdapter` takes that row with
+  `SELECT … WITH (UPDLOCK, ROWLOCK)` and no `READPAST`: a second start waits for the
+  first start's seeding to commit, then reads what it seeded. The migration
+  inserts the row, so there is one to lock on a fresh database too — the reason
+  the seed lock was an application lock no longer holds. A missing row fails the
+  start ("the migration that creates it has not run"), as a missing job-lock row
+  does (ADR 0005).
+  Folded into `V1__initial_schema.sql` before the switchover reached `main`,
+  so a fresh database has one migration; the table, row and grant are
+  unchanged.
+- **Grant.** `backend_app` holds `SELECT` on the table and nothing else. An
+  `UPDLOCK` read needs no more (measured), so the runtime role can lock the row
+  but cannot change or delete it.
+- **Bounded wait.** The statement's query timeout is 60 s (`TimedJdbc`). A wait
+  that runs out reaches the adapter as Spring's `QueryTimeoutException`
+  (`SQLTimeoutException`, `HY008`), which it rethrows as
+  `CannotAcquireLockException`, "the seeding lock was not granted within 60 s":
+  `database` in the mapping, as before. `Propagation.MANDATORY` stays.
+- **The rest of the service's T-SQL.** `ForcedDeadlock` (test) closes its cycle
+  on two rows of its own table rather than on an application lock. The partner
+  reads the writer's row with `READCOMMITTEDLOCK`, so its shared lock ends with
+  the statement. The bootstrap (`local-db-init.sql` and the template's copy) runs
+  its per-database step through `EXEC (@ddl)`, with the owner's name escaped
+  into the batch, instead of `sys.sp_executesql`.
+- **Flyway's own lock.** Flyway 12.4's SQL Server support guards every migration
+  with `EXEC sp_getapplock … @LockOwner = 'Session'`, and there is no setting to
+  turn it off. On a `BIN2_UTF8` server on the pinned image it fails with 17750
+  (`FlywaySqlException: Unable to acquire SQL Server application lock`), so no
+  database migrates there.
+- **Decision: only the RDS server is collated `Latin1_General_100_BIN2_UTF8`.**
+  The instance's `CharacterSetName` is `Latin1_General_100_BIN2_UTF8`, as issue
+  #71 names it. The test containers and the local compose server keep their
+  default server collation, because they run the Linux image, where Flyway
+  could not migrate. The database is `Latin1_General_100_BIN2_UTF8` everywhere.
+  Flyway's lock is not replaced: a plugin overriding it worked in a prototype,
+  but it would depend on Flyway's internal SQL Server classes and change how
+  migrations are serialized.
+- **Risk: untested on Windows.** RDS for SQL Server runs the Windows build,
+  which could not be measured here. If it has the same defect, the first
+  deploy fails loudly, never silently. `backend-migrate.service` fails with
+  that `FlywaySqlException` and 17750, and `backend.service`, which `Requires=`
+  it, never starts, so the deploy's health check and smoke fail.
+  - The way out is a server collation that takes the lock: RDS's default, or
+    `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
+    take it on the Linux image. Changing the collation replaces the instance.
+  - The suite does not reproduce this one deployed setting (`infra/README.md`,
+    "Collation and time zone").
+
+## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks
+
+SQL Server refuses a request carrying more than 2,100 parameters (error 8003),
+and Hibernate binds each element of a collection parameter as one. PostgreSQL
+has no such ceiling, so the switchover left two statements whose `IN` list a SCIM
+client sizes without a cap. A Group with more than about 2,099 members could not
+be created with them, renamed or deleted (`500`), a User in that many Groups
+could not be deleted, and the administrative listing failed once the directory
+held that many Groups.
+
+- **The rule.** A statement whose `IN` list has no cap of its own is issued once
+  per chunk of at most 2,000 ids (`BoundIdChunks`), in the caller's transaction.
+  That covers the version advance (`RepresentationChange#advanceIn`), which a
+  rename, a delete or a membership change sizes by membership, and the Group
+  adapter's membership read, which the listing sizes by the directory. A list a
+  page bounds (`ScimPageRequest.MAX_COUNT`, 200) or the role mapping bounds (an
+  operator's configuration) binds whole.
+- **No new deadlock.** Every row a version advance names is already locked, one
+  row per statement in `ScimWriteLocks.ORDER`, by `ScimWriteLockAdapter`, so its
+  chunks take no new lock.
+- **Held by** `ScimLargeMembershipIntegrationTests`: 2,200 members or Groups,
+  every path above, on the test container.
+
+The same day's review corrected V1's grant on `scheduled_job_locks` to `SELECT`
+alone. A locking read (`UPDLOCK`) needs only `SELECT` permission, as the seed
+lock's addendum above measured, and the application never updates a job row
+(ADR 0005, amendment of 2026-10-16). Changing V1 changes its checksum, so a database
+migrated from the earlier V1 fails Flyway's validation at the next migrate. A
+fresh database is the only supported starting state: recreate such a database
+(locally, remove the compose volume) rather than repairing the history.

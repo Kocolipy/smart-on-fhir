@@ -183,18 +183,18 @@ class ScimQuerySqlTests {
                         + " AND lower(u.given_name) LIKE lower(:p0) ESCAPE '\\'))");
         assertThat(count("name.givenName gt \"a\"", USERS))
                 .endsWith("WHERE (u.given_name IS NOT NULL"
-                        + " AND (lower(u.given_name)) COLLATE \"C\" > lower(:p0)))");
+                        + " AND (lower(u.given_name)) COLLATE Latin1_General_100_BIN2_UTF8 > lower(:p0)))");
         assertThat(count("meta.created gt \"2011-05-13T04:42:34Z\"", USERS))
                 .endsWith("WHERE (r.created_at IS NOT NULL AND r.created_at > :p0))");
     }
 
     /**
-     * The common subset: across filters and sorts reaching every fragment kind, no statement uses
-     * syntax only PostgreSQL accepts, and the engine words — the byte-order collation and the
-     * types a NULL is cast to — appear only in the one position each has.
+     * T-SQL throughout: across filters and sorts reaching every fragment kind, no statement uses
+     * syntax T-SQL rejects or reads otherwise, and the engine words — the binary UTF-8 collation, the types
+     * a NULL is cast to and {@code TOP 1} for a first value — appear only in their positions.
      */
     @Test
-    void statements_use_the_common_subset_and_engine_words_only_in_their_positions() {
+    void statements_are_t_sql_and_engine_words_appear_only_in_their_positions() {
         String[] filters = {
                 "userName eq \"a\" and not (name.givenName gt \"b\")",
                 "id eq \"a\" or externalId sw \"b\" or meta.location ew \"c\"",
@@ -221,17 +221,29 @@ class ScimQuerySqlTests {
         String statements = all.toString();
         String upper = statements.toUpperCase(Locale.ROOT);
 
-        for (String postgresOnly : new String[] {
+        for (String notTSql : new String[] {
                 " LIMIT ", "NULLS FIRST", "NULLS LAST", "||", "TRUE", "FALSE", "::", "ILIKE",
-                "AS TEXT", "AS VARCHAR)", "COALESCE(LOWER", ", FALSE)"}) {
-            assertThat(upper).as(postgresOnly).doesNotContain(postgresOnly);
+                "AS TEXT", "AS VARCHAR)", "COALESCE(LOWER", ", FALSE)", "\"C\"", "BOOLEAN",
+                "TIMESTAMPTZ", "OFFSET 0 ROWS"}) {
+            assertThat(upper).as(notTSql).doesNotContain(notTSql);
         }
-        String withoutEngineWords = statements.replace("COLLATE \"C\"", "")
-                .replace("CAST(NULL AS boolean)", "")
-                .replace("CAST(NULL AS timestamptz)", "");
-        assertThat(statements).contains("COLLATE \"C\"").contains("CAST(NULL AS boolean)");
-        assertThat(withoutEngineWords).doesNotContain("\"C\"").doesNotContain("COLLATE")
-                .doesNotContain("boolean").doesNotContain("timestamptz");
+        String withoutEngineWords = statements.replace("COLLATE Latin1_General_100_BIN2_UTF8", "")
+                .replace("CAST(NULL AS BIT)", "")
+                .replace("SELECT TOP 1 ", "");
+        assertThat(statements).contains("COLLATE Latin1_General_100_BIN2_UTF8")
+                .contains("CAST(NULL AS BIT)").contains("SELECT TOP 1 ");
+        assertThat(withoutEngineWords).doesNotContain("COLLATE").doesNotContain("Latin1")
+                .doesNotContain("BIT").doesNotContain("TOP");
+    }
+
+    /** A boolean literal is bound as a boolean, which the driver sends as a {@code BIT}. */
+    @Test
+    void a_boolean_literal_is_bound_as_a_boolean_against_the_bit_column() {
+        ScimQuerySql sql = new ScimQuerySql(CONNECTOR, BASE_URI);
+
+        assertThat(sql.count(query("active eq false", USERS)))
+                .endsWith("WHERE (u.active IS NOT NULL AND u.active = :p0))");
+        assertThat(sql.parameters().get("p0")).isEqualTo(Boolean.FALSE);
     }
 
     @Test
@@ -282,7 +294,7 @@ class ScimQuerySqlTests {
 
         assertThat(statement).endsWith(
                 "ORDER BY CASE WHEN q.sort_key IS NULL THEN 1 ELSE 0 END DESC,"
-                        + " q.sort_key COLLATE \"C\" DESC, q.id"
+                        + " q.sort_key COLLATE Latin1_General_100_BIN2_UTF8 DESC, q.id"
                         + " OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY");
         assertThat(sql.parameters()).containsEntry("limit", 5).containsEntry("offset", 10);
     }
@@ -341,13 +353,15 @@ class ScimQuerySqlTests {
         assertThat(text.page(new ScimQuery(BOTH, null, ScimSort.of("userName", null, BOTH), null)))
                 .contains("CAST(NULL AS VARCHAR(1024)) AS sort_key");
         assertThat(bool.page(new ScimQuery(BOTH, null, ScimSort.of("active", null, BOTH), null)))
-                .contains("CAST(NULL AS boolean) AS sort_key")
+                .contains("CAST(NULL AS BIT) AS sort_key")
                 .doesNotContain("COLLATE");
         assertThat(members.page(new ScimQuery(
                         BOTH, null, ScimSort.of("members.display", null, BOTH), null)))
                 .contains("CAST(NULL AS VARCHAR(1024)) AS sort_key")
-                .contains("ORDER BY mu.normalized_user_name, mu.resource_id"
-                        + " OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY)");
+                .contains("lower(NULLIF((SELECT TOP 1 coalesce(mu.display_name, mu.user_name)"
+                        + " FROM scim_group_members mm JOIN scim_users mu"
+                        + " ON mu.resource_id = mm.user_id WHERE mm.group_id = r.id"
+                        + " ORDER BY mu.normalized_user_name, mu.resource_id), ''))");
     }
 
     /**
@@ -439,7 +453,7 @@ class ScimQuerySqlTests {
 
     private static final String ASCENDING_TEXT_ORDER =
             " q ORDER BY CASE WHEN q.sort_key IS NULL THEN 1 ELSE 0 END ASC,"
-                    + " q.sort_key COLLATE \"C\" ASC, q.id OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
+                    + " q.sort_key COLLATE Latin1_General_100_BIN2_UTF8 ASC, q.id OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
 
     /**
      * A multi-valued sort key is its first value, lower-cased when case-insensitive and empty as
@@ -449,8 +463,8 @@ class ScimQuerySqlTests {
     void a_multi_valued_sort_key_is_the_first_value_and_each_type_has_its_branch() {
         assertThat(sortedPage("emails.value", BOTH)).isEqualTo(
                 "SELECT q.id, q.kind FROM (SELECT r.id AS id, r.resource_type AS kind,"
-                        + " lower(NULLIF((SELECT e.value FROM scim_user_emails e WHERE e.resource_id = r.id"
-                        + " ORDER BY e.is_primary DESC, e.ordinal OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY), ''))"
+                        + " lower(NULLIF((SELECT TOP 1 e.value FROM scim_user_emails e WHERE e.resource_id = r.id"
+                        + " ORDER BY e.is_primary DESC, e.ordinal), ''))"
                         + " AS sort_key, 0 AS type_order, u.normalized_user_name AS default_key"
                         + " FROM scim_resources r JOIN scim_users u ON u.resource_id = r.id WHERE (1=1)"
                         + " UNION ALL SELECT r.id AS id, r.resource_type AS kind,"
