@@ -11,6 +11,7 @@ import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.application.ScimSeedService.DevFixture;
 import com.example.backend.scim.application.ScimSeedService.SeededIdentity;
 import com.example.backend.scim.domain.ScimSeedLock;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,14 +57,19 @@ class ScimSeedIntegrationTests {
     private static final String COUNT_AUDIT_EVENTS = "SELECT count(*) FROM audit_events";
 
     /**
-     * A session waiting on an application lock shows as a waiting {@code APPLICATION} request.
-     * Read as the server's administrator: another login's locks are visible only with
-     * {@code VIEW SERVER STATE}, which the service's logins do not hold.
+     * A session waiting on the seeding lock shows as a waiting {@code KEY} request on the seed
+     * row's index. Read as the server's administrator: another login's locks are visible only
+     * with {@code VIEW SERVER STATE}, which the service's logins do not hold.
      */
-    private static final String COUNT_WAITING_APPLICATION_LOCKS = """
-            SELECT count(*) FROM sys.dm_tran_locks
-             WHERE resource_type = 'APPLICATION' AND request_status = 'WAIT'
-               AND resource_database_id = DB_ID()""";
+    private static final String COUNT_WAITING_SEED_ROW_LOCKS = """
+            SELECT count(*) FROM sys.dm_tran_locks l
+              JOIN sys.partitions p ON p.hobt_id = l.resource_associated_entity_id
+             WHERE l.resource_type = 'KEY' AND l.request_status = 'WAIT'
+               AND l.resource_database_id = DB_ID()
+               AND p.object_id = OBJECT_ID(N'dbo.scim_seed_locks')""";
+
+    /** The runtime role's write to the seed row, which its grants refuse. */
+    private static final String DELETE_THE_SEED_ROW = "DELETE FROM scim_seed_locks";
 
     private static final Duration PATIENCE = Duration.ofSeconds(15);
 
@@ -106,9 +113,9 @@ class ScimSeedIntegrationTests {
     }
 
     /**
-     * A transaction-owned application lock taken on an auto-commit connection is released when
-     * its own statement ends, so a call outside a transaction would protect nothing while appearing to
-     * work. It is refused instead.
+     * A row lock taken on an auto-commit connection is released when its own statement ends, so a
+     * call outside a transaction would protect nothing while appearing to work. It is refused
+     * instead.
      */
     @Test
     void the_seeding_lock_cannot_be_taken_outside_a_transaction() {
@@ -120,8 +127,8 @@ class ScimSeedIntegrationTests {
      * Two instances starting together: while one holds the seeding lock, the other's seed waits
      * in the database rather than reading and racing it, and proceeds once the holder commits.
      *
-     * <p>"Waits" is observed in {@code sys.dm_tran_locks}, not inferred from a sleep, so the
-     * assertion does not depend on timing.
+     * <p>"Waits" is observed in {@code sys.dm_tran_locks} — a waiting lock on the seed row — not
+     * inferred from a sleep, so the assertion does not depend on timing.
      */
     @Test
     void a_seed_waits_for_a_concurrent_holder_of_the_seeding_lock() throws Exception {
@@ -138,7 +145,7 @@ class ScimSeedIntegrationTests {
             assertThat(held.await(PATIENCE.toSeconds(), TimeUnit.SECONDS)).isTrue();
 
             Future<?> seed = threads.submit(this::seedAsConfigured);
-            awaitWaitingApplicationLocks(1);
+            awaitWaitingSeedRowLocks(1);
             assertThat(seed.isDone())
                     .as("the seed must be blocked while another transaction holds the lock")
                     .isFalse();
@@ -155,7 +162,7 @@ class ScimSeedIntegrationTests {
 
     /**
      * Two instances seeding the same fixtures together, as two starts against one fresh database
-     * would: the second waits on the seeding lock — a waiting application lock in
+     * would: the second waits on the seeding lock — a waiting lock on the seed row in
      * {@code sys.dm_tran_locks} — and once the first has committed it reads what the first seeded
      * and writes nothing. The fixture is seeded once: one User, one Group, one membership. Without
      * the lock the second would read "absent" too, and its create would collide with the first's.
@@ -178,7 +185,7 @@ class ScimSeedIntegrationTests {
 
             Future<?> second = threads.submit(() ->
                     seeding.seedDevFixtures(List.of(fixture), null, FIXTURE_PASSWORD));
-            awaitWaitingApplicationLocks(1);
+            awaitWaitingSeedRowLocks(1);
 
             release.countDown();
             first.get(PATIENCE.toSeconds(), TimeUnit.SECONDS);
@@ -204,9 +211,23 @@ class ScimSeedIntegrationTests {
         }
     }
 
-    private void awaitWaitingApplicationLocks(long expected) throws InterruptedException {
+    /**
+     * The seed row is the migration's, and the service's grants let it lock the row and nothing
+     * else: the runtime role cannot remove the row every start serializes on.
+     */
+    @Test
+    void the_service_cannot_remove_the_seed_row() {
+        assertThatThrownBy(() -> jdbc.update(DELETE_THE_SEED_ROW))
+                .rootCause()
+                .asInstanceOf(InstanceOfAssertFactories.throwable(SQLException.class))
+                .extracting(SQLException::getErrorCode)
+                .as("error 229, a permission denied")
+                .isEqualTo(229);
+    }
+
+    private void awaitWaitingSeedRowLocks(long expected) throws InterruptedException {
         Instant deadline = Instant.now().plus(PATIENCE);
-        while (logins.superuser().jdbc().queryForObject(COUNT_WAITING_APPLICATION_LOCKS, Long.class)
+        while (logins.superuser().jdbc().queryForObject(COUNT_WAITING_SEED_ROW_LOCKS, Long.class)
                 != expected) {
             assertThat(Instant.now())
                     .as("no seed came to wait on the seeding lock")

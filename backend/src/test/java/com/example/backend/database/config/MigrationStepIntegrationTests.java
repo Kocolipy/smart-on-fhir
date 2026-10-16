@@ -72,7 +72,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1");
+                .containsExactly("1", "2");
     }
 
     /**
@@ -80,7 +80,7 @@ class MigrationStepIntegrationTests {
      * name, not as the database's owner ({@code dbo}): that is all RDS for SQL Server's master
      * user can make it, because handing a database to another login needs {@code IMPERSONATE} on
      * it, which the master user does not hold (infra/README.md, "Database bootstrap"). Every
-     * test database is bootstrapped the same way, so the suite proves {@code V1} under it.
+     * test database is bootstrapped the same way, so the suite proves the migrations under it.
      */
     @Test
     void theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner() throws SQLException {
@@ -89,7 +89,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForObject(OWNER_PRINCIPAL_AND_MIGRATIONS, String.class))
-                .isEqualTo("backend_owner/1/1");
+                .isEqualTo("backend_owner/1/2");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */

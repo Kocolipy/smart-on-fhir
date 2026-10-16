@@ -81,7 +81,9 @@ public class ContainerTestConfiguration {
      * {@value #COLLATION}. A server collated {@code BIN2_UTF8} ({@code MSSQL_COLLATION}) fails to
      * load the internal extended procedures behind {@code sp_getapplock} and a T-SQL
      * {@code sp_executesql} ("Could not load the DLL (server internal)", error 17750) on this
-     * image, and the seed lock is an application lock.
+     * image. Nothing of the service's own calls either any more — the seed lock is a row lock
+     * (ADR 0015's 2026-10-16 addendum) — but Flyway takes {@code sp_getapplock} to guard every
+     * migration, so on such a server no context could migrate its database.
      */
     private static final MSSQLServerContainer SQL_SERVER =
             new MSSQLServerContainer(DockerImageName.parse(SQL_SERVER_IMAGE)
