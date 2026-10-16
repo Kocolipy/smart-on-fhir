@@ -1206,21 +1206,21 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/arch/ArchitectureTest.java": {
-    "mtime": 1792065100.447977,
-    "seen": 1792073034.9810815,
-    "ast_hash": "24ff6fe9be48ebaa9eb55bba458cfe62",
+    "mtime": 1792113525.2132745,
+    "seen": 1792114390.334887,
+    "ast_hash": "6e611db814b012721a3c181346fb5ab0",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
-    "mtime": 1792065100.449276,
-    "seen": 1792073034.981086,
-    "ast_hash": "8b67e09685769e2874f97bb1d7ad18b1",
+    "mtime": 1792111605.0134568,
+    "seen": 1792114390.3350587,
+    "ast_hash": "7596e0a402fa7b523e95184407af6c17",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/ContainerTestConfiguration.java": {
-    "mtime": 1792066131.6961546,
-    "seen": 1792073034.9810867,
-    "ast_hash": "56045e2102e900c3cae334d96708a6a3",
+    "mtime": 1792112492.6570408,
+    "seen": 1792114390.3350596,
+    "ast_hash": "a6e7466be6310c933cd8e96a63e8aa62",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/InMemorySessionRegistryConfiguration.java": {
@@ -2256,15 +2256,15 @@
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1792067568.1402142,
-    "seen": 1792073034.9814024,
-    "ast_hash": "d4745211e45ba715a4e0c7d78e33fb41",
+    "mtime": 1792114292.2376945,
+    "seen": 1792114390.3510342,
+    "ast_hash": "38c6986b70d316dbd7e8afd9da8ddbaf",
     "semantic_hash": ""
   },
   "backend/compose.yaml": {
-    "mtime": 1792065100.4062943,
-    "seen": 1792073034.9814029,
-    "ast_hash": "7c7a2e29651cdc5e2ceff7440a7f6399",
+    "mtime": 1792114292.2378263,
+    "seen": 1792114390.3510349,
+    "ast_hash": "28ded66f772db5b676c55b8cd9e8227f",
     "semantic_hash": ""
   },
   "backend/docs/openapi.yaml": {
@@ -2334,9 +2334,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0003-ecs-structured-logging-with-redaction.md": {
-    "mtime": 1792065100.485702,
-    "seen": 1792073034.9814134,
-    "ast_hash": "7443649fea08cf040264412e4bbfa77d",
+    "mtime": 1792112537.1653233,
+    "seen": 1792114390.3514633,
+    "ast_hash": "b5ee26fca4868d0ffa0e6a1bd649a360",
     "semantic_hash": ""
   },
   "docs/adr/0004-audit-append-failure-semantics.md": {
@@ -2400,15 +2400,15 @@
     "semantic_hash": ""
   },
   "infra/README.md": {
-    "mtime": 1792072032.216528,
-    "seen": 1792073034.981428,
-    "ast_hash": "2090c24212c35becf3e83b535b5f7f3b",
+    "mtime": 1792114251.9336119,
+    "seen": 1792114390.3519309,
+    "ast_hash": "93478f52d9f3943aedbc55912d3d6b77",
     "semantic_hash": ""
   },
   "infra/infrastructure.yaml": {
-    "mtime": 1792072304.6880894,
-    "seen": 1792073034.9814284,
-    "ast_hash": "c6763cf6cdafbfe895896479b35830ca",
+    "mtime": 1792114316.4696202,
+    "seen": 1792114390.3519318,
+    "ast_hash": "a423d68cbdf7e4665ddd6055a981c7ca",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/SelfReadService.java": {
@@ -2616,9 +2616,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapter.java": {
-    "mtime": 1792065100.441655,
-    "seen": 1792073034.9810693,
-    "ast_hash": "3517487a685fa0b18b32a17f02bcb229",
+    "mtime": 1792111752.1085541,
+    "seen": 1792114390.3340375,
+    "ast_hash": "f10c406c5c47b3fb82286f1730a1c750",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/SeededBootstrapAdminTestConfiguration.java": {
@@ -2628,9 +2628,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimSeedIntegrationTests.java": {
-    "mtime": 1792065100.4751723,
-    "seen": 1792073034.9812362,
-    "ast_hash": "c42252c3283aaef38d4f92a0605c4db7",
+    "mtime": 1792111506.7977448,
+    "seen": 1792114390.3437338,
+    "ast_hash": "be4b2517ebca87b09bd3f9dbb432cc00",
     "semantic_hash": ""
   },
   "infra/parameters.template.json": {
@@ -4950,9 +4950,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0015-sql-server-2022-replaces-postgresql.md": {
-    "mtime": 1792072072.558535,
-    "seen": 1792073034.9814215,
-    "ast_hash": "5f93a74298bba8eab5a213edb06fb6e7",
+    "mtime": 1792114292.2373638,
+    "seen": 1792114390.3517237,
+    "ast_hash": "2794bf0cb18ea3f13922d1123d6a07e6",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/audit/domain/AuditAttribute.java": {
@@ -5304,9 +5304,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/database/config/MigrationStepIntegrationTests.java": {
-    "mtime": 1792068313.6991243,
-    "seen": 1792073034.981191,
-    "ast_hash": "a02d795fe3b5abf5f265389fad33e996",
+    "mtime": 1792111617.1632233,
+    "seen": 1792114390.341175,
+    "ast_hash": "cbf7ef8e3d674e24e030fcf6b25e0bf1",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/observability/CauseChain.java": {
@@ -5484,9 +5484,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/ForcedDeadlock.java": {
-    "mtime": 1792065100.449496,
-    "seen": 1792073034.9810889,
-    "ast_hash": "af4a05ec030671f9642158737f61fa84",
+    "mtime": 1792111791.4660916,
+    "seen": 1792114390.3351278,
+    "ast_hash": "09eefbab67b9762676c3c293006d1b01",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/controller/ScimExceptionHandlerDeadlockTests.java": {
@@ -5568,9 +5568,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapterTests.java": {
-    "mtime": 1792065100.4834862,
-    "seen": 1792073034.9812849,
-    "ast_hash": "36f7fd8ee414d549a17f86283626ca92",
+    "mtime": 1792111305.4036238,
+    "seen": 1792114390.3468668,
+    "ast_hash": "1fa700f64bf9a76794e2ded55a9712ce",
     "semantic_hash": ""
   },
   "infra/check-bootstrap-parity.sh": {
