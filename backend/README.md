@@ -865,7 +865,7 @@ Logging hardening, 2026-10-14 (#64, ADR 0003): three classes join the fast gate 
 `DeadlockRetryAdapterTests` (12) — and three full-context classes join the shared
 configuration, adding no context of their own: `DatabaseFailureLogIntegrationTests`
 (7 tests, 3.7 s), `ScimDeadlockRetryIntegrationTests` (2 tests, 3.7 s, a forced
-PostgreSQL deadlock) and `StartupLogConnectionDetailsTests` (2 tests, 38.3 s; each
+deadlock on the previous engine) and `StartupLogConnectionDetailsTests` (2 tests, 38.3 s; each
 runs the migrate step and then `BackendApplication` in child JVMs against a
 database of its own, which makes it the slowest of the three).
 `ScheduledJobRegistrationTests` gains three cases for a failed run's committed
@@ -907,7 +907,7 @@ from 4993 on df51e6b, Semgrep 0 findings; 4:32 min against 4:28.
 SQL Server switchover 1/5, 2026-10-14 (#68, ADR 0015; integration branch
 `mssql-cutover`): the suite runs on one SQL Server 2022 CU27 container per test JVM
 (`ContainerTestConfiguration`), each context on a database of its own created with
-the deployment's options. Before, on PostgreSQL at 6e8a882: `./scripts/verify.sh`
+the deployment's options. Before, on the previous engine at 6e8a882: `./scripts/verify.sh`
 308 s wall-clock (Maven `Total time: 04:48 min`), `Tests run: 5033, Failures: 0,
 Errors: 0, Skipped: 0`, 32 context starts, Semgrep 0 findings. After, on SQL Server:
 Maven `Total time: 06:23 min` (385 s), `Tests run: 5062, Failures: 46, Errors: 166,
@@ -915,13 +915,13 @@ Skipped: 0`, 31 context starts (32, 31, 33 and 31 across four runs — the forks
 the `@DirtiesContext` classes differently — with no configuration added: neither new
 full-context class starts one), Semgrep 0 findings. The failures are the suites the
 next switchover tickets port (locks, audit listing and error mapping in #69, the
-SCIM query SQL in #70, the remaining PostgreSQL SQL in tests in #72), and they also
+SCIM query SQL in #70, the remaining previous-engine SQL in tests in #72), and they also
 make the run slower than it will be: a failing wait runs to its patience. New:
 `ScimSchemaUniquenessIntegrationTests` (12 tests) and `UtcStorageIntegrationTests`
 (3) join the shared context; `TrustServerCertificateTest` (5) joins the fast gate;
 `DatabaseUrlTests` (2) starts the deployed configuration and fails it, opening no
 context; `DataSourceConfigTests` gains four (a missing URL; scoped PIT over
-`DataSourceConfig`: 20 mutants, 20 killed, line coverage 10/10). `ConnectorTokenPermissionsMigrationTests` was removed with the PostgreSQL
+`DataSourceConfig`: 20 mutants, 20 killed, line coverage 10/10). `ConnectorTokenPermissionsMigrationTests` was removed with the previous engine's
 `V6` it migrated through: the T-SQL `V1` is the only migration, and a fresh
 database the only starting state.
 
@@ -933,7 +933,7 @@ and `AuditEventRetentionAdapterTests` (3); the fast gate runs 3,389 tests.
 `UserCounterSerializationIntegrationTests` (1 test) joins the shared configuration
 and starts no context of its own. Deleted:
 `DatabaseFailureCategoryTests.anyInvalidAuthorizationStateIsACertAuthFailure`, which
-pinned PostgreSQL's `28000` state (`sqlServersRefusedLoginIsACertAuthFailure` now
+pinned the previous engine's `28000` state (`sqlServersRefusedLoginIsACertAuthFailure` now
 pins SQL Server's error 18456), and
 `AuditRetentionSerializationIntegrationTests.ofTwoOverlappingRunsOneDeletesAndTheOtherSkipsLockHeldDeletingNothing`,
 replaced by the two batching cases that hold a run between its batches. Two
@@ -956,11 +956,39 @@ configuration added), `Total time: 07:23 min`. Of the 48 failures and 166 errors
 red at that baseline (#68's 46 and 166, plus two its own run did not see), 24
 failures and 22 errors now pass and one failure was deleted with its rewrite; the
 23 failures and 144 errors left were all red before, in the suites #70 (the SCIM
-query SQL) and #72 (PostgreSQL SQL and UUID read-backs in test setup) port, and no
+query SQL) and #72 (previous-engine SQL and UUID read-backs in test setup) port, and no
 test newly fails. `./scripts/verify.sh` stops at the red tests before its scan, so
 the tests ran as `./mvnw -B clean verify -Dmaven.test.failure.ignore=true` and the
 scan as `./scripts/semgrep.sh`: 0 findings before, and
 `Ran 153 rules on 791 files: 0 findings` after.
+
+SQL Server switchover 5/5, 2026-10-16 (#72, ADR 0015; integration branch
+`mssql-cutover`): the last red tests port. Ten integration classes held the 32
+(21 failures, 11 errors) red at 95ee952: they read ids back with an untyped
+`getObject`, which the driver answers with the id's upper-case text, or still sent
+the previous engine's SQL. They now read rows through `UuidColumnRows`, which maps
+every `UNIQUEIDENTIFIER` column to a `UUID`, and send T-SQL; no test was added or
+removed. `DatabaseFailureCategoryTests`' case for the previous engine's deadlock
+state was renamed `aDeadlockVictimStateWithoutError1205IsNoDeadlock`. Scoped PIT over
+`EcsErrorFieldsCustomizer`, `DatabaseFailureCategory` and `ScimQuerySql`, from
+their three touched unit test classes: 493 mutants, 491 killed, 2 `NO_COVERAGE`
+(the compiler's unreachable `MatchException` default of the exhaustive switches in
+`ScimQuerySql.predicate` and `sqlType`, which no test can reach; recorded in the pull
+request as an accepted gap), line coverage 295/308.
+Before, at 95ee952: `./scripts/verify.sh` 437 s wall-clock, Maven `Total time:
+07:14 min`, `Tests run: 5122, Failures: 21, Errors: 11, Skipped: 0`, 33 context
+starts, the scan run on its own with 0 findings. After: `GATE_EXIT=0`, 458 s
+wall-clock, Maven `Total time: 07:18 min`, `Tests run: 5122, Failures: 0, Errors: 0,
+Skipped: 0`, 33 context starts (32 to 34 across five runs of the change — fork
+placement, no configuration added), Semgrep
+`Ran 153 rules on 772 files: 0 findings`. Against the pre-switchover baseline above
+(308 s, 32 contexts), the suite is 150 s slower; ADR 0015, "Verified behaviour",
+records every run, including one that failed
+`RefusalLogIntegrationTests.a_non_admin_admin_read_is_one_refusal_record` on a
+stopped context's session-cleanup task firing inside its capture window. `V1`'s
+comments were reworded in this change, so its Flyway checksum changed: a database
+migrated before it fails validation and must be recreated (`docker compose down
+-v` locally).
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

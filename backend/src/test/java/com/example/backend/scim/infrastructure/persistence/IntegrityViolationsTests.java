@@ -16,7 +16,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  *
  * <p>The violations are built the way Spring's JPA translation builds them: a
  * {@link DataIntegrityViolationException} wrapping Hibernate's exception, which wraps the
- * driver's. The integration tests observe the same rule against Postgres's own reports.
+ * driver's. The integration tests observe the same rule against SQL Server's own reports.
  */
 class IntegrityViolationsTests {
 
@@ -33,7 +33,7 @@ class IntegrityViolationsTests {
                 .hasCause(violation);
     }
 
-    /** Postgres reports names in lower case; the migrations' spelling is matched either way. */
+    /** A reported name is matched ignoring case, so the migrations' spelling matches either way. */
     @Test
     void the_constraint_name_is_matched_ignoring_case() {
         assertThat(IntegrityViolations.violates(constraint(TAKEN.toUpperCase()), TAKEN)).isTrue();

@@ -49,7 +49,7 @@ import tools.jackson.databind.JsonNode;
 /**
  * The dormancy job against the in-memory directory: whom it locks, whose mapped Group memberships
  * it removes, what it leaves in place, and what each change records. The same rules against
- * Postgres, with the real seeded Bootstrap Admin, are {@code DormancyIntegrationTests}.
+ * SQL Server, with the real seeded Bootstrap Admin, are {@code DormancyIntegrationTests}.
  *
  * <p>Which step a User is due for is the {@link com.example.backend.scim.domain.DormancyVerdict}'s
  * decision, tested without a clock in {@code DormancyVerdictTests}. Here the clock stands still at

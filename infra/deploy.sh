@@ -120,7 +120,7 @@ get_inputs() {
     DB_NAME=${DB_NAME:-backend}
 
     # RDS for SQL Server Standard Edition, licence-included: it runs on none of
-    # the small classes, and costs far more than the PostgreSQL stack's
+    # the small classes, and costs far more than the previous stack's
     # db.t3.micro did (README, "Engine, edition and cost").
     print_warn "SQL Server Standard Edition (licence-included) bills its licence by the hour: see README, \"Engine, edition and cost\""
     read -r -p "Enter RDS instance class (default: db.t3.xlarge, the smallest SE runs on): " DB_INSTANCE_CLASS

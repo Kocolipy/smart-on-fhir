@@ -138,12 +138,12 @@ class EcsErrorFieldsCustomizerTests {
     void theOtherPairsStayWhereTheyWere() {
         List<KeyValuePair> pairs = new java.util.ArrayList<>(classification(500, "database", true));
         pairs.add(new KeyValuePair(LogEvent.OUTCOME, "failure"));
-        pairs.add(new KeyValuePair(LogEvent.REASON, "PSQLException"));
+        pairs.add(new KeyValuePair(LogEvent.REASON, "SQLServerException"));
 
         JsonNode record = encoded(withCustomizer(), event(null, pairs));
 
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
-        assertThat(record.at("/event/reason").asText()).isEqualTo("PSQLException");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("SQLServerException");
         assertThat(record.at("/message").asText()).isEqualTo("record");
         assertThat(record.at("/log/level").asText()).isEqualTo("ERROR");
     }
@@ -190,12 +190,12 @@ class EcsErrorFieldsCustomizerTests {
     // ---- SQL exception text --------------------------------------------------------------------
 
     /**
-     * What a driver's refusal reads like: the refused value, the constraint, the schema and the
-     * database all in the message, as PostgreSQL's unique-violation text quotes them.
+     * What a driver's refusal reads like: the constraint, the schema and the refused value all in
+     * the message, as SQL Server's unique-violation text (error 2627) quotes them.
      */
-    private static final String DRIVER_TEXT = "ERROR: duplicate key value violates unique"
-            + " constraint \"uq_probe_name\"\n  Detail: Key (name)=(refused-alice) already exists."
-            + "\n  Where: schema probe_schema, database probe_db";
+    private static final String DRIVER_TEXT = "Violation of UNIQUE KEY constraint 'uq_probe_name'."
+            + " Cannot insert duplicate key in object 'probe_schema.probe'."
+            + " The duplicate key value is (refused-alice).";
 
     /** A translated refusal: Spring's wrapper quotes the driver's text and the statement. */
     private static RuntimeException translatedRefusal() {
@@ -259,7 +259,8 @@ class EcsErrorFieldsCustomizerTests {
     void aSuppressedSqlExceptionIsRedactedToo() {
         IllegalStateException failure = new IllegalStateException("cleanup failed");
         failure.addSuppressed(PERMISSION_DENIED.raised(
-                "permission denied for schema probe_schema"));
+                "The SELECT permission was denied on the object 'probe', database 'probe_db',"
+                        + " schema 'probe_schema'."));
 
         String stack = encoded(withCustomizer(), event(failure, List.of()))
                 .at("/error/stack_trace").asText();

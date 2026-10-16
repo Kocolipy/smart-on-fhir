@@ -33,7 +33,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The ticket's end-to-end criterion, in one exchange sequence against a real Postgres and the real
+ * The ticket's end-to-end criterion, in one exchange sequence against a real SQL Server and the real
  * filter chain: a fresh deployment boot serves discovery, then creation, then Group membership — and
  * the Bootstrap Admin logs in through the ordinary password path and reaches the administrative
  * interface.
@@ -96,7 +96,7 @@ class ScimEndToEndIntegrationTests {
      * stable id (cascades from {@code scim_resources}). This class is not
      * {@code @Transactional} — the writes are real HTTP commits — so without this
      * the fixed userNames ("e2e-member", "e2e-promoted") survive into a second run
-     * against a reused Postgres and collide on the userName uniqueness constraint.
+     * against a reused database and collide on the userName uniqueness constraint.
      */
     @org.junit.jupiter.api.AfterEach
     void removeSeededResources() {

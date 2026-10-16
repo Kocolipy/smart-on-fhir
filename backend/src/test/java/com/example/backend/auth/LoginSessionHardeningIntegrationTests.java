@@ -40,7 +40,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * The login, logout and change-password hardening, over the real filter chain against a real
- * Postgres and a real, indexed Redis session store — no in-memory session registry.
+ * SQL Server and a real, indexed Redis session store — no in-memory session registry.
  *
  * <ul>
  *   <li><b>One concurrent session per User.</b> Two cookie jars log in as the same User: the first

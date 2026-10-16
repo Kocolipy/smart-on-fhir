@@ -11,6 +11,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
@@ -52,7 +53,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Roles made visible, the Superuser Group's protections, and a change of Role reaching the
  * sessions it was issued to — over HTTP, against the shipped development role mapping, real
- * Postgres and the indexed Redis session store.
+ * SQL Server and the indexed Redis session store.
  *
  * <p>Its context is dirtied after the class, because these tests change who belongs to the
  * fixture Groups and delete one of them, which no other class sharing the development mapping's
@@ -368,11 +369,11 @@ class RolePropagationIntegrationTests {
 
     /** The change of power is in the trail: the connector, the User, the Group and the Role. */
     private void assertRoleChange(String operation, UUID userId, UUID groupId, String role) {
-        List<Map<String, Object>> rows = jdbc.queryForList("""
+        List<Map<String, Object>> rows = jdbc.query("""
                 SELECT actor_id, resource_type, resource_id, role_name, outcome
                   FROM audit_events
                  WHERE operation = ? AND subject_id = ? AND actor_id = ?""",
-                operation, userId, connectorId);
+                UuidColumnRows.ROWS, operation, userId, connectorId);
         assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.get("resource_type")).isEqualTo("Group");
             assertThat(row.get("resource_id")).isEqualTo(groupId);

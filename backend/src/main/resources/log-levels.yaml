@@ -79,6 +79,6 @@ logging:
     # The Microsoft SQL Server driver logs through java.util.logging, which Boot
     # bridges in. At FINE and below it traces every connection it opens — the
     # server name, port and database it dials — and the statements it sends, and
-    # SQL Server quotes the refused value in a unique-violation message as
-    # PostgreSQL did (ADR 0015, lm-19). WARN keeps what it warns of.
+    # SQL Server quotes the refused value in a unique-violation message
+    # (ADR 0015, lm-19). WARN keeps what it warns of.
     com.microsoft.sqlserver.jdbc: "WARN"

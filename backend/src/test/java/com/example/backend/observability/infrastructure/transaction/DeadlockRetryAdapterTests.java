@@ -40,7 +40,8 @@ import tools.jackson.databind.JsonNode;
  * in, and an aborted transaction refuses every later statement, so a retry run inside the
  * victim's transaction fails where one run outside it, in a transaction of its own, completes.
  *
- * <p>The deadlock is the exception a PostgreSQL deadlock victim's write raises through JPA:
+ * <p>The deadlock is the exception a SQL Server deadlock victim's write (error 1205) raises
+ * through JPA:
  * Spring's {@link CannotAcquireLockException} over the driver's {@link SQLException}, raised as
  * {@link SqlFailures#DEADLOCK_VICTIM}.
  */

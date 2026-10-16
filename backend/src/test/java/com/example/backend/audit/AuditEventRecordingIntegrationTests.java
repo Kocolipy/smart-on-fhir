@@ -14,6 +14,7 @@ import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -51,7 +52,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * Every audit-worthy thing this application already does, driven through the real
- * filter chain against a real Postgres, with the rows it produced read back out of
+ * filter chain against a real SQL Server, with the rows it produced read back out of
  * the database.
  *
  * <p>Driven end to end rather than against the services because the claim is about
@@ -496,11 +497,11 @@ class AuditEventRecordingIntegrationTests {
     }
 
     private List<Map<String, Object>> rows(AuditOperation operation) {
-        return jdbc.queryForList(EVENTS_BY_OPERATION, operation.name());
+        return jdbc.query(EVENTS_BY_OPERATION, UuidColumnRows.ROWS, operation.name());
     }
 
     private List<Map<String, Object>> allEvents() {
-        return jdbc.queryForList(ALL_EVENTS);
+        return jdbc.query(ALL_EVENTS, UuidColumnRows.ROWS);
     }
 
     /**

@@ -53,7 +53,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * SCIM DELETE driven over the real filter chain, against a real Postgres and a real, indexed
+ * SCIM DELETE driven over the real filter chain, against a real SQL Server and a real, indexed
  * Redis session store: the {@code 204}, the {@code 404} for everything that follows, the
  * tombstone the schema lets exist, the reusable {@code userName}, and whether a live session
  * survives.

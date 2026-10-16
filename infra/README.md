@@ -38,7 +38,7 @@ No database client: everything that talks to the database runs on the instance.
 > [Edge throttling](#edge-throttling-required).
 
 > **Cost:** SQL Server Standard Edition, licence-included, costs far more than
-> the PostgreSQL instance it replaces. Read
+> the database instance it replaces. Read
 > [Engine, edition and cost](#engine-edition-and-cost) before deploying.
 
 ---
@@ -137,10 +137,9 @@ log destination.
 ## Database security (secrets, key, TLS, monitoring)
 
 What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on RDS for SQL
-Server (`/docs/adr/0015-sql-server-2022-replaces-postgresql.md`, "Compliance
-resolutions" and "Standards resolutions"). The PostgreSQL stack's controls were
-re-targeted, not replaced: the same key, the same secrets discipline, the same
-migrate step.
+Server (ADR 0015, "Compliance resolutions" and "Standards resolutions"). The
+previous stack's controls were re-targeted, not replaced: the same key, the same
+secrets discipline, the same migrate step.
 
 ### Engine, edition and cost
 
@@ -168,10 +167,10 @@ AWS's price list for ap-southeast-1, single-AZ, on demand, read on 2026-10-15:
 
 | Instance                                     | Per hour | Per month (730 h) |
 | -------------------------------------------- | -------- | ----------------- |
-| `db.t3.micro`, PostgreSQL (the old stack)    | US$0.028 | ≈ US$20           |
+| `db.t3.micro`, the previous stack            | US$0.028 | ≈ US$20           |
 | `db.t3.xlarge`, SQL Server SE, licence-incl. | US$1.109 | ≈ US$810          |
 
-— **about 40 times the PostgreSQL instance**, before storage, backups,
+— **about 40 times the previous instance**, before storage, backups,
 Performance Insights beyond its free tier, and Multi-AZ (which doubles the
 instance price). Prices change; take the current one for the class you choose
 before sign-off:
@@ -272,7 +271,7 @@ process that needs it.
 - `/opt/backend/start.sh` reads the app, retention, trust-store, Bootstrap Admin
   and Epic secrets — never the owner's or the master's.
 
-**The master secret is now readable by the instance role.** The PostgreSQL stack
+**The master secret is now readable by the instance role.** The previous stack
 kept it on the operator's machine and ran the bootstrap there, through an SSH
 tunnel; this stack runs the bootstrap in UserData, as #71 specifies, so the
 instance must read it. The role cannot tell processes apart, so code running as
@@ -623,9 +622,9 @@ printed. Never run them with `bash -x`.
 ### An existing stack
 
 The move to SQL Server replaces the database engine, and with it the instance;
-the application holds no data that must be kept (ADR 0015). An existing
-PostgreSQL stack does not update into this template: delete it (`cleanup.sh`)
-and deploy a fresh stack.
+the application holds no data that must be kept (ADR 0015). An existing stack
+on the previous engine does not update into this template: delete it
+(`cleanup.sh`) and deploy a fresh stack.
 
 ---
 

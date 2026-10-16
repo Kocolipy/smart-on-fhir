@@ -64,7 +64,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * The User write use cases over in-memory ports: replacement and partial-update semantics, the
  * order of the refusals, the password history, which changes end sessions, and what each write
- * records. The same behaviour against Postgres and Redis is in
+ * records. The same behaviour against SQL Server and Redis is in
  * {@code ScimConditionalWriteIntegrationTests}.
  */
 class ScimUserServiceTests {

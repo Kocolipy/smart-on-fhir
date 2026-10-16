@@ -85,7 +85,7 @@ class ScimDiscoveryIntegrationTests {
      * Removes the User this class persists over the real SCIM surface ("etag-probe").
      * This class is not {@code @Transactional} — the create is a real HTTP commit —
      * so without this the fixed userName survives into a second run against a reused
-     * Postgres and collides on the userName uniqueness constraint. Deleting the
+     * database and collides on the userName uniqueness constraint. Deleting the
      * {@code scim_resources} root cascades to {@code scim_users}. Scoped to the one
      * name this class creates so it cannot remove another class's fixtures.
      */

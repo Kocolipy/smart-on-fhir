@@ -4,10 +4,12 @@ Date: 2026-10-12
 
 ## Status
 
-Accepted as the decision. Its implementation lands across later tickets: the
-engine-neutral preparation on PostgreSQL (#62–#66), the verification spikes (#67)
-and the switchover (#68–#72). Until the switchover merges, the backend still runs
-on PostgreSQL, and this ADR describes the target, not the running system.
+Accepted, and implemented. The engine-neutral preparation on PostgreSQL (#62–#66),
+the verification spikes (#67) and the switchover on the integration branch
+`mssql-cutover` (#68–#72) have landed: the backend runs on SQL Server 2022 locally
+and in tests, the deployed stack is RDS for SQL Server (#71), and PostgreSQL
+support is removed. This ADR describes the running system. "Verified behaviour"
+closes with the switchover's own measurements.
 
 Some decisions below depended on verification spikes (V1–V6). The spikes ran on
 2026-10-12 against a SQL Server 2022 container. The table under "Open verification
@@ -16,11 +18,11 @@ evidence. No decision's fallback was taken; V2 added one binding rule, under
 "Storage is UTC only". A failed spike amends this ADR rather than being absorbed
 silently in code.
 
-This ADR will supersede in part ADR 0004 (how the audit trail's append-only rule is
+This ADR supersedes in part ADR 0004 (how the audit trail's append-only rule is
 enforced in the database; the fail-closed/fail-open axis is unchanged) and ADR 0005
-(the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). The
-superseding notes on those two ADRs land with the tickets that change those
-mechanisms; ADR 0005's landed with the locking ticket (#69).
+(the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). Both carry
+their superseding notes: ADR 0005's landed with the locking ticket (#69), and ADR
+0004's with the switchover's last ticket (#72).
 
 It also records a deviation from the App-Standards recommendation of PostgreSQL
 for production (Standalone User Access Control Q6, User SSO Q5).
@@ -704,6 +706,62 @@ The fork count stays 2. The memory the switchover's local-development
 documentation states must cover the extra ~2 GB. On a VM as small as the
 `pom.xml` comment's 5.9 GB, that is tight, and is the case for raising the
 documented WSL memory rather than lowering the fork count.
+
+### The switchover: the suite before and after (2026-10-16)
+
+Consequences requires the suite's runtime before and after, and a context count
+that does not rise. Both are `./scripts/verify.sh` from `backend/`, on the 24-vCPU,
+47 GB WSL2 host of V6; the context count is the gate log's
+`grep -c 'Started .* in .* seconds'`.
+
+| Run                                          | Wall-clock | Maven `Total time` | Tests (run / failed / errors) | Contexts | Semgrep    |
+| -------------------------------------------- | ---------- | ------------------ | ----------------------------- | -------- | ---------- |
+| PostgreSQL, 6e8a882 (#68's baseline)         | 308 s      | 04:48 min          | 5033 / 0 / 0                  | 32       | 0 findings |
+| SQL Server, 95ee952 (#71 merged, before #72) | 437 s      | 07:14 min          | 5122 / 21 / 11                | 33       | 0 findings |
+| SQL Server, #72, run 1                       | 489 s      | 07:49 min          | 5122 / 0 / 0                  | 33       | 1 finding  |
+| SQL Server, #72, run 2                       | 427 s      | 06:44 min          | 5122 / 0 / 0                  | 32       | 0 findings |
+| SQL Server, #72, run 3 (`make verify`)       | 436 s      | 06:39 min          | 5122 / 0 / 0                  | 34       | 0 findings |
+| SQL Server, #72, run 4 (`V1` comments)       | 396 s      | 06:34 min          | 5122 / 1 / 0                  | 34       | not run    |
+| SQL Server, #72, final run (`GATE_EXIT=0`)   | 458 s      | 07:18 min          | 5122 / 0 / 0                  | 33       | 0 findings |
+
+- **Contexts.** 33 in the final gate against 32 on PostgreSQL, and 32 to 34
+  across the #72 runs. No configuration was added. The extra starts are the
+  shared configuration rebooting after a `@DirtiesContext` eviction: which class
+  boots it depends on where the forks place the two `@DirtiesContext` classes,
+  which is why the count read 31 to 33 between runs on PostgreSQL and in #68 too.
+  Run 3's wall-clock includes the frontend gate.
+- **Runtime.** The final gate took 458 s against 308 s, 150 s (49%) more; the
+  four green-test runs took 396 to 489 s. That is well above V6's projection of
+  about 290 s, which left query cost inside the tests out. The 95ee952 row stopped
+  at its red tests before its scan (the scan ran on its own, 0 findings), and its
+  failing waits ran to their patience. Run 1's finding was a concatenated SQL
+  string in a test, fixed before run 2. Run 4's one failure was
+  `RefusalLogIntegrationTests.a_non_admin_admin_read_is_one_refusal_record`, which
+  captured six `ERROR` records from Spring Session's minute cleanup task of an
+  already stopped context ("LettuceConnectionFactory has been STOPPED") firing at
+  11:00:00 inside its capture window; the final run, on the same tree, passed it.
+  During the #72 runs a 12-vCPU virtual machine outside the suite ran on the same
+  host (load average 3.9 to 7.3), so part of the difference may be the host
+  rather than the engine.
+- **The 32 red tests at 95ee952.** They were the tests #68 and #69 assigned to
+  #72, in ten integration classes. Eight compared ids read back with an untyped
+  `getObject`, which the driver answers with the upper-case text of the id (V2),
+  and four still sent PostgreSQL SQL (`?::uuid`, `resource_id::text`,
+  `locked_at IS NOT NULL` as a value, `now()`, `||`); two did both. The tests now
+  read a row's `UNIQUEIDENTIFIER` columns as `UUID` (`UuidColumnRows`) and send
+  T-SQL; no production code changed for them.
+- **End to end.** `make integration-test` passed 60 Playwright tests, and
+  `make epic-integration-test` passed the Epic project's 7, against a local stack
+  on the pinned SQL Server image, the first on a freshly initialised database.
+- **Deployed stack: unverified, pending the user's own deploy.** The criterion is
+  that a stack deployed with `infra/deploy.sh` comes up, migrates, and serves SCIM
+  create, list and delete. The switchover did not run it: the user deploys and
+  verifies the AWS stack themselves. Until then nothing here shows the deployed
+  stack's behaviour, including the untested Windows build's `sp_getapplock` under
+  the `Latin1_General_100_BIN2_UTF8` server collation (Addendum (2026-10-16),
+  "Risk: untested on Windows"). `V1`'s comments were reworded in #72, which changes
+  its Flyway checksum, so a stack already deployed from `mssql-cutover` must be
+  recreated rather than updated.
 
 ## Addendum (2026-10-15): substring filters keep trailing spaces significant
 

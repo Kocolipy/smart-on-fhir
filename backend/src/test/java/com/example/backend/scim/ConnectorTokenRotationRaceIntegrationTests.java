@@ -33,7 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
 /**
- * Two real rotations of one connector token on Postgres, released together. The token row is
+ * Two real rotations of one connector token on SQL Server, released together. The token row is
  * locked before either decides whether the token may still be rotated, so the second waits for
  * the first to commit and then finds the token already replaced: exactly one live replacement,
  * and the other rotation refused as not rotatable — every round.

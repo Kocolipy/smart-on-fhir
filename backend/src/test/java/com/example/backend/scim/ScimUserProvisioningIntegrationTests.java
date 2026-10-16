@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
+import com.example.backend.UuidColumnRows;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -44,7 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The ticket's demo oracle: a connector drives creation and retrieval over the real filter
- * chain against a real Postgres, and the stored rows and audit rows are read back with SQL.
+ * chain against a real SQL Server, and the stored rows and audit rows are read back with SQL.
  *
  * <p>SQL rather than a repository for the state assertions, for the reason the connector
  * lifecycle test gives: what is claimed about a password is a claim about the BYTES that
@@ -118,7 +119,7 @@ class ScimUserProvisioningIntegrationTests {
     /**
      * Removes the resources THIS test created, and only those.
      *
-     * <p>This class shares one Spring context and one Postgres with every other integration
+     * <p>This class shares one Spring context and one database with every other integration
      * test, and {@code userName} and {@code displayName} are server-unique. Without teardown a
      * name created here (e.g. "member") leaks into a later class that creates the same name,
      * which then gets a {@code 409} depending only on Surefire's class ordering. Scoped to
@@ -802,7 +803,7 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     private List<Map<String, Object>> eventsOf(AuditOperation operation) {
-        return jdbc.queryForList(USER_EVENTS_BY_ACTOR, operation.name(), connectorId);
+        return jdbc.query(USER_EVENTS_BY_ACTOR, UuidColumnRows.ROWS, operation.name(), connectorId);
     }
 
     private String storedHash(UUID id) {

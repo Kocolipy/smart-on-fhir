@@ -4,9 +4,8 @@ import java.util.function.IntPredicate;
 
 /**
  * A submitted attribute value contains a character its attribute does not accept: U+0000 in any
- * stored string, which PostgreSQL cannot store in {@code text} or {@code varchar} at all, or any
- * C0 control (or DEL) in a {@code userName} or {@code displayName}, which are shown to people and
- * written to logs.
+ * stored string, refused everywhere as input hygiene (ADR 0015), or any C0 control (or DEL) in a
+ * {@code userName} or {@code displayName}, which are shown to people and written to logs.
  *
  * <p>Rendered as {@code 400 invalidValue} naming the attribute and the forbidden characters. The
  * value, and the position of the offending character in it, never reach this object.
@@ -16,7 +15,7 @@ public final class ScimValueControlCharacterException extends ScimAttributeValue
     /** Which characters an attribute refuses. */
     public enum Forbidden {
 
-        /** U+0000 alone: the one character PostgreSQL refuses in a UTF-8 string. */
+        /** U+0000 alone: the one character refused in every stored string. */
         NUL("the NUL character (U+0000)", codePoint -> codePoint == 0),
 
         /** Every C0 control, U+0000 to U+001F, and DEL, U+007F. */

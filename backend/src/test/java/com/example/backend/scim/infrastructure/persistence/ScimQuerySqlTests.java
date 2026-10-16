@@ -190,7 +190,7 @@ class ScimQuerySqlTests {
 
     /**
      * T-SQL throughout: across filters and sorts reaching every fragment kind, no statement uses
-     * syntax only PostgreSQL accepts, and the engine words — the binary UTF-8 collation, the types
+     * syntax T-SQL rejects or reads otherwise, and the engine words — the binary UTF-8 collation, the types
      * a NULL is cast to and {@code TOP 1} for a first value — appear only in their positions.
      */
     @Test
@@ -221,11 +221,11 @@ class ScimQuerySqlTests {
         String statements = all.toString();
         String upper = statements.toUpperCase(Locale.ROOT);
 
-        for (String postgresOnly : new String[] {
+        for (String notTSql : new String[] {
                 " LIMIT ", "NULLS FIRST", "NULLS LAST", "||", "TRUE", "FALSE", "::", "ILIKE",
                 "AS TEXT", "AS VARCHAR)", "COALESCE(LOWER", ", FALSE)", "\"C\"", "BOOLEAN",
                 "TIMESTAMPTZ", "OFFSET 0 ROWS"}) {
-            assertThat(upper).as(postgresOnly).doesNotContain(postgresOnly);
+            assertThat(upper).as(notTSql).doesNotContain(notTSql);
         }
         String withoutEngineWords = statements.replace("COLLATE Latin1_General_100_BIN2_UTF8", "")
                 .replace("CAST(NULL AS BIT)", "")

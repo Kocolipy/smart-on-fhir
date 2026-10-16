@@ -83,7 +83,7 @@ class ApiContractFixtureTests {
 
     /** Documented statuses no fixture can produce here, each with the reason. */
     private static final Set<String> NOT_PRODUCIBLE = Set.of(
-            // Needs a dependency to be DOWN; this context's Postgres and Redis are up by design.
+            // Needs a dependency to be DOWN; this context's SQL Server and Redis are up by design.
             "GET /actuator/health 503",
             // Needs Epic Login OFF; this context has it on, to serve the JWKS. The switch-off 404
             // is EpicReleaseGateIntegrationTests', in a context with no Epic variable at all.

@@ -45,7 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
  * It states the profile's outcomes by hand — what discovery says about representative string,
  * boolean, complex and multi-valued attributes; what a write keeps, ignores and refuses; what a
  * read returns and omits; how a filter and a sort compare — and observes each one over the real
- * filter chain against real PostgreSQL, so the query results come from the persistence adapter's
+ * filter chain against real SQL Server, so the query results come from the persistence adapter's
  * own SQL.
  *
  * <p>Scoped like {@link ScimQueryProtocolIntegrationTests}: every query is

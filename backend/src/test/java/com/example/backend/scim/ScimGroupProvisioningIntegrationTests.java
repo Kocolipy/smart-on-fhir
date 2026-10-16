@@ -42,7 +42,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The Group endpoints driven over the real filter chain against a real Postgres, with the stored
+ * The Group endpoints driven over the real filter chain against a real SQL Server, with the stored
  * rows read back in SQL.
  *
  * <p>The counterpart of {@link ScimUserProvisioningIntegrationTests}, and it exists because
@@ -51,7 +51,7 @@ import tools.jackson.databind.json.JsonMapper;
  * behaviour was verified only at service level against an in-memory fake. That is not a
  * theoretical gap on this ticket. The fake and the adapter had already DISAGREED once about
  * whether a create advances its members' versions, and every unit test passed while the adapter
- * was wrong; only a Postgres test caught it. {@code deleteById} was the same shape of hole.
+ * was wrong; only a test against the database caught it. {@code deleteById} was the same shape of hole.
  *
  * <p>So the assertions here are deliberately about the things only this layer decides: which
  * status code each refusal becomes, what the {@code Location} and {@code ETag} carry, which
@@ -121,7 +121,7 @@ class ScimGroupProvisioningIntegrationTests {
     /**
      * Removes the resources THIS test created, and only those.
      *
-     * <p>Needed because this class shares one Spring context and one Postgres across its methods
+     * <p>Needed because this class shares one Spring context and one database across its methods
      * and with every other integration test, while {@code displayName} and {@code userName} are
      * server-unique: without teardown the second method to create "Engineering-grpit" gets a
      * {@code 409} and the failure reads as a defect in uniqueness rather than test bleed.
