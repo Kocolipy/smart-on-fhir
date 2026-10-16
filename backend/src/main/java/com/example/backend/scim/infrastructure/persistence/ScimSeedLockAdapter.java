@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  * calling transaction (ADR 0015).
  *
  * <p>A row lock, as {@code ScheduledJobLockAdapter}'s is, rather than an application lock. The
- * V2 migration inserts the row before the service can start, so there is a row to lock even on a
+ * V1 migration inserts the row before the service can start, so there is a row to lock even on a
  * fresh database, which is when the lock matters. And a row lock is the engine's ordinary lock
  * manager, which works under every server collation: on a server collated
  * {@code Latin1_General_100_BIN2_UTF8} — the deployed server's — {@code sp_getapplock} fails on
@@ -50,7 +50,7 @@ class ScimSeedLockAdapter implements ScimSeedLock {
     /** How long a start waits for another start's seeding before it fails. */
     private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(60);
 
-    /** The one row of {@code scim_seed_locks}, inserted by the V2 migration. */
+    /** The one row of {@code scim_seed_locks}, inserted by the V1 migration. */
     private static final String SEED_ROW = "ScimSeed";
 
     /** Whole statement as a constant, never assembled; see the local Semgrep ruleset. */

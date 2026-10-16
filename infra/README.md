@@ -208,7 +208,7 @@ snapshot that is itself billed until you delete it.
   `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load the
   internal extended procedures behind `sp_getapplock` (`sys.xp_userlock`) and a
   T-SQL `sp_executesql`: error 17750, "Could not load the DLL (server
-  internal)". The seed lock is now a row lock on `scim_seed_locks` (`V2`), and
+  internal)". The seed lock is now a row lock on `scim_seed_locks` (`V1`), and
   the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0015,
   "Addendum (2026-10-16)").
 - **Untested risk: Flyway on the Windows build.** Flyway guards every
