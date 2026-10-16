@@ -323,9 +323,15 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * committing between the two leaves a Group read with the members it had or with none. That
      * is a stale read rather than a failure, since a Group with no rows here is a legitimate
      * empty Group.
+     *
+     * <p>One statement per {@link BoundIdChunks chunk} of Group ids: the administrative listing
+     * reads every Group in the directory, which a connector may grow past the 2,100 parameters
+     * SQL Server binds in one request. Each Group's members all come from its own chunk's
+     * statement, so each Group's order is that statement's.
      */
     private Map<UUID, List<ScimGroupMember>> membersOf(Collection<UUID> groupIds) {
-        return memberships.findMembersOfGroups(groupIds).stream()
+        return BoundIdChunks.of(groupIds).stream()
+                .flatMap(chunk -> memberships.findMembersOfGroups(chunk).stream())
                 .collect(Collectors.groupingBy(
                         ScimGroupMemberRow::groupId,
                         Collectors.mapping(
