@@ -5,10 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.ForcedDeadlock;
 import com.example.backend.TokenPermissions;
-import com.example.backend.auth.epic.EpicTestKeys;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -39,8 +39,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -69,7 +67,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class ApiContractFixtureTests {
+class ApiContractFixtureTests extends EpicLoginOnContext {
 
     private static final String ADMIN = "test-admin";
 
@@ -97,12 +95,6 @@ class ApiContractFixtureTests {
     private static final ContractRecorder RECORDER = new ContractRecorder(CONTRACT);
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
-
-    /** Epic Login on, so its public JWKS is served; with generated keys, never committed ones. */
-    @DynamicPropertySource
-    static void epicLoginOn(DynamicPropertyRegistry registry) {
-        EpicTestKeys.epicLoginOn(registry, EpicTestKeys::p384Pem, EpicTestKeys::p384Pem);
-    }
 
     @Autowired
     private WebApplicationContext context;

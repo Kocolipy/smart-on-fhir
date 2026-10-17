@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -97,7 +98,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
-class AuthorizationContractTests {
+class AuthorizationContractTests extends EpicLoginOnContext {
 
     private static final String CALLER = "test-user";
 

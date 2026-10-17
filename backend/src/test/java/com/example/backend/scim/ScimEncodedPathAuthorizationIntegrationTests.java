@@ -3,6 +3,7 @@ package com.example.backend.scim;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.authorization.domain.Permission;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
@@ -46,7 +48,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
-class ScimEncodedPathAuthorizationIntegrationTests {
+@AutoConfigureMetrics
+class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
 
     private static final String SCIM_JSON = "application/scim+json";
 
