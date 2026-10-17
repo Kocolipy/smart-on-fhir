@@ -40,7 +40,7 @@ The inner loop under the baseline gate. `README.md` ("Test layers") holds the la
 - New tests: a class joins the fast gate's explicit list only when it starts no Spring context and no container and reads no environment value; the subsystem gates select by package, so they need no edit.
 - Environment: the Surefire forks drop every `.env.example` key (`excludedEnvironmentVariables` in `pom.xml`), so a shell that sourced `.env` runs the same tests as a clean one. Add a new runtime variable there when you add it to `.env.example`. Epic is faked on loopback (`FakeEpic`); a test that reaches a real host is a defect.
 - Removal standard: a broken test is corrected with source authority or removed with `git rm`, recoverable from history; skip markers and `@Disabled` stay out of the tree.
-- Ledger: suite-shaping changes (deletions, gate edits, measured runtimes) go in `README.md` "Test layers" with numbers from tool output.
+- Ledger: a suite-shaping change (a deletion, a gate edit, a measured runtime) records its numbers, from tool output, in the pull request that made it; `README.md` "Test layers" describes what each layer runs and stays free of counts and timings.
 
 ### Full-context tests
 
@@ -49,6 +49,7 @@ A `@SpringBootTest` class runs in a context Spring caches and reuses for every c
 - Start from `@SpringBootTest` + `@Import(ContainerTestConfiguration.class)`, the configuration most classes share, and add only what the behaviour under test needs. Each extra profile, property, imported configuration, `@MockitoBean` or `@DynamicPropertySource` makes a context of its own; a property set to its default value is the usual needless one.
 - Declare a test configuration as a top-level class and import it, as `InMemorySessionRegistryConfiguration` and `DormancyTestClockConfiguration` are: the cache keys on the class, so a nested copy shares with nobody. Import `InMemorySessionRegistryConfiguration` only when the test reads `InMemoryAccountSessions`.
 - The context's pools connect as the deployment's logins — the app login, and the retention login for the retention pool — and Flyway migrates as the owner login, so the context's `JdbcTemplate` has exactly the service's privileges. A test that must change the schema, delete an audit event or read another login's sessions (`sys.dm_exec_sessions`) speaks as that principal through the `DatabaseLogins` bean (`owner()`, `retention()`, `superuser()`), never by switching role.
+- Read a `UNIQUEIDENTIFIER` column back through `UuidColumnRows`: an untyped `getObject` returns the id's upper-case text, which never equals a `UUID`.
 - Write for a database other classes in the context have already used: mint unique names (a SCIM `userName` or Group `displayName` collides across classes), read back only the rows the test made, remove them afterwards, and assert on those rows or on deltas rather than whole-table counts.
 - A class that destroys shared state — deletes or reshapes a seeded fixture, the Admin group or the Bootstrap Admin — declares `@DirtiesContext(classMode = AFTER_CLASS)`, as `RolePropagationIntegrationTests` does, so the eviction states the reason. Isolation that rests on a coincidentally different property disappears when a cleanup removes it.
 
