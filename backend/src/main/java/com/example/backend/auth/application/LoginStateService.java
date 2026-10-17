@@ -113,7 +113,7 @@ import org.springframework.stereotype.Service;
  *   <li>N parallel failures against a User one short of the limit impose exactly one Lockout,
  *       audited once and revoking once; the attempts behind it find the User locked and are not
  *       counted, so the run ends at the limit — the cap spec C6 allows, and the rule that a
- *       locked User's attempts neither count nor deepen it ({@code /docs/domain-rules.md});
+ *       locked User's attempts neither count nor deepen it ({@code /docs/domain/authentication.md});
  *   <li>parallel failures below the limit are each counted;
  *   <li>an Unlock racing a failure ends either locked-then-lifted or cleared-then-counted, never
  *       with a lock lifted that the Unlock did not see.

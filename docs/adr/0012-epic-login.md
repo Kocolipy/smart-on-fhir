@@ -322,7 +322,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 - **D20: a suspected compromise is handled by deactivation.** A suspected
   compromise of an Epic-linked User is handled by deactivating the User in the
   directory: that ends their sessions after the deactivation commits (a session
-  revocation trigger, `/docs/domain-rules.md`) and refuses every later Epic Login
+  revocation trigger, `/docs/domain/sessions.md`) and refuses every later Epic Login
   as `ACCOUNT_DISABLED`. It is also reported to the Epic organisation, whose
   credential it was. Forced password change does not apply: an Epic Login
   presents no password of ours. For the same reason the change-required flag
@@ -578,7 +578,7 @@ FHIR API is called yet.
   - id rotation at sign-in;
   - the idle timeout and the absolute session lifetime;
   - logout;
-  - every session revocation trigger in `/docs/domain-rules.md`;
+  - every session revocation trigger in `/docs/domain/sessions.md`;
   - D9 and D24's invalidation by the next launch.
 
   A separate Redis key, as `PendingAuthorizations` keeps the pending request, was

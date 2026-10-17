@@ -17,7 +17,7 @@ Login are counted and how they end. ADR 0003's login records follow from it.
 
 A User's **failure run** lengthens on every rejected Login and ends on an accepted
 one, and reaching the configured limit imposes a **Lockout** (ADR 0007, see
-`/docs/domain-rules.md`). The one exception is the Bootstrap Admin, whose failures
+`/docs/domain/authentication.md`). The one exception is the Bootstrap Admin, whose failures
 are counted and audited but never lock it. Something has to notice how each
 attempt ended and write it down.
 

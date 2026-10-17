@@ -303,7 +303,7 @@ exists.
 ### Observable changes
 
 The engine shows through the API in these behaviours, which are documented in the
-API contract and `docs/domain-rules.md`:
+API contract and `docs/domain/`:
 
 - **Edge whitespace is refused** on the keys listed above, a validation rule in
   the API contract.
@@ -633,7 +633,7 @@ directions. The bullet now carries the measured list.
 `ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
 pins every one of these results through the SCIM API. The decision is unchanged:
 the padding is accepted as an observable change and not worked around, and the
-API contract and `docs/domain-rules.md` list the corrected operators.
+API contract and `docs/domain/scim-protocol.md` list the corrected operators.
 ## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
 
 The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard

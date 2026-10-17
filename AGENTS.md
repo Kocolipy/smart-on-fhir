@@ -17,7 +17,7 @@ backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
 scripts/          shell layer the Makefile targets call
 CONTEXT.md        domain glossary (see /docs/agents/domain.md)
-docs/domain-rules.md  the behavior behind the glossary's terms
+docs/domain/      the behavior behind the glossary's terms, one file per area
 docs/adr/         architectural decision records
 docs/agents/      agent documentation shared by both apps
 graphify-out/     knowledge graph, tracked (see "graphify" below)
