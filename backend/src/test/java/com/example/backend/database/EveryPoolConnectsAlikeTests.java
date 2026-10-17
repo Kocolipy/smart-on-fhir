@@ -49,7 +49,7 @@ class EveryPoolConnectsAlikeTests {
 
     /**
      * The deployed stack's trust-store password reaches every pool's driver from the process
-     * environment alone (infra/README.md, "TLS to the database"): {@code start.sh} exports it as
+     * environment alone (infra/docs/database-encryption.md, "TLS to the database"): {@code start.sh} exports it as
      * this variable after reading it from Secrets Manager, so it is in no file and no URL. The
      * environment-variable binding lower-cases the key; the driver matches property names
      * case-insensitively, so it reads the value as its {@code trustStorePassword}.

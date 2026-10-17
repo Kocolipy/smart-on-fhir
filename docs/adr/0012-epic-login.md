@@ -204,8 +204,8 @@ documents each.
 | `GET /api/auth/epic/jwks.json` | Our public JWKS, holding the active key plus the next key if configured. Never a private parameter. Must be reachable by Epic. |
 
 Configuration is environment variables only, with **no default credentials** (the
-remote is public); `backend/README.md`, "Epic Login", is the variable reference
-and `/infra/README.md` the deployment's. Startup fails fast when the switch is on
+remote is public); `backend/docs/configuration/epic-login.md` is the variable reference
+and `/infra/docs/parameters.md` the deployment's. Startup fails fast when the switch is on
 and anything required is missing or malformed, including a URL that is not
 `https` outside the dev profile (D21), and it does **not** contact Epic: discovery
 runs on first use (D26).
@@ -226,7 +226,7 @@ The SPA needs no new `VITE_` variable. Its login page keeps the password form
 unchanged and adds the neutral "Sign-in from Epic was refused" notice for
 `?signin=refused`, "Sign-in from Epic is temporarily unavailable. Try again
 shortly." for `?signin=unavailable`, and the line "Clinicians: open this
-application from Epic." `/frontend/AGENTS.md`, "Backend contract", is the runtime
+application from Epic." `/frontend/docs/BACKEND_CONTRACT.md` is the runtime
 contract.
 
 ### Decisions
@@ -315,14 +315,14 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   rule beyond `missing` is `mismatch`.
 - **D19: the launch and the callback are throttled at the edge.**
   `/api/auth/epic/launch` and `/api/auth/epic/callback` are on the network edge's
-  throttling list (`/infra/README.md`, "Edge throttling"), which answers a breach
+  throttling list (`/infra/docs/edge-throttling.md`, "Edge throttling"), which answers a breach
   with `429` and `Retry-After`. The limits are edge configuration, not part of the
   application. Every callback makes an outbound call to Epic, so an unthrottled
   callback could be used to flood Epic from our server.
 - **D20: a suspected compromise is handled by deactivation.** A suspected
   compromise of an Epic-linked User is handled by deactivating the User in the
   directory: that ends their sessions after the deactivation commits (a session
-  revocation trigger, `/docs/domain-rules.md`) and refuses every later Epic Login
+  revocation trigger, `/docs/domain/sessions.md`) and refuses every later Epic Login
   as `ACCOUNT_DISABLED`. It is also reported to the Epic organisation, whose
   credential it was. Forced password change does not apply: an Epic Login
   presents no password of ours. For the same reason the change-required flag
@@ -464,7 +464,7 @@ Micrometer, on the existing Prometheus registry:
   `EpicCallCounts` port;
 - `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
   (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
-- alert rules (`/infra/README.md`, "Alerts"): `EpicJwksFetchFailing` and
+- alert rules (`/infra/docs/operational-telemetry.md`, "Alerts"): `EpicJwksFetchFailing` and
   `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
   for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
   on any `cert/auth` failure of the token call, the one that presents our
@@ -525,7 +525,7 @@ Micrometer, on the existing Prometheus registry:
   published as the next key, then the operator promotes it to active by
   redeploying. A key stays published until configuration removes it. The
   application has no expiry or period logic. The runbook is
-  `/infra/README.md`, "Signing-key promotion". Every startup record carries both
+  `/infra/docs/epic-signing-keys.md`, "Signing-key promotion". Every startup record carries both
   `kid`s, never key material, so each promotion leaves a record.
 - **D16: the key is an environment variable for now, and KMS is the target.** The
   active key is `APP_EPIC_CLIENT_KEY` / `APP_EPIC_CLIENT_KEY_ID`, and the next key
@@ -578,7 +578,7 @@ FHIR API is called yet.
   - id rotation at sign-in;
   - the idle timeout and the absolute session lifetime;
   - logout;
-  - every session revocation trigger in `/docs/domain-rules.md`;
+  - every session revocation trigger in `/docs/domain/sessions.md`;
   - D9 and D24's invalidation by the next launch.
 
   A separate Redis key, as `PendingAuthorizations` keeps the pending request, was
@@ -846,7 +846,7 @@ changes a decision.
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
 audience, R4, `openid fhirUser`, our public JWKS URL, the launch URL and redirect
 URI), its practitioner provisioned by FHIR ID — is configuration only, and its
-values belong in `/infra/README.md` once registered.
+values belong in `/infra/docs/parameters.md` once registered.
 
 ## Consequences
 
@@ -877,7 +877,7 @@ values belong in `/infra/README.md` once registered.
   for up to 7 seconds of waits plus three fetches. Login volume is low, and the
   alternative — refusing a clinician whose Epic just rotated — is worse.
 - `epic.outbound.errors{call="jwks"}` persisting is the signal that Epic's keys
-  are unreachable; `/infra/README.md` carries the alert rule.
+  are unreachable; `/infra/docs/operational-telemetry.md` carries the alert rule.
 - A signed-out Epic clinician's session lives on until its idle bound, its
   absolute lifetime or the next launch (D13). A shared workstation relies on the
   next launch or the idle bound to end it. The Epic tokens it holds (D29) live

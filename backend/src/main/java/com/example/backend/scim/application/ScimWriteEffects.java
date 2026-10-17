@@ -151,7 +151,7 @@ record ScimWriteEffects<A extends Enum<A>>(
      * nothing, and a PATCH whose operations cancel out moved nothing either.
      *
      * <p>Sessions end for the changes a live Session must not outlast (Session revocation in
-     * {@code /docs/domain-rules.md}): {@code active} going from true to false, the credential changing,
+     * {@code /docs/domain/sessions.md}): {@code active} going from true to false, the credential changing,
      * and {@code userName} changing — once, with every cause that applied. Reactivation, staying
      * inactive, and a profile, email or alias change are not among them: none is something a
      * Session was issued against. A User write changes no Role: a Role is conferred by a mapped

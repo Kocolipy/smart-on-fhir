@@ -103,7 +103,7 @@ with the standard's soft-delete and tombstone requirements.
   and the operational answer is an administrator.
 - A guessing campaign spread across many accounts locks each of them, and
   unlocking them is administrator work. `LoginAuthenticationFailuresSustained` exists to
-  catch that early, and edge throttling on Login caps its rate (`infra/README.md`).
+  catch that early, and edge throttling on Login caps its rate (`infra/docs/edge-throttling.md`).
 - The Bootstrap Admin accepts unbounded online guessing. Argon2id cost, uniform
   refusal timing and audited failures mitigate it, not a lock.
 - `LockoutHasNoDurationTests` proves that no deployed configuration file

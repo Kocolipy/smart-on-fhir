@@ -3041,7 +3041,7 @@ components:
             are the baseline `counter:read` and `counter:write`, which every active
             User holds, together with the union of the Roles of every mapped Group the User was a
             direct member of when it signed in (the role mapping, see the
-            backend README's "Role mapping"), so a change of membership is seen
+            backend/docs/configuration/role-mapping.md), so a change of membership is seen
             at the next sign-in. Only the baseline two for a User in no mapped Group, and
             empty while `passwordChangeRequired` is true.
             What the SPA shows is decided from this list; what the server allows is

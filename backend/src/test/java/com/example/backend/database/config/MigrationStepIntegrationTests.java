@@ -79,7 +79,7 @@ class MigrationStepIntegrationTests {
      * The owner login migrates as a member of {@code db_owner}, under a database user of its own
      * name, not as the database's owner ({@code dbo}): that is all RDS for SQL Server's master
      * user can make it, because handing a database to another login needs {@code IMPERSONATE} on
-     * it, which the master user does not hold (infra/README.md, "Database bootstrap"). Every
+     * it, which the master user does not hold (infra/docs/database-boot.md, "Database bootstrap"). Every
      * test database is bootstrapped the same way, so the suite proves the migrations under it.
      */
     @Test

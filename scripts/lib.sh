@@ -269,7 +269,7 @@ stack_up() {
 
   log "starting $description"
   "${STACK_COMPOSE[@]}" up -d --wait
-  # The database and the three logins the backend connects as (backend/README.md,
+  # The database and the three logins the backend connects as (backend/docs/configuration/database.md,
   # "Local setup"), by the one-shot init, in the foreground so a failure stops the
   # run; idempotent, so a volume that has them already is fine.
   "${STACK_COMPOSE[@]}" run --rm sqlserver-init

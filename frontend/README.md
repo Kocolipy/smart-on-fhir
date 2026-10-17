@@ -163,7 +163,7 @@ outside them is refused `403`.
 ## Backend contract
 
 The SPA is served by the Spring Boot backend and shares its session cookie.
-`AGENTS.md`'s "Backend contract" section is authoritative. `apiFetch()` owns
+`docs/BACKEND_CONTRACT.md` is authoritative. `apiFetch()` owns
 CSRF recovery and returns typed semantic results instead of raw responses:
 `unauthenticated` expires auth state and returns the user to login, while
 `forbidden` (an authorization refusal) and `csrf-expired` (a CSRF token that

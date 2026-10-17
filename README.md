@@ -31,13 +31,13 @@ Every toolchain version is pinned in the repo, so every machine resolves the sam
 The database engine's image is pinned the same way, once for local development
 and once for the test suite, which must agree:
 
-| Image                                                         | Pinned in                                                                                         | Reviewed |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- |
+| Image                                                                                               | Pinned in                                                                                     | Reviewed                                |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------- |
 | SQL Server 2022 (`mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, amd64, Developer Edition) | `backend/compose.yaml` (tag + digest), `ContainerTestConfiguration.SQL_SERVER_IMAGE` (digest) | monthly (ADR 0013, "Database patching") |
 
 Its digest is `sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090`.
 The image is x86_64 only: Apple Silicon is not a supported development platform
-(`backend/README.md`, "Local setup").
+(`backend/docs/configuration/database.md`, "Local setup").
 
 Activate the Node and JDK pins with whichever manager you use — `nvm use` (reads
 `/.nvmrc`), or `asdf install` / `mise install` (both read `/.tool-versions`) from
@@ -86,8 +86,8 @@ Copy `backend/.env.example` to `.env` before running. Requires the pinned JDK
 on `PATH` (see the table above); Maven itself comes from `./mvnw`.
 
 Logs are ECS JSON on stdout; set `LOG_FILE` to also write a rolling JSON file
-(deployed at `/var/log/backend/backend.json`). See `backend/README.md` under
-"Logging" and `infra/README.md` under "View Logs".
+(deployed at `/var/log/backend/backend.json`). See `backend/docs/configuration/logging.md` and
+`infra/README.md` under "View Logs".
 
 ## Frontend/backend integration
 
@@ -98,7 +98,7 @@ make package     # build the SPA, then package it into the Spring Boot JAR
 That is the release path; a plain `./mvnw clean verify` in `backend/` packages
 no SPA. The build contract is in `AGENTS.md` under "Frontend/backend
 integration", and the runtime contract (CSRF, CSP, sessions) in
-`frontend/AGENTS.md` under "Backend contract".
+`frontend/docs/BACKEND_CONTRACT.md`.
 
 ## Deploying to AWS
 
@@ -117,7 +117,7 @@ template, the key and the repo from its own location, but writes
 deletes it from. `deploy.sh` builds the shippable JAR by calling
 `scripts/package.sh` — the integrated path, so what reaches the instance has the
 SPA in it. The stack provisions ALB + EC2 + RDS for SQL Server 2022 Standard
-Edition (licence-included, a cost change: `infra/README.md`, "Engine, edition and
+Edition (licence-included, a cost change: `infra/docs/database-engine.md`, "Engine, edition and
 cost") + ElastiCache Redis in `ap-southeast-1`; details, parameters, and
 troubleshooting are in `infra/README.md`.
 
@@ -129,8 +129,8 @@ and, after shipping the JAR, runs the post-deploy smoke (`smoke.sh`) — health,
 the JVM's default trust, TLS enforcement, a SCIM round trip with no development
 fixture account, the database alarms, and a check that no secret value leaked
 onto the instance; without the JAR it still runs that leak check over the
-instance's boot. `infra/README.md`,
-"Database security", has the secrets, the KMS key, TLS and the monitoring.
+instance's boot. `infra/docs/index.md`,
+"Database", lists the secrets, the KMS key, TLS and the monitoring.
 
 **Edge throttling is a deployment requirement.** The application has no
 request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
@@ -138,7 +138,7 @@ request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
 Per-account throttling is the deterrent that matters. Per-source (per-IP) limits
 are left to the edge's own policy, because Users behind a shared proxy or NAT
 present one address. The stack provisions no AWS WAF web ACL, so attach one before
-exposing the service. Scope, keys and rationale are in `infra/README.md`'s "Edge
+exposing the service. Scope, keys and rationale are in `infra/docs/edge-throttling.md`'s "Edge
 throttling" section.
 
 The local deploy artefacts in `infra/` — a `parameters.json` copied from the

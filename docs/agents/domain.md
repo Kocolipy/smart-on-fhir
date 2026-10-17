@@ -7,9 +7,10 @@ domain behavior, terminology, or architecture.
 
 - **`/CONTEXT.md`** — the glossary: what each domain term means in a sentence or
   two, and the synonyms it rules out.
-- **`/docs/domain-rules.md`** — the behavior behind those terms (lockout,
-  session revocation, dormancy, the change-required flag, the password policy,
-  the SCIM profile), and the reasoning behind them, under the same names. Read the sections for the terms your change touches.
+- **`/docs/domain/`** — the behavior behind those terms and the reasoning
+  behind it, under the same names, one file per area. Each glossary section
+  names its file, and `/docs/domain/index.md` lists them all. Read every file
+  whose terms your change touches.
 - **`/docs/adr/`** — the architectural decisions, numbered. Read every ADR that
   touches the area you are about to work in. An ADR is a record of its date: a
   later addendum or ADR can refine it, and a class it names may since have moved.
@@ -26,8 +27,10 @@ synonym the glossary avoids.
 If the concept you need is not in the glossary yet, either you are inventing
 language the project does not use (reconsider) or there is a real gap: add the
 term to `CONTEXT.md` — one or two sentences of what it is, plus `_Avoid_` for the
-synonyms it displaces — and any rule it carries to `docs/domain-rules.md`, in the
-same change that introduces it.
+synonyms it displaces — and any rule it carries to its area's file in
+`docs/domain/`, in the same change that introduces it. A new area is a new file
+there: OKF frontmatter (`type: Domain Rules`, `title`, `description`), an entry in
+`index.md`, and a `Rules:` link under its glossary section.
 
 ## Flag ADR conflicts
 

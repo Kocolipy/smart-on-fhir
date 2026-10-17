@@ -32,7 +32,7 @@
 # database checks run on the instance over SSH, which reads its own secrets.
 # On a fresh stack the SCIM step replaces the Bootstrap Admin's seeded password
 # and writes the new one back to its secret (AppBootstrapSecretArn), staged as
-# AWSPENDING until the change has succeeded. See infra/README.md, "Post-deploy
+# AWSPENDING until the change has succeeded. See infra/docs/post-deploy-smoke.md, "Post-deploy
 # smoke".
 #
 # Usage: ./smoke.sh [--leaks-only] <stack-name> [region]
@@ -269,7 +269,7 @@ SCRIPT
 }
 
 # Nothing root runs, sources or reads under /opt/backend is the service user's to
-# change (infra/README.md, "File ownership on the instance"): the directory and
+# change (infra/docs/database-credentials.md, "File ownership on the instance"): the directory and
 # every file in it are root's, none is writable by springboot, and springboot
 # owns nothing there. A directory's owner can rename or replace any file in it,
 # so a springboot-owned /opt/backend would let the service user swap a file root

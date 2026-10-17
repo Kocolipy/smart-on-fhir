@@ -303,7 +303,7 @@ exists.
 ### Observable changes
 
 The engine shows through the API in these behaviours, which are documented in the
-API contract and `docs/domain-rules.md`:
+API contract and `docs/domain/`:
 
 - **Edge whitespace is refused** on the keys listed above, a validation rule in
   the API contract.
@@ -633,7 +633,7 @@ directions. The bullet now carries the measured list.
 `ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
 pins every one of these results through the SCIM API. The decision is unchanged:
 the padding is accepted as an observable change and not worked around, and the
-API contract and `docs/domain-rules.md` list the corrected operators.
+API contract and `docs/domain/scim-protocol.md` list the corrected operators.
 ## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
 
 The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
@@ -656,7 +656,7 @@ sign-off.
   local init's.** The deployed bootstrap runs in UserData, so the instance role
   reads the master secret (as-8). It is read by one root-owned script and never
   reaches the service's process, which `smoke.sh` checks; the role itself cannot
-  tell processes apart, which `infra/README.md` ("Database credentials") records
+  tell processes apart, which `infra/docs/database-credentials.md` ("Database credentials") records
   as residual risk. The T-SQL is held twice — in the template and in
   `backend/scripts/local-db-init.sql` — because a stack cannot read the
   repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
@@ -755,7 +755,7 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
   - The way out is a server collation that takes the lock: RDS's default, or
     `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
     take it on the Linux image. Changing the collation replaces the instance.
-  - The suite does not reproduce this one deployed setting (`infra/README.md`,
+  - The suite does not reproduce this one deployed setting (`infra/docs/database-engine.md`,
     "Collation and time zone").
 
 ## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks

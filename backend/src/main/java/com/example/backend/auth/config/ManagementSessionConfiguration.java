@@ -17,7 +17,7 @@ import org.springframework.session.web.http.SessionRepositoryFilter;
  * Spring Session's {@link SessionRepositoryFilter} stays behind. Without it the security
  * chain on the management port looks the session cookie up in that Tomcat's own empty
  * in-memory store, so the {@code /actuator/**} ADMIN rule rejects everyone, Admin
- * included, and the internal-port deployment in infra/README.md has no working scrape.
+ * included, and the internal-port deployment in infra/docs/operational-telemetry.md has no working scrape.
  *
  * <p>This registers the application's own filter bean in the child, resolved through the
  * parent context and placed ahead of the security chain. That is the same order Boot uses on the

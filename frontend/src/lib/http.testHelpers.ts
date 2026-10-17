@@ -26,7 +26,7 @@ const carriesToken = (init?: RequestInit): boolean =>
  * endpoint, and forgets any token an earlier test left in memory.
  *
  * The stand-in keeps the backend's side of the synchronizer-token contract
- * (`/frontend/AGENTS.md`, "Backend contract"): an unsafe request that does not
+ * (`/frontend/docs/BACKEND_CONTRACT.md`): an unsafe request that does not
  * carry the token it issued is refused `403` here, before `backend` sees it,
  * so a caller that skipped the token cannot pass a test.
  *

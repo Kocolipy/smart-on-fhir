@@ -49,7 +49,7 @@ infra-logs: ## Tail the dependency logs
 	$(COMPOSE) logs -f
 
 # Opt-in: the launcher sits behind its own compose profile, so `infra-up` above
-# never starts it. backend/README.md, "Local Epic launcher", has the APP_EPIC_*
+# never starts it. backend/docs/configuration/epic-login.md, "Local Epic launcher", has the APP_EPIC_*
 # values that point the backend at it.
 epic-launcher-up: ## Start the local SMART launcher (stand-in for Epic) with the dependencies
 	$(COMPOSE) --profile epic-launcher up -d --wait

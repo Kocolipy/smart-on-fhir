@@ -16,7 +16,7 @@
 #                    than holding a pool's connection attempt open.
 #
 # Mixed-case keys are bracketed so they reach the driver as written. A
-# deployment's trust store is the infrastructure's (infra/README.md, "TLS to the
+# deployment's trust store is the infrastructure's (infra/docs/database-encryption.md, "TLS to the
 # database"): its path is in the deployed DATABASE_URL (`trustStore`,
 # `trustStoreType`), and its password reaches this map from the environment as
 # SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD — lower-cased

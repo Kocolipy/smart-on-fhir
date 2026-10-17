@@ -23,7 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The internal-interface deployment: actuator moved to its own port with
- * {@code MANAGEMENT_SERVER_PORT}, as infra/README.md's "Operational telemetry" section
+ * {@code MANAGEMENT_SERVER_PORT}, as infra/docs/operational-telemetry.md's "Operational telemetry" section
  * describes.
  *
  * <p>What the documentation promises and this pins: moving the scrape off the public port

@@ -50,7 +50,7 @@ Parameters:
   # No default: the instance has a public IP and its role reads the RDS master
   # secret, so who may reach port 22 is the operator's explicit choice — their
   # own address as a /32, ideally. deploy.sh asks for it and refuses a /0 range
-  # unless the operator confirms it (infra/README.md, "Parameters Reference").
+  # unless the operator confirms it (infra/docs/parameters.md, "Parameters Reference").
   SSHLocation:
     Description: CIDR range that can SSH to the EC2 instance (no default; e.g. your public IP as x.x.x.x/32)
     Type: String
@@ -61,7 +61,7 @@ Parameters:
   # Standard Edition, licence-included, runs on none of the small classes (no
   # db.t3.micro to db.t3.large, no Graviton): these are the classes RDS offers
   # it on, cheapest first. A cost change against the previous stack's
-  # db.t3.micro; see infra/README.md, "Engine, edition and cost".
+  # db.t3.micro; see infra/docs/database-engine.md, "Engine, edition and cost".
   DBInstanceClass:
     Description: RDS for SQL Server Standard Edition instance class (licence-included)
     Type: String
@@ -176,7 +176,7 @@ Parameters:
   # Epic Login (/docs/adr/0012-epic-login.md). Off unless AppEpicEnabled is true, and
   # then none of the other AppEpic* parameters is read. No default carries a
   # value: with the switch on, the service refuses to start until every required
-  # one is set and well formed (backend/README.md, "Epic Login"). An empty
+  # one is set and well formed (backend/docs/configuration/epic-login.md). An empty
   # parameter reaches the service as unset.
   AppEpicEnabled:
     Description: Whether this deployment serves Epic Login (APP_EPIC_ENABLED)
@@ -742,7 +742,7 @@ Resources:
       # build, which is untested. If it has the same defect, the first
       # deploy's migrate.sh fails loudly ("Unable to acquire SQL Server
       # application lock", 17750) and the service never starts; it does not
-      # fail silently (infra/README.md, "Collation and time zone"; ADR 0013,
+      # fail silently (infra/docs/database-engine.md, "Collation and time zone"; ADR 0013,
       # 2026-10-16 addendum).
       CharacterSetName: Latin1_General_100_BIN2_UTF8
       # Storage is UTC only (ADR 0013): the server's clock and SYSDATETIMEOFFSET
@@ -833,7 +833,7 @@ Resources:
         # service starts); the service's start.sh reads the app and retention
         # secrets and never the owner's or the master's, so the service process
         # holds neither. The separation is per process, not per role: see
-        # infra/README.md, "Database bootstrap".
+        # infra/docs/database-boot.md, "Database bootstrap".
         - PolicyName: ReadTheServicesSecrets
           PolicyDocument:
             Version: "2012-10-17"
@@ -920,7 +920,7 @@ Resources:
               group: root
               content: |
                 -- The application database and its three logins, run by db-bootstrap.sh as
-                -- the RDS master user (infra/README.md, "Database bootstrap"). From
+                -- the RDS master user (infra/docs/database-boot.md, "Database bootstrap"). From
                 -- `SET NOCOUNT ON` down, line for line backend/scripts/local-db-init.sql,
                 -- which documents each step; check-bootstrap-parity.sh holds them equal.
                 SET NOCOUNT ON;
@@ -1014,7 +1014,7 @@ Resources:
               group: root
               content: |
                 #!/bin/bash
-                # The database bootstrap, as the RDS master user (infra/README.md, "Database
+                # The database bootstrap, as the RDS master user (infra/docs/database-boot.md, "Database
                 # bootstrap"): each login whose secret does not sign in is named to
                 # db-bootstrap.sql (RESET_LOGINS), which creates the database and the missing
                 # logins and resets the named ones' passwords; then each login must sign in.
@@ -1114,7 +1114,7 @@ Resources:
             # set -x (ADR 0013, "The bootstrap does not echo"). smoke.sh fails the deploy
             # if a secret value appears in its output. Each secret is read from Secrets
             # Manager by the one script whose process needs it, into that process's
-            # environment only. Boot sequence (infra/README.md): 1. the SQL Server tools,
+            # environment only. Boot sequence (infra/docs/database-boot.md): 1. the SQL Server tools,
             # 2. the database bootstrap, 3. the migrate step, 4. the service. 3 and 4
             # need the JAR deploy.sh copies; starting the service runs 2 and 3 first.
             set -euo pipefail
@@ -1138,7 +1138,7 @@ Resources:
             # here (db-bootstrap.*, secret.sh, start.sh, migrate.sh), and a
             # directory's owner can rename or replace any file in it. springboot
             # writes nothing here; it reads the JAR and the trust store. smoke.sh
-            # checks it (infra/README.md, "File ownership on the instance").
+            # checks it (infra/docs/database-credentials.md, "File ownership on the instance").
             install -d -o root -g root -m 0755 /opt/backend
             # The service's rolling log; the CloudWatch agent (root) reads it.
             mkdir -p /var/log/backend
@@ -1186,8 +1186,7 @@ Resources:
             # start.sh reads at every start; the owner secret is migrate.env's alone.
             # DATABASE_URL validates RDS's certificate against the driver-scoped trust
             # store (never trustServerCertificate). No development fixtures.
-            # APP_AUTHORIZATION_GROUPS_0_* map the Admin group alone (backend/README.md,
-            # "Role mapping").
+            # APP_AUTHORIZATION_GROUPS_0_* map the Admin group alone (backend/docs/configuration/role-mapping.md).
             cat > /opt/backend/.env << 'EOF'
             AWS_REGION=${AWS::Region}
             DATABASE_URL=jdbc:sqlserver://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port};databaseName=${DBName};${DatabaseUrlOptions}

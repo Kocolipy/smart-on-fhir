@@ -33,96 +33,41 @@ reach for scoped Stryker, which "Testing" below specifies as a conditional gate.
 
 ## Architecture
 
-The folders under `src/` plus the composition root, and the dependency direction
-runs one way through them. `docs/ARCHITECTURE.md` holds the per-file map and
-each page's endpoints and Permissions; this list holds the rules.
+The folders under `src/` plus the composition root, with one dependency
+direction through them: `main` → `App` → `pages` → `auth` → `components/ui` →
+`lib`. `docs/ARCHITECTURE.md` holds the per-file map, each page's endpoints and
+Permissions, and the reasoning; this list holds the rules.
 
-- **`src/components/ui/`** — the shadcn primitives. This is a **placeholder**
-  for the in-house component library (see below). It may import `cn` from
-  `src/lib/` and its own siblings, nothing else.
-- **`src/lib/`** — framework-agnostic helpers any layer may call, and a leaf:
-  it imports nothing from `src/`. Holds `cn()`, `http.ts`, `decode.ts` and
-  `instant.ts` (the one way an instant from the backend is written on a page);
-  `apiFetch` owns credentials, CSRF recovery, status classification, and typed
-  success decoding behind one semantic result interface (see "Backend
-  contract"). `decode.ts` holds the primitives every response decoder is built
-  from: a body is never cast to its type (`as T`) but read by a hand-written
-  decoder that takes `unknown` and returns the value or throws `DecodeError`,
-  and `apiFetch` turns a success body that does not decode into `failed` with
-  no `status`. Each wire type's decoder lives beside the type, in the module
-  that owns it. Shared hooks belong here too — `components.json` points the
-  shadcn CLI at `@/lib/hooks`.
-- **`src/auth/`** — the session and Permission-based authorization: session
-  state, the pure routing contract and its guards, the Permission checks
-  (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
-  read and gated write every page listing and action goes through
-  (`use-gated-read.ts`, `use-gated-write.ts`), the declaration types they take
-  (`declarations.ts`), a signed-in page's single error line (`page-status.ts`), the copy
-  for every session-action outcome (`session-action-copy.ts`: login, logout,
-  the password change and the start-up session check each resolve to a closed
-  outcome and never throw), the session action every page runs login, logout
-  and the password change through (`use-session-action.ts`: it owns the pending
-  flag, which outcomes end or start a session and so show nothing, and the line
-  for the rest, so its pages render what it hands back and never catch), the idle sign-out (see
-  "Backend contract"), the session transitions (`session-transitions.ts`), the
-  one place the auth state changes and the CSRF token is forgotten with it,
-  and the sign-in reason (`sign-in-reason.ts`): why a
-  Guest is at the login page, how that reaches it, and what the page says. Both
-  take a **declaration**: the endpoint as data — path (built from the call's
-  arguments), decoder, Permission, and for a write the method and optional JSON
-  body — exported once by the API module that owns it. A gated read sends nothing for a session lacking its
-  Permission and returns one closed view state (`not-permitted`, `loading`,
-  `failed`, `ready`, `stale`) that pages switch on; a gated write sends its
-  declaration through the request seam itself — nothing for a session lacking
-  its Permission — and owns the pending flag and the refusal copy. Neither owns
-  an error: each reports its outcome to the page status (`useStatusReporter`),
-  which decides the error line by one rule, the latest event wins — a failure
-  shows, a success withdraws only its own source's, and a write starting
-  withdraws them all. The status exists only inside the `PageStatusScope` the
-  signed-in layout renders, so a page or panel can report to it but never
-  create one or draw a second line.
-- **`src/pages/`** — one component per page, plus an API module per page —
-  `accounts-api.ts` for the wire types and declared endpoints the Accounts page
-  and its connector panel share, `audit-api.ts` for the Audit page's,
-  `showcase-api.ts` for the counter's — and `listing-body.tsx`, the one body
-  every listing renders loading, empty and failed through. A page
-  requests through `useGatedRead` / `useGatedWrite`, both behind
-  `useSessionRequest`, handing them a declaration its API module exports
-  rather than building a request — it neither builds a gated request's path nor
-  names a Permission string, and reads `declaration.permission` — of the
-  declaration that control sends — to decide whether to offer it — never `apiFetch` directly; the
-  `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
-  in kind is `change-password.tsx`, which submits through the auth context's
-  `changePassword`, because its `401` is about the current password and must
-  not end the session through the seam. Free to import from `auth/`, `ui/` and
-  `lib/`. Each view is rendered — and its listing requested — only for a
-  session holding that view's Permission, and each action is offered only with
-  its own. `active` and Group membership are the directory's, so no page has a
-  control that writes them.
-- **`src/components/`** — shared non-primitive components (`error-boundary.tsx`).
-- **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
-  and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
-  wraps everything in `AuthProvider`, and states what each route requires with
-  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and a
-  Permission-guarded `ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}`
-  (`/accounts`, from `accounts-api.ts`: the Permissions of its three listings) and
-  `requiredPermissions={[AUDIT_EVENTS.permission]}` (`/audit`): each
-  renders for a session holding any one of the listed Permissions, and a deep
-  link from any other session is redirected to `/showcase`. A session with the
-  change-required flag is confined to `/change-password` by the guards' shared
-  transition table, whatever path it asks for and whatever it holds. Every such
-  decision is a rendering decision only: the backend enforces each operation's
-  Permission on its own. The four signed-in pages
-  are children of one layout route, `SignedInShell` (`src/pages/signed-in-shell.tsx`),
-  which owns the header, the page's one error line, the back link and Sign out.
-  Each page is one entry in
-  `SIGNED_IN_PAGES` (`src/pages/signed-in-pages.tsx`: path, element, permissions,
-  title, back link, width), so a new signed-in page is one entry; a failed or CSRF-expired
-  Sign out keeps the session and reports its line to that one error line. The outermost element is
-  `ErrorBoundary`: a render error anywhere
-  below shows a generic "Something went wrong" fallback with a reload action,
-  logs to `console.error` only, and never puts the error's message or stack in
-  the DOM.
+- **`src/components/ui/`** — the shadcn primitives, a **placeholder** for the
+  in-house component library (see below). Imports only `cn` from `src/lib/` and
+  its own siblings.
+- **`src/lib/`** — framework-agnostic helpers, and a leaf. `apiFetch`
+  (`http.ts`) owns credentials, CSRF recovery, status classification and typed
+  decoding. A response body is never cast (`as T`): it is read by a hand-written
+  decoder built from `decode.ts`'s primitives, which lives beside the wire type
+  it decodes. Shared hooks live here too (`@/lib/hooks`).
+- **`src/auth/`** — the session and Permission-based authorization. The auth
+  state changes, and the CSRF token is forgotten, only through
+  `session-transitions.ts`. Every page listing and action goes through the gated
+  read or the gated write (`use-gated-read.ts`, `use-gated-write.ts`), each
+  handed a **declaration** — the endpoint as data (path, decoder, Permission,
+  and for a write the method and body), exported once by the API module that
+  owns it. Each reports to the signed-in page's one error line
+  (`page-status.ts`), where **the latest event wins**.
+- **`src/pages/`** — one component per page, plus an API module per page that
+  declares its endpoints. A page requests only through `useGatedRead` /
+  `useGatedWrite`, reads `declaration.permission` — of the declaration that
+  control sends — to decide whether to offer it, and never calls `apiFetch`
+  (`mb-transport-is-behind-the-session-seam`). The one exception is
+  `change-password.tsx`, whose `401` is about the current password and must not
+  end the session. No page has a control that writes `active` or Group
+  membership. A new signed-in page is one entry in `SIGNED_IN_PAGES`
+  (`src/pages/signed-in-pages.tsx`).
+- **`src/components/`** — shared non-primitive components.
+- **`src/App.tsx` / `src/main.tsx`** — the composition root: the router,
+  `AuthProvider`, the route table, and the outermost `ErrorBoundary`, which never
+  puts an error's message or stack in the DOM. Every route guard decides only
+  what is rendered; the backend enforces each operation's Permission on its own.
 
 `@/` resolves to `src/`, declared in four places that must agree — the table is
 in `docs/ARCHITECTURE.md` under "The `@/` alias". Change all four together, or
@@ -149,112 +94,10 @@ reasoning behind each dependency rule, and where a new concern belongs.
 
 ## Backend contract
 
-This section is the authority on the runtime contract with the backend — read it
-before changing anything that issues a request, and update it here when the
-backend side moves. What the SPA has to honour:
-
-- **Every unsafe request carries the session's CSRF token.** The backend uses
-  the Synchronizer Token Pattern: the token is bound to the HTTP session, and a
-  `POST` / `PUT` / `PATCH` / `DELETE` without it — or with another session's, or
-  with one fetched before login rotated the session — comes back `403`. There is
-  no CSRF cookie. `src/lib/http.ts` is the only place that deals with this:
-  `apiFetch()` fetches the token from `GET /api/auth/csrf` (public; it opens a
-  session for a guest, which is what the login form needs), holds it **in memory
-  only**, sends it in the header that response names (`X-CSRF-TOKEN`) on unsafe
-  methods only, and always sends `credentials: "include"`. The token is worth
-  exactly as long as its session, so `src/auth/` calls `discardCsrfToken()`
-  whenever the session changes — after login, a refused login, logout, a
-  password change or the lockout it runs into, an expiry, an Idle sign-out, and
-  the start-up `GET /api/auth/me` check settling the session either way — and
-  the next unsafe request fetches the new session's before it is sent.
-  `src/auth/session-transitions.ts` is the one place that call is made: each of
-  its transitions (`signIn`, `end(reason)`) changes the auth state and forgets
-  the token in the same step, so no caller can do one without the other. A
-  start-up check that did not answer (anything but `200` or `401`) settles
-  nothing: the status becomes `unchecked`, the token is kept, nobody is routed
-  to login, and the guards show one line saying the session could not be
-  checked, with a retry under the same rules. A refused login is one of them because the
-  backend ends whatever session the browser held before answering its bare
-  `401`, so a retry after a wrong password needs the next session's token
-  rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
-  design was retired.
-- **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
-  stale CSRF token or an authorization refusal (a session lacking the
-  operation's Permission, a session confined by a required password change, an
-  administrator acting on its own account). CSRF applies only to unsafe methods, so `apiFetch` returns a safe
-  request's `403` as `forbidden` at once, with no re-fetch. An unsafe request's
-  `403` re-fetches the token and retries once; a `403` on the retry was sent
-  with a fresh token, so it is `forbidden` too. `csrf-expired` is left for a
-  token fetch that fails — it throws, answers anything but `2xx`, or carries no
-  well-formed `{ headerName, token }`. Both preserve the auth state:
-  pages show `FORBIDDEN_MESSAGE` ("You don't have permission to do this.") or
-  `CSRF_EXPIRED_MESSAGE`, read from `useSessionRequest`, and neither ever ends
-  the session. A `401` returns
-  `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
-  session and `ProtectedRoute` sends the user to login, the redirect carrying
-  the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
-  looks like a random sign-out to the user.
-- **Features reach the backend through `useSessionRequest`; only `src/auth/`
-  reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
-  place that can drift, and a direct `apiFetch` call puts the session-ending
-  rule back in the feature. Playwright's `page.request` bypasses both: copy
-  `resetCounterViaApi()` in `test/e2e/auth.helpers.ts` for an API call from a
-  spec.
-- **Sessions expire after 15 minutes** of inactivity, the single default in
-  every environment. The SPA never hardcodes that figure: `GET /api/auth/me`
-  and the login response carry `idleTimeoutSeconds`, read off the session
-  itself, and `src/auth/idle-sign-out.tsx` times its own sign-out by it. That
-  sign-out counts only user input (pointer, key, touch, wheel, scroll) as
-  activity, never a request, and shares it across tabs over a
-  `BroadcastChannel`. A minute before the limit an `alertdialog` offers to stay
-  signed in, which is a `GET /api/auth/me` sent through `useSessionRequest` —
-  so a session already ended takes that seam's one `401` rule — and renews the
-  backend's idle clock too; at the limit the SPA calls logout, discards the CSRF token and
-  sends the user to login with the sign-in reason `inactive`. A session the backend ended first
-  still takes the ordinary `401` path below.
-- **Sessions are also capped at 8 hours from creation**, independent of the
-  15-minute idle bound above: a session kept continuously active is still
-  ended once it has existed that long. Both bounds apply to every
-  authenticated session, a Superuser's included, and whichever is reached first ends
-  it — there is no way to distinguish the two from the SPA's side; either one
-  simply presents as the ordinary `401` → `unauthenticated` → sign-out path
-  described above.
-- **One session per User.** A login ends every other session the same User
-  holds, so signing in from a second browser or profile signs the first
-  out; the first presents as the ordinary `401` path above. Epic Login counts
-  too: a password Login and an EHR launch for the same User share the rule.
-- **Epic Login reaches the SPA as a full-page navigation, never a request the
-  SPA makes.** Epic opens `GET /api/auth/epic/launch` in the clinician's
-  browser; the backend redirects through `GET /api/auth/epic/authorize` to
-  Epic and back to `GET /api/auth/epic/callback`, and on success answers
-  `302 /` with the session already signed in (session id rotated, pre-login
-  CSRF token dropped). The SPA does nothing special: its ordinary start-up
-  `GET /api/auth/me` answers `authenticated`, and the guest route at `/` sends
-  the clinician on to `/showcase`. A refused launch lands at
-  `/?signin=refused` with its session ended — whoever's it was — and the
-  login page shows only the neutral "Sign-in from Epic was refused"; the
-  refusal's reason never reaches the browser. The second outcome is Epic being
-  unavailable — no answer within the backend's timeouts, or an Epic `5xx`, on
-  discovery, the JWKS or the token call — which lands at
-  `/?signin=unavailable`, its session ended the same way, and the login page
-  shows "Sign-in from Epic is temporarily unavailable. Try again shortly."
-  instead. The two are distinct on purpose (D23): a refused clinician should not
-  retry, an unavailable one should. Neither marker carries any detail, and
-  either notice wins over router state. `src/auth/sign-in-reason.ts` is the
-  only place that reads the markers, decides that precedence, or holds the
-  copy; the login page renders what its `signInNoticeFor` returns. All four Epic routes (the three
-  above and the public `jwks.json`) are `404` while `APP_EPIC_ENABLED` is off.
-  The SPA never calls them, and they need no CSRF token: each is a `GET`.
-- **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a
-  successful logout and on the `401` a logout with no live session gets. The
-  browser drops anything in `localStorage` / `sessionStorage` along with the
-  session cookie. Nothing in the SPA may rely on storage surviving logout. The
-  CSRF token is unaffected: it lives in memory only and in the session the
-  logout ended, and the SPA discards it on logout anyway.
-- **The CSP forbids inline script, `eval`, and every third-party origin** for
-  scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
-  and prefer Vite plugins that keep their output out of an inline `<script>`.
-  Inline _styles_ are allowed.
+**Read `docs/BACKEND_CONTRACT.md`** before changing anything that issues a
+request, reads a status, or touches the CSRF token, the session window, logout,
+Epic Login's landing or the CSP — and update it in the same change when the
+backend side moves. It is the authority on the runtime contract with the backend.
 
 ## Component library
 
@@ -307,7 +150,7 @@ security or session handling, `logInFromEpic`, the SPA's handling of the
 launch landing, and the launcher setup itself. `make epic-integration-test`
 starts SQL Server, Redis and the launcher (compose profile `epic-launcher`), runs
 the backend in the `dev` profile with a freshly generated key and the
-`APP_EPIC_*` values in `backend/README.md`, "Local Epic launcher", and runs
+`APP_EPIC_*` values in `backend/docs/configuration/epic-login.md`, "Local Epic launcher", and runs
 `npm run test:e2e:epic`, the Playwright `epic` project. It is separate from the
 **Playwright E2E** gate, which neither needs nor runs it; a change to Epic Login
 that also pulls that gate's trigger runs both.

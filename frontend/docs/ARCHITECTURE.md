@@ -136,8 +136,7 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
 - `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
   authenticated session. It times the backend's own idle window
   (`idleTimeoutSeconds`), counts only user input as activity, shares it across
-  tabs, and warns a minute before signing out (`/frontend/AGENTS.md`, "Backend
-  contract"). Its "stay" is a `GET /api/auth/me` through `useSessionRequest`,
+  tabs, and warns a minute before signing out (`docs/BACKEND_CONTRACT.md`). Its "stay" is a `GET /api/auth/me` through `useSessionRequest`,
   so a session already ended takes the seam's one `401` rule.
 - `password-policy.ts` — the backend's password length bounds, mirrored so the
   change form can state the rule; the backend still decides.
@@ -250,8 +249,7 @@ itself.
 
 ### Why every request goes through `lib/http.ts`
 
-The backend enforces a session-bound CSRF synchronizer token (`/frontend/AGENTS.md`,
-"Backend contract"), so every unsafe request needs the session's token, in the
+The backend enforces a session-bound CSRF synchronizer token (`docs/BACKEND_CONTRACT.md`), so every unsafe request needs the session's token, in the
 header `GET /api/auth/csrf` names, or it comes back `403`. `apiFetch()` is the
 single place that knows this: it holds the token **in memory only**, fetches it
 from that endpoint before the first unsafe request, adds the header on unsafe
@@ -273,6 +271,13 @@ transport, HTTP, or decoding
 failure. Features retain their own human-facing copy while sharing status
 meaning. A no-content request omits the decoder, so its `ok` data is typed as
 `void` rather than pretending every success is JSON.
+
+A body is never cast to its type (`as T`). It is read by a hand-written decoder
+that takes `unknown` and returns the value or throws `DecodeError`, built from
+the primitives in `lib/decode.ts`, and `apiFetch` turns a success body that does
+not decode into `failed` with no `status`. Each wire type's decoder lives beside
+the type, in the module that owns it. `lib/instant.ts` is the one way an instant
+from the backend is written on a page.
 
 It lives in `lib/` because `auth/` sits above it and it must not know about
 sessions. That places it under `mb-lib-is-a-leaf`, so it stays
@@ -521,4 +526,7 @@ Already present, and where it lives: routing in `src/App.tsx`, authentication in
 `src/auth/` (the idle sign-out and its expiry warning included), typed HTTP
 results in `src/lib/http.ts`, and the top-level error
 boundary in `src/components/error-boundary.tsx`, wrapped around the whole tree
-in `App.tsx`, outside the signed-in shell, so a shell failure is caught too.
+in `App.tsx`, outside the signed-in shell, so a shell failure is caught too. A
+render error anywhere below it shows a generic "Something went wrong" fallback
+with a reload action, logs to `console.error` only, and never puts the error's
+message or stack in the DOM.

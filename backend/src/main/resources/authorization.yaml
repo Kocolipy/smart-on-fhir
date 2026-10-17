@@ -5,7 +5,7 @@
 # Superuser-only mapping of their own, and a test that needs the development
 # mapping imports this document explicitly.
 #
-# Configuration reference: backend/README.md, "Role mapping".
+# Configuration reference: backend/docs/configuration/role-mapping.md.
 
 app:
   authorization:
@@ -49,7 +49,7 @@ app:
     # deployment that has not enabled the development fixtures below none of
     # these do — so a deployment that forgot to replace this list fails startup
     # instead of running with it. Replace it whole (a list from a
-    # higher-precedence source replaces this one; see the README).
+    # higher-precedence source replaces this one; see docs/configuration/role-mapping.md).
     groups:
       - id: 00000000-0000-4000-8000-00000000a001
         role: Superuser

@@ -17,7 +17,7 @@ backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
 scripts/          shell layer the Makefile targets call
 CONTEXT.md        domain glossary (see /docs/agents/domain.md)
-docs/domain-rules.md  the behavior behind the glossary's terms
+docs/domain/      the behavior behind the glossary's terms, one file per area
 docs/adr/         architectural decision records
 docs/agents/      agent documentation shared by both apps
 graphify-out/     knowledge graph, tracked (see "graphify" below)
@@ -141,7 +141,7 @@ overrides it explicitly rather than relying on it.
 
 The **runtime** contract — CSRF (a session-bound synchronizer token the SPA
 fetches from `GET /api/auth/csrf`; never a cookie), CSP, sessions — is a
-separate agreement, and `frontend/AGENTS.md`'s "Backend contract" section is its
+separate agreement, and `frontend/docs/BACKEND_CONTRACT.md` is its
 authority. Read it before changing request handling on either side.
 
 ## Line endings
@@ -179,8 +179,7 @@ already matches at any depth.
   `DATABASE_RETENTION_USERNAME`/`DATABASE_RETENTION_PASSWORD`,
   `DATABASE_OWNER_USERNAME`/`DATABASE_OWNER_PASSWORD`), none with a fallback.
   The owner login is read only where migrations run; a deployed service never
-  holds it (a separate migrate step migrates first). See `backend/README.md`,
-  "Database logins".
+  holds it (a separate migrate step migrates first). See `backend/docs/configuration/database.md`.
 
 `backend/src/main/resources/application.yaml` still carries working default
 values for some non-database settings (the Bootstrap Admin's first password
