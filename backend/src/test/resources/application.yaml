@@ -16,6 +16,15 @@ spring:
     # `database.yaml` likewise: every test pool is opened with the deployed
     # driver properties (encrypted, TLS 1.2, the login timeout).
     import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:database.yaml
+  session:
+    data:
+      redis:
+        # The one departure from `session.yaml`: no expired-session cleanup job. The repository
+        # runs it on a scheduler of its own, which the test framework does not pause with a cached
+        # context while it does stop the context's Redis connection factory, so every paused
+        # context logged an ERROR at the top of each minute. Those landed in whichever test was
+        # capturing WARN and ERROR records then. No test exercises the cleanup.
+        cleanup-cron: "-"
   # No spring.datasource.* here: ContainerTestConfiguration's SQL Server
   # container registers the URL, the logins and Flyway's owner login onto each
   # context directly, and the migrations are T-SQL that only a real SQL Server —

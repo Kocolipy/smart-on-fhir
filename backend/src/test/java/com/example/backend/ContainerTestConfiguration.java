@@ -38,7 +38,7 @@ import org.testcontainers.utility.DockerImageName;
  * collation {@value #COLLATION}, compatibility level 160, {@code READ_COMMITTED_SNAPSHOT} and
  * {@code ALLOW_SNAPSHOT_ISOLATION} on, and owned by the owner login. Those are creation options,
  * set here because no migration can set them: {@code READ_COMMITTED_SNAPSHOT} cannot change inside
- * the transaction Flyway migrates in. About a second per context (ADR 0013, V6).
+ * the transaction Flyway migrates in (ADR 0013, V6).
  *
  * <p><strong>The deployment's three database logins, not the container's {@code sa}.</strong>
  * The service's main pool connects as the app login and its retention pool as the retention

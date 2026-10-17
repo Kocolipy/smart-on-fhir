@@ -255,14 +255,12 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <!--
-              Two test JVMs, each running its share of the test classes. Measured on a
-              20-core machine with a 5.9 GB WSL VM: 217s with one JVM, ~143s with two,
-              124s with three. Two, not more: the third JVM saves ~20s but peaks within
-              ~0.8 GB of the VM's memory, and "1C" would start a JVM per core. A fork
-              starts its own SQL Server and Redis (ContainerTestConfiguration), so contexts
+              Two test JVMs, each running its share of the test classes. Two, not more:
+              memory, not cores, is the limit. A fork starts its own SQL Server and Redis
+              (ContainerTestConfiguration), so every fork adds a SQL Server container to
+              the VM's load (ADR 0013, V6), and a third fork's gain did not justify how
+              close it ran the VM to its memory; "1C" would start a JVM per core. Contexts
               split across forks cost a migrated database each, not a container start.
-              A SQL Server container idles at ~0.9 GB, so the two forks need ~2 GB more
-              than two containers of the previous engine (ADR 0013, V6).
               Override with -DforkCount=1 to debug a test in one JVM.
 
               The forks take classes from one shared queue, so the class that starts last
@@ -270,9 +268,8 @@
               the queue longest-first from the previous run's timings, kept in
               .surefire-<config checksum> beside this file (gitignored, and outside target/
               so `clean` keeps it). Each configuration, -Dtest=... included, keeps its own
-              file, and one with no statistics yet runs in file-system order. That
-              order already left only a 5s gap between the forks when measured; this guards
-              against a long class landing late in the queue, not against today's tail.
+              file, and one with no statistics yet runs in file-system order. This guards
+              against a long class landing late in the queue.
 
               The test JVMs never see the developer's runtime settings: every key in
               .env.example, plus the yaml placeholders it leaves out, is stripped from

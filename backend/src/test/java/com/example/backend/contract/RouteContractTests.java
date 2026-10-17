@@ -3,7 +3,7 @@ package com.example.backend.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.auth.epic.EpicTestKeys;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -11,9 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -36,7 +35,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-class RouteContractTests {
+@AutoConfigureMetrics
+class RouteContractTests extends EpicLoginOnContext {
 
     /** The namespaces whose routes the contract covers. */
     private static final List<String> NAMESPACES = List.of("/api/", "/scim/v2/");
@@ -50,12 +50,6 @@ class RouteContractTests {
             // every request to it while Epic Login is on (EpicLoginIntegrationTests), and which
             // the release gate answers 404 while it is off.
             "GET /api/auth/epic/callback");
-
-    /** Epic Login on, so its routes are mapped; with generated keys, never committed ones. */
-    @DynamicPropertySource
-    static void epicLoginOn(DynamicPropertyRegistry registry) {
-        EpicTestKeys.epicLoginOn(registry, EpicTestKeys::p384Pem, EpicTestKeys::p384Pem);
-    }
 
     /** What a mapping with no method condition answers: every method the contract names. */
     private static final List<String> ALL_METHODS = List.of("GET", "POST", "PUT", "PATCH", "DELETE");

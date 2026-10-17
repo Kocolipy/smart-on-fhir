@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
-import com.example.backend.auth.epic.EpicTestKeys;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import java.io.IOException;
 import java.net.CookieManager;
@@ -33,8 +33,6 @@ import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfig
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -63,12 +61,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class OperationalTelemetryIntegrationTests {
-
-    @DynamicPropertySource
-    static void epicLoginOn(DynamicPropertyRegistry registry) {
-        EpicTestKeys.epicLoginOn(registry, EpicTestKeys::p384Pem, EpicTestKeys::p384Pem);
-    }
+class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
 
     private static final String ADMIN = "test-admin";
 
