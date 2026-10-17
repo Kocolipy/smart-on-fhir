@@ -71,8 +71,8 @@ reasoned as one.
 ## Role mapping
 
 The read-only `app.authorization` configuration block that defines the Roles and
-maps each Role to a Group by the Group's stable id; see the backend README's "Role
-mapping" for its shape. The rules:
+maps each Role to a Group by the Group's stable id; see `backend/docs/configuration/role-mapping.md`
+for its shape. The rules:
 
 - **Union.** A User's Permissions are the union of the Roles of the mapped
   Groups it is a _direct_ member of — nesting is not modelled — so holding an

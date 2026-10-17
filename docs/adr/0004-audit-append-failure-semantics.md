@@ -201,7 +201,7 @@ main pool:
 
 - The pool (`AuditAppendPoolConfig`) is two connections by default, with a 2 s
   connection timeout, both configurable (`APP_AUDIT_POOL_SIZE`,
-  `APP_AUDIT_POOL_TIMEOUT`; `backend/README.md`). The size is bounded to two or
+  `APP_AUDIT_POOL_TIMEOUT`; `backend/docs/configuration/audit.md`). The size is bounded to two or
   three: a configuration outside that fails startup. It has no credentials of its
   own: it is the database connections module's pool (`DatabaseConnections`) for
   the main pool's login, reaching the database exactly as the main pool does, so

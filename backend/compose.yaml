@@ -87,7 +87,7 @@ services:
   # launch with no Epic sandbox (/docs/adr/0012-epic-login.md).
   # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
   # `make infra-up` still starts only SQL Server and Redis. Start it with
-  # `make epic-launcher-up`; backend/README.md, "Local Epic launcher", has the
+  # `make epic-launcher-up`; docs/configuration/epic-login.md, "Local Epic launcher", has the
   # APP_EPIC_* values that point at it. Upstream publishes `latest` only, so the
   # digest is the pin.
   smart-launcher:

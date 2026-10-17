@@ -104,13 +104,12 @@ app:
     # gate opened. An open gate does not mean an open service: every path in the
     # namespace, discovery included, still answers 401 without a connector token.
     #
-    # Turn SCIM off with APP_SCIM_ENABLED=false; see README.md's Configuration
-    # section.
+    # Turn SCIM off with APP_SCIM_ENABLED=false; see docs/configuration/scim.md.
   epic:
     # Epic Login. Absent on purpose, every key of it: EpicLoginProperties binds the
     # APP_EPIC_* variables by relaxed binding, and owns the only defaults there are
     # (both switches off, timeouts 2s / 5s). No URL, client id or key may ever get a
-    # fallback here — this repository is public. See README.md's "Epic Login".
+    # fallback here — this repository is public. See docs/configuration/epic-login.md.
   auth:
     # The Bootstrap Admin, the one User every deployment is seeded with. The
     # non-administrative `user` is a development fixture (authorization.yaml).
@@ -146,15 +145,15 @@ app:
       # is one year" to be a fact about the rule rather than about this file.
       #
       # Override with APP_AUDIT_RETENTION_PERIOD (e.g. 400d) and
-      # APP_AUDIT_RETENTION_SCHEDULE; see README.md's Configuration section for
+      # APP_AUDIT_RETENTION_SCHEDULE; see docs/configuration/audit.md for
       # the exact default and floor. A value below 90 days fails startup.
   dormancy:
     # `lockout.window` and `role.revocation.window` are deliberately absent, for
     # the reason the retention settings are: both defaults — 90 days and 180
     # days — belong to DormancyPolicy, so an unset setting reaches the rule as
     # unset. Override with APP_DORMANCY_LOCKOUT_WINDOW and
-    # APP_DORMANCY_ROLE_REVOCATION_WINDOW (e.g. 60d); see README.md's
-    # Configuration section. A zero or negative window, or a role revocation
+    # APP_DORMANCY_ROLE_REVOCATION_WINDOW (e.g. 60d); see docs/configuration/dormancy.md.
+    # A zero or negative window, or a role revocation
     # window not longer than the lockout window, fails startup.
 
 

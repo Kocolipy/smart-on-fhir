@@ -179,8 +179,7 @@ already matches at any depth.
   `DATABASE_RETENTION_USERNAME`/`DATABASE_RETENTION_PASSWORD`,
   `DATABASE_OWNER_USERNAME`/`DATABASE_OWNER_PASSWORD`), none with a fallback.
   The owner login is read only where migrations run; a deployed service never
-  holds it (a separate migrate step migrates first). See `backend/README.md`,
-  "Database logins".
+  holds it (a separate migrate step migrates first). See `backend/docs/configuration/database.md`.
 
 `backend/src/main/resources/application.yaml` still carries working default
 values for some non-database settings (the Bootstrap Admin's first password

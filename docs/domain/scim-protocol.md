@@ -106,4 +106,4 @@ specified in `infra/docs/edge-throttling.md` ("Edge throttling").
 valid token, an expired one and none at all get the same answer and the gate
 cannot be probed for the interface behind it. `404` rather than `403` or `503`,
 because either of those would disclose a surface that is not being offered. The
-backend README ("SCIM release gate") is the configuration reference.
+`backend/docs/configuration/scim.md` is the configuration reference.

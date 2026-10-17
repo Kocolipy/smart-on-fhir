@@ -37,7 +37,7 @@ and once for the test suite, which must agree:
 
 Its digest is `sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090`.
 The image is x86_64 only: Apple Silicon is not a supported development platform
-(`backend/README.md`, "Local setup").
+(`backend/docs/configuration/database.md`, "Local setup").
 
 Activate the Node and JDK pins with whichever manager you use — `nvm use` (reads
 `/.nvmrc`), or `asdf install` / `mise install` (both read `/.tool-versions`) from
@@ -86,8 +86,8 @@ Copy `backend/.env.example` to `.env` before running. Requires the pinned JDK
 on `PATH` (see the table above); Maven itself comes from `./mvnw`.
 
 Logs are ECS JSON on stdout; set `LOG_FILE` to also write a rolling JSON file
-(deployed at `/var/log/backend/backend.json`). See `backend/README.md` under
-"Logging" and `infra/README.md` under "View Logs".
+(deployed at `/var/log/backend/backend.json`). See `backend/docs/configuration/logging.md` and
+`infra/README.md` under "View Logs".
 
 ## Frontend/backend integration
 

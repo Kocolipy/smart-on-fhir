@@ -45,7 +45,7 @@ tags: [cloudformation, parameters, epic]
 | LogRetentionDays           | Retention of the `/<stack>/backend` log group   | No       | 90                      |
 
 The `AppEpic*` parameters become the `APP_EPIC_*` variables of
-`backend/README.md`'s "Epic Login" section; with `AppEpicEnabled=false` none is
+`backend/docs/configuration/epic-login.md`; with `AppEpicEnabled=false` none is
 read. No default carries a value, and with the switch on the service refuses to
 start until every required one is set and well formed. The two keys and the
 client id are `NoEcho`, and the stack writes them into `EpicClientSecretArn`,

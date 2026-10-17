@@ -176,7 +176,7 @@ Parameters:
   # Epic Login (/docs/adr/0012-epic-login.md). Off unless AppEpicEnabled is true, and
   # then none of the other AppEpic* parameters is read. No default carries a
   # value: with the switch on, the service refuses to start until every required
-  # one is set and well formed (backend/README.md, "Epic Login"). An empty
+  # one is set and well formed (backend/docs/configuration/epic-login.md). An empty
   # parameter reaches the service as unset.
   AppEpicEnabled:
     Description: Whether this deployment serves Epic Login (APP_EPIC_ENABLED)
@@ -1186,8 +1186,7 @@ Resources:
             # start.sh reads at every start; the owner secret is migrate.env's alone.
             # DATABASE_URL validates RDS's certificate against the driver-scoped trust
             # store (never trustServerCertificate). No development fixtures.
-            # APP_AUTHORIZATION_GROUPS_0_* map the Admin group alone (backend/README.md,
-            # "Role mapping").
+            # APP_AUTHORIZATION_GROUPS_0_* map the Admin group alone (backend/docs/configuration/role-mapping.md).
             cat > /opt/backend/.env << 'EOF'
             AWS_REGION=${AWS::Region}
             DATABASE_URL=jdbc:sqlserver://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port};databaseName=${DBName};${DatabaseUrlOptions}

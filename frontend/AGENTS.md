@@ -307,7 +307,7 @@ security or session handling, `logInFromEpic`, the SPA's handling of the
 launch landing, and the launcher setup itself. `make epic-integration-test`
 starts SQL Server, Redis and the launcher (compose profile `epic-launcher`), runs
 the backend in the `dev` profile with a freshly generated key and the
-`APP_EPIC_*` values in `backend/README.md`, "Local Epic launcher", and runs
+`APP_EPIC_*` values in `backend/docs/configuration/epic-login.md`, "Local Epic launcher", and runs
 `npm run test:e2e:epic`, the Playwright `epic` project. It is separate from the
 **Playwright E2E** gate, which neither needs nor runs it; a change to Epic Login
 that also pulls that gate's trigger runs both.

@@ -204,8 +204,8 @@ documents each.
 | `GET /api/auth/epic/jwks.json` | Our public JWKS, holding the active key plus the next key if configured. Never a private parameter. Must be reachable by Epic. |
 
 Configuration is environment variables only, with **no default credentials** (the
-remote is public); `backend/README.md`, "Epic Login", is the variable reference
-and `/infra/README.md` the deployment's. Startup fails fast when the switch is on
+remote is public); `backend/docs/configuration/epic-login.md` is the variable reference
+and `/infra/docs/parameters.md` the deployment's. Startup fails fast when the switch is on
 and anything required is missing or malformed, including a URL that is not
 `https` outside the dev profile (D21), and it does **not** contact Epic: discovery
 runs on first use (D26).
