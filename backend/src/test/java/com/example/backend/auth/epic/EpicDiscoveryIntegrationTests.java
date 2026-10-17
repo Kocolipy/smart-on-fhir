@@ -172,7 +172,7 @@ class EpicDiscoveryIntegrationTests {
                 .containsEntry(LogEvent.EPIC_CALL, "discovery"));
     }
 
-    // ---- D22 and the meters, on each way discovery fails (ADR 0013, "Masking", "Metrics") -------
+    // ---- D22 and the meters, on each way discovery fails (ADR 0012, "Masking", "Metrics") -------
 
     /**
      * Each way discovery fails, with how the Login ends. The {@code epic.outbound.errors} counter

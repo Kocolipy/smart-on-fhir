@@ -208,7 +208,7 @@ public final class LogEvent {
 
     /**
      * Which Epic call an outbound record or an Epic Login failure is about — {@code discovery},
-     * {@code jwks} or {@code token} (ADR 0013, D25) — the same name the
+     * {@code jwks} or {@code token} (ADR 0012, D25) — the same name the
      * {@code epic.outbound} meters are tagged with. Under this service's own {@code app}
      * namespace: ECS names no such field.
      */
@@ -344,7 +344,7 @@ public final class LogEvent {
 
     /**
      * {@link #error(Logger, Operation, int, ErrorCategory, Category, Type...)} for a failure that
-     * is not this service's to fix, and so may need no person: ADR 0013's error-category table says
+     * is not this service's to fix, and so may need no person: ADR 0012's error-category table says
      * whether each of its categories does — a timeout or an Epic {@code 5xx} passes on its own,
      * a refused credential does not.
      *
@@ -909,17 +909,17 @@ public final class LogEvent {
         DATABASE("database"),
         /**
          * Input the service refused: the caller's error, not the service's — or an answer from a
-         * service this one called that it could not use (ADR 0013's malformed Epic
+         * service this one called that it could not use (ADR 0012's malformed Epic
          * response).
          */
         DATA("data"),
-        /** A call to another service timed out or could not connect (ADR 0013, "Log"). */
+        /** A call to another service timed out or could not connect (ADR 0012, "Log"). */
         NETWORK("network"),
-        /** Another service answered {@code 5xx} (ADR 0013, "Log"). */
+        /** Another service answered {@code 5xx} (ADR 0012, "Log"). */
         SERVER("server"),
         /**
          * Another service refused this one's own credential — Epic's {@code invalid_client}, or
-         * Epic rejecting our client assertion (ADR 0013, "Log"): likely a key or a registration
+         * Epic rejecting our client assertion (ADR 0012, "Log"): likely a key or a registration
          * problem.
          */
         CERT_AUTH("cert/auth");

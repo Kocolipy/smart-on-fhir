@@ -58,10 +58,10 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * Epic Login's protocol hardening (ADR 0013, D10, D17, D18, D27, flow steps 1–5
+ * Epic Login's protocol hardening (ADR 0012, D10, D17, D18, D27, flow steps 1–5
  * and 8): every malformed, forged, replayed or out-of-policy launch, callback and {@code id_token}
  * lands at {@code /?signin=refused} with its session ended, and is audited once as a
- * {@code LOGIN_FAILURE} under method {@code sso} with its exact reason (ADR 0013, "Audit").
+ * {@code LOGIN_FAILURE} under method {@code sso} with its exact reason (ADR 0012, "Audit").
  *
  * <p>Epic is a {@link FakeEpic} started for each test by the {@link EpicTestEnvironment}, told to
  * forge whatever Epic or an attacker could send; the browser is an {@link EpicBrowser} over the
@@ -573,7 +573,7 @@ class EpicProtocolIntegrationTests {
                 () -> EPIC.browser().signIn(EPIC.provisionedFhirUser(), null));
     }
 
-    /** D26: a {@code kid} still unknown after the refetches, as ADR 0013 records it. */
+    /** D26: a {@code kid} still unknown after the refetches, as ADR 0012 records it. */
     @Test
     void anIdTokenWhoseKidStaysUnknownIsRefusedAsInvalidSignature() throws Exception {
         EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
@@ -620,7 +620,7 @@ class EpicProtocolIntegrationTests {
                         claims.claim("nonce", "a-nonce-we-never-sent")),
                 Arguments.of("no nonce", (Consumer<JWTClaimsSet.Builder>) claims ->
                         claims.claim("nonce", null)),
-                // ADR 0015: an identity claim with whitespace at an edge is an invalid token.
+                // ADR 0013: an identity claim with whitespace at an edge is an invalid token.
                 Arguments.of("a sub with a trailing space", (Consumer<JWTClaimsSet.Builder>)
                         claims -> claims.subject("epic-subject ")),
                 Arguments.of("a sub with a leading space", (Consumer<JWTClaimsSet.Builder>)

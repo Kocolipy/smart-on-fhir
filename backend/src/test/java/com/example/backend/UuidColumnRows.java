@@ -13,7 +13,7 @@ import org.springframework.jdbc.core.RowMapper;
  *
  * <p>{@code JdbcTemplate.queryForMap} and {@code queryForList} read each column with an untyped
  * {@code getObject}, and the SQL Server driver answers that for a {@code UNIQUEIDENTIFIER} with
- * the upper-case text of the id (ADR 0015, spike V2), which equals neither the {@code UUID} nor
+ * the upper-case text of the id (ADR 0013, spike V2), which equals neither the {@code UUID} nor
  * its {@code toString()}. This mapper asks for the column as a {@code UUID} instead, so a test
  * compares the id it holds with the id the row holds. Every other column reads as before.
  */

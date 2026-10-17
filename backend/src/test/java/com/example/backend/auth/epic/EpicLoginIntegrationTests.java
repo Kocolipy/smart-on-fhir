@@ -65,7 +65,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * Epic Login's happy path end to end (ADR 0013, flow steps 1–7): a clinician
+ * Epic Login's happy path end to end (ADR 0012, flow steps 1–7): a clinician
  * whose Practitioner FHIR ID is the {@code userName} of a provisioned User opens the application
  * from Epic and is signed in exactly as password Login would sign them in.
  *
@@ -457,7 +457,7 @@ class EpicLoginIntegrationTests {
 
     /**
      * What D8 still drops: the token response's patient and encounter launch context. Epic's
-     * three tokens are kept for the signed-in session (ADR 0013, D29), which
+     * three tokens are kept for the signed-in session (ADR 0012, D29), which
      * {@link EpicTokensIntegrationTests} holds.
      */
     @Test
@@ -660,7 +660,7 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * ADR 0013's error categories: a timeout is {@code network}, and Epic being down needs no
+     * ADR 0012's error categories: a timeout is {@code network}, and Epic being down needs no
      * follow-up. Logging §3.3: it is one {@code ERROR} in all — the outbound call's, which saw
      * it fail — and not a second one when the Login ends for it.
      */
@@ -710,7 +710,7 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * ADR 0013's error categories: Epic refusing our assertion is a key or registration
+     * ADR 0012's error categories: Epic refusing our assertion is a key or registration
      * problem.
      */
     @Test
@@ -765,7 +765,7 @@ class EpicLoginIntegrationTests {
                 .containsEntry(LogEvent.EPIC_CALL, "jwks"));
     }
 
-    // ---- the outbound client (ADR 0013, D25) ----------------------------------------------------
+    // ---- the outbound client (ADR 0012, D25) ----------------------------------------------------
 
     @Test
     void eachOutboundCallIsLoggedStartedThenCompletedWithItsName() throws Exception {

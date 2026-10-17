@@ -15,28 +15,8 @@ session store answers, on every revocation trigger, is the 2026-10-10 addendum b
 where the rule is expressed — once, from each event's kind — is the 2026-10-12
 addendum; which connections a fail-open append commits on is the 2026-10-13
 addendum; where a refused SCIM write is recorded is the second 2026-10-13 addendum;
-the SQLState the append-only trigger refuses with is the 2026-10-14 addendum.
-
-Superseded in part by ADR 0015 (2026-10-12, SQL Server 2022 replaces
-PostgreSQL), as of the switchover (#68–#72, 2026-10-16), in the database
-enforcement these appends write into: the audit trail stays append-only through a
-retention login and a T-SQL trigger instead of a retention role assumed with
-`SET LOCAL ROLE` and a PL/pgSQL trigger. How the append-only rule is enforced in
-the database is now ADR 0015's. The fail-closed/fail-open axis this ADR decides is
-unchanged. See the superseding note at the end.
-
-**Superseded in part (2026-10-14, #66): the role switch.** On PostgreSQL already,
-the role-switching mechanism is gone. Every statement this ADR's appends write runs
-as the **app login**, a member of `backend_app` only — the main pool and the audit
-append pool both connect as it, with no `connection-init-sql` — and the retention
-job deletes as the **retention login**, a member of `backend_audit_retention` only,
-on a pool of its own; nothing issues `SET ROLE` or `SET LOCAL ROLE`. The retention
-role keeps `SELECT, DELETE` (its `UPDATE` grant is revoked), and the trigger refuses
-every `UPDATE` from every principal and every `DELETE` unless the caller is a
-member of `backend_audit_retention` that does not administer it — so the owner
-login, which migrates out of process and is never held by the service, is refused
-too. Wherever this ADR or its addenda say "runtime role" or `SET ROLE backend_app`,
-read the app login. The T-SQL trigger is still ADR 0015's.
+how the database keeps the trail append-only, and what its trigger refuses with,
+is the 2026-10-14 addendum.
 
 ## Context
 
@@ -193,7 +173,7 @@ paths whatever the Unlock did, and never the dormancy basis it restarts. It now
 records the failure run when the run held attempts, and — when a lock stood —
 `lockedAt`, `lockCause` and `lastAuthenticatedAt`.
 
-ADRs 0013 and 0014 name `AuditTrail.recordLoginRefusal`, the method of the time; it
+ADRs 0012 and 0001 name `AuditTrail.recordLoginRefusal`, the method of the time; it
 is now the `Audited.LoginRefusal` event, recorded under the same terms.
 
 ## Addendum (2026-10-13): Fail-open appends commit on a pool of their own
@@ -225,9 +205,7 @@ main pool:
   three: a configuration outside that fails startup. It has no credentials of its
   own: it is the database connections module's pool (`DatabaseConnections`) for
   the main pool's login, reaching the database exactly as the main pool does, so
-  an append runs as the same login as every other statement — the app login,
-  since #66 (it copied `connection-init-sql` and so `SET ROLE backend_app` until
-  then; see the superseding note under Status).
+  an append runs as the same login as every other statement — the app login.
 - An append is one JDBC `INSERT` on an auto-committing connection
   (`IsolatedAuditEventPersistenceAdapter`, behind the `IsolatedAuditEventRepository`
   port): a transaction of its own by construction, with no transaction manager to
@@ -286,55 +264,34 @@ starvation analysis above: a SCIM write's refusal is now appended after its
 transaction has rolled back and released its connection and its write locks, so it
 no longer holds a main-pool connection while it waits for the audit append pool.
 
-## Addendum (2026-10-14): The append-only trigger refuses with a state of its own
+## Addendum (2026-10-14): The database keeps the trail append-only
 
-The trigger guarding `audit_events` raised its refusal as `insufficient_privilege`
-(`42501`), the state a missing grant raises — in V1, and still in V3, which moved the
-guard from a name check to role membership (#66, the superseding note under Status). A
-log reader classifies a database failure by its SQLState (ADR 0003, "The database
-category mapping"), and the two need different people: a permission refusal is
-`cert/auth`, this service's credential or rights to check, while the trigger's refusal
-is `database` — something tried to rewrite the audit trail — and must be investigated
-as that.
-
-`V4__audit_trigger_refusal_state.sql` replaces the trigger's function so it raises
-`triggered_data_change_violation` (`27000`), the SQL standard's class for a change a
-trigger refused. Its body is V3's, with only the error code changed: every `UPDATE`
-refused from every principal, a `DELETE` admitted only from a member of
-`backend_audit_retention` that does not administer it, the same message, the same
-return value, the same pinned `search_path` and the same trigger, since the function
-keeps its identity. The grants still refuse the app login's `UPDATE` and `DELETE`, and
-the retention login's `UPDATE`, first, with `42501`; what reaches the trigger is a
-principal the grants let through — the owner login, which owns the table — so the two
-refusals now carry different states.
-`DatabaseFailureLogIntegrationTests.anAuditTriggerRefusalIsADatabaseError` drives the
-real trigger, as the owner login. ADR 0015 classifies its T-SQL trigger's refusals the
-same way, as `database`.
-
-## Superseding note (2026-10-16): the append-only rule on SQL Server (ADR 0015)
-
-The engine is SQL Server 2022 (ADR 0015), and how the audit trail's append-only
-rule is enforced in the database is now that ADR's. The T-SQL `V1` holds it in
-three parts, each covering a hole the others leave:
+Every statement this ADR's appends write runs as the **app login**, a member of
+`backend_app` only — the main pool and the audit append pool both connect as it — and
+the retention job deletes as the **retention login**, a member of
+`backend_audit_retention` only, on a pool of its own. The owner login migrates out of
+process and is never held by the service. The schema (ADR 0013) holds the append-only
+rule in three parts, each covering a hole the others leave:
 
 - **Grants.** `backend_app` holds `SELECT, INSERT` on `audit_events` and nothing
   else, so the app login's `UPDATE` or `DELETE` is refused by the server (error
   229) before any row is read. `backend_audit_retention` holds `SELECT, DELETE`,
   with no `UPDATE`, so the grant and the trigger agree.
-- **An `INSTEAD OF UPDATE, DELETE` trigger** (`audit_events_append_only`) in place
-  of the PL/pgSQL one. It refuses every `UPDATE` from every principal, and every
-  `DELETE` unless the caller is a member of `backend_audit_retention` and not of
-  `db_owner`, so the owner login, which may administer every role, is refused too.
-  The admitted `DELETE` is performed by the trigger itself.
+- **An `INSTEAD OF UPDATE, DELETE` trigger** (`audit_events_append_only`). It refuses
+  every `UPDATE` from every principal, and every `DELETE` unless the caller is a
+  member of `backend_audit_retention` and not of `db_owner`, so the owner login,
+  which may administer every role, is refused too. The admitted `DELETE` is
+  performed by the trigger itself.
 - **A refusal number of its own.** The trigger refuses with `THROW 50001`, a number
-  of the schema's own, in place of the 2026-10-14 addendum's SQLState `27000` and
-  for the same reason: a log reader tells a trigger refusal (`database`) from a
-  missing grant (229, `cert/auth`), as ADR 0015's error-category table records.
+  of the schema's own, never the permission refusal (229) a missing grant raises. A
+  log reader classifies a database failure by what the engine reports (ADR 0003,
+  "The database category mapping"), and the two need different people: a
+  permission refusal is `cert/auth`, this service's credential or rights to check,
+  while the trigger's refusal is `database` — something tried to rewrite the audit
+  trail — and must be investigated as that.
 
 `AuditAppendOnlyIntegrationTests` connects as each login, and as the server's
 administrator, and asserts the server's refusal or the retention login's admitted
 `DELETE`; `DatabaseFailureLogIntegrationTests.anAuditTriggerRefusalIsADatabaseError`
 drives the real trigger as the owner login. The fail-closed/fail-open axis this ADR
-decides, the audit append pool and every addendum's semantics are unchanged. Where
-an addendum above names a PostgreSQL mechanism — `SET ROLE`, a PL/pgSQL function, a
-SQLState — read the SQL Server one named here.
+decides is unaffected.

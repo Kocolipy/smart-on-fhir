@@ -23,7 +23,7 @@ import org.springframework.stereotype.Repository;
  * {@link AuditEventPersistenceAdapter} maps through the entity, in the same shapes; both adapters
  * write every row the listing reads back, so a column one of them forgot fails the recording
  * tests. Instants are bound as {@link OffsetDateTime} at UTC, the rule hand-written JDBC follows
- * (ADR 0015).
+ * (ADR 0013).
  */
 @Repository
 class IsolatedAuditEventPersistenceAdapter implements IsolatedAuditEventRepository {

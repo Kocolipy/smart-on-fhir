@@ -34,7 +34,7 @@ import org.springframework.stereotype.Repository;
  * a {@code NULL} included — is compared as the column is stored, and an id bound as text is
  * compared as a {@code UNIQUEIDENTIFIER}.
  *
- * <p>Both statements end {@code OPTION (RECOMPILE)} (ADR 0015): with a catch-all filter per
+ * <p>Both statements end {@code OPTION (RECOMPILE)} (ADR 0013): with a catch-all filter per
  * column, one cached plan would serve every combination of present and absent filters, and a plan
  * built for one combination can be a scan for another. A recompile lets each listing be planned
  * for the filters it actually has; the listing is a low-volume administrative read, so the
@@ -104,7 +104,7 @@ class AuditEventReadAdapter implements AuditEventReader {
      * <p>Called in the listing's read-only transaction ({@code AuditEventListingService}), whose
      * first statements these are: the transaction is put at {@code SNAPSHOT} isolation before the
      * count, so it reads one version of the table from its first read to its end, and an event
-     * appended between the count and the page is in neither (ADR 0015). Read-committed snapshot,
+     * appended between the count and the page is in neither (ADR 0013). Read-committed snapshot,
      * the database's default, gives each statement a snapshot of its own; SQL Server's
      * {@code REPEATABLE READ} is a locking level that still lets a new row in. A transaction that
      * has already read under another level cannot switch to {@code SNAPSHOT}, which is why the
@@ -186,7 +186,7 @@ class AuditEventReadAdapter implements AuditEventReader {
 
     /**
      * A bound instant crosses the seam as an offset at UTC, never a {@code java.sql.Timestamp}:
-     * a Timestamp carries the JVM's wall clock, which SQL Server compares as UTC (ADR 0015,
+     * a Timestamp carries the JVM's wall clock, which SQL Server compares as UTC (ADR 0013,
      * "Storage is UTC only"; the {@code be-jdbc-timestamp-bind} Semgrep rule).
      */
     private static OffsetDateTime utc(Instant instant) {

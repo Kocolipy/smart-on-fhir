@@ -1,15 +1,13 @@
-# 15. SQL Server 2022 replaces PostgreSQL
+# 13. SQL Server 2022 replaces PostgreSQL
 
 Date: 2026-10-12
 
 ## Status
 
-Accepted, and implemented. The engine-neutral preparation on PostgreSQL (#62–#66),
-the verification spikes (#67) and the switchover on the integration branch
-`mssql-cutover` (#68–#72) have landed: the backend runs on SQL Server 2022 locally
-and in tests, the deployed stack is RDS for SQL Server (#71), and PostgreSQL
-support is removed. This ADR describes the running system. "Verified behaviour"
-closes with the switchover's own measurements.
+Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 locally
+and in tests, and the deployed stack is RDS for SQL Server (#71). This ADR
+describes the running system. "Verified behaviour" closes with the switchover's
+gate.
 
 Some decisions below depended on verification spikes (V1–V6). The spikes ran on
 2026-10-12 against a SQL Server 2022 container. The table under "Open verification
@@ -18,42 +16,17 @@ evidence. No decision's fallback was taken; V2 added one binding rule, under
 "Storage is UTC only". A failed spike amends this ADR rather than being absorbed
 silently in code.
 
-This ADR supersedes in part ADR 0004 (how the audit trail's append-only rule is
-enforced in the database; the fail-closed/fail-open axis is unchanged) and ADR 0005
-(the `SKIP LOCKED` mechanism; the per-job lock row model is unchanged). Both carry
-their superseding notes: ADR 0005's landed with the locking ticket (#69), and ADR
-0004's with the switchover's last ticket (#72).
-
-It also records a deviation from the App-Standards recommendation of PostgreSQL
+This ADR also records a deviation from the App-Standards recommendation of PostgreSQL
 for production (Standalone User Access Control Q6, User SSO Q5).
 
 ## Context
 
-The backend runs on PostgreSQL 18 locally and in tests, and on RDS PostgreSQL 15
-when deployed. The organisation has mandated SQL Server as its database engine.
+The organisation has mandated SQL Server as its database engine.
 App-Standards recommends PostgreSQL for production, so moving off it is a
 conscious deviation, made for **organisational mandate** and not for a technical
 shortcoming of PostgreSQL.
 
-The application is pre-production and holds no data that must be kept. Most of the
-JPA/JPQL layer carries over through Hibernate's SQL Server dialect. The work sits in
-the places that rely on PostgreSQL semantics:
-
-- the role-based least-privilege model (`SET ROLE` on the pool, `SET LOCAL ROLE` for
-  retention)
-- the PL/pgSQL append-only trigger on `audit_events`
-- the `TEXT[]` column holding token permissions
-- the two `ON DELETE CASCADE` paths into `scim_group_members`
-- the advisory seed lock and `FOR UPDATE SKIP LOCKED` on the job lock rows
-- the audit listing's consistent snapshot under `REPEATABLE READ`
-- the hand-written SCIM filter SQL (`ScimQuerySql`)
-- string semantics: collation, padded comparison, and how lengths are counted
-
-SQL Server differs on each of these: it has no `SET ROLE`, no arrays, no advisory
-locks; it rejects multiple cascade paths to one table; its `REPEATABLE READ` is a
-locking level, not a snapshot; it pads `=` comparisons and unique constraints with
-trailing spaces under every collation; and `VARCHAR(n)` counts bytes, not code
-points.
+The application is pre-production and holds no data that must be kept.
 
 The move was reviewed on 2026-10-12 against the IM8 application control catalog and
 against App-Standards (User Standalone, User SSO, Structured Logging). Every finding
@@ -64,76 +37,62 @@ are one record.
 
 ### Scope
 
-- **Full switch.** PostgreSQL support is removed, not kept beside SQL Server.
-  Supporting both would permanently double the hand-written SQL, the migrations and
-  the test matrix.
+- **One engine.** SQL Server is the only database the backend supports.
 - **SQL Server 2022, database compatibility level 160.** Mainstream support runs to
   January 2028 and extended support to January 2033; 2019 already receives security
   fixes only. Level 160 adds `IS [NOT] DISTINCT FROM`, which the SCIM filter SQL
   uses.
-- **No data migration.** The schema is rewritten in place as a single T-SQL `V1`.
-  A fresh database is the only supported starting state; the PostgreSQL migrations
-  added during preparation are folded into it.
+- **No data migration.** The schema is a single T-SQL `V1`.
+  A fresh database is the only supported starting state.
 - **RDS for SQL Server, Standard Edition, licence-included** in production:
-  managed and AWS-native as today, without Express's 10 GB cap. **Developer
+  managed and AWS-native, without Express's 10 GB cap. **Developer
   Edition** locally and in tests, which is free for development and test use. The
-  edition is a stakeholder sign-off, because Standard Edition costs far more than
-  the current `db.t3.micro` PostgreSQL instance and does not run on the smallest
-  instance classes.
+  edition is a stakeholder sign-off, because Standard Edition is costly and does
+  not run on the smallest instance classes.
 - **x86_64 only** for local development (WSL2, Linux, CI). The SQL Server image has
   no arm64 build; Apple Silicon runs it only through slow, unsupported emulation,
   and is a documented limitation.
 
 ### Runtime model
 
-- **Three logins, and no `SET ROLE`.** The **owner login** (`db_owner`) runs
+- **Three logins.** The **owner login** (`db_owner`) runs
   migrations and nothing else. The **app login** is the request pool's, a member of
   `backend_app` only. The **retention login** has its own small DataSource and
   transaction manager, is used only by the audit retention adapter, and is a member
-  of `backend_audit_retention` only. `SET ROLE` and `SET LOCAL ROLE` are removed:
-  the server enforces each login's privileges, and there is no session
-  impersonation that could leak between pooled uses of one connection.
-- **The audit append pool needs its own role switch** (added 2026-10-13). Since ADR
-  0004's 2026-10-13 addendum, fail-open audit appends commit on a second, small
-  pool of their own (`AuditAppendPoolConfig`). On PostgreSQL it takes the request
-  pool's URL, login and `connection-init-sql` off the request pool, so
-  `SET ROLE backend_app` reaches it by copy. SQL Server has no `SET ROLE`, so the copy carries
-  no role, and the switchover must give this pool its role explicitly: it connects
-  as the **app login** — the request pool's, a member of `backend_app` only — from
-  the same secret, never as the owner login. The configuration test that pins the
+  of `backend_audit_retention` only. The server enforces each login's privileges,
+  and nothing switches identity on a connection, so nothing can leak between
+  pooled uses of one.
+- **The audit append pool connects as the app login** (added 2026-10-13). Since
+  ADR 0004's 2026-10-13 addendum, fail-open audit appends commit on a second, small
+  pool of their own (`AuditAppendPoolConfig`). It connects as the **app login** —
+  the request pool's, a member of `backend_app` only — from the same secret, never
+  as the owner login. The configuration test that pins the
   request pool's login covers this pool too, and lm-16's metrics name it beside
   the `app` and `retention` pools.
-- **A connector token's row lock moves with the SCIM resource locks** (added
+- **A connector token's row lock sits with the SCIM resource locks** (added
   2026-10-13). A rotation and a revocation lock the token's row before reading it
-  (`ScimConnectorTokenJpaRepository.lockById`, `SELECT … FOR UPDATE`, taken only by
-  `ScimWriteLockAdapter`), so of two concurrent rotations exactly one mints a
-  replacement. It locks one row by primary key, so it needs no order; on SQL Server
-  it becomes `WITH (UPDLOCK, ROWLOCK)`, and must still be the transaction's first
-  read of the token for the waiting rotation to see the first one's replacement
+  (`ScimConnectorTokenJpaRepository.lockById`, `WITH (UPDLOCK, ROWLOCK)`, taken only
+  by `ScimWriteLockAdapter`), so of two concurrent rotations exactly one mints a
+  replacement. It locks one row by primary key, so it needs no order, and must be
+  the transaction's first read of the token for the waiting rotation to see the first one's replacement
   under read-committed snapshot.
 - **The SCIM resource lock order is the application's, not the engine's** (added
   2026-10-14). A SCIM write locks every resource row it may advance before reading
   any of them, in one canonical order, so two writers whose sets overlap serialize
-  instead of deadlocking. That order used to be
-  `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE`, which holds only because
-  PostgreSQL locks rows as the sort returns them; SQL Server under `UPDLOCK` locks
-  rows as the scan reads them, before the sort, so the same statement would
-  deadlock concurrent SCIM writes.
-  `ScimWriteLockAdapter` now sorts the set itself (`ScimWriteLocks.ORDER`,
+  instead of deadlocking. SQL Server under `UPDLOCK` locks rows as the scan reads
+  them, before any sort, so an `ORDER BY` on a locking statement gives no lock
+  order, and a multi-row lock would deadlock concurrent SCIM writes.
+  `ScimWriteLockAdapter` therefore sorts the set itself (`ScimWriteLocks.ORDER`,
   `UUID#compareTo`) and locks one row by primary key per statement
-  (`ScimResourceJpaRepository.lockResource`), which no engine can reorder; on SQL
-  Server each becomes `WITH (UPDLOCK, ROWLOCK)` and the statement is otherwise
-  unchanged. The order deliberately matches neither engine's `uuid` sort, so a
-  statement that slid back to relying on one fails
-  `ScimWriteLockAdapterIntegrationTests` on PostgreSQL today. The cost is a round
+  (`ScimResourceJpaRepository.lockResource`, `WITH (UPDLOCK, ROWLOCK)`), which the
+  engine cannot reorder. The order deliberately differs from the engine's
+  `uniqueidentifier` sort, so a statement that slid back to relying on it fails
+  `ScimWriteLockAdapterIntegrationTests`. The cost is a round
   trip per locked row — a rename of a Group with two hundred members takes two
   hundred and one — accepted because a batched statement would be correct only on an
   engine that locks in sort order, and ordered chunks reintroduce the engine's order
-  inside each chunk. This bullet supersedes the migration spec's §5.3 "Unchanged
-  code" entry for the SCIM resource lock (its "Conditional write row lock" row):
-  that query is changed code, not unchanged. The same row's
-  `UserCounterJpaRepository.findByUserIdForUpdate` is unaffected — one row by key
-  under `PESSIMISTIC_WRITE`, which Hibernate renders as
+  inside each chunk. `UserCounterJpaRepository.findByUserIdForUpdate` needs no
+  order — one row by key under `PESSIMISTIC_WRITE`, which Hibernate renders as
   `WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`.
 - **Database creation options are set by whatever creates the database** (the
   deployed bootstrap, the local init, the test container), never by Flyway:
@@ -141,8 +100,7 @@ are one record.
   transaction. Flyway learns the login names through placeholders and never their
   passwords; it creates the database users `FOR LOGIN` and grants the roles.
 - **`VARCHAR` with database collation `Latin1_General_100_BIN2_UTF8`.** UTF-8
-  storage with code-point (byte) order is the closest match to PostgreSQL UTF-8
-  with `COLLATE "C"`, which the SCIM sort relies on. Equality and the unique
+  storage with code-point (byte) order, which the SCIM sort relies on. Equality and the unique
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
   Server's `LOWER`. (Added 2026-10-14, #68.) The collation is the **database's**,
@@ -154,18 +112,17 @@ are one record.
   DLL (server internal)"). Flyway guards every migration with `sp_getapplock`, so
   on such a server nothing migrates (Addendum (2026-10-16)).
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
-  listing at `SNAPSHOT`.** Readers do not block writers, as with PostgreSQL's MVCC
-  today. The listing's count and page must see one consistent view; SQL Server's
+  listing at `SNAPSHOT`.** Readers do not block writers. The listing's count and page must see one consistent view; SQL Server's
   `REPEATABLE READ` does not give that, `SNAPSHOT` does.
 - **Memberships are deleted explicitly, with no multi-path cascades.** SQL Server
   rejects two cascade paths into one table, so both member-side foreign keys of
   `scim_group_members` become `NO ACTION`, and the User and Group delete paths
   delete the resource's memberships in the same transaction before deleting the
-  resource. Doing it in the application keeps the behaviour visible and testable;
-  resource versions advance exactly as before. Every other cascade is single-path
+  resource. Doing it in the application keeps the behaviour visible and testable.
+  Every other cascade is single-path
   and stays.
-- **Limits stay in code points; Unicode-capable columns widen ×4.** The API
-  contract is unchanged. A UTF-8 code point takes at most four bytes, so every
+- **Limits are in code points; Unicode-capable columns are ×4.** The API
+  contract's limits count code points. A UTF-8 code point takes at most four bytes, so every
   `VARCHAR(n)` that carries a code-point limit becomes `VARCHAR(4n)`; ASCII-only
   enum-like columns keep `n`. Index keys stay under SQL Server's 1700-byte
   non-clustered limit.
@@ -177,35 +134,31 @@ are one record.
   deterministic without SQL tricks. The same rule reaches authentication: a
   password Login whose username has edge whitespace is treated as an unknown
   account before any lookup, and an Epic `iss` or `sub` claim with edge whitespace
-  is refused as an invalid token. Neither changes behaviour relative to
-  PostgreSQL.
-- **Token permissions move to a child table**,
+  is refused as an invalid token.
+- **Token permissions are a child table**,
   `scim_connector_token_permissions(token_id, permission)`, keyed on both columns,
   with a CHECK limiting `permission` to the four directory Permissions. SQL Server
-  has no arrays, and the child table keeps a constraint the database enforces
-  today.
-- **The append-only audit trigger is kept, in T-SQL.** An `INSTEAD OF UPDATE,
+  has no arrays, and the child table keeps the constraint in the database.
+- **The audit trail is append-only, enforced by a T-SQL trigger.** An `INSTEAD OF UPDATE,
 DELETE` trigger on `audit_events` throws unless the caller is a member of
   `backend_audit_retention`, and refuses every `UPDATE` from every principal. The
-  retention role keeps **`SELECT, DELETE` only**; its `UPDATE` grant is revoked, so
-  the grant and the trigger agree. No principal may `UPDATE` an audit row: audit
+  retention role holds **`SELECT, DELETE` only**, with no `UPDATE`, so the grant and
+  the trigger agree. No principal may `UPDATE` an audit row: audit
   rows are immutable, and only aged-out rows can be deleted, only by the retention
   login. The app login is refused by its grants first; the owner login and any
   mis-granted login are refused by the trigger, which is why the trigger stays as
   defence in depth.
-- **The NUL (U+0000) refusal is kept, re-justified as input hygiene.** SQL Server
-  can store NUL, so PostgreSQL's limitation no longer applies, but NUL is hostile in
-  logs and terminals, and keeping the refusal changes nothing in the API.
+- **NUL (U+0000) is refused as input hygiene.** SQL Server can store NUL, but it is
+  hostile in logs and terminals.
 - **`OPTION (RECOMPILE)` on the audit listing's count and page statements.** Their
   catch-all `(@x IS NULL OR col = @x)` filters would otherwise share one cached plan
   across every filter combination. The listing is a low-volume administrative
   read, so the compile cost does not matter. Both stay whole constant statements.
-- **The scheduled job lock keeps its per-job rows** (ADR 0005), taken with
-  `WITH (UPDLOCK, ROWLOCK, READPAST)` in place of `FOR UPDATE SKIP LOCKED`. Spike
+- **The scheduled job lock is a per-job row** (ADR 0005), taken with
+  `WITH (UPDLOCK, ROWLOCK, READPAST)`. Spike
   V3 verified that `READPAST` skips a held row under read-committed snapshot
   without waiting, so the `sp_getapplock` fallback is not needed. The seed lock
-  becomes `sp_getapplock` on a fixed resource name, transaction-owned — superseded
-  by a row lock on `scim_seed_locks` (Addendum (2026-10-16)).
+  is a row lock on `scim_seed_locks` (Addendum (2026-10-16)).
 - **`audit_events` is clustered on `(occurred_at, id)`**, with a non-clustered
   primary key on `id`. A random-UUID clustered key fragments on every insert into
   the highest-volume table, while retention deletes by `occurred_at` and the
@@ -258,7 +211,7 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   CloudWatch alarms on sustained deadlocks and on blocked processes.
 - **lm-19 Log sanitisation.** The driver logger (`com.microsoft.sqlserver.jdbc`) is
   pinned to `WARN`, and Hibernate's JDBC error logger stays off, because SQL Server
-  quotes the refused value in a unique-violation message just as PostgreSQL does.
+  quotes the refused value in a unique-violation message.
   SQL exception text is redacted at the logging boundary (see the standards
   resolutions).
 - **ck-2 Key rotation, ck-4 Key storage.** Storage stays encrypted, under a
@@ -266,8 +219,8 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   Secrets Manager and the deploy role's administration. It encrypts storage,
   automated backups, snapshots, Performance Insights and the database secrets.
 
-ADR 0012 lists as-8, ck-4 and dp-3 as open. The resolutions above close them for
-the database once they land; ADR 0012's entries are updated with the tickets that
+ADR 0011 lists as-8, ck-4 and dp-3 as open. The resolutions above close them for
+the database once they land; ADR 0011's entries are updated with the tickets that
 land them, and as-8 and ck-4 stay open for the Epic signing key until its KMS signer
 exists.
 
@@ -314,7 +267,7 @@ exists.
   The audit retention cutoff and the audit listing's time bounds already bind an
   `OffsetDateTime` at `ZoneOffset.UTC`, Hibernate's `jdbc.time_zone` is pinned to
   UTC, and the `be-jdbc-timestamp-bind` Semgrep rule keeps new `Timestamp` binds
-  out, so the switchover changes neither. Reads may use
+  out. Reads may use
   `getObject(…, OffsetDateTime.class)` or `getTimestamp(…)`, which both return
   the right instant. The driver refuses `getObject(…, Instant.class)`.
 - **The RDS CA trust store is driver-scoped.** Only the SQL Server connection uses
@@ -342,40 +295,33 @@ exists.
   with — `VARCHAR(1024)` under the ×4 rule today — so widening a sort column means
   widening that cast in `ScimQuerySql` too.
 - **No first-login insert to make race-safe.** Only SCIM provisions Users: Epic
-  Login never creates one (ADR 0013, no just-in-time provisioning).
+  Login never creates one (ADR 0012, no just-in-time provisioning).
 - **Database patching.** RDS applies minor versions automatically, and the pinned
   SQL Server image tag used locally and in tests is reviewed monthly. A repo-wide
   dependency-CVE gate is a separate concern, not part of this decision.
 
 ### Observable changes
 
-The move keeps externally observable behaviour except for these, which are
-documented in the API contract and `docs/domain-rules.md` when the switchover
-lands:
+The engine shows through the API in these behaviours, which are documented in the
+API contract and `docs/domain-rules.md`:
 
-- **Edge whitespace is refused** on the keys listed above. This is a validation
-  change and lands in the API contract.
+- **Edge whitespace is refused** on the keys listed above, a validation rule in
+  the API contract.
 - **SCIM free-text `eq` ignores trailing spaces** (amended 2026-10-15, see
   "Addendum (2026-10-15)"). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
   attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
   compared values, because SQL Server pads the comparison. `co`, `sw` and `ew`
   keep trailing spaces significant: they are `LIKE` against a bound Unicode
-  pattern, which SQL Server does not pad. This bullet first listed `co`, `sw` and
-  `ew` among the operators that ignore trailing spaces and left out the ordering
-  operators; the switchover measured otherwise.
+  pattern, which SQL Server does not pad.
 - **SCIM whitespace-only free text counts as absent.** `pr` and sorting treat an
   empty string as no value (`<> ''`, `NULLIF(…, '')`), and under SQL Server's
   padding a value of only spaces compares equal to `''`. A whitespace-only value
   of an attribute that keeps its whitespace therefore fails `pr` and sorts as a
-  missing value, where PostgreSQL treats it as present.
-- **The UUID tie-break order changes.** Paging that ties on the sort key breaks the
-  tie by resource `id` in SQL Server's `uniqueidentifier` order, not lexicographic
-  order. Paging is still a total order; only which tied row comes first changes.
-- **`error.type` changes** for data-access errors, from `PSQLException` to
-  `SQLServerException`, and SQLSTATE-based values disappear. Before the switchover
-  merges, operations confirms that no alert or dashboard keys on them, or updates
-  them.
+  missing value.
+- **Ties break in `uniqueidentifier` order.** Paging that ties on the sort key breaks
+  the tie by resource `id` in SQL Server's `uniqueidentifier` order, not
+  lexicographic order. Paging is a total order.
 - **Case-insensitive SQL comparisons** use SQL Server's `LOWER` under the
   `BIN2_UTF8` collation, and spike V4 found that it does not always match Java's
   `toLowerCase(Locale.ROOT)`. The SCIM filters, sorts and sort keys that lower-case
@@ -396,29 +342,13 @@ lands:
   - `LOWER` has no final-sigma rule: `ΟΔΟΣ` lower-cases to `οδοσ`, where Java gives
     `οδος`.
 
-  The full list, by code point, is under "Verified behaviour". The İ and final
-  sigma results are the same as PostgreSQL's today. Against the suite's
-  PostgreSQL image, 515 of the code points are new differences, and 26 (the
-  circled letters) now match Java where PostgreSQL did not. Case-insensitive
+  The full list, by code point, is under "Verified behaviour". Case-insensitive
   uniqueness is unaffected, because it compares the application-normalized
   columns.
 
 SCIM `userName` keeps following RFC 7643 and the identity provider's format, not
-the Standalone standard's alphanumeric-only rule. That is a pre-existing deviation,
-unchanged by this move, and is recorded in ADR 0012.
-
-### Delivery
-
-- **Engine-neutral preparation lands on PostgreSQL first**, each change small,
-  reviewable and releasable: edge-whitespace refusal, explicit membership deletes,
-  the token permissions child table, separate logins and DataSources, out-of-process
-  migrations, the credentials/KMS/TLS/monitoring infrastructure, and logging
-  hardening. `V1` stays frozen meanwhile, so each schema
-  change is a new PostgreSQL migration.
-- **One integration branch then switches the engine**: driver, Flyway and
-  Testcontainers modules; the T-SQL `V1`; the adapters; the tests; local
-  development; infrastructure; and the documentation. Main stays releasable
-  throughout.
+the Standalone standard's alphanumeric-only rule. That deviation is recorded in
+ADR 0011.
 
 ### Open verification points
 
@@ -433,11 +363,11 @@ changed if it had failed. The verdict column points to the evidence under
 | V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                     |
 | V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes"      |
 | V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged                    |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2; about 2 GB more memory than today |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                                    |
 
 ## Consequences
 
-- The security properties carry over and stay enforced by the database: the audit
+- The security properties are enforced by the database: the audit
   trail is append-only for the application, only the retention login may delete
   aged-out events, nobody may update one, and the runtime connection has least
   privilege. Each has an integration test that connects as the specific login and
@@ -445,19 +375,14 @@ changed if it had failed. The verdict column points to the evidence under
 - The deployed service never holds the owner credential. A schema change is a
   deploy step that runs before the service, and a failed migration stops the deploy
   before the service starts.
-- The baseline gate stays `backend/scripts/verify.sh`, on Testcontainers SQL Server
-  instead of PostgreSQL; there is still no in-memory database or dialect
-  emulation. The suite's context count must not rise, and its runtime is recorded
-  before and after.
-- Hosting costs rise: RDS SQL Server Standard Edition costs far more than the
-  current instance, and needs a larger instance class.
+- The baseline gate, `backend/scripts/verify.sh`, runs on Testcontainers SQL
+  Server; there is no in-memory database or dialect emulation.
+- Hosting is costly: RDS SQL Server Standard Edition carries a licence fee and
+  needs a larger instance class.
 - Credential rotation is a known gap. The credentials sit in Secrets Manager, so
   rotation (a rotation function plus a pool credential refresh) can be added later
   without redesign, but this decision does not provide it.
 - Apple Silicon is not a supported development platform.
-- `docs/domain-rules.md`, the API contract and the ADRs whose mechanisms change
-  (0004, 0005, 0012) are updated with the tickets that land each change, not here.
-
 ## Alternatives considered
 
 **Keep PostgreSQL.** The technically preferred option and App-Standards'
@@ -490,7 +415,7 @@ repository, so none of that code merges. The pinned versions were:
   `COMPATIBILITY_LEVEL = 160`, `READ_COMMITTED_SNAPSHOT ON` and
   `ALLOW_SNAPSHOT_ISOLATION ON`. `sys.databases` read back
   `Latin1_General_100_BIN2_UTF8 160 1 ON`.
-- **Schema.** A T-SQL rendering of today's `V1`, with `UNIQUEIDENTIFIER`,
+- **Schema.** A T-SQL `V1`, with `UNIQUEIDENTIFIER`,
   `DATETIMEOFFSET(6)`, `BIT`, `VARBINARY(64)`, `VARCHAR(4n)` and `VARCHAR(MAX)`, and
   the token permissions in their child table.
 
@@ -498,8 +423,8 @@ repository, so none of that code merges. The pinned versions were:
 
 All ten entities of the backend, copied unchanged, booted a Spring context with
 `spring.jpa.hibernate.ddl-auto=validate` and no other Hibernate setting. The one
-exception was `ScimConnectorTokenEntity.permissions`, the `text[]` column, which was
-marked `@Transient` because it moves to the child table. Validation accepted
+exception was `ScimConnectorTokenEntity.permissions`, which was marked `@Transient`
+because the child table holds it. Validation accepted
 `DATETIMEOFFSET(6)` for `Instant`, `UNIQUEIDENTIFIER` for `UUID`, `BIT` for
 `boolean` and `VARBINARY` for `byte[]`.
 
@@ -528,7 +453,7 @@ These ran over plain JDBC with `setObject` and `getObject(…, type)`:
 setObject(UUID) stored 0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0; getObject(UUID.class) = 0f1e2d3c-…-a5b4c3d2e1f0, equals = true
 setObject(OffsetDateTime …Z)      -> getObject(OffsetDateTime.class) = 2026-10-12T09:30:01.123456Z
 setObject(OffsetDateTime …+08:00) -> stored offset 480 minutes; reads back as …17:30:01.123456+08:00, the same instant
-setObject(…01.123456789Z)         -> stored …01.123457Z (rounded to the column's microseconds, as PostgreSQL also rounds)
+setObject(…01.123456789Z)         -> stored …01.123457Z (rounded to the column's microseconds)
 WHERE u = setObject(UUID) finds a row bound as CAST(? AS UNIQUEIDENTIFIER): count = 1
 setNull(Types.NULL), and a JdbcTemplate null UUID argument -> NULL; getObject(UUID.class) on NULL = null
 getObject() without a type returns the UUID as an upper-case String
@@ -536,8 +461,7 @@ getObject(…, Instant.class) -> SQLServerException: The conversion to class jav
 ```
 
 Hand-written JDBC therefore binds and reads `UUID` directly, and the string
-fallback is not needed. A neighbouring check on `java.sql.Timestamp`, the type
-the audit adapters bind today, found a zone-dependent bind. The row held
+fallback is not needed. A neighbouring check on binding a `java.sql.Timestamp` found a zone-dependent bind. The row held
 `09:30:00Z`, and the query was `WHERE t < ?` with a cutoff one minute **earlier**,
 so it should return 0:
 
@@ -574,8 +498,7 @@ missing job row:                                 [] in 3 ms; count [0] in 5 ms
 A held row returns nothing immediately, without blocking. The row returns once the
 holder ends, whether it commits or rolls back. Another job's row is not skipped.
 `ScheduledJobLockAdapter`'s plain-count follow-up does not wait for the lock, so it
-still tells a held row from a missing one. ADR 0005's decision needs no amendment
-beyond the superseding note recording the new statement (`SKIP LOCKED` → `READPAST`).
+still tells a held row from a missing one, as ADR 0005 decides.
 
 ### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
 
@@ -630,12 +553,7 @@ Whole strings, bound as parameters:
 ı, ß, ǅ ǈ ǋ ǲ, ﬀ ﬁ, Ⅻ, Ⓐ, Ａ, ÀÉÎÕÜ, ĀĂĄ, ПРИВЕТ, ΑΒΓ, STRASSE   (match Java)
 ```
 
-For reference, `lower()` on today's test image (`postgres:18.6-alpine`, libc
-provider, `en_US.utf8`) differs from Java on 97 code points, and the two lists
-share 71 of them. The 26 circled letters U+24B6–U+24CF differ on PostgreSQL
-only, and 515 code points differ on SQL Server only. PostgreSQL also gives
-`οδοσ` and `i` for the two context cases. A second run on fresh containers
-reproduced the 586.
+A second run on fresh containers reproduced the 586.
 
 The fallback chosen is to document the differences. They are listed under
 "Observable changes". Uniqueness already compares application-normalized columns,
@@ -666,93 +584,25 @@ quote the refused value, as lm-19 already assumes.
 
 ### V6: test container cost at `forkCount` 2
 
-These are wall-clock measurements on a 24-vCPU, 47 GB WSL2 host, not the 20-core,
-5.9 GB VM in the `pom.xml` comment. The start time runs from `docker run` to the
-first successful `sqlcmd` query:
+A SQL Server container idles at about 0.9 GB and stays near 1.2 GB under a
+workload of many migrated databases; a 2 GB container limit, SQL Server's
+documented minimum, held, and two containers start side by side well within the
+suite's patience. The fork count stays 2, and the local-development
+documentation states the memory the two containers need; on a small VM that is
+the case for raising the documented WSL memory rather than lowering the fork
+count.
 
-| Measurement                                                                           | SQL Server 2022                                                     | PostgreSQL 18.6 (today)         |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------- |
-| Container start, one at a time                                                        | 6.7–7.0 s (3 runs); 12.2–12.5 s in an earlier set of 3              | 1.6–2.5 s (6 runs)              |
-| Container start, two at once (`forkCount` 2)                                          | 11.5 s and 11.5 s; 12.2 s and 12.4 s earlier                        | —                               |
-| Memory per container, idle after start                                                | 0.90 GB                                                             | 0.17 GB                         |
-| Peak per container: 14 contexts created and migrated, then a 1.1M-row insert and scan | 1.17–1.19 GB (no limit); 0.82 GB (`--memory 2g`)                    | 0.17 GB (14 contexts)           |
-| Per-context database (create, set options, migrate)                                   | 0.97–1.14 s (create 0.54–0.66, options 0.23–0.27, schema 0.19–0.27) | 0.24 s (create 0.13, `V1` 0.11) |
+### The switchover's gate (2026-10-16)
 
-- **Memory.** SQL Server is far below its limit in this workload. Two
-  containers need about 2 GB more than today's two PostgreSQL containers. A 2 GB
-  container limit is SQL Server's documented minimum. Under it, the pair started
-  in 13.8 s and 13.9 s, about 1.5 s slower than without a limit, and the
-  per-context work was no slower. A 1.5 GB limit still reached "ready for client
-  connections".
-- **Per-context work.** One run set the snapshot options on `model`, so that new
-  databases inherit them. It was not faster (1.06 s create, 0.37 s schema).
-- **Projection.** Each fork starts its own containers once and creates about 14
-  databases (27 contexts across two forks). The forks run in parallel, so the
-  gate grows by about (11.5 − 2.3) s + 14 × (1.0 − 0.24) s ≈ **20 s**. Query cost
-  inside the tests is not included, because it can only be measured once the
-  adapters run on SQL Server; the switchover records the suite's runtime before
-  and after, as Consequences requires.
-- **Today's gate.** On this host, `./scripts/verify.sh` took 268 s wall-clock.
-  Maven reported `Total time: 04:11 min` for `clean verify`, with 4464 tests and
-  28 context starts. The rest was the Semgrep scan. That projects to roughly
-  290 s on SQL Server, about 7% more. No other session's containers ran during
-  that gate (at most 6 containers, which were the gate's own two sets of Postgres,
-  Redis and Ryuk). The load average, including the gate itself, averaged 3.8 and
-  peaked at 5.3 on 24 vCPUs. The SQL Server timings above ran with at most one
-  other session's Postgres and Redis set alive. An earlier gate run on 2026-10-12,
-  with six other sessions' containers alive, took 532 s.
+`./scripts/verify.sh` from `backend/` went green (`GATE_EXIT=0`, Semgrep 0
+findings) with no context configuration added. The context count varies by a
+start or two between runs: the shared configuration reboots after a
+`@DirtiesContext` eviction, and which class boots it depends on where the forks
+place the two `@DirtiesContext` classes.
 
-The fork count stays 2. The memory the switchover's local-development
-documentation states must cover the extra ~2 GB. On a VM as small as the
-`pom.xml` comment's 5.9 GB, that is tight, and is the case for raising the
-documented WSL memory rather than lowering the fork count.
-
-### The switchover: the suite before and after (2026-10-16)
-
-Consequences requires the suite's runtime before and after, and a context count
-that does not rise. Both are `./scripts/verify.sh` from `backend/`, on the 24-vCPU,
-47 GB WSL2 host of V6; the context count is the gate log's
-`grep -c 'Started .* in .* seconds'`.
-
-| Run                                          | Wall-clock | Maven `Total time` | Tests (run / failed / errors) | Contexts | Semgrep    |
-| -------------------------------------------- | ---------- | ------------------ | ----------------------------- | -------- | ---------- |
-| PostgreSQL, 6e8a882 (#68's baseline)         | 308 s      | 04:48 min          | 5033 / 0 / 0                  | 32       | 0 findings |
-| SQL Server, 95ee952 (#71 merged, before #72) | 437 s      | 07:14 min          | 5122 / 21 / 11                | 33       | 0 findings |
-| SQL Server, #72, run 1                       | 489 s      | 07:49 min          | 5122 / 0 / 0                  | 33       | 1 finding  |
-| SQL Server, #72, run 2                       | 427 s      | 06:44 min          | 5122 / 0 / 0                  | 32       | 0 findings |
-| SQL Server, #72, run 3 (`make verify`)       | 436 s      | 06:39 min          | 5122 / 0 / 0                  | 34       | 0 findings |
-| SQL Server, #72, run 4 (`V1` comments)       | 396 s      | 06:34 min          | 5122 / 1 / 0                  | 34       | not run    |
-| SQL Server, #72, final run (`GATE_EXIT=0`)   | 458 s      | 07:18 min          | 5122 / 0 / 0                  | 33       | 0 findings |
-
-- **Contexts.** 33 in the final gate against 32 on PostgreSQL, and 32 to 34
-  across the #72 runs. No configuration was added. The extra starts are the
-  shared configuration rebooting after a `@DirtiesContext` eviction: which class
-  boots it depends on where the forks place the two `@DirtiesContext` classes,
-  which is why the count read 31 to 33 between runs on PostgreSQL and in #68 too.
-  Run 3's wall-clock includes the frontend gate.
-- **Runtime.** The final gate took 458 s against 308 s, 150 s (49%) more; the
-  four green-test runs took 396 to 489 s. That is well above V6's projection of
-  about 290 s, which left query cost inside the tests out. The 95ee952 row stopped
-  at its red tests before its scan (the scan ran on its own, 0 findings), and its
-  failing waits ran to their patience. Run 1's finding was a concatenated SQL
-  string in a test, fixed before run 2. Run 4's one failure was
-  `RefusalLogIntegrationTests.a_non_admin_admin_read_is_one_refusal_record`, which
-  captured six `ERROR` records from Spring Session's minute cleanup task of an
-  already stopped context ("LettuceConnectionFactory has been STOPPED") firing at
-  11:00:00 inside its capture window; the final run, on the same tree, passed it.
-  During the #72 runs a 12-vCPU virtual machine outside the suite ran on the same
-  host (load average 3.9 to 7.3), so part of the difference may be the host
-  rather than the engine.
-- **The 32 red tests at 95ee952.** They were the tests #68 and #69 assigned to
-  #72, in ten integration classes. Eight compared ids read back with an untyped
-  `getObject`, which the driver answers with the upper-case text of the id (V2),
-  and four still sent PostgreSQL SQL (`?::uuid`, `resource_id::text`,
-  `locked_at IS NOT NULL` as a value, `now()`, `||`); two did both. The tests now
-  read a row's `UNIQUEIDENTIFIER` columns as `UUID` (`UuidColumnRows`) and send
-  T-SQL; no production code changed for them.
-- **End to end.** `make integration-test` passed 60 Playwright tests, and
-  `make epic-integration-test` passed the Epic project's 7, against a local stack
-  on the pinned SQL Server image, the first on a freshly initialised database.
+- **End to end.** `make integration-test` and `make epic-integration-test`
+  passed against a local stack on the pinned SQL Server image, the first on a
+  freshly initialised database.
 - **Deployed stack: unverified, pending the user's own deploy.** The criterion is
   that a stack deployed with `infra/deploy.sh` comes up, migrates, and serves SCIM
   create, list and delete. The switchover did not run it: the user deploys and
@@ -778,8 +628,7 @@ directions. The bullet now carries the measured list.
 - **Not padded: `co`, `sw`, `ew`.** These render as `LIKE` against a bound
   pattern. The driver sends the pattern as `nvarchar`, and a Unicode `LIKE` keeps
   trailing spaces significant on both sides. Against the same stored value,
-  `ew "l"` does not match, while `ew "l  "` and `co "l "` do. A substring filter
-  therefore matches as it did on PostgreSQL.
+  `ew "l"` does not match, while `ew "l  "` and `co "l "` do.
 
 `ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
 pins every one of these results through the SCIM API. The decision is unchanged:
@@ -912,9 +761,8 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
 ## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks
 
 SQL Server refuses a request carrying more than 2,100 parameters (error 8003),
-and Hibernate binds each element of a collection parameter as one. PostgreSQL
-has no such ceiling, so the switchover left two statements whose `IN` list a SCIM
-client sizes without a cap. A Group with more than about 2,099 members could not
+and Hibernate binds each element of a collection parameter as one. The switchover
+left two statements whose `IN` list a SCIM client sizes without a cap. A Group with more than about 2,099 members could not
 be created with them, renamed or deleted (`500`), a User in that many Groups
 could not be deleted, and the administrative listing failed once the directory
 held that many Groups.

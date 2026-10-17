@@ -29,7 +29,7 @@ import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.transaction.CannotCreateTransactionException;
 
 /**
- * ADR 0015's category mapping and the deadlock it retries, keyed on what the engine reports — the
+ * ADR 0013's category mapping and the deadlock it retries, keyed on what the engine reports — the
  * SQLState and vendor error number of the {@link SQLException} in the chain, and Spring's
  * data-access hierarchy — never a driver's class. The engine's failures are raised by name
  * from {@link SqlFailures}; the table's key is proven against tables of the test's own.
@@ -199,7 +199,7 @@ class DatabaseFailureCategoryTests {
 
     // ---- SQL Server, as its driver reports each failure ------------------------------------
     //
-    // Literals rather than SqlFailures: what mssql-jdbc raises for each failure of ADR 0015's
+    // Literals rather than SqlFailures: what mssql-jdbc raises for each failure of ADR 0013's
     // mapping — the SQLState it derives and the server's error number — written independently of
     // the table under test.
 

@@ -34,11 +34,11 @@ import org.testcontainers.utility.DockerImageName;
  * database number, exactly as it did when every context started containers of its own; what is
  * shared is only the containers, whose start was most of a context's boot.
  *
- * <p><strong>Each database is created as the deployment creates one</strong> (ADR 0015): with the
+ * <p><strong>Each database is created as the deployment creates one</strong> (ADR 0013): with the
  * collation {@value #COLLATION}, compatibility level 160, {@code READ_COMMITTED_SNAPSHOT} and
  * {@code ALLOW_SNAPSHOT_ISOLATION} on, and owned by the owner login. Those are creation options,
  * set here because no migration can set them: {@code READ_COMMITTED_SNAPSHOT} cannot change inside
- * the transaction Flyway migrates in. About a second per context (ADR 0015, V6).
+ * the transaction Flyway migrates in. About a second per context (ADR 0013, V6).
  *
  * <p><strong>The deployment's three database logins, not the container's {@code sa}.</strong>
  * The service's main pool connects as the app login and its retention pool as the retention
@@ -71,7 +71,7 @@ public class ContainerTestConfiguration {
     static final String SQL_SERVER_IMAGE = "mcr.microsoft.com/mssql/server@sha256:"
             + "4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090";
 
-    /** The collation every database is created with (ADR 0015). */
+    /** The collation every database is created with (ADR 0013). */
     static final String COLLATION = "Latin1_General_100_BIN2_UTF8";
 
     /**
@@ -82,7 +82,7 @@ public class ContainerTestConfiguration {
      * load the internal extended procedures behind {@code sp_getapplock} and a T-SQL
      * {@code sp_executesql} ("Could not load the DLL (server internal)", error 17750) on this
      * image. Nothing of the service's own calls either any more — the seed lock is a row lock
-     * (ADR 0015's 2026-10-16 addendum) — but Flyway takes {@code sp_getapplock} to guard every
+     * (ADR 0013's 2026-10-16 addendum) — but Flyway takes {@code sp_getapplock} to guard every
      * migration, so on such a server no context could migrate its database.
      */
     private static final MSSQLServerContainer SQL_SERVER =

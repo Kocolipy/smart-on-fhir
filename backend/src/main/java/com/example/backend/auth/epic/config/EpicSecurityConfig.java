@@ -18,7 +18,7 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.web.client.RestClient;
 
 /**
- * Epic Login on the application chain (ADR 0013, flow steps 2–4): the one {@link EpicLogin} the
+ * Epic Login on the application chain (ADR 0012, flow steps 2–4): the one {@link EpicLogin} the
  * chain applies, which is where whether Epic Login is on is decided, and what the on adapter is
  * built from — discovery and Epic's keys, each fetched on first use and kept (D26), so startup
  * never contacts Epic.

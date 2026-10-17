@@ -6,7 +6,7 @@ package com.example.backend.scim.domain;
  * {@link EdgeWhitespace} defines it.
  *
  * <p>Refused rather than trimmed, because a trim would store something other than what the
- * connector sent, and the connector would then hold a key this service does not (ADR 0015).
+ * connector sent, and the connector would then hold a key this service does not (ADR 0013).
  * Rendered as {@code 400 invalidValue} naming the attribute; the value never reaches this object.
  */
 public final class ScimValueEdgeWhitespaceException extends ScimAttributeValueException {

@@ -6,7 +6,7 @@ Date: 2026-10-01
 
 Accepted. Records a departure from the original design that spans the
 password-change lifecycle, which shipped the grace period, inactivity governance,
-and the change-required confinement. ADR 0011 has since replaced the inactivity job with the
+and the change-required confinement. ADR 0007 has since replaced the inactivity job with the
 dormancy lockout; the consequences below are stated against it. Refined by the
 2026-10-09 addendum below (#23): only a password Login is confined by the
 change-required flag, so an Epic Login neither is confined nor keeps the
@@ -55,18 +55,18 @@ that.
 ## Addendum (2026-10-09): only a password Login is confined by the flag (#23)
 
 _Contradicts this ADR's "confined logins keep the dormancy clock" as written for
-every Login, and ADR 0012's ac-6 note that "the session stays confined until the
+every Login, and ADR 0011's ac-6 note that "the session stays confined until the
 User replaces it", but worth reopening because an Epic Login does not use the
 imposed credential, so confining it protects nothing._
 
 ### Context
 
 Until #23 a User whose change-required flag was set got a confined session from
-every Login, an Epic Login included (ADR 0013). A clinician who launched from
+every Login, an Epic Login included (ADR 0012). A clinician who launched from
 Epic after an Unlock, a forced password change or a connector password write
 landed on `/change-password` and could do nothing else, although Epic, not this
 service, had checked the credential they presented. An Epic Login presents no
-password of ours (ADR 0013, D20): the imposed credential the flag marks is not
+password of ours (ADR 0012, D20): the imposed credential the flag marks is not
 what it used.
 
 ### Decision
@@ -89,7 +89,7 @@ what it used.
   session the User holds, an Epic one included, and a lockout ends them before an
   Unlock (which revokes nothing itself, a locked User holding none). One session
   per User still holds across both Login paths.
-- The Bootstrap Admin is unaffected: it never signs in through Epic (ADR 0013,
+- The Bootstrap Admin is unaffected: it never signs in through Epic (ADR 0012,
   D6), so its recovery credential stays confined until it is changed.
 
 ### Accepted risk
@@ -102,4 +102,4 @@ session — a password Login with it can do nothing but change the password or l
 out — so the exposure is limited to someone who knows it being able to set a new
 password for this User. That is accepted: the credential is imposed by an
 administrator or a connector, never chosen by the User, and an Epic-linked User
-suspected compromised is deactivated rather than flagged (ADR 0013, D20).
+suspected compromised is deactivated rather than flagged (ADR 0012, D20).

@@ -25,7 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The counter lock against a real SQL Server under read-committed snapshot (ADR 0015): a write
+ * The counter lock against a real SQL Server under read-committed snapshot (ADR 0013): a write
  * of a User's counter reads it under a row lock, so a second write waits for the first to commit
  * and then counts on from the value the first wrote, never from the one it would have read from
  * its own statement's snapshot.

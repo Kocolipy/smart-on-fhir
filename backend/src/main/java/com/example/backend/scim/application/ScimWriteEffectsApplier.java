@@ -74,7 +74,7 @@ final class ScimWriteEffectsApplier {
      */
     sealed interface Writer {
 
-        /** The dormancy job (ADR 0011): run by nobody recorded as an actor. */
+        /** The dormancy job (ADR 0007): run by nobody recorded as an actor. */
         Writer DORMANCY_JOB = new DormancyJob();
 
         /** A connector's write, recorded as that connector's. */

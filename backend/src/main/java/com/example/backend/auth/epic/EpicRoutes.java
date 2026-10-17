@@ -1,7 +1,7 @@
 package com.example.backend.auth.epic;
 
 /**
- * Epic Login's routes, spelled once (ADR 0013): the handlers map them, the OAuth 2.0 filters
+ * Epic Login's routes, spelled once (ADR 0012): the handlers map them, the OAuth 2.0 filters
  * process them, and the application chain permits them, all from here — so a route renamed in
  * one place cannot be left open, unmapped or unprocessed in another.
  *

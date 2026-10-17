@@ -17,7 +17,7 @@ import org.springframework.core.io.DefaultResourceLoader;
  * Which processes migrate, and which read the owner credential, as the deployed configuration
  * decides it: Flyway is on, as the owner login, in the {@code local}, {@code test} and
  * {@code migrate} profiles only, so the service a deployment runs neither migrates nor reads an
- * owner credential (ADR 0015, ac-1; #66).
+ * owner credential (ADR 0013, ac-1; #66).
  *
  * <p>Read from {@code src/main/resources/application.yaml} on disk, with the documents it imports,
  * through Boot's own config-data processing: the test resources' {@code application.yaml} shadows

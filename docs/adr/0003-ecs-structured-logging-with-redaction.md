@@ -5,9 +5,9 @@ Date: 2026-09-25
 ## Status
 
 Accepted. Consolidated on 2026-10-10 from the original decision and the fifteen
-addenda dated 2026-10-01 to 2026-10-10, ADR 0013's Epic Login among them. This file states the current position. The dated
+addenda dated 2026-10-01 to 2026-10-10, ADR 0012's Epic Login among them. This file states the current position. The dated
 addenda, including the rules they superseded, are in git history. Amended on
-2026-10-14 (#64) for ADR 0015's logging resolutions: SQL exception text, the
+2026-10-14 (#64) for ADR 0013's logging resolutions: SQL exception text, the
 database category mapping with the deadlock retry, connection details and the
 retention run's one line. Amended again on 2026-10-14 (B23) for the deadlock
 retry's coverage rules and the second deadlock's `503`.
@@ -331,7 +331,7 @@ redaction is what keeps the database's text out of both records. The audit-appen
 alert attaches nothing: `OperationalAlerts` carries only the failure's type, so the
 alert cannot leak what the event withheld.
 
-**The database category mapping** (ADR 0015, "Standards resolutions").
+**The database category mapping** (ADR 0013, "Standards resolutions").
 `DatabaseFailureCategory` decides the category of a failure the database raised,
 keyed on what the engine reports — the vendor error number and SQLState of the
 `SQLException` in the cause chain, and Spring's data-access and transaction
@@ -350,7 +350,7 @@ and the deadlock victim and the snapshot conflict share one (`40001`).
 
 Every other database failure is `database`. Two rows need more than a state:
 
-- **The deadlock retry** (ADR 0015's as-13). A deadlock victim's transaction is
+- **The deadlock retry** (ADR 0013's as-13). A deadlock victim's transaction is
   rolled back whole, so a SCIM or administrative write the database chose as one is
   run again, once, by a single interceptor at the outermost transactional boundary:
   `DeadlockRetryAdapter`, an infrastructure advisor ordered ahead of the transaction
@@ -362,8 +362,7 @@ Every other database failure is `database`. Two rows need more than a state:
   retry propagates, marks the request (`ExhaustedRetry`), and the request's fault
   handler writes it as the second row's `ERROR` — once, `database`, investigate,
   with a redacted copy attached — answered `503` with `Retry-After: 1` and no driver
-  text, ADR 0015's answer, landed ahead of the switchover because it is
-  engine-neutral: in the SCIM error document on the SCIM chain, and as the
+  text, ADR 0013's answer: in the SCIM error document on the SCIM chain, and as the
   `server-error` `ApiError` on the application chain, the connector administration
   adapter's included. A deadlock the retry did not see — on a path not retried —
   stays the generic `500`, so `docs/openapi.yaml` lists the `503` on the retried
@@ -393,10 +392,9 @@ Every other database failure is `database`. Two rows need more than a state:
   trigger throws its own error, `50001`, so it is `database` and can never be
   mistaken for the permission refusal (`229`) a missing grant raises. What reaches
   the trigger is a principal the grants let through — the owner login — and the app
-  login is refused by its grants first. (On PostgreSQL the trigger raised
-  `triggered_data_change_violation`, `27000`, for the same reason.)
+  login is refused by its grants first.
 
-- **The seeding lock not granted.** The seeding lock is a row lock (ADR 0015's
+- **The seeding lock not granted.** The seeding lock is a row lock (ADR 0013's
   2026-10-16 addendum) bounded by a 60 s query timeout; a wait that runs out fails
   the start as Spring's `CannotAcquireLockException`, a `DataAccessException`, and
   so `database`.
@@ -442,13 +440,12 @@ exception tree (`SqlExceptionRedaction`):
   its message, and every class name and frame is kept.
 
 The rule is keyed on the generic `SQLException`, never a driver's class, and the
-message names only the error number: the SQL Server switchover (ADR 0015) gave it
-that wording in place of `SQL error <vendor code> (SQLState <state>)`. It holds in
+message names only the error number. It holds in
 the structured layouts, console and file, which every deployment runs. The pattern layout a developer may opt into
 locally (`LOG_STRUCTURED_FORMAT` empty) prints an attached exception as the JVM
 does; the call sites that attach a redacted copy (above) are what stays redacted
 there. `EcsErrorFieldsCustomizerTests` holds the rule under both of the encoder's
-renderers, and `DatabaseFailureLogIntegrationTests` holds it for real PostgreSQL
+renderers, and `DatabaseFailureLogIntegrationTests` holds it for real SQL Server
 refusals whose statements name their tables by database and schema: no emitted
 field carries the refused value, the database name or the schema name.
 
@@ -464,12 +461,12 @@ comment on each saying what it would write:
 - `com.zaxxer.hikari` at `INFO`, so Hikari logs only pool names — `app`,
   `audit-append` and `retention`, the service's three pools (at `DEBUG` its
   configuration dump, written as each pool opens, includes `jdbcUrl`);
-- `org.postgresql` at `WARN` (the driver's connection trace).
+- `com.microsoft.sqlserver.jdbc` at `WARN` (the driver's connection trace).
 
 A level stated for the logger itself is one a broader setting cannot reach, so
 turning logging up to investigate does not turn these lines back on. The levels hold
 for the migrate step (`MigrationStep`), which reads the same configuration, as for the
-service: Flyway runs only there, in a local run and in the tests (ADR 0015, ac-1).
+service: Flyway runs only there, in a local run and in the tests (ADR 0013, ac-1).
 `StartupLogConnectionDetailsTests` starts a deployment as a deployment does, in child
 JVMs on the main configuration: the migrate step on an empty database, as the owner
 login, then `BackendApplication` with no profile, as the app and retention logins. It
@@ -508,7 +505,7 @@ changes behaviour:
 - `app.scim.enabled`;
 - `app.dormancy.lockout.window` and `app.dormancy.role_revocation.window`;
 - `app.audit.retention.period`;
-- Epic Login's `app.epic.enabled` and its two `kid`s (ADR 0013, D14), from its own
+- Epic Login's `app.epic.enabled` and its two `kid`s (ADR 0012, D14), from its own
   startup record.
 
 `application-shutdown` is written on `ContextClosedEvent`, with the uptime as
@@ -530,7 +527,7 @@ No reason names a role, matcher, Permission or authority. No part of a presented
 token, not even a prefix or the lookup id, reaches a record.
 
 **Login.** Both login methods' endings are written by one module,
-`LoginOutcomeService` (ADR 0014):
+`LoginOutcomeService` (ADR 0001):
 
 - An accepted Login is one `INFO` `user-authentication`, "Login accepted". It is
   written after its session is signed in, and carries `user.id`,
@@ -541,7 +538,7 @@ token, not even a prefix or the lookup id, reaches a record.
   user field and no `event.reason`, so a locked or deactivated User's refusal reads
   exactly as a wrong password's. An Epic input refusal also names the field and the
   rule it broke. The refusal's reason goes to the audit trail and to the `login`
-  counter's `reason` tag only (ADR 0013, "the account reasons are audit-only").
+  counter's `reason` tag only (ADR 0012, "the account reasons are audit-only").
 
 `session.hash` is the first 64 bits of the SHA-256 of a session id
 (`SessionHash`). A session id is a random UUID, so its hash cannot be guessed back
@@ -636,12 +633,12 @@ retention login (#66), before the run's lock transaction does, and the run repor
 committed as it returns (`JobProgress`). So a run whose delete failed is `failed` with
 `deleted: 0, batches: 0`, and a run that failed after its delete committed — its lock
 transaction's commit failing — is `failed` with the batch and the rows it deleted.
-ADR 0015's batched deletes report each batch the same way as it commits. There is no
+ADR 0013's batched deletes report each batch the same way as it commits. There is no
 line per batch, and no summary beside the end — the service writes no record of its
 own. A run skipped on a held lock is the one `skipped` line.
 `AuditRetentionRunLogTests` holds each case as the scheduler runs it.
 
-**Dormancy** (ADR 0011). `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION` are one
+**Dormancy** (ADR 0007). `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION` are one
 record per User, naming it as `user.target.id`. A revocation also names the Roles
 lost as `app.authorization.role`, comma-joined. The run's `job-end` carries
 `dormancy.locked_count` and `dormancy.roles_revoked_count`, and the schedule record
@@ -661,7 +658,7 @@ another role mapping ended") and `session.ended_count`. The hash is configuratio
 not a secret, so `be-log-sensitive-value` is suppressed on exactly those two
 records.
 
-**Epic Login's outbound calls** (ADR 0013, D23, D25, D26). `EpicOutboundInterceptor`
+**Epic Login's outbound calls** (ADR 0012, D23, D25, D26). `EpicOutboundInterceptor`
 writes "Epic outbound call started" and "completed" (`INFO`, whatever the status),
 or "failed" (`ERROR`, `network`, no answer at all). The records carry:
 
@@ -674,7 +671,7 @@ Neither a body nor a header is read. A JWKS refetch for an unknown `kid` is a
 `WARN` with `app.retry.attempt`, and a `kid` still unknown after the refetches is
 an `ERROR` (`data`). An Epic call that answered but ended the Login (a `5xx`, a
 refused credential, an unusable answer) is "Epic sign-in failed" at `ERROR` when
-the Login ends. Its follow-up flag comes from ADR 0013's error-category table:
+the Login ends. Its follow-up flag comes from ADR 0012's error-category table:
 `network` and `server` need no person, while `cert/auth` and `data` do.
 
 ### Redaction gates
@@ -697,7 +694,7 @@ that do not exist yet. Neither alone is the property.
   - a refresh token on every path.
 
   It asserts that neither the log stream, the audit trail nor any answer to the
-  browser holds a value of ADR 0013's D22 that the Login handled.
+  browser holds a value of ADR 0012's D22 that the Login handled.
   `EpicDiscoveryIntegrationTests` holds the discovery-failure paths to the same
   rule.
 

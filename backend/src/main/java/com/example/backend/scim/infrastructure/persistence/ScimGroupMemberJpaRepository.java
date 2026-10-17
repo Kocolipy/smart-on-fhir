@@ -121,7 +121,7 @@ interface ScimGroupMemberJpaRepository
     /**
      * Removes every membership this User holds, for its deletion.
      *
-     * <p>The member-side foreign keys take no action (ADR 0015), so the User's resource row
+     * <p>The member-side foreign keys take no action (ADR 0013), so the User's resource row
      * cannot be deleted while a membership still names it; nothing removes these rows but this.
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)

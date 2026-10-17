@@ -9,7 +9,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimNames;
 
 /**
  * The {@code id_token}'s identity claims, {@code iss} and {@code sub}, must not begin or end with
- * whitespace (ADR 0015) — the rule the directory's keys and the password Login's username are held
+ * whitespace (ADR 0013) — the rule the directory's keys and the password Login's username are held
  * to, by the one definition in {@link EdgeWhitespace}, which also says why the rule exists.
  *
  * <p>A failure is a claim failure like every other the decoder reports, {@code invalid_id_token},

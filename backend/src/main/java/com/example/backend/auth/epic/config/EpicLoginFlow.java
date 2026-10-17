@@ -62,7 +62,7 @@ import org.springframework.web.client.RestClientException;
  *   <li><b>Token call.</b> The code is redeemed once, through {@code epicRestClient}, with the
  *       same {@code redirect_uri}, the PKCE verifier, and our client assertion — which this adds
  *       to the request itself from the {@link ClientAssertionSigner}, so no library signer is ever
- *       handed a private key (ADR 0013). It is never retried, whatever happens to it (D26): the
+ *       handed a private key (ADR 0012). It is never retried, whatever happens to it (D26): the
  *       code is single-use, and the clinician can relaunch.
  *   <li><b>{@code id_token}.</b> RS256 only, against Epic's keys from the shared
  *       {@link EpicJwkSource}, with D26's refetch on an unknown {@code kid};
@@ -74,7 +74,7 @@ import org.springframework.web.client.RestClientException;
  *       request alone ({@link EpicTokenHandOff}), and the login filter neither rotates the session
  *       nor saves a security context, so nothing from Epic reaches the pre-login session. The
  *       success handler establishes the session from our own Login instead, and only then keeps
- *       the access token, refresh token and {@code id_token} on it (ADR 0013, D29, superseding D8
+ *       the access token, refresh token and {@code id_token} on it (ADR 0012, D29, superseding D8
  *       for those three); the launch context is still dropped.
  * </ul>
  *
@@ -221,7 +221,7 @@ final class EpicLoginFlow {
     }
 
     /**
-     * The error-category failure (ADR 0013, "Log") in a token call that failed, if it is one: Epic's
+     * The error-category failure (ADR 0012, "Log") in a token call that failed, if it is one: Epic's
      * {@code invalid_client} refusing our assertion, or whatever the client met on the way —
      * no answer, a {@code 5xx}, a {@code 401}, an answer it could not read.
      */
@@ -238,7 +238,7 @@ final class EpicLoginFlow {
      * The {@code id_token} decoder: RS256 only, Epic's keys from the shared {@link EpicJwkSource}
      * — cached, and refetched on an unknown {@code kid} (D26) — and the OpenID Connect claim
      * checks with a 30-second skew from the injected clock, behind {@link EpicIdentityClaims}'
-     * refusal of an {@code iss} or {@code sub} with edge whitespace (ADR 0015).
+     * refusal of an {@code iss} or {@code sub} with edge whitespace (ADR 0013).
      */
     private JwtDecoder idTokenDecoder(ClientRegistration registration) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder

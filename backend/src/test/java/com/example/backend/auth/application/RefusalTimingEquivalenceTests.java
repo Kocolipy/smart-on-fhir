@@ -134,7 +134,7 @@ class RefusalTimingEquivalenceTests {
     }
 
     /**
-     * A name with whitespace at an edge is refused as unknown before any lookup (ADR 0015), and
+     * A name with whitespace at an edge is refused as unknown before any lookup (ADR 0013), and
      * pays the same one verification an unknown name does rather than answering faster.
      */
     @Test

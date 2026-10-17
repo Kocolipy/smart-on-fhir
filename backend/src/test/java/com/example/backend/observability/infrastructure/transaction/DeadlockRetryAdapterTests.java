@@ -113,7 +113,7 @@ class DeadlockRetryAdapterTests {
     }
 
     /**
-     * The second deadlock is the one ADR 0015's as-13 answers {@code 503}: the retry marks the
+     * The second deadlock is the one ADR 0013's as-13 answers {@code 503}: the retry marks the
      * request it ended, so the request's fault handler tells it from a deadlock nothing retried.
      */
     @Test
@@ -158,7 +158,7 @@ class DeadlockRetryAdapterTests {
     }
 
     /**
-     * A serialization or snapshot conflict is not a deadlock: ADR 0015 retries only the deadlock
+     * A serialization or snapshot conflict is not a deadlock: ADR 0013 retries only the deadlock
      * victim, and the conflict is the {@code ERROR} of the mapping's second row.
      */
     @Test

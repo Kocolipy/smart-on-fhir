@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * The dormancy job (ADR 0011): locks every User that has gone longer than the lockout window
+ * The dormancy job (ADR 0007): locks every User that has gone longer than the lockout window
  * without authenticating, and removes the mapped Group memberships of every User that has gone
  * longer than the role-revocation window.
  *

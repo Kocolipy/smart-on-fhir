@@ -11,7 +11,7 @@ import java.time.Duration;
  * <p>How to get there is this module's alone, and alike for every pool: the JDBC URL and the
  * driver from {@code spring.datasource.*} ({@code DATABASE_URL}), and every driver property in
  * {@link DatabaseConnectionProperties}, where a connection's TLS settings, its trust store and the
- * driver's login timeout live once they leave the URL (ADR 0015). So the main pool, the audit
+ * driver's login timeout live once they leave the URL (ADR 0013). So the main pool, the audit
  * append pool and the retention pool cannot drift apart on any of it, and a change of how the
  * service reaches its database — the SQL Server cutover's included — is a change here. The migrate
  * step opens no pool; its owner connection takes the same driver properties from
@@ -19,7 +19,7 @@ import java.time.Duration;
  *
  * <p>A pool it builds starts on its first use, auto-commits as Hikari's pools do by default, and
  * runs nothing on a new connection: there is no {@code connection-init-sql}, so a pool's
- * privileges are exactly its login's, enforced by the server (ADR 0015, "Runtime model").
+ * privileges are exactly its login's, enforced by the server (ADR 0013, "Runtime model").
  */
 public final class DatabaseConnections {
 

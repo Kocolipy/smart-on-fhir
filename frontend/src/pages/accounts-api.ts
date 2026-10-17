@@ -53,7 +53,7 @@ export interface UserRow {
 }
 
 /**
- * Why a User is locked (ADR 0011): `FAILURES` when its failed logins reached
+ * Why a User is locked (ADR 0007): `FAILURES` when its failed logins reached
  * the limit, `DORMANCY` when the dormancy job found it unused past the lockout
  * window. Either lock stands until Unlock.
  */

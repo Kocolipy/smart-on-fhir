@@ -272,7 +272,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      *
      * <p>Advanced before the delete, while the membership rows that name those Groups still
      * exist. The memberships are then deleted explicitly, in the same transaction and before the
-     * resource row: the member-side foreign keys take no action (ADR 0015), so the database
+     * resource row: the member-side foreign keys take no action (ADR 0013), so the database
      * refuses the resource's deletion while one remains. The cascade from the resource row
      * removes everything else. A User in no Group advances nothing. Takes no lock: the caller
      * holds the User and its Groups.

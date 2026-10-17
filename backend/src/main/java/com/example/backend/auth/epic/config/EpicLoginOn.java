@@ -11,7 +11,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 
 /**
- * Epic Login on: the whole flow on the application chain (ADR 0013) — the OAuth 2.0 half, which
+ * Epic Login on: the whole flow on the application chain (ADR 0012) — the OAuth 2.0 half, which
  * serves the authorize hop and the callback ({@link EpicLoginFlow}), and the rules that make
  * Epic Login's four routes public. There is no release gate in this state.
  *

@@ -9,7 +9,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * The {@code login} counter (ADR 0013, "Metrics"), the adapter of {@link LoginCounts}: one count
+ * The {@code login} counter (ADR 0012, "Metrics"), the adapter of {@link LoginCounts}: one count
  * per Login that ended, by either login method, tagged by its {@code method} — {@code password} or
  * {@code sso} — its {@code outcome} — {@code success}, {@code refused} or, for an Epic Login only,
  * {@code unavailable} — and its {@code reason}.

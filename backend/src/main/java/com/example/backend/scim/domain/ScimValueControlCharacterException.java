@@ -4,7 +4,7 @@ import java.util.function.IntPredicate;
 
 /**
  * A submitted attribute value contains a character its attribute does not accept: U+0000 in any
- * stored string, refused everywhere as input hygiene (ADR 0015), or any C0 control (or DEL) in a
+ * stored string, refused everywhere as input hygiene (ADR 0013), or any C0 control (or DEL) in a
  * {@code userName} or {@code displayName}, which are shown to people and written to logs.
  *
  * <p>Rendered as {@code 400 invalidValue} naming the attribute and the forbidden characters. The

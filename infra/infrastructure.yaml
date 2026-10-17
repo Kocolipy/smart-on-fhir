@@ -97,11 +97,11 @@ Parameters:
     AllowedPattern: "^[a-z][a-z0-9_]{2,30}$"
     ConstraintDescription: lowercase letters, digits and underscores, 3 to 31 characters
 
-  # Every database credential lives in Secrets Manager (ADR 0015, as-8): the
+  # Every database credential lives in Secrets Manager (ADR 0013, as-8): the
   # master user's password is RDS-managed, and the three logins' passwords are
   # generated below. These parameters carry login NAMES only, which DDL interpolates
   # (the instance's /opt/backend/db-bootstrap.sql, and V1 through Flyway
-  # placeholders), hence the strict pattern (ADR 0015, as-2).
+  # placeholders), hence the strict pattern (ADR 0013, as-2).
   DBMasterUsername:
     Description: RDS master username; its password is RDS-managed in Secrets Manager
     Type: String
@@ -173,7 +173,7 @@ Parameters:
     Type: String
     Default: admin
 
-  # Epic Login (/docs/adr/0013-epic-login.md). Off unless AppEpicEnabled is true, and
+  # Epic Login (/docs/adr/0012-epic-login.md). Off unless AppEpicEnabled is true, and
   # then none of the other AppEpic* parameters is read. No default carries a
   # value: with the switch on, the service refuses to start until every required
   # one is set and well formed (backend/README.md, "Epic Login"). An empty
@@ -256,7 +256,7 @@ Parameters:
   AppEpicMfaEvidenceRequired:
     Description: >-
       Require MFA evidence in the Epic id_token's amr (APP_EPIC_MFA_EVIDENCE_REQUIRED); turn
-      on only once Epic confirms it sends amr on an EHR launch (ADR 0013, D17)
+      on only once Epic confirms it sends amr on an EHR launch (ADR 0012, D17)
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
@@ -307,7 +307,7 @@ Mappings:
     ap-southeast-1:
       AMI: ami-0dc2d3e4c0f9ebd18
 
-  # The driver-scoped RDS CA trust store (ADR 0015): where UserData builds it,
+  # The driver-scoped RDS CA trust store (ADR 0013): where UserData builds it,
   # and the JDBC URL options that hand it to the SQL Server driver alone. The one
   # copy of both: the instance's DATABASE_URL and the DatabaseConnectionString
   # output are built from it. The path appears twice because a mapping value
@@ -562,7 +562,7 @@ Resources:
   # three logins the instance's bootstrap creates in SQL Server, each password
   # generated here and never seen by CloudFormation parameters, UserData or
   # deploy.sh. No quote, backslash or semicolon, so a password can never end a
-  # SQL literal or statement it is placed in (ADR 0015, as-2). No rotation yet
+  # SQL literal or statement it is placed in (ADR 0013, as-2). No rotation yet
   # (#73).
   DBOwnerSecret:
     Type: AWS::SecretsManager::Secret
@@ -606,7 +606,7 @@ Resources:
         - Key: Name
           Value: !Sub ${AWS::StackName}-db-retention
 
-  # The password of the driver-scoped trust store (ADR 0015, "The RDS CA trust
+  # The password of the driver-scoped trust store (ADR 0013, "The RDS CA trust
   # store is driver-scoped"): UserData builds /opt/backend/rds-truststore.p12
   # from the RDS CA bundle under it, and start.sh and migrate.sh hand it to the
   # SQL Server driver alone. The JVM's default trust store is never touched.
@@ -719,12 +719,12 @@ Resources:
     Properties:
       DBInstanceIdentifier: !Sub ${AWS::StackName}-sqlserver
       # Standard Edition, licence-included: the licence is in the hourly price,
-      # so there is nothing to bring (ADR 0015, "Scope").
+      # so there is nothing to bring (ADR 0013, "Scope").
       Engine: sqlserver-se
       LicenseModel: license-included
       # The major version only: RDS picks its current default 16.00 (SQL Server
       # 2022) build, and applies minor versions (cumulative updates) in the
-      # maintenance window (ADR 0015, "Database patching"). The family of
+      # maintenance window (ADR 0013, "Database patching"). The family of
       # DBParameterGroup must match it.
       EngineVersion: "16.00"
       AutoMinorVersionUpgrade: true
@@ -742,10 +742,10 @@ Resources:
       # build, which is untested. If it has the same defect, the first
       # deploy's migrate.sh fails loudly ("Unable to acquire SQL Server
       # application lock", 17750) and the service never starts; it does not
-      # fail silently (infra/README.md, "Collation and time zone"; ADR 0015,
+      # fail silently (infra/README.md, "Collation and time zone"; ADR 0013,
       # 2026-10-16 addendum).
       CharacterSetName: Latin1_General_100_BIN2_UTF8
-      # Storage is UTC only (ADR 0015): the server's clock and SYSDATETIMEOFFSET
+      # Storage is UTC only (ADR 0013): the server's clock and SYSDATETIMEOFFSET
       # are UTC, stated rather than defaulted.
       Timezone: UTC
       DBParameterGroupName: !Ref DBParameterGroup
@@ -823,7 +823,7 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
-        # Only the secrets this instance's processes need (ADR 0015, as-8), each
+        # Only the secrets this instance's processes need (ADR 0013, as-8), each
         # read by one root-owned script into the environment of the one process
         # that uses it. The RDS-managed master secret is read by the database
         # bootstrap alone (/opt/backend/db-bootstrap.sh, root, run by
@@ -954,7 +954,7 @@ Resources:
                     END;
                 END;
                 -- The collation set here is the database's; the server's is fixed when the
-                -- server is created (ADR 0015). A database found with another one is
+                -- server is created (ADR 0013). A database found with another one is
                 -- refused: altering it would not convert its columns.
                 IF DB_ID(@database) IS NULL
                 BEGIN
@@ -1047,7 +1047,7 @@ Resources:
                   logins+=("$(secret "$arn" username)")
                   passwords+=("$(secret "$arn" password)")
                 done
-                # Names go into DDL (ADR 0015, as-2). sqlcmd does not expand a $( in a value.
+                # Names go into DDL (ADR 0013, as-2). sqlcmd does not expand a $( in a value.
                 for name in "$DB_NAME" "${logins[@]}"; do
                   [[ $name =~ ^[a-z][a-z0-9_]{2,30}$ ]] || die "a name must match ^[a-z][a-z0-9_]{2,30}\$"
                 done
@@ -1111,7 +1111,7 @@ Resources:
           - |
             #!/bin/bash
             # No secret is in this script's text, and it traces no command: never add
-            # set -x (ADR 0015, "The bootstrap does not echo"). smoke.sh fails the deploy
+            # set -x (ADR 0013, "The bootstrap does not echo"). smoke.sh fails the deploy
             # if a secret value appears in its output. Each secret is read from Secrets
             # Manager by the one script whose process needs it, into that process's
             # environment only. Boot sequence (infra/README.md): 1. the SQL Server tools,
@@ -1161,7 +1161,7 @@ Resources:
               https://truststore.pki.rds.amazonaws.com/${AWS::Region}/${AWS::Region}-bundle.pem
             chmod 0644 /opt/backend/rds-ca-bundle.pem
 
-            # The driver-scoped trust store (ADR 0015): the bundle's certificates in a
+            # The driver-scoped trust store (ADR 0013): the bundle's certificates in a
             # PKCS12 store under DBTrustStoreSecret's password, which keytool reads from
             # its environment. Only the driver opens it (DATABASE_URL's trustStore).
             trust_store=${TrustStorePath}
@@ -1285,7 +1285,7 @@ Resources:
             chown root:root /opt/backend/migrate.env
             chmod 600 /opt/backend/migrate.env
 
-            # 3. The migrate step (ADR 0015, ac-1): the same JAR at its migrate entry
+            # 3. The migrate step (ADR 0013, ac-1): the same JAR at its migrate entry
             # point, as the owner login, no web server. The only holder of the owner
             # credential. A failure stops backend.service from starting.
             cat > /opt/backend/migrate.sh << 'EOF'

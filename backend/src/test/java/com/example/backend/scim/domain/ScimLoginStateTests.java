@@ -205,7 +205,7 @@ class ScimLoginStateTests {
         assertThat(after.passwordHash()).isNull();
     }
 
-    // ---- the lock's cause (ADR 0011) -------------------------------------------------------
+    // ---- the lock's cause (ADR 0007) -------------------------------------------------------
 
     /** A lock and its cause are set and cleared together; a state where they disagree is refused. */
     @Test

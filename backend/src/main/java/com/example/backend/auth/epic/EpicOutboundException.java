@@ -10,7 +10,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
 /**
- * An Epic call that failed for a reason an operator has to see (ADR 0013, "Log",
+ * An Epic call that failed for a reason an operator has to see (ADR 0012, "Log",
  * error categories): which call, the {@code error.category} it is reported under, and the
  * {@code error.code}.
  *
@@ -48,7 +48,7 @@ public final class EpicOutboundException extends AuthenticationException {
     }
 
     /**
-     * {@code failure}, from {@code call}, as ADR 0013's error categories have it: no answer is
+     * {@code failure}, from {@code call}, as ADR 0012's error categories have it: no answer is
      * {@code network}, a {@code 5xx} is {@code server}, a {@code 401} is {@code cert/auth}, and
      * anything else Epic answered — another {@code 4xx}, or a body that could not be read — is
      * {@code data}.
@@ -99,7 +99,7 @@ public final class EpicOutboundException extends AuthenticationException {
         return call;
     }
 
-    /** The {@code error.category} (ADR 0013, "Log"). */
+    /** The {@code error.category} (ADR 0012, "Log"). */
     public ErrorCategory category() {
         return category;
     }

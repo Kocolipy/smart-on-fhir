@@ -17,7 +17,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 /**
  * The migrate step, run as a deployment runs it — its own entry point, on an empty database whose
  * {@code db_owner} role the owner login is a member of — and read back as the owner login (ADR
- * 0015, ac-1 and as-2; #66).
+ * 0013, ac-1 and as-2; #66).
  *
  * <p>The settings arrive as command-line arguments, which the deployed {@code migrate} profile
  * would otherwise supply from the environment: the test resources' {@code application.yaml}

@@ -46,7 +46,7 @@ public class ScimConnectorTokenEntity {
 
     /**
      * The Permissions the token carries, by their wire spelling, one row each in
-     * {@code scim_connector_token_permissions} (ADR 0015). The database refuses any value outside
+     * {@code scim_connector_token_permissions} (ADR 0013). The database refuses any value outside
      * the four directory Permissions
      * ({@code ck_scim_connector_token_permissions_directory_permission}), whatever this mapping
      * permits. Eager, as {@code ScimUserEntity}'s emails are: every use of a token needs them.

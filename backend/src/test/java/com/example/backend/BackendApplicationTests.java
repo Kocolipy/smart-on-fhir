@@ -65,8 +65,8 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            // One T-SQL V1 (ADR 0015): the preparation's migrations and the seeding lock's row
-            // (ADR 0015's 2026-10-16 addendum) were folded into it.
+            // One T-SQL V1 (ADR 0013): the preparation's migrations and the seeding lock's row
+            // (ADR 0013's 2026-10-16 addendum) were folded into it.
             assertThat(versions).containsExactly("1");
         }
     }

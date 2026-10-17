@@ -276,7 +276,7 @@ class ScimDeletionIntegrationTests {
 
     /**
      * Memberships go only when the delete paths remove them: both member-side foreign keys take
-     * no action (ADR 0015), so a User or Group row a membership still names is refused rather
+     * no action (ADR 0013), so a User or Group row a membership still names is refused rather
      * than taking the membership with it.
      */
     @Test

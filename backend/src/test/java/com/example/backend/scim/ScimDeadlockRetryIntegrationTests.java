@@ -55,7 +55,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * A SCIM write the database really chooses as a deadlock's victim, and the retry ADR 0015's as-13
+ * A SCIM write the database really chooses as a deadlock's victim, and the retry ADR 0013's as-13
  * puts at its outermost transactional boundary.
  *
  * <p>The first deadlock is forced rather than raced for. A User PUT locks the User and its Group
@@ -184,7 +184,7 @@ class ScimDeadlockRetryIntegrationTests {
     }
 
     /**
-     * The PUT's retry chosen as the victim again: ADR 0015's as-13 second deadlock. The write is
+     * The PUT's retry chosen as the victim again: ADR 0013's as-13 second deadlock. The write is
      * not tried a third time, and its connector is answered {@code 503} with
      * {@code Retry-After: 1} in the SCIM error document, with no driver text — and the stream
      * carries the one retry's {@code WARN} and the fault's one {@code ERROR}, {@code database},

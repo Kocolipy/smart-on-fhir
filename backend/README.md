@@ -2,7 +2,7 @@
 
 A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
 identity directory, audit trail and per-User counters persisted in SQL Server 2022
-(ADR 0015).
+(ADR 0013).
 Identities are provisioned by an external directory over a SCIM 2.0 interface
 (`/scim/v2`); the session-authenticated application API lives under `/api`.
 Spring Session replaces the servlet container's in-memory session, so session
@@ -19,7 +19,7 @@ instances.
   arm64 build. On Apple Silicon it runs only under Rosetta emulation (Docker
   Desktop's "Use Rosetta for x86_64/amd64 emulation"), which Microsoft does not
   support and which is slow; Apple Silicon is not a supported development
-  platform (ADR 0015).
+  platform (ADR 0013).
 - Memory: the local SQL Server is capped at 2 GB (`MSSQL_MEMORY_LIMIT_MB`) in a
   3 GB container, and the test suite starts one SQL Server per test JVM — about
   0.9 GB each, two JVMs — so give WSL2 or Docker Desktop at least 8 GB.
@@ -308,7 +308,7 @@ whatever a replaced config file happens to say.
 
 ### Epic Login
 
-Epic SMART on FHIR EHR launch Login (`/docs/adr/0013-epic-login.md`, the sole authority on it).
+Epic SMART on FHIR EHR launch Login (`/docs/adr/0012-epic-login.md`, the sole authority on it).
 **Off by default**, and then nothing below is read or required: the app starts
 with no Epic variable at all, and every `/api/auth/epic/**` path answers `404`
 ahead of the session, CSRF and authorization checks, mirroring
@@ -330,11 +330,11 @@ ahead of the session, CSRF and authorization checks, mirroring
 | `APP_EPIC_MFA_EVIDENCE_REQUIRED` | no                    | `false` | Require MFA evidence in the `id_token`'s `amr` (D17); see below           |
 
 `APP_EPIC_MFA_EVIDENCE_REQUIRED` stays off until Epic confirms it sends `amr` on
-an EHR launch (ADR 0013, "Open items"). Off, the Epic organisation's MFA is an
+an EHR launch (ADR 0012, "Open items"). Off, the Epic organisation's MFA is an
 attestation and every Epic `LOGIN_SUCCESS` records the factor `idp-attested`.
 On, a token whose `amr` names no RFC 8176 second factor and not `mfa` is
 refused as `INVALID_CLAIMS`, and the factor recorded is the one `amr` named;
-ADR 0013 lists the factors accepted.
+ADR 0012 lists the factors accepted.
 
 **No default credentials**: this repository is public, so no URL, client id or
 key has a fallback anywhere. With the switch on, startup fails fast when a
@@ -347,7 +347,7 @@ the rule, **never the value**, and the bound settings print with both keys
 redacted. Startup does not contact Epic: discovery runs on the first launch and
 is kept for 24 hours, so a wrong issuer or an unreachable Epic shows on the first
 launch — as the login page's "temporarily unavailable" notice when Epic gives no
-answer within the timeouts or answers `5xx` — never as a failed deploy (ADR 0013).
+answer within the timeouts or answers `5xx` — never as a failed deploy (ADR 0012).
 
 Generate a key with `openssl genpkey -algorithm EC -pkeyopt
 ec_paramgen_curve:P-384`. The PEM may be given on one line, with or without its
@@ -452,7 +452,7 @@ A run deletes in batches of at most 4,000 events (`DELETE TOP (4000)`), each in 
 transaction of its own on the retention pool with a 60 s query timeout, until a
 batch comes back short. A batch stays below SQL Server's lock-escalation threshold
 of 5,000 locks, so it holds row locks only and an audit append never waits behind
-it (ADR 0015). A failed run reports what it had committed: every batch before the
+it (ADR 0013). A failed run reports what it had committed: every batch before the
 one that failed, or all of them when the run's lock transaction failed afterwards,
 since each batch commits on the retention pool before that transaction does; the
 next run deletes the rest. The job is serialized on its own `audit-retention` row
@@ -584,7 +584,7 @@ change moves the basis.
 ### Database logins
 
 The service reaches SQL Server as **three logins**, each holding only its own
-privileges, and nothing switches role on a connection (ADR 0015, "Runtime
+privileges, and nothing switches role on a connection (ADR 0013, "Runtime
 model"; `NoRoleSwitchTest`, in the `arch` tests, holds that no source
 or configuration file issues `SET ROLE`):
 
@@ -713,7 +713,7 @@ The local server keeps its default collation and only the database is collated
 zone"), but on this image a server collated `BIN2_UTF8`
 cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
 guard every migration. The service's own seed lock is a row lock and needs
-neither (ADR 0015, "Addendum (2026-10-16)").
+neither (ADR 0013, "Addendum (2026-10-16)").
 
 The `.env` variables it reads:
 

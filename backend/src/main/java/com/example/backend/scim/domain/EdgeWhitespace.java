@@ -3,7 +3,7 @@ package com.example.backend.scim.domain;
 /**
  * Whether a value begins or ends with whitespace — the one definition the directory's keys, the
  * password Login's username and the Epic {@code id_token}'s {@code iss} and {@code sub} are all
- * held to (ADR 0015, "Leading or trailing whitespace is refused on every unique or lookup key").
+ * held to (ADR 0013, "Leading or trailing whitespace is refused on every unique or lookup key").
  *
  * <p>The reason is the database underneath, not the value: SQL Server pads {@code =} comparisons
  * and unique constraints, so {@code alice} and {@code alice } would collide as keys and match each

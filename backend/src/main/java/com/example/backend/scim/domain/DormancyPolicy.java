@@ -5,7 +5,7 @@ import java.time.Instant;
 
 /**
  * How long a User may go without authenticating before each step of the dormancy job applies to
- * it (ADR 0011).
+ * it (ADR 0007).
  *
  * <p>Two windows, both measured on the same basis — {@link #basis}, the last successful login,
  * completed password change, explicit reactivation or Unlock, falling back to creation — and

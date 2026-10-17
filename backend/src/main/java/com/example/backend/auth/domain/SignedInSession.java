@@ -22,7 +22,7 @@ import java.util.UUID;
  *       never a failure.
  *   <li><b>The role-mapping hash</b> is written beside the owner, so a session minted under
  *       another mapping can be told apart from one minted under the running one.
- *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0013,
+ *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0012,
  *       D29), and are never handed out once the session has outlived its absolute lifetime,
  *       whatever the store still holds.
  *   <li><b>The idle bound</b> of a session holding them is cut to what remains of that lifetime
@@ -158,7 +158,7 @@ public final class SignedInSession {
     /**
      * Cuts the idle bound of a session holding Epic tokens back to what remains of
      * {@code lifetime} as of {@code now}, once that is the shorter, so the store keeps it no longer
-     * than the lifetime allows (ADR 0013, D29). Far from the end the idle bound is untouched, and a
+     * than the lifetime allows (ADR 0012, D29). Far from the end the idle bound is untouched, and a
      * session holding nothing under the tokens' name is never touched. Whatever is stored there is
      * bounded, a well-formed token set or not, because the bound is about what the store keeps.
      */

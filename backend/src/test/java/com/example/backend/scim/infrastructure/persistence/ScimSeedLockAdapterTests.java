@@ -64,7 +64,7 @@ class ScimSeedLockAdapterTests {
 
     /**
      * The driver cancels the wait after 60 s. The start fails as a lock the database would not
-     * give — a {@code database} failure to investigate in ADR 0015's mapping — naming how long it
+     * give — a {@code database} failure to investigate in ADR 0013's mapping — naming how long it
      * waited.
      */
     @Test
@@ -88,7 +88,7 @@ class ScimSeedLockAdapterTests {
                 .hasMessageNotContaining("not granted");
     }
 
-    /** The lock waits at most 60 s (ADR 0015, "Bounded timeouts"). */
+    /** The lock waits at most 60 s (ADR 0013, "Bounded timeouts"). */
     @Test
     void theLockWaitsAtMostSixtySeconds() {
         database.query(LOCK, "ScimSeed");

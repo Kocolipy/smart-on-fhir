@@ -30,7 +30,7 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      * {@code ArchitectureTest} holds that. One row by primary key, and so no order of its own: the
      * order of a write's locks is the order the adapter issues these statements in, which it
      * decides ({@code ScimWriteLocks.ORDER}). No engine can reorder a statement that locks a
-     * single row, so the guarantee holds whatever the database (ADR 0015).
+     * single row, so the guarantee holds whatever the database (ADR 0013).
      *
      * <p>The serialization point of a conditional write. A second writer holding the same
      * precondition blocks here until the first commits, and its next statement then reads the
@@ -81,7 +81,7 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      * Deletes one resource row, and with it — through the {@code ON DELETE CASCADE} foreign keys
      * every related table declares — the User or Group row, its emails, credential history,
      * connector aliases and application-owned rows. Not its memberships: their foreign keys take
-     * no action (ADR 0015), so the caller deletes them first or this statement is refused.
+     * no action (ADR 0013), so the caller deletes them first or this statement is refused.
      *
      * <p>A bulk statement rather than {@code deleteById}, so the managed copies of the rows the
      * cascade removes cannot be flushed back afterwards: the context is flushed before and

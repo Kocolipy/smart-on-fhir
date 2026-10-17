@@ -53,7 +53,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
-        <!-- Epic SMART on FHIR EHR launch Login (/docs/adr/0013-epic-login.md). Inert until a
+        <!-- Epic SMART on FHIR EHR launch Login (/docs/adr/0012-epic-login.md). Inert until a
              later step configures oauth2Login: no client registration is declared, so Boot's
              OAuth2 client auto-configuration contributes no repository and no filter chain. -->
         <dependency>
@@ -75,7 +75,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
-        <!-- The SQL Server driver (ADR 0015); its version is the Spring Boot BOM's. -->
+        <!-- The SQL Server driver (ADR 0013); its version is the Spring Boot BOM's. -->
         <dependency>
             <groupId>com.microsoft.sqlserver</groupId>
             <artifactId>mssql-jdbc</artifactId>
@@ -262,7 +262,7 @@
               starts its own SQL Server and Redis (ContainerTestConfiguration), so contexts
               split across forks cost a migrated database each, not a container start.
               A SQL Server container idles at ~0.9 GB, so the two forks need ~2 GB more
-              than two containers of the previous engine (ADR 0015, V6).
+              than two containers of the previous engine (ADR 0013, V6).
               Override with -DforkCount=1 to debug a test in one JVM.
 
               The forks take classes from one shared queue, so the class that starts last

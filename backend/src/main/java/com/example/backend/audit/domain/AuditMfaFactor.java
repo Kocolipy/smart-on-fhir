@@ -1,7 +1,7 @@
 package com.example.backend.audit.domain;
 
 /**
- * The multi-factor authentication an Epic {@code LOGIN_SUCCESS} was made with (ADR 0013,
+ * The multi-factor authentication an Epic {@code LOGIN_SUCCESS} was made with (ADR 0012,
  * D17): a closed set, as every classification crossing the {@link AuditTrail} is, so no value
  * Epic sent can reach the trail as text.
  *
@@ -14,7 +14,7 @@ package com.example.backend.audit.domain;
  */
 public enum AuditMfaFactor {
 
-    /** The Epic organisation attests that its sign-in enforces MFA (ADR 0013). */
+    /** The Epic organisation attests that its sign-in enforces MFA (ADR 0012). */
     IDP_ATTESTED("idp-attested"),
 
     /** {@code amr} said MFA was used, naming no factor. */

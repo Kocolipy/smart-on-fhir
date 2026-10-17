@@ -6,12 +6,12 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Whether the current request's write was the database's deadlock victim again on its retry —
- * ADR 0015's as-13 second deadlock, the one failure answered {@code 503 Service Unavailable} with
+ * ADR 0013's as-13 second deadlock, the one failure answered {@code 503 Service Unavailable} with
  * {@code Retry-After: 1} rather than the generic {@code 500}.
  *
  * <p>The deadlock retry ({@code DeadlockRetryAdapter}) marks the request as the second deadlock
  * propagates, and the request's fault handler reads the mark with the failure it is answering.
- * A deadlock nothing retried — on a path ADR 0015 does not retry, or a write that joined a
+ * A deadlock nothing retried — on a path ADR 0013 does not retry, or a write that joined a
  * transaction already open — carries no mark and stays the generic {@code 500}, so the
  * {@code 503} is exactly as-13's and only a retried write documents it.
  *

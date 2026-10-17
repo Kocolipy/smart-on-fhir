@@ -28,7 +28,7 @@ import java.util.UUID;
 
 /**
  * Translates a {@link ScimQuery} into T-SQL for SQL Server 2022 (compatibility level 160), with
- * every literal bound (ADR 0015).
+ * every literal bound (ADR 0013).
  *
  * <p><strong>The engine words in one place.</strong> Four constants at the top of the class are
  * the only SQL Server-specific text: the binary UTF-8 collation text sorts and range comparisons
@@ -45,7 +45,7 @@ import java.util.UUID;
  * a {@code BIT}. A {@code LIKE} pattern escapes {@code [} as well as {@code %} and {@code _},
  * since SQL Server reads {@code [} as the start of a character class.
  *
- * <p><strong>What SQL Server changes</strong> (ADR 0015, "Observable changes"). It pads a text
+ * <p><strong>What SQL Server changes</strong> (ADR 0013, "Observable changes"). It pads a text
  * comparison with spaces, so {@code eq}, {@code ne}, {@code gt}, {@code ge}, {@code lt} and
  * {@code le} on free text ignore trailing spaces, and a whitespace-only value equals {@code ''}
  * and so counts as absent for {@code pr} and sorting. {@code co}, {@code sw} and {@code ew} keep
@@ -98,7 +98,7 @@ final class ScimQuerySql {
      * The type a branch's text NULL takes: a {@code VARCHAR} with an explicit length (SQL Server
      * reads a bare {@code VARCHAR} in a cast as {@code VARCHAR(30)}), as wide as the widest text
      * column a sort key reads — 256 code points, which SQL Server's UTF-8 {@code VARCHAR} stores
-     * in up to 1024 bytes (ADR 0015's column inventory). A union's column takes its wider branch,
+     * in up to 1024 bytes (ADR 0013's column inventory). A union's column takes its wider branch,
      * so the NULL is never what narrows a value; widening a sort column means widening this.
      */
     private static final String NULL_TEXT_TYPE = "VARCHAR(1024)";

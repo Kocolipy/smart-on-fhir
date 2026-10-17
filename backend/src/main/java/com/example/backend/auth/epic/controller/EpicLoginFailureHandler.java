@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>What failed is told apart here, from what Spring Security raised, and nowhere else: Epic
  * being unavailable — no answer in time, or a {@code 5xx}, from discovery, the JWKS or the token
- * endpoint — or a refusal with its exact reason (ADR 0013, "Audit"), read from what failed and
+ * endpoint — or a refusal with its exact reason (ADR 0012, "Audit"), read from what failed and
  * never from a message, which can quote what Epic sent. {@link LoginCompletion#endUndecided}
  * ends the Login — its outcome recorded, audit, log and counts, and the session the browser held
  * ended, whoever it belonged to — and the browser lands at {@code /?signin=unavailable} or
@@ -93,7 +93,7 @@ public class EpicLoginFailureHandler implements AuthenticationFailureHandler {
     }
 
     /**
-     * The reason (ADR 0013, "Audit") for a refusal Spring Security's OAuth 2.0 login raised, read from what
+     * The reason (ADR 0012, "Audit") for a refusal Spring Security's OAuth 2.0 login raised, read from what
      * failed — never from a message, which can quote what Epic sent.
      *
      * <ul>

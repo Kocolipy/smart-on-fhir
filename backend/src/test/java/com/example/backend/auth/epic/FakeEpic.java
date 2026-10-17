@@ -62,7 +62,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Its token response carries an access token and patient and encounter context, as Epic's
  * does, and a refresh token once asked to, under values unique to this instance, so a test can
  * show where each is kept and where none of them is: the tokens for the signed-in session alone,
- * the launch context nowhere (ADR 0013, D29).
+ * the launch context nowhere (ADR 0012, D29).
  *
  * <p>It can also be Epic on a bad day: any of discovery, the JWKS and {@code /token} can be made
  * to stall past our read timeout, answer {@code 503}, or answer {@code 200} with a body that is
@@ -300,7 +300,7 @@ public final class FakeEpic implements AutoCloseable {
     }
 
     /**
-     * Records in {@code seen} every ADR 0013 D22 value this instance was sent or handed out: each
+     * Records in {@code seen} every ADR 0012 D22 value this instance was sent or handed out: each
      * authorization request's {@code state}, {@code nonce} and {@code launch}; each token
      * request's {@code code}, verifier and client assertion; and each {@code id_token} it minted,
      * with the access token beside it, and the refresh token while it issues one.

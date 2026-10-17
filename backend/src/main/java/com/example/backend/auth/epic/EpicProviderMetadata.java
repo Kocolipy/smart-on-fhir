@@ -14,7 +14,7 @@ import org.springframework.web.client.RestClientException;
  * through the one outbound client, {@code epicRestClient} (D25).
  *
  * <p>Run on first use, never at startup: password Login must not depend on Epic being reachable
- * when the application deploys (ADR 0013's deviation "discovery on first use"). A successful
+ * when the application deploys (ADR 0012's deviation "discovery on first use"). A successful
  * read is then kept for 24 hours, by the injected {@link Clock}; a failed one is kept for no time
  * at all, so the next launch tries again (D26). A read that failed because Epic was unavailable —
  * no answer in time, or a {@code 5xx} — is reported as such ({@link EpicOutboundException}), and

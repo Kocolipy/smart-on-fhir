@@ -132,7 +132,7 @@ class ScimExceptionHandler {
     }
 
     /**
-     * A retried write the database chose as the deadlock's victim again on its retry (ADR 0015's
+     * A retried write the database chose as the deadlock's victim again on its retry (ADR 0013's
      * as-13, {@link ExhaustedRetry}): {@code 503} with {@code Retry-After: 1}, a fault on this side
      * the connector may simply send again.
      *

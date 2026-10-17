@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * Nothing the service ships switches the database role on a connection (ADR 0015, "Runtime
+ * Nothing the service ships switches the database role on a connection (ADR 0013, "Runtime
  * model"; #66).
  *
  * <p>Each pool connects as a login of its own, a member of exactly the one role its work needs,

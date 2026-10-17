@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>One read-only transaction, because the reader issues two statements — the count and the
  * page — and they must see one version of the trail: read separately, an event appended between
  * them would be listed but not counted. The reader puts the transaction at SQL Server's
- * {@code SNAPSHOT} isolation as its first act (ADR 0015), which Spring's {@code Isolation} cannot
+ * {@code SNAPSHOT} isolation as its first act (ADR 0013), which Spring's {@code Isolation} cannot
  * name, so the total an Admin is shown describes exactly the events beside it. Nothing else may
  * read in this transaction before the reader does: a transaction that has read under another level
  * can no longer switch to {@code SNAPSHOT}.

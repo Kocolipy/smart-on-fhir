@@ -42,7 +42,7 @@ import org.springframework.stereotype.Component;
  * ({@link SignedInSession#keepEpicTokens}), taken from the token response the filter handed over
  * ({@link EpicTokenHandOff}): so they live under the rotated id alone, for exactly as long as the
  * session does, and the session is stored no longer than its remaining absolute lifetime (ADR
- * 0013, D29). The browser lands at {@code /}. Each later request is bounded the same way by
+ * 0012, D29). The browser lands at {@code /}. Each later request is bounded the same way by
  * {@code AbsoluteSessionLifetimeFilter}, so its renewal cannot undo this.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends

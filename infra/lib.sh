@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Shared by deploy.sh, db-bootstrap.sh and smoke.sh. Sourced, never run.
 #
-# Secret discipline (ADR 0015, "The bootstrap does not echo"; IM8 as-8). Every
+# Secret discipline (ADR 0013, "The bootstrap does not echo"; IM8 as-8). Every
 # script in this directory:
 #   - runs without command tracing: `set -x` prints every expanded secret;
 #   - keeps a secret value in a shell variable only. It reaches a process on a

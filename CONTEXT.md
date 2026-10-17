@@ -390,7 +390,7 @@ across instances.
 
 ### Database
 
-From ADR 0015. The three logins are SQL Server principals, and the migrate step
+From ADR 0013. The three logins are SQL Server principals, and the migrate step
 is the only holder of the owner login. Every term here names a
 database principal, never the sign-in operation: write "database login" or one of
 the qualified names below, and keep a bare **Login** for the operation under
@@ -399,7 +399,7 @@ Authentication.
 **Database login**:
 One of the three database identities the backend connects as — the owner
 login, the app login and the retention login — each holding only its own
-privileges, with no role switching on a connection (ADR 0015). A database
+privileges, with no role switching on a connection (ADR 0013). A database
 principal, not a Login.
 _Avoid_: database role (the roles are what a login is a member of), `SET ROLE`,
 a bare "login" (that is the sign-in operation)

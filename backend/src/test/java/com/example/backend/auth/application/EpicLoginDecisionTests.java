@@ -255,7 +255,7 @@ class EpicLoginDecisionTests {
         assertThat(users.findById(provisioned.id()).orElseThrow().login().isLocked()).isFalse();
     }
 
-    // ---- a refusal is logged generically: the reason is audit-only (ADR 0013) ----------------
+    // ---- a refusal is logged generically: the reason is audit-only (ADR 0012) ----------------
 
     @Test
     void aRefusalIsLoggedAtWarnAsTheGenericEpicSignInRefused() {

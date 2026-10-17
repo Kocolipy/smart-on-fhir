@@ -102,7 +102,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     /**
      * Makes every lookup by name compare as SQL Server's {@code =} does: trailing spaces ignored on
-     * both sides, so {@code ada } finds {@code ada} (ADR 0015). A store that compared them exactly
+     * both sides, so {@code ada } finds {@code ada} (ADR 0013). A store that compared them exactly
      * would tell the two apart by itself, so a test of a refusal that must come before any lookup
      * needs this stand-in to show it.
      */

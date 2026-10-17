@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * The retention login, which the retention pool connects as: {@code DATABASE_RETENTION_USERNAME}
  * and {@code DATABASE_RETENTION_PASSWORD}, bound from {@code app.datasource.retention.*} with no
- * fallback and nothing copied from the app login (ADR 0015, "Runtime model"; #66).
+ * fallback and nothing copied from the app login (ADR 0013, "Runtime model"; #66).
  *
  * @param username the login's name
  * @param password its password, never written by {@link #toString()}

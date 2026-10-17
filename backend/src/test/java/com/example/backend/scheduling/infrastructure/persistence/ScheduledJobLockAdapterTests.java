@@ -88,7 +88,7 @@ class ScheduledJobLockAdapterTests {
     }
 
     /**
-     * Neither statement waits longer than 60 s (ADR 0015, "Bounded timeouts"): a lock that
+     * Neither statement waits longer than 60 s (ADR 0013, "Bounded timeouts"): a lock that
      * cannot be read past — a table lock another session holds — fails the run rather than
      * holding its thread for ever.
      */

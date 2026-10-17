@@ -252,7 +252,7 @@ class AuthControllerTests {
 
     /**
      * A refused Login ends whatever session the browser held, whoever it belonged to, before its
-     * bare {@code 401} — the password analogue of ADR 0013's D24 — so a shared browser is never
+     * bare {@code 401} — the password analogue of ADR 0012's D24 — so a shared browser is never
      * left signed in as the previous User after a sign-in that signed nobody in.
      */
     @Test

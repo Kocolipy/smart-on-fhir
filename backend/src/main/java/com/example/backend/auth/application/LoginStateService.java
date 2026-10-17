@@ -34,20 +34,20 @@ import org.springframework.stereotype.Service;
  *       password: the run lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a
  *       Lockout for failures as of now. A User already locked is left as it is, whatever its lock
  *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
- *       reservation marker ({@code /docs/adr/0007-permanent-lockout-until-admin-unlock.md}).
+ *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}).
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
  *       moves unless the Login builds a Confined session (ADR 0008 and its addendum).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, and when a lock
- *       stood the dormancy basis restarts (ADR 0011) and, for a User with a password, a change is
+ *       stood the dormancy basis restarts (ADR 0007) and, for a User with a password, a change is
  *       required. Idempotent on a User serving no lockout: only its run is cleared.
  *   <li><b>Password change forced</b> — an Admin's forced password change: a change is required
  *       as of now, the run and any lock untouched. Idempotent on a User already owing one: it
  *       keeps the instant the change was first required, and nothing is written. Who may force a
  *       change, and on whom, is the administration path's to refuse before it reports the event.
  *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
- *       run untouched; an existing lock and its cause are never overwritten (ADR 0011).
+ *       run untouched; an existing lock and its cause are never overwritten (ADR 0007).
  * </ul>
  *
  * <h2>The directory's events</h2>
@@ -129,7 +129,7 @@ import org.springframework.stereotype.Service;
  * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
  * commits with it, and the lock is held until it does. Counting is still triggered explicitly
  * from the Login and password-change paths
- * ({@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}); nothing here listens for
+ * ({@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}); nothing here listens for
  * events.
  */
 @Service
@@ -301,7 +301,7 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * The dormancy job found {@code user} past the lockout window as of {@code now} (ADR 0011):
+     * The dormancy job found {@code user} past the lockout window as of {@code now} (ADR 0007):
      * locks it for dormancy, leaving the failure run as it stands — dormancy is not a failed
      * attempt. A User already locked keeps its lock and the cause it was first locked for.
      * Whether the User is due is the job's {@code DormancyVerdict}, not this; the job's audit

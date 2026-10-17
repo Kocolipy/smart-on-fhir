@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Deletes aged-out audit events, a batch at a time, and is the only code in this service that
  * reaches the retention pool — the connections of the retention login, the one principal the
- * audit table lets delete (ADR 0015, "Runtime model").
+ * audit table lets delete (ADR 0013, "Runtime model").
  *
  * <p>JDBC rather than JPA: this is a set-based delete whose row count is the thing
  * the caller reports, and loading entities to remove them would read the whole
@@ -39,7 +39,7 @@ class AuditEventRetentionAdapter implements AuditEventRetention {
     private static final String DELETE_A_BATCH =
             "DELETE TOP (?) FROM audit_events WHERE occurred_at < ?";
 
-    /** How long one batch may run before it fails the run (ADR 0015, "Bounded timeouts"). */
+    /** How long one batch may run before it fails the run (ADR 0013, "Bounded timeouts"). */
     private static final Duration BATCH_TIMEOUT = Duration.ofSeconds(60);
 
     private final JdbcTemplate jdbc;
@@ -58,7 +58,7 @@ class AuditEventRetentionAdapter implements AuditEventRetention {
 
     /**
      * The cutoff is bound as an offset at UTC, so the same rows age out in any JVM zone (ADR
-     * 0015, "Storage is UTC only").
+     * 0013, "Storage is UTC only").
      */
     @Override
     @Transactional(transactionManager = ConnectionQualifiers.AUDIT_RETENTION_TRANSACTIONS)

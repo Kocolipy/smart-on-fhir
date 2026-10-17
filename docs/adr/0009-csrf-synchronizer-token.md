@@ -76,7 +76,7 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
 ## Addendum (2026-10-09): a refused login ends the session, and its token
 
 A refused password Login now invalidates whatever session the browser held
-before answering its bare `401` — the password analogue of ADR 0013's D24, so a
+before answering its bare `401` — the password analogue of ADR 0012's D24, so a
 shared browser is never left signed in as the previous User after a sign-in
 that signed nobody in. The token was bound to that session, so it ends with it:
 `src/auth/api.ts` calls `discardCsrfToken()` when `login()` is answered

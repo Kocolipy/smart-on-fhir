@@ -17,7 +17,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 
 /**
  * D17 with its switch on — {@code APP_EPIC_MFA_EVIDENCE_REQUIRED=true}, once Epic confirms it
- * sends {@code amr} on an EHR launch (ADR 0013, "Open items"): the {@code id_token} must carry MFA
+ * sends {@code amr} on an EHR launch (ADR 0012, "Open items"): the {@code id_token} must carry MFA
  * evidence in {@code amr}, a token without it is refused as {@code INVALID_CLAIMS}, and the factor
  * an Epic {@code LOGIN_SUCCESS} records is taken from {@code amr}. The switch off, the default, is
  * {@link EpicProtocolIntegrationTests}'.

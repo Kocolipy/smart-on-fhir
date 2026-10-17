@@ -228,7 +228,7 @@ rules:
       # caught along with the bare names. It already covers Epic Login's `id_token` and
       # `access_token`, both being tokens.
       #
-      # The second is the rest of Epic Login's never-logged values (ADR 0013, D22): the
+      # The second is the rest of Epic Login's never-logged values (ADR 0012, D22): the
       # authorization `code`, `state`, `nonce`, `launch`, the PKCE verifier, the client
       # assertion, and the private key material of the signing keys `APP_EPIC_CLIENT_KEY`
       # and `APP_EPIC_CLIENT_NEXT_KEY`. They are matched as a whole identifier — a segment
@@ -457,7 +457,7 @@ rules:
     message: >-
       The backend_audit_retention database role is the only role permitted to
       delete a recorded audit event, and it is held by the retention login, which
-      only AuditEventRetentionAdapter's pool connects as (#66, ADR 0015). Nothing
+      only AuditEventRetentionAdapter's pool connects as (#66, ADR 0013). Nothing
       assumes the role on a connection: a SET ROLE to it would be a second way
       for the application to mutate the trail, which the separate logins and the
       table's append-only trigger exist to prevent. If retention needs to do
@@ -512,7 +512,7 @@ rules:
   #
   # Only the bind is banned. Reading a column back through getTimestamp(...) or
   # getObject(..., OffsetDateTime.class) returns the right instant on either
-  # engine (ADR 0015, spike V2), so neither is a finding.
+  # engine (ADR 0013, spike V2), so neither is a finding.
   # ---------------------------------------------------------------------------
 
   - id: be-jdbc-timestamp-bind
@@ -524,7 +524,7 @@ rules:
       compares it with a DATETIMEOFFSET, so the bound instant is off by the JVM's
       zone offset unless the JVM happens to run in UTC — retention would delete
       early and the audit listing's bounds would shift on a developer's machine
-      while a UTC CI host stays green (ADR 0015, "Storage is UTC only"). Bind an
+      while a UTC CI host stays green (ADR 0013, "Storage is UTC only"). Bind an
       OffsetDateTime at ZoneOffset.UTC instead (`instant.atOffset(ZoneOffset.UTC)`,
       with Types.TIMESTAMP_WITH_TIMEZONE where a type must be named), and compare
       read-back values as Instants.
