@@ -98,7 +98,7 @@ make package     # build the SPA, then package it into the Spring Boot JAR
 That is the release path; a plain `./mvnw clean verify` in `backend/` packages
 no SPA. The build contract is in `AGENTS.md` under "Frontend/backend
 integration", and the runtime contract (CSRF, CSP, sessions) in
-`frontend/AGENTS.md` under "Backend contract".
+`frontend/docs/BACKEND_CONTRACT.md`.
 
 ## Deploying to AWS
 

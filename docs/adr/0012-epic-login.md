@@ -226,7 +226,7 @@ The SPA needs no new `VITE_` variable. Its login page keeps the password form
 unchanged and adds the neutral "Sign-in from Epic was refused" notice for
 `?signin=refused`, "Sign-in from Epic is temporarily unavailable. Try again
 shortly." for `?signin=unavailable`, and the line "Clinicians: open this
-application from Epic." `/frontend/AGENTS.md`, "Backend contract", is the runtime
+application from Epic." `/frontend/docs/BACKEND_CONTRACT.md` is the runtime
 contract.
 
 ### Decisions

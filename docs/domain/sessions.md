@@ -52,7 +52,7 @@ Only user input counts as activity, never a request, and it is shared across tab
 a warning a minute before the limit offers to stay signed in, and staying is a real
 request that renews the backend's clock too. At the limit the SPA logs out and
 returns to login with the sign-in reason `inactive` — the code's name for it, not
-the glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
+the glossary's. `/frontend/docs/BACKEND_CONTRACT.md` is the contract.
 
 **Sign-in reason** — why a Guest is at the login page, from a closed set of
 six: an expired session, an idle sign-out, the User's own successful password

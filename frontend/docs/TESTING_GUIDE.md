@@ -228,7 +228,7 @@ reason.
 An **unsafe** request is different. `page.request` shares the browser context's
 cookie jar but adds **no headers of
 its own**, so it does not satisfy the backend's CSRF contract
-(`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way
+(`docs/BACKEND_CONTRACT.md`) — an unsafe request made that way
 returns `403` and the
 spec fails somewhere unrelated to what it was testing. Fetch the session's token
 from `GET /api/auth/csrf` and echo it, as `csrfHeaderFor()` in

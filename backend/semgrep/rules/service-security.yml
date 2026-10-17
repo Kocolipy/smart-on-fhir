@@ -13,8 +13,8 @@ rules:
     languages: [java]
     severity: ERROR
     message: >-
-      CSRF protection is being disabled. The SPA contract (frontend/AGENTS.md,
-      "Backend contract") is a session-bound synchronizer token: the SPA fetches
+      CSRF protection is being disabled. The SPA contract (frontend/docs/BACKEND_CONTRACT.md)
+      is a session-bound synchronizer token: the SPA fetches
       it from GET /api/auth/csrf and echoes it in the header that endpoint names
       on every unsafe request. Disabling the filter makes every one of those
       requests succeed without the token, so the contract silently stops being

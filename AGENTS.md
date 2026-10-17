@@ -141,7 +141,7 @@ overrides it explicitly rather than relying on it.
 
 The **runtime** contract — CSRF (a session-bound synchronizer token the SPA
 fetches from `GET /api/auth/csrf`; never a cookie), CSP, sessions — is a
-separate agreement, and `frontend/AGENTS.md`'s "Backend contract" section is its
+separate agreement, and `frontend/docs/BACKEND_CONTRACT.md` is its
 authority. Read it before changing request handling on either side.
 
 ## Line endings
