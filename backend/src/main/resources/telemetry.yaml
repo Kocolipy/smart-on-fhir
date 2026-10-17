@@ -15,7 +15,7 @@ management:
         # `prometheus` is the operational-telemetry scrape. It is NOT public: the
         # application chain (SecurityConfig) gives every actuator path but health
         # to the ops:read Permission only, and the SCIM chain never matches /actuator, so a connector
-        # bearer token is not a credential here at all. infra/README.md's
+        # bearer token is not a credential here at all. infra/docs/operational-telemetry.md's
         # "Operational telemetry" section covers binding it to an internal port.
         include: health,info,prometheus
   endpoint:

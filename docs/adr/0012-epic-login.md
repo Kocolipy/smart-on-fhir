@@ -315,7 +315,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   rule beyond `missing` is `mismatch`.
 - **D19: the launch and the callback are throttled at the edge.**
   `/api/auth/epic/launch` and `/api/auth/epic/callback` are on the network edge's
-  throttling list (`/infra/README.md`, "Edge throttling"), which answers a breach
+  throttling list (`/infra/docs/edge-throttling.md`, "Edge throttling"), which answers a breach
   with `429` and `Retry-After`. The limits are edge configuration, not part of the
   application. Every callback makes an outbound call to Epic, so an unthrottled
   callback could be used to flood Epic from our server.
@@ -464,7 +464,7 @@ Micrometer, on the existing Prometheus registry:
   `EpicCallCounts` port;
 - `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
   (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
-- alert rules (`/infra/README.md`, "Alerts"): `EpicJwksFetchFailing` and
+- alert rules (`/infra/docs/operational-telemetry.md`, "Alerts"): `EpicJwksFetchFailing` and
   `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
   for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
   on any `cert/auth` failure of the token call, the one that presents our
@@ -525,7 +525,7 @@ Micrometer, on the existing Prometheus registry:
   published as the next key, then the operator promotes it to active by
   redeploying. A key stays published until configuration removes it. The
   application has no expiry or period logic. The runbook is
-  `/infra/README.md`, "Signing-key promotion". Every startup record carries both
+  `/infra/docs/epic-signing-keys.md`, "Signing-key promotion". Every startup record carries both
   `kid`s, never key material, so each promotion leaves a record.
 - **D16: the key is an environment variable for now, and KMS is the target.** The
   active key is `APP_EPIC_CLIENT_KEY` / `APP_EPIC_CLIENT_KEY_ID`, and the next key
@@ -846,7 +846,7 @@ changes a decision.
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
 audience, R4, `openid fhirUser`, our public JWKS URL, the launch URL and redirect
 URI), its practitioner provisioned by FHIR ID — is configuration only, and its
-values belong in `/infra/README.md` once registered.
+values belong in `/infra/docs/parameters.md` once registered.
 
 ## Consequences
 
@@ -877,7 +877,7 @@ values belong in `/infra/README.md` once registered.
   for up to 7 seconds of waits plus three fetches. Login volume is low, and the
   alternative — refusing a clinician whose Epic just rotated — is worse.
 - `epic.outbound.errors{call="jwks"}` persisting is the signal that Epic's keys
-  are unreachable; `/infra/README.md` carries the alert rule.
+  are unreachable; `/infra/docs/operational-telemetry.md` carries the alert rule.
 - A signed-out Epic clinician's session lives on until its idle bound, its
   absolute lifetime or the next launch (D13). A shared workstation relies on the
   next launch or the idle bound to end it. The Epic tokens it holds (D29) live

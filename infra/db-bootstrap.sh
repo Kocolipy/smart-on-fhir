@@ -6,7 +6,7 @@
 # The bootstrap itself runs on the instance, as root, as the RDS master user:
 # UserData runs it at boot, every migrate step runs it first, and this script
 # runs it on demand (backend-db-bootstrap.service, /opt/backend/db-bootstrap.sh;
-# infra/README.md, "Database bootstrap"). It is idempotent: on a bootstrapped
+# infra/docs/database-boot.md, "Database bootstrap"). It is idempotent: on a bootstrapped
 # stack a run changes nothing, and with --expect-no-op this script fails if it
 # did. A login whose password no longer matches its secret is reset; that is the
 # one change a re-run on a healthy stack can make.

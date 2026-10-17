@@ -3,7 +3,7 @@
 # AWS CloudFormation Deployment Script for Spring Boot Backend
 #
 # Prompts for no password: every credential is generated into Secrets Manager
-# by the stack (infra/README.md, "Database credentials"). The stack's instance
+# by the stack (infra/docs/database-credentials.md, "Database credentials"). The stack's instance
 # bootstraps the database itself at boot; this script waits for that boot,
 # re-runs the bootstrap to prove it a no-op (db-bootstrap.sh --expect-no-op),
 # and runs the post-deploy smoke (smoke.sh), which fails the deploy on a leaked
@@ -36,7 +36,7 @@ check_prerequisites() {
         exit 1
     fi
 
-    # The stack's bootstrap SQL must be the local init's (infra/README.md,
+    # The stack's bootstrap SQL must be the local init's (infra/docs/database-boot.md,
     # "Database bootstrap"): a template whose copy has drifted is not deployed.
     "${SCRIPT_DIR}/check-bootstrap-parity.sh" ||
         die "the template's database bootstrap SQL differs from backend/scripts/local-db-init.sql"
@@ -133,8 +133,8 @@ get_inputs() {
 
     # RDS for SQL Server Standard Edition, licence-included: it runs on none of
     # the small classes, and costs far more than the previous stack's
-    # db.t3.micro did (README, "Engine, edition and cost").
-    print_warn "SQL Server Standard Edition (licence-included) bills its licence by the hour: see README, \"Engine, edition and cost\""
+    # db.t3.micro did (docs/database-engine.md, "Engine, edition and cost").
+    print_warn "SQL Server Standard Edition (licence-included) bills its licence by the hour: see docs/database-engine.md, \"Engine, edition and cost\""
     read -r -p "Enter RDS instance class (default: db.t3.xlarge, the smallest SE runs on): " DB_INSTANCE_CLASS
     DB_INSTANCE_CLASS=${DB_INSTANCE_CLASS:-db.t3.xlarge}
 
@@ -414,7 +414,7 @@ deploy_jar() {
     # requires — as the owner login, against the new JAR; the service is stopped
     # while it runs and is started only once it succeeded. A failed migration
     # ends this script with the service still stopped, so a schema the new JAR
-    # does not match is never served (infra/README.md, "Migrate step").
+    # does not match is never served (infra/docs/database-boot.md, "Migrate step").
     ssh -i "$KEY_FILE" \
         -o StrictHostKeyChecking=accept-new \
         "ec2-user@${EC2_IP}" << 'ENDSSH'

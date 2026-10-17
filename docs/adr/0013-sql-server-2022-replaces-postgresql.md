@@ -656,7 +656,7 @@ sign-off.
   local init's.** The deployed bootstrap runs in UserData, so the instance role
   reads the master secret (as-8). It is read by one root-owned script and never
   reaches the service's process, which `smoke.sh` checks; the role itself cannot
-  tell processes apart, which `infra/README.md` ("Database credentials") records
+  tell processes apart, which `infra/docs/database-credentials.md` ("Database credentials") records
   as residual risk. The T-SQL is held twice — in the template and in
   `backend/scripts/local-db-init.sql` — because a stack cannot read the
   repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
@@ -755,7 +755,7 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
   - The way out is a server collation that takes the lock: RDS's default, or
     `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
     take it on the Linux image. Changing the collation replaces the instance.
-  - The suite does not reproduce this one deployed setting (`infra/README.md`,
+  - The suite does not reproduce this one deployed setting (`infra/docs/database-engine.md`,
     "Collation and time zone").
 
 ## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks

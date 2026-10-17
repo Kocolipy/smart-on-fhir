@@ -5,7 +5,7 @@
 -- Everything from `SET NOCOUNT ON` down is, line for line, the deployed stack's
 -- /opt/backend/db-bootstrap.sql (infra/infrastructure.yaml, cfn-init), which RDS's
 -- master user runs; infra/check-bootstrap-parity.sh fails when the two differ, so
--- change both together. infra/README.md, "Database bootstrap", explains each step.
+-- change both together. infra/docs/database-boot.md, "Database bootstrap", explains each step.
 --
 -- Idempotent: what exists is left in place, so a run that finds everything in
 -- place changes nothing; every change prints a `db-init: change:` line. It

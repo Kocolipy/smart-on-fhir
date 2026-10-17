@@ -24,7 +24,7 @@ import org.bouncycastle.math.ec.ECPoint;
  * be in it.
  *
  * <p>No expiry or period logic (D14): a key is published for exactly as long as configuration
- * names it, and rotation is the operator's ({@code /infra/README.md}, "Signing-key promotion").
+ * names it, and rotation is the operator's ({@code /infra/docs/epic-signing-keys.md}, "Signing-key promotion").
  */
 public final class EpicJwks {
 

@@ -97,7 +97,7 @@ password the policy accepted is ever refused for its length.
 
 The application adds no rate limiter, SCIM or otherwise: throttling
 `/scim/v2/**`, Login and the self-service change is the deployment edge's job,
-specified in `infra/README.md` ("Edge throttling").
+specified in `infra/docs/edge-throttling.md` ("Edge throttling").
 
 ## SCIM release gate
 

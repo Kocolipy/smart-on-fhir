@@ -363,7 +363,7 @@ active key and then the next key, if one is set, as EC P-384 public keys for
 ES384 under their `kid`s, with no private parameter. Epic verifies our client
 assertions against it. Client assertions are signed by the active key only,
 through `ClientAssertionSigner`. The runbook for promoting a key is
-`/infra/README.md`, "Signing-key promotion".
+`/infra/docs/epic-signing-keys.md`, "Signing-key promotion".
 
 ```bash
 curl -i localhost:8080/api/auth/epic/jwks.json
@@ -503,7 +503,7 @@ actuator path keeps requiring `ops:read`. The exposure and histogram settings li
 which the test configuration imports too. The tag policy (what a metric may be
 labelled with) lives in `ScimRequestObservationConvention`. The alert rules are
 `ops/prometheus/alerts.yaml`. Deployment steps, the internal-port setup and the
-alert table are in `/infra/README.md` under "Operational telemetry".
+alert table are in `/infra/docs/operational-telemetry.md` under "Operational telemetry".
 
 A scheduled job reports its runs through `ScheduledJobMetrics`
 (`app_job_runs_total{job,outcome}`, `app_job_last_success_seconds{job}`). The audit
@@ -628,7 +628,7 @@ The pools: how each reaches the database is one module's, `DatabaseConnections`
 `loginTimeout=15`, and on the deployed stack the driver-scoped trust store's
 password, which arrives from the environment as
 `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD` while
-`DATABASE_URL` names the store (`/infra/README.md`, "TLS to the database") —
+`DATABASE_URL` names the store (`/infra/docs/database-encryption.md`, "TLS to the database") —
 reach the main, audit append
 and retention pools alike, and the migrate step's owner connection too
 (`MigrationConnection`). Set such a property there, for the service and the
@@ -667,7 +667,7 @@ owner credential.
   `DATABASE_RETENTION_USERNAME`) — no other password — and whatever
   `spring.datasource.hikari.data-source-properties.*` the service is given, so
   its connection is opened as the pools' are. A failed migration exits
-  non-zero, and the deploy does not start the service (`/infra/README.md`,
+  non-zero, and the deploy does not start the service (`/infra/docs/database-boot.md`,
   "Migrate step"). The service is then given the app and retention logins only.
 
 - **Locally**, `SPRING_PROFILES_ACTIVE=local` (`.env.example`) migrates at
@@ -704,12 +704,12 @@ no secret: values reach `sqlcmd` as scripting variables from the environment,
 never as arguments, and `sqlcmd` runs without `-e`. The roles, the app and
 retention logins' database users and their grants come from `V1`, so the init
 grants nothing. A deployment creates the database and the logins with the same
-T-SQL, run on its instance as the RDS master user (`infra/README.md`, "Database
+T-SQL, run on its instance as the RDS master user (`infra/docs/database-boot.md`, "Database
 bootstrap").
 
 The local server keeps its default collation and only the database is collated
 `Latin1_General_100_BIN2_UTF8`. The deployed RDS server is collated
-`Latin1_General_100_BIN2_UTF8` too (`infra/README.md`, "Collation and time
+`Latin1_General_100_BIN2_UTF8` too (`infra/docs/database-engine.md`, "Collation and time
 zone"), but on this image a server collated `BIN2_UTF8`
 cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
 guard every migration. The service's own seed lock is a row lock and needs

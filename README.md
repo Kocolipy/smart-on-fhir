@@ -117,7 +117,7 @@ template, the key and the repo from its own location, but writes
 deletes it from. `deploy.sh` builds the shippable JAR by calling
 `scripts/package.sh` — the integrated path, so what reaches the instance has the
 SPA in it. The stack provisions ALB + EC2 + RDS for SQL Server 2022 Standard
-Edition (licence-included, a cost change: `infra/README.md`, "Engine, edition and
+Edition (licence-included, a cost change: `infra/docs/database-engine.md`, "Engine, edition and
 cost") + ElastiCache Redis in `ap-southeast-1`; details, parameters, and
 troubleshooting are in `infra/README.md`.
 
@@ -129,8 +129,8 @@ and, after shipping the JAR, runs the post-deploy smoke (`smoke.sh`) — health,
 the JVM's default trust, TLS enforcement, a SCIM round trip with no development
 fixture account, the database alarms, and a check that no secret value leaked
 onto the instance; without the JAR it still runs that leak check over the
-instance's boot. `infra/README.md`,
-"Database security", has the secrets, the KMS key, TLS and the monitoring.
+instance's boot. `infra/docs/index.md`,
+"Database", lists the secrets, the KMS key, TLS and the monitoring.
 
 **Edge throttling is a deployment requirement.** The application has no
 request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
@@ -138,7 +138,7 @@ request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
 Per-account throttling is the deterrent that matters. Per-source (per-IP) limits
 are left to the edge's own policy, because Users behind a shared proxy or NAT
 present one address. The stack provisions no AWS WAF web ACL, so attach one before
-exposing the service. Scope, keys and rationale are in `infra/README.md`'s "Edge
+exposing the service. Scope, keys and rationale are in `infra/docs/edge-throttling.md`'s "Edge
 throttling" section.
 
 The local deploy artefacts in `infra/` — a `parameters.json` copied from the

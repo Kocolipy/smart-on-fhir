@@ -4,7 +4,7 @@
 # the EC2 instance's AWS::CloudFormation::Init metadata) and
 # backend/scripts/local-db-init.sql are the same lines. A stack cannot read a
 # file from this repository, so the text is held twice and this check keeps
-# the copies equal (infra/README.md, "Database bootstrap"). Exits non-zero, with
+# the copies equal (infra/docs/database-boot.md, "Database bootstrap"). Exits non-zero, with
 # the difference, when they are not.
 #
 # Usage: ./check-bootstrap-parity.sh [--extract <dir>]

@@ -84,7 +84,7 @@ clock. A lock keeps the cause it was first imposed for.
   change's.
 - The failure lockout is the per-User half of brute-force deterrence on Login;
   the deployment edge throttles the rest, because it cannot see the `userName` in
-  a Login body (`infra/README.md`, "Edge throttling").
+  a Login body (`infra/docs/edge-throttling.md`, "Edge throttling").
 
 **Bootstrap Admin exemption** — the seeded Admin (`app.auth.bootstrap-username`)
 is the deployment's local recovery identity and the one principal lockout never
