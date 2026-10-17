@@ -37,8 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
  * The connector and token use cases an administrator drives.
  *
  * <p>Separate from {@link ConnectorAuthenticationService}, which serves the request
- * path, for the reason {@code AccountAdministrationService} is separate from
- * {@code AccountService}: the class that verifies a presented credential does not
+ * path, for the reason {@code IdentityAdministrationService} is separate from
+ * {@code LoginIdentityService}: the class that verifies a presented credential does not
  * also mint and revoke them, so nothing on the authentication path can reach a
  * write by accident.
  *

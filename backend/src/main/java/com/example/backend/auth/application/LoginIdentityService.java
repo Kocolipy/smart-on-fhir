@@ -26,10 +26,8 @@ import org.springframework.stereotype.Service;
 /**
  * Reports a SCIM User to Spring Security, with the authority its Group membership confers.
  *
- * <p>This is the login path's whole view of the directory. It replaces the account aggregate's
- * {@code AccountService}, which read a table of its own; there is no second identity to read any
- * more, because a SCIM User carries the profile, the credential and the authentication state
- * together.
+ * <p>This is the login path's whole view of the directory. There is no second identity to read,
+ * because a SCIM User carries the profile, the credential and the authentication state together.
  *
  * <p>It lives in this slice rather than in {@code scim} because it serves the password-login
  * surface, not the SCIM protocol: it reaches the directory through the SCIM ports and adds
