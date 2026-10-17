@@ -33,8 +33,8 @@ import org.springframework.stereotype.Component;
  * endpoint — or a refusal with its exact reason (ADR 0012, "Audit"), read from what failed and
  * never from a message, which can quote what Epic sent. {@link LoginCompletion#endUndecided}
  * ends the Login — its outcome recorded, audit, log and counts, and the session the browser held
- * ended, whoever it belonged to — and the browser lands at {@code /?signin=unavailable} or
- * {@code /?signin=refused}, told nothing more (D23, D24).
+ * ended, whoever it belonged to — and the browser lands at {@code /login?signin=unavailable} or
+ * {@code /login?signin=refused}, told nothing more (D23, D24).
  *
  * <p>The one {@link AuthenticationFailureHandler} in the application, which is how the Epic
  * security configuration finds it without depending on this web adapter. Exists only while Epic

@@ -16,7 +16,7 @@ import {
 
 /**
  * The `/change-password` route driven end to end: a forced change confined to
- * the route, a voluntary one from the showcase, and a lockout reached through
+ * the route, a voluntary one from Home, and a lockout reached through
  * the route itself.
  *
  * Runs in the `admin` project because the forced change is made from the
@@ -73,13 +73,13 @@ async function expectFieldsCleared(page: Page) {
 /** After a successful change: on login, told why, and the new password works. */
 async function expectSignedOutThenSignIn(page: Page, userName: string, password: string) {
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("status")).toHaveText(
     "Your password was changed. Sign in with your new password.",
   );
 
   await submitLogin(page, userName, password);
-  await expect(page).toHaveURL(/\/showcase$/);
+  await expect(page).toHaveURL("/");
   await expect(page.getByText(`Signed in as ${userName}`)).toBeVisible();
   const me = (await (await page.request.get("/api/auth/me")).json()) as {
     passwordChangeRequired: boolean;
@@ -103,7 +103,7 @@ test("an Admin's forced change confines the User to /change-password until it is
     await row.getByRole("button", { name: `Force password change for ${user.userName}` }).click();
     await expect(row.getByText("Required")).toBeVisible();
 
-    // The User signs in and lands on the change, not the showcase.
+    // The User signs in and lands on the change, not Home.
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
     await expect(own).toHaveURL(/\/change-password$/);
@@ -114,7 +114,7 @@ test("an Admin's forced change confines the User to /change-password until it is
     await expect(own.getByRole("button", { name: "Sign out" })).toBeVisible();
 
     // Confined: a direct navigation elsewhere is sent back.
-    for (const elsewhere of ["/showcase", "/accounts", "/", "/no-such-page"]) {
+    for (const elsewhere of ["/", "/accounts", "/login", "/no-such-page"]) {
       await own.goto(elsewhere);
       await expect(own).toHaveURL(/\/change-password$/);
       await expect(heading(own)).toBeVisible();
@@ -145,9 +145,7 @@ test("an Admin's forced change confines the User to /change-password until it is
   }
 });
 
-test("an unflagged User changes its password voluntarily from the showcase", async ({
-  browser,
-}) => {
+test("an unflagged User changes its password voluntarily from Home", async ({ browser }) => {
   test.setTimeout(120_000);
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
@@ -156,7 +154,7 @@ test("an unflagged User changes its password voluntarily from the showcase", asy
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
-    await expect(own).toHaveURL(/\/showcase$/);
+    await expect(own).toHaveURL("/");
 
     await own.getByRole("link", { name: "Change password" }).click();
     await expect(own).toHaveURL(/\/change-password$/);
@@ -184,7 +182,7 @@ test("the form states the policy, and the browser holds back a too-short passwor
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
-    await expect(own).toHaveURL(/\/showcase$/);
+    await expect(own).toHaveURL("/");
     await own.getByRole("link", { name: "Change password" }).click();
     await expect(heading(own)).toBeVisible();
 
@@ -237,7 +235,7 @@ test("wrong current passwords lock the account, ending the session, and login sa
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
-    await expect(own).toHaveURL(/\/showcase$/);
+    await expect(own).toHaveURL("/");
     await own.getByRole("link", { name: "Change password" }).click();
     await expect(heading(own)).toBeVisible();
 
@@ -250,7 +248,7 @@ test("wrong current passwords lock the account, ending the session, and login sa
     // The lockout ended the session, so the SPA's does too: the visitor lands
     // on login, which says why, with no return destination to the change page.
     await expect(own.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(own).toHaveURL(/\/$/);
+    await expect(own).toHaveURL(/\/login$/);
     await expect(own.getByRole("status")).toHaveText(
       "Too many incorrect passwords: the account is now locked and your session has ended. An Admin must Unlock the account before you can sign in again.",
     );

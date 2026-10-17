@@ -7,12 +7,10 @@ test.describe("authentication and counter", () => {
     await resetCounterViaApi(page);
   });
 
-  test("opens the protected showcase with the saved session and manages the counter", async ({
-    page,
-  }) => {
-    await page.goto("/showcase");
+  test("opens Home with the saved session and manages the counter", async ({ page }) => {
+    await page.goto("/");
 
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page).toHaveURL("/");
     await expect(page.getByText("Signed in as admin")).toBeVisible();
 
     const count = page.getByTestId("count");
@@ -31,5 +29,12 @@ test.describe("authentication and counter", () => {
     await reset.click();
     await expect(count).toHaveText("Clicked 0 times");
     await expect(reset).toBeDisabled();
+  });
+
+  test("sends a signed-in visit to login on to Home", async ({ page }) => {
+    await page.goto("/login");
+
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+    await expect(page).toHaveURL("/");
   });
 });

@@ -20,7 +20,7 @@ list:
 ```bash
 npm ci                                # run first — node_modules is often stale, so vitest may be missing
 npx playwright install chromium       # first E2E run on a machine only
-npm test src/pages/showcase.test.tsx  # one file
+npm test src/pages/home.test.tsx      # one file
 npm test -- -t "name of test"         # one test by name
 npx stryker run --mutate '<src-glob>,!<test-glob>'   # scoped Stryker (see docs/TESTING_GUIDE.md)
 npx fallow audit                      # dead code / complexity / duplication in the changeset
@@ -144,7 +144,7 @@ and these do not have one until their trigger narrows the scope.
 
 **Epic Login E2E** drives a real SMART provider EHR launch through
 `/api/auth/epic/launch`, the launcher's authorization and our callback to
-`/showcase`, with the SMART Health IT launcher standing in for Epic. "Epic
+Home (`/`), with the SMART Health IT launcher standing in for Epic. "Epic
 Login" means anything on that path: `backend/.../auth/epic/`, the Epic routes'
 security or session handling, `logInFromEpic`, the SPA's handling of the
 launch landing, and the launcher setup itself. `make epic-integration-test`

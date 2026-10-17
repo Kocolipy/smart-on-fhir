@@ -27,8 +27,8 @@ Vitest with happy-dom and Testing Library. Globals are on, so `describe` / `it`
 here, which costs nothing and survives a config change). `test/setup.ts` pulls
 in `@testing-library/jest-dom`.
 
-Tests are **colocated** with the code they cover — `showcase.test.tsx` beside
-`showcase.tsx` — and type-checked through `tsconfig.test.json`, which is the only
+Tests are **colocated** with the code they cover — `home.test.tsx` beside
+`home.tsx` — and type-checked through `tsconfig.test.json`, which is the only
 project that includes them. `tsconfig.json` excludes `*.test.*` and
 `*.testHelpers.*` so production builds never see them.
 
@@ -47,7 +47,7 @@ trap below was found. The command is under Mutation testing.
 `toHaveTextContent` is a **substring** match. `toHaveTextContent("Clicked 1 time")`
 passes on the buggy `"Clicked 1 times"` — so the assertion written to pin down
 a pluralisation is exactly the one that does not. Anchor it:
-`toHaveTextContent(/^Clicked 1 time$/)`. `src/pages/showcase.test.tsx` carries the
+`toHaveTextContent(/^Clicked 1 time$/)`. `src/pages/home.test.tsx` carries the
 comment; Stryker is what found it (the `count === 1` mutant survived).
 
 Playwright's `toHaveText` is exact by default, so E2E does not have this trap.
@@ -128,7 +128,7 @@ The `mutation-testing` skill drives the run and triages the survivors. Two of
 its defaults disagree with the rule above, so pass them explicitly:
 
 ```bash
-/mutation-testing --target=src/pages/showcase.tsx --threshold=100
+/mutation-testing --target=src/pages/home.tsx --threshold=100
 ```
 
 `--scope=changed` covers the whole changeset rather than the source one test
@@ -311,7 +311,7 @@ response:
 - **`401` from a session the backend really ended** — sign the same User in
   again elsewhere, or make the SCIM write that revokes its sessions
   (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
-  next request a read: an increment would move the counter `showcase.spec.ts`
+  next request a read: an increment would move the counter `home.spec.ts`
   asserts exact values of.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
@@ -320,7 +320,7 @@ back.
 
 ### Sharing backend state under `fullyParallel`
 
-The counter is one value on the backend and `showcase.spec.ts` resets it,
+The counter is one value on the backend and `home.spec.ts` resets it,
 so a spec running beside it must not assert a count. `session.spec.ts` only
 makes requests the backend refuses, which leaves the count untouched.
 
@@ -391,7 +391,7 @@ and nothing below it can make a second (`auth/page-status.ts`), and the page
 suites render inside the layout, so its Sign out shares the line they assert on.
 
 A suite's own wrapper over the adapter takes the wire answers before the
-session, so `renderAccounts(answers, session)`, `renderShowcase(answers, session)`
+session, so `renderAccounts(answers, session)`, `renderHome(answers, session)`
 and `renderShell(path, answers, session)` read alike.
 
 A suite that renders the whole app (`src/App.test.tsx`) stubs `fetch` with
@@ -423,9 +423,9 @@ timing hacks:
   flight.
 - **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Reset" })`,
   `getByLabel("Current password")`. `getByTestId` is fine for a value with no
-  accessible name of its own, as `showcase.spec.ts` uses for the counter.
+  accessible name of its own, as `home.spec.ts` uses for the counter.
 - **Restore anything a spec mutates, or own it.** A spec either resets the
-  shared state it changes (`showcase.spec.ts` resets the counter) or acts only
+  shared state it changes (`home.spec.ts` resets the counter) or acts only
   on fixtures it provisioned and deletes in a `finally` (see "Calling the API
   from a spec").
 

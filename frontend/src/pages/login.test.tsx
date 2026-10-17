@@ -10,7 +10,7 @@ import {
   renderAsSession,
   type Answers,
 } from "@/auth/session-adapter.testHelpers";
-import type { SessionRouteState } from "@/auth/session-route";
+import { LOGIN_PATH, type SessionRouteState } from "@/auth/session-route";
 
 import { Login } from "./login";
 
@@ -27,9 +27,9 @@ const [username, password] = TEST_LOGIN;
 /** The login's `UserResponse`: the backend signed the User in. */
 const SIGNED_IN = json(testUser());
 
-/** The login page for a Guest, at `/` with `search` and router `state`, the login answered as `answers` says. */
+/** The login page for a Guest, at `/login` with `search` and router `state`, the login answered as `answers` says. */
 const renderLogin = (answers: Answers = {}, state?: SessionRouteState, search = "") =>
-  renderAsSession(<Login />, GUEST, { answers, at: { pathname: "/", search, state } });
+  renderAsSession(<Login />, GUEST, { answers, at: { pathname: LOGIN_PATH, search, state } });
 
 const submit = () =>
   act(async () => {

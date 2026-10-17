@@ -10,7 +10,7 @@ import * as authApi from "./api";
 import { AuthProvider } from "./auth-context";
 import { useAuth } from "./auth-context-value";
 import { GuestRoute, ProtectedRoute } from "./route-guards";
-import { LOGIN_PATH } from "./session-route";
+import { DEFAULT_DESTINATION, LOGIN_PATH } from "./session-route";
 import { useSessionRequest } from "./use-session-request";
 
 vi.mock("./api");
@@ -174,7 +174,7 @@ describe("IdleSignOut", () => {
       api.getCurrentUser.mockResolvedValue({ kind: "guest" });
       api.login.mockResolvedValue({ kind: "signed-in", user: user(120) });
       render(
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[LOGIN_PATH]}>
           <AuthProvider>
             <Routes>
               <Route
@@ -186,10 +186,10 @@ describe("IdleSignOut", () => {
                 }
               />
               <Route
-                path="/showcase"
+                path={DEFAULT_DESTINATION}
                 element={
                   <ProtectedRoute>
-                    <p>Showcase page</p>
+                    <p>Home page</p>
                   </ProtectedRoute>
                 }
               />
@@ -203,7 +203,7 @@ describe("IdleSignOut", () => {
       await act(async () => {
         fireEvent.submit(screen.getByRole("button", { name: "Sign in" }));
       });
-      expect(screen.getByText("Showcase page")).toBeInTheDocument();
+      expect(screen.getByText("Home page")).toBeInTheDocument();
 
       await advance(120_000 - 1);
       expect(api.logout).not.toHaveBeenCalled();

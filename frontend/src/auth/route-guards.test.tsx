@@ -7,8 +7,8 @@ import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState, CHECKING, unchecked } from "./auth-context.testHelpers";
 import { GuestRoute, ProtectedRoute } from "./route-guards";
 
-/** The guest route at `/` and a protected one at `/showcase`, entered at `path`. */
-function renderRoutes(value: AuthContextState, path = "/showcase") {
+/** The guest route at `/login` and a protected one at `/`, entered at `path`. */
+function renderRoutes(value: AuthContextState, path = "/") {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AuthContext.Provider value={value}>
@@ -19,7 +19,7 @@ function renderRoutes(value: AuthContextState, path = "/showcase") {
                 <p>Login page</p>
               </GuestRoute>
             }
-            path="/"
+            path="/login"
           />
           <Route
             element={
@@ -27,7 +27,7 @@ function renderRoutes(value: AuthContextState, path = "/showcase") {
                 <p>Protected page</p>
               </ProtectedRoute>
             }
-            path="/showcase"
+            path="/"
           />
         </Routes>
       </AuthContext.Provider>
@@ -46,8 +46,8 @@ describe("ProtectedRoute", () => {
 
 describe("a session check that did not answer", () => {
   it.each([
-    ["a protected route", "/showcase"],
-    ["the guest route", "/"],
+    ["a protected route", "/"],
+    ["the guest route", "/login"],
   ])("says on %s, in one line, that the session could not be checked", (_name, path) => {
     renderRoutes(authState(unchecked()), path);
 

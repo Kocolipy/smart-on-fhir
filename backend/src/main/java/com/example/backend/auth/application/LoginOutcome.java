@@ -46,7 +46,7 @@ public sealed interface LoginOutcome {
 
     /**
      * The Login was refused. The browser is told only that, by the web adapter of its method — a
-     * password Login's bare {@code 401}, an Epic Login's {@code /?signin=refused} — and the
+     * password Login's bare {@code 401}, an Epic Login's {@code /login?signin=refused} — and the
      * reason is the audit trail's and the {@code login} counter's alone.
      */
     sealed interface Refused extends LoginOutcome {

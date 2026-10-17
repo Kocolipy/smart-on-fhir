@@ -24,7 +24,7 @@ test.describe("sessions, signed out", () => {
     // The backend answers 401 and deliberately does not say which half was
     // wrong, so the SPA must not invent a more specific message either.
     await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
@@ -43,30 +43,30 @@ test.describe("sessions, signed out", () => {
 
       expect((await answered).status()).toBe(400);
       await expect(page.getByRole("alert")).toHaveText("Unable to sign in. Please try again.");
-      await expect(page).toHaveURL(/\/$/);
+      await expect(page).toHaveURL(/\/login$/);
       await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
     });
   }
 
   test("sends a guest asking for the protected page to the login page", async ({ page }) => {
-    await page.goto("/showcase");
+    await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("sends a guest asking for the accounts page to the login page", async ({ page }) => {
     await page.goto("/accounts");
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("redirects an unknown path to the login page", async ({ page }) => {
     await page.goto("/no-such-page");
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("ends the session on sign out", async ({ page }) => {
@@ -86,16 +86,16 @@ test.describe("sessions, signed out", () => {
     expect((await response.allHeaders())["clear-site-data"]).toBe('"cache","cookies","storage"');
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
 
     // Returning to the protected page is the assertion that matters: a sign-out
     // that only reset the provider's state would sail back in on a cookie the
     // backend still honours, and a reload is the one thing the SPA's own state
     // cannot survive.
-    await page.goto("/showcase");
+    await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
   });
 
   test("refuses a session cookie captured before sign out", async ({ page, context }) => {

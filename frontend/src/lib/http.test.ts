@@ -446,7 +446,7 @@ describe("logout on an expired session", () => {
   it.each([401, 403])(
     "clears the session and routes to login silently when the retry answers %i",
     async (retryStatus) => {
-      window.history.replaceState(null, "", "/showcase");
+      window.history.replaceState(null, "", "/");
       let tokens = 0;
       let logouts = 0;
       const fetchMock = vi.fn((input: string, init?: RequestInit) => {
@@ -473,7 +473,7 @@ describe("logout on an expired session", () => {
       await user.click(await screen.findByRole("button", { name: "Sign out" }));
 
       expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-      expect(window.location.pathname).toBe("/");
+      expect(window.location.pathname).toBe("/login");
       expect(screen.queryByText("Signed in as ada")).not.toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
@@ -492,7 +492,7 @@ describe("logout on an expired session", () => {
   );
 
   it("fetches a new token for the next login instead of reusing the dead one", async () => {
-    window.history.replaceState(null, "", "/showcase");
+    window.history.replaceState(null, "", "/");
     let tokens = 0;
     let logouts = 0;
     const fetchMock = vi.fn((input: string, init?: RequestInit) => {
@@ -530,7 +530,7 @@ describe("logout on an expired session", () => {
     await user.type(screen.getByLabelText("Password"), "correct-password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
     const urls = fetchMock.mock.calls.map(([url]) => url);
     // The token fetched just before the login, not the one the dead session held.
     expect(urls[urls.indexOf("/api/auth/login") - 1]).toBe(CSRF_PATH);

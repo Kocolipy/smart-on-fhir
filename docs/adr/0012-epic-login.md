@@ -135,10 +135,11 @@ Security's authorization-request filter build the request.
 7. **Session.** `LoginCompletion` signs the session in through
    `SessionEstablishment`, exactly as for password Login (ADR 0001), with
    `session-start` under method `sso`. The success handler then keeps Epic's
-   tokens on the signed-in session (D29). The answer is `302 /`. The SPA's
-   `/api/auth/me` → `authenticated` → `/showcase` path follows.
-8. **Any refusal or OAuth error** at any step lands at `/?signin=refused`, and
-   Epic being unreachable at `/?signin=unavailable` (D23). Neither carries any
+   tokens on the signed-in session (D29). The answer is `302 /`, Home: the
+   SPA's `/api/auth/me` answers `authenticated` and the protected route renders.
+8. **Any refusal or OAuth error** at any step lands on the login page at
+   `/login?signin=refused`, and Epic being unreachable at
+   `/login?signin=unavailable` (D23). Neither carries any
    detail, and both end the browser's session first (D24).
 
 How a Login ends is ADR 0001's: `LoginCompletion` runs the decision, the session,
@@ -270,7 +271,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   and a normalizing comparison would have to decide which variants Epic means
   the same server by, which only Epic can. A missing or different `iss` is
   refused as `ISS_MISMATCH`.
-- **D11: a successful Epic Login lands on `/showcase`,** the same default as
+- **D11: a successful Epic Login lands on Home (`/`),** the same default as
   password Login with no return destination.
 - **D12: Dormancy and Lockout apply to Epic Login exactly as to password
   Login,** and a successful Epic Login moves the dormancy basis. A refused launch
@@ -344,9 +345,9 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   audit call. The second is the ADR 0003 redaction scan, which knows these names
   (ADR 0003, "Redaction gates").
 - **D23: refused and unavailable are distinct outcomes.** A refusal — bad input,
-  a failed check, no acceptable User — is `302 /?signin=refused`. Epic being
+  a failed check, no acceptable User — is `302 /login?signin=refused`. Epic being
   unreachable — a connect or read timeout, or a `5xx`, from discovery, the JWKS
-  or the token endpoint — is `302 /?signin=unavailable`, and the login page
+  or the token endpoint — is `302 /login?signin=unavailable`, and the login page
   tells the clinician to try again shortly rather than that they were refused.
   Neither carries any further detail. Every Epic call that fails is an
   `EpicOutboundException` carrying its call and its error category
@@ -696,7 +697,7 @@ each with its rationale in the section that follows the table.
 
 | Standard requirement                                                                                | Deviation                                                                   |
 | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| SSO §3.2: callback failures `400`, token failures `401`, IdP unavailable `502`                      | `302 /?signin=refused` or `/?signin=unavailable` (D23)                      |
+| SSO §3.2: callback failures `400`, token failures `401`, IdP unavailable `502`                      | `302 /login?signin=refused` or `/login?signin=unavailable` (D23)            |
 | SSO §4: rate limiting at the application layer, 10–60 per registration per minute, reset on success | Edge throttling only, limits in edge configuration (D19)                    |
 | SSO §4: a registry of redeemed authorization codes                                                  | None; single-use pending request (D27) plus Epic's single-use codes         |
 | SSO §4: consumed `state` tracked in a registry against reuse across sessions                        | Session-scoped, consumed on first callback (D27)                            |
@@ -723,11 +724,11 @@ rather than by the deploy; it shows as `unavailable` (no answer) or `refused`
 ### Deviation: redirects, not status codes
 
 App-Standards SSO §3.2 answers a callback failure `400`, a token failure `401` and
-an unavailable IdP `502`. Here every outcome is a `302`: `/?signin=refused` or
-`/?signin=unavailable` (D23), or `/` signed in. The callback is a navigation in the
-clinician's system browser, so a bare status code leaves them on a dead end; one
-answer per outcome also gives a prober nothing to enumerate, and the audit reason
-keeps the detail.
+an unavailable IdP `502`. Here every outcome is a `302`: `/login?signin=refused`
+or `/login?signin=unavailable` (D23), or `/` signed in. The callback is a
+navigation in the clinician's system browser, so a bare status code leaves them
+on a dead end; one answer per outcome also gives a prober nothing to enumerate,
+and the audit reason keeps the detail.
 
 ### Deviation: rate limiting at the edge only
 
@@ -819,7 +820,7 @@ Logging standard §2.2 asks that no reason reveal whether the account exists.
 are kept anyway, **in the audit trail only**. An investigation
 needs them, the SSO standard asks for specific failure types, and password Login
 records the same reasons. The browser sees one answer for all of them,
-`/?signin=refused`, and the operational log says only "Epic sign-in refused",
+`/login?signin=refused`, and the operational log says only "Epic sign-in refused",
 with no reason and no user field. The audit trail, read by an administrator,
 holds the detail. The `login` counter carries the reason as a tag; it counts
 events and names no account. Password Login keeps them the same way (ADR 0001).

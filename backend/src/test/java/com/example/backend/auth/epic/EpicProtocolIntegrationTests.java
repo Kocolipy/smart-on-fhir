@@ -60,7 +60,7 @@ import org.springframework.test.web.servlet.MvcResult;
 /**
  * Epic Login's protocol hardening (ADR 0012, D10, D17, D18, D27, flow steps 1–5
  * and 8): every malformed, forged, replayed or out-of-policy launch, callback and {@code id_token}
- * lands at {@code /?signin=refused} with its session ended, and is audited once as a
+ * lands at {@code /login?signin=refused} with its session ended, and is audited once as a
  * {@code LOGIN_FAILURE} under method {@code sso} with its exact reason (ADR 0012, "Audit").
  *
  * <p>Epic is a {@link FakeEpic} started for each test by the {@link EpicTestEnvironment}, told to
@@ -73,7 +73,7 @@ import org.springframework.test.web.servlet.MvcResult;
 @Import(ContainerTestConfiguration.class)
 class EpicProtocolIntegrationTests {
 
-    private static final String REFUSED = "/?signin=refused";
+    private static final String REFUSED = "/login?signin=refused";
 
     @RegisterExtension
     static final EpicTestEnvironment EPIC = EpicTestEnvironment.epicLoginOn();

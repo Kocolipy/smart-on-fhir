@@ -23,15 +23,11 @@ const LOGOUT = "DELETE /api/auth/logout";
 const SIGNED_IN = holding([]);
 
 /** The shell at `path` as `session` sees it, a Sign out answered as `answers` says. */
-function renderShell(
-  path = "/showcase",
-  answers: Answers = {},
-  session: StartingSession = SIGNED_IN,
-) {
+function renderShell(path = "/", answers: Answers = {}, session: StartingSession = SIGNED_IN) {
   return renderAsSession(
     <Routes>
       <Route element={<SignedInShell />}>
-        <Route element={<p>page body</p>} path="/showcase" />
+        <Route element={<p>page body</p>} path="/" />
         <Route element={<p>page body</p>} path="/accounts" />
         <Route element={<p>page body</p>} path="/audit" />
         <Route element={<p>page body</p>} path="/change-password" />
@@ -57,16 +53,13 @@ describe("SignedInShell", () => {
     expect(screen.getByText("page body")).toBeInTheDocument();
   });
 
-  it("links back to the showcase from the Audit page", async () => {
+  it("links back to Home from the Audit page", async () => {
     await renderShell("/audit");
-    expect(screen.getByRole("link", { name: "Back to showcase" })).toHaveAttribute(
-      "href",
-      "/showcase",
-    );
+    expect(screen.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
   });
 
-  it("offers no back link on the Showcase", async () => {
-    await renderShell("/showcase");
+  it("offers no back link on Home", async () => {
+    await renderShell("/");
     expect(screen.queryByRole("link", { name: /^Back/ })).not.toBeInTheDocument();
   });
 
@@ -77,11 +70,11 @@ describe("SignedInShell", () => {
 
   it("offers a back link on the password change once unconfined", async () => {
     await renderShell("/change-password");
-    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/showcase");
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/");
   });
 
   it("signs out through the auth context", async () => {
-    const { requests, session } = await renderShell("/showcase", {
+    const { requests, session } = await renderShell("/", {
       [LOGOUT]: bare(204),
     });
     await userEvent.setup().click(signOut());
@@ -93,21 +86,21 @@ describe("SignedInShell", () => {
   // withdrawn on the next try — is `use-session-action.test.tsx`'s; these prove
   // the shell renders what it hands back.
   it("disables Sign out while the logout is in flight", async () => {
-    await renderShell("/showcase", { [LOGOUT]: deferred().answer });
+    await renderShell("/", { [LOGOUT]: deferred().answer });
     await userEvent.setup().click(signOut());
     expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
   });
 
   it("says a failed Sign out left the user signed in", async () => {
-    await renderShell("/showcase", { [LOGOUT]: bare(500) });
+    await renderShell("/", { [LOGOUT]: bare(500) });
     await userEvent.setup().click(signOut());
     expect(await screen.findByRole("alert")).toHaveTextContent(STILL_SIGNED_IN);
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
   it("titles each signed-in page", async () => {
-    await renderShell("/showcase");
-    expect(screen.getByRole("heading", { level: 1, name: "Front End" })).toBeInTheDocument();
+    await renderShell("/");
+    expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
 
   it("titles the password change", async () => {
@@ -115,16 +108,13 @@ describe("SignedInShell", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Change password" })).toBeInTheDocument();
   });
 
-  it("links back to the counter from the Accounts page", async () => {
+  it("links back to Home from the Accounts page", async () => {
     await renderShell("/accounts");
-    expect(screen.getByRole("link", { name: "Back to counter" })).toHaveAttribute(
-      "href",
-      "/showcase",
-    );
+    expect(screen.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
   });
 
   it("renders safely while the session's user details are unavailable", async () => {
-    await renderShell("/showcase", {}, STILL_CHECKING);
+    await renderShell("/", {}, STILL_CHECKING);
     expect(screen.getByText(/^Signed in as\s*$/)).toBeInTheDocument();
   });
 
@@ -141,19 +131,19 @@ describe("SignedInShell", () => {
     expect(screen.getByRole("main")).toHaveClass("max-w-md", "items-center", "justify-center");
   });
 
-  it("centers the Showcase in a medium column", async () => {
-    await renderShell("/showcase");
+  it("centers Home in a medium column", async () => {
+    await renderShell("/");
     expect(screen.getByRole("main")).toHaveClass("max-w-2xl", "items-center", "justify-center");
   });
 
-  it("renders the Showcase layout for a path it has no page for", async () => {
+  it("renders the Home layout for a path it has no page for", async () => {
     await renderShell("/nowhere");
-    expect(screen.getByRole("heading", { level: 1, name: "Front End" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
 
-  it("renders the Showcase layout for a trailing-slash path", async () => {
-    await renderShell("/showcase/");
-    expect(screen.getByRole("heading", { level: 1, name: "Front End" })).toBeInTheDocument();
+  it("renders a page's own layout for its trailing-slash path", async () => {
+    await renderShell("/accounts/");
+    expect(screen.getByRole("heading", { level: 1, name: "Accounts" })).toBeInTheDocument();
   });
 });
 
@@ -210,7 +200,7 @@ describe("SignedInShell's error line", () => {
   });
 
   it("starts the next page with no line after a failed Sign out", async () => {
-    await renderSignedIn("/showcase", SIGNED_IN, { [LOGOUT]: bare(500) });
+    await renderSignedIn("/", SIGNED_IN, { [LOGOUT]: bare(500) });
     const user = userEvent.setup();
     await user.click(signOut());
     await screen.findByRole("alert");
@@ -224,14 +214,14 @@ describe("SignedInShell's error line", () => {
     await renderSignedIn("/accounts", holding(["user:read"]), { [USERS]: bare(503) });
     await screen.findByRole("alert");
 
-    await userEvent.setup().click(screen.getByRole("link", { name: "Back to counter" }));
+    await userEvent.setup().click(screen.getByRole("link", { name: "Back to home" }));
 
     expect(lines()).toEqual([]);
   });
 
   it("keeps a write the user left behind off the next page's line", async () => {
     const increment = deferred();
-    await renderSignedIn("/showcase", holding(["counter:read", "counter:write"]), {
+    await renderSignedIn("/", holding(["counter:read", "counter:write"]), {
       "GET /api/count": json({ count: 0 }),
       "POST /api/count/increment": increment.answer,
     });

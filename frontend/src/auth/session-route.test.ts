@@ -24,7 +24,7 @@ const guest = (signInReason: SessionEndReason | null = null): RoutedSession => (
 
 const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput => ({
   passwordChangeRequired: false,
-  pathname: "/showcase",
+  pathname: "/",
   requires: "authenticated",
   session: AUTHENTICATED,
   ...overrides,
@@ -51,11 +51,7 @@ describe("resolveSessionRoute for the change-required flag", () => {
       flagged({ pathname: CREDENTIAL_CHANGE_PATH }),
       { kind: "render" },
     ],
-    [
-      "confines a flagged session on the showcase",
-      flagged({ pathname: "/showcase" }),
-      toChangePassword,
-    ],
+    ["confines a flagged session on Home", flagged({ pathname: "/" }), toChangePassword],
     [
       "confines a flagged session on a Permission-guarded route",
       flagged({ pathname: "/accounts", requires: ACCOUNTS }),
@@ -67,8 +63,8 @@ describe("resolveSessionRoute for the change-required flag", () => {
       toChangePassword,
     ],
     [
-      "confines a flagged baseline User on the showcase",
-      flagged({ pathname: "/showcase", permissions: [] }),
+      "confines a flagged baseline User on Home",
+      flagged({ pathname: "/", permissions: [] }),
       toChangePassword,
     ],
     [
@@ -161,13 +157,13 @@ describe("resolveSessionRoute", () => {
     ],
     [
       "sends a guest to login, recording the return destination",
-      input({ pathname: "/showcase", session: guest() }),
-      { kind: "redirect", state: { from: "/showcase" }, to: LOGIN_PATH },
+      input({ pathname: "/", session: guest() }),
+      { kind: "redirect", state: { from: "/" }, to: LOGIN_PATH },
     ],
     [
       "marks the redirect as an Expired session, replaying the page it left",
-      input({ pathname: "/showcase", session: guest("expired") }),
-      { kind: "redirect", state: { from: "/showcase", reason: "expired" }, to: LOGIN_PATH },
+      input({ pathname: "/", session: guest("expired") }),
+      { kind: "redirect", state: { from: "/", reason: "expired" }, to: LOGIN_PATH },
     ],
     [
       "marks the redirect as an Idle sign-out, replaying the page it left",
@@ -189,10 +185,10 @@ describe("resolveSessionRoute", () => {
       input({
         pathname: LOGIN_PATH,
         requires: "guest",
-        returnTo: "/showcase/settings",
+        returnTo: "/accounts/settings",
         session: AUTHENTICATED,
       }),
-      { kind: "redirect", to: "/showcase/settings" },
+      { kind: "redirect", to: "/accounts/settings" },
     ],
     [
       "renders login for a Guest whose session expired",

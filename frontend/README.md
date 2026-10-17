@@ -4,7 +4,7 @@ React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
 up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
-login page, a counter page for authenticated accounts, a self-service
+login page, a Home page with a counter for authenticated accounts, a self-service
 change-password page, and an administrator-only accounts page that shows the
 directory's Users and Groups read-only, unlocks a User or forces its password
 change, and manages SCIM connectors and their tokens, and a read-only audit
@@ -63,7 +63,7 @@ npx fallow dead-code --trace <file>:<export>      # a symbol's real consumers
 Run a single test file or a single test by name:
 
 ```bash
-npm test src/pages/showcase.test.tsx
+npm test src/pages/home.test.tsx
 npm test -- -t "counts each click"
 ```
 
@@ -171,11 +171,11 @@ could not be fetched) preserve the session and let the feature show
 permission-denied or retry copy.
 
 Epic Login reaches the SPA as a full-page navigation, never a request the SPA
-makes. A refused EHR launch lands at `/?signin=refused`, signed out, and the
+makes. A refused EHR launch lands at `/login?signin=refused`, signed out, and the
 login page reads that marker off the URL and shows the neutral notice "Sign-in
 from Epic was refused" — no reason, because the backend sends none. A launch
 that found Epic unavailable — Epic too slow to answer, or answering with a server
-error — lands at `/?signin=unavailable`, also signed out, and the page shows
+error — lands at `/login?signin=unavailable`, also signed out, and the page shows
 "Sign-in from Epic is temporarily unavailable. Try again shortly." instead: the
 clinician did nothing wrong and a relaunch may well succeed. Either notice wins
 over a session-ended notice the history entry happens to carry. The page always
@@ -189,7 +189,7 @@ In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 ## Technology stack
 
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
-- **react-router-dom 7** for routing (`/` login, `/showcase` and
+- **react-router-dom 7** for routing (`/login` login, `/` Home and
   `/change-password` authenticated, `/accounts` for a session holding any
   administrative view's Permission, `/audit` for one holding `audit:read`)
 - **Vite 7** for development and building, with Brotli/gzip precompression

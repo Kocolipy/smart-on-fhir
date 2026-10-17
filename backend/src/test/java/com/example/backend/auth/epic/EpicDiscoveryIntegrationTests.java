@@ -33,8 +33,8 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Discovery failing at the launch (D23, D26): the authorize hop, which reads Epic's endpoints
- * from discovery before it can send the browser anywhere, lands at {@code /?signin=unavailable}
- * when Epic gives no answer in time or a {@code 5xx}, and at {@code /?signin=refused} when the
+ * from discovery before it can send the browser anywhere, lands at {@code /login?signin=unavailable}
+ * when Epic gives no answer in time or a {@code 5xx}, and at {@code /login?signin=refused} when the
  * document is not one.
  *
  * <p>A context of its own, whose discovery never succeeds, so every launch here reads discovery
@@ -72,7 +72,7 @@ class EpicDiscoveryIntegrationTests {
         EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
 
         assertThat(authorize().authorize().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     @Test
@@ -80,7 +80,7 @@ class EpicDiscoveryIntegrationTests {
         EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
 
         assertThat(authorize().authorize().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     /** D24: the launch's session does not outlive a launch Epic could not serve. */
@@ -152,7 +152,7 @@ class EpicDiscoveryIntegrationTests {
         EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.MALFORMED);
 
         assertThat(authorize().authorize().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test

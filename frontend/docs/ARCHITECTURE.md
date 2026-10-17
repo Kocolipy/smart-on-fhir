@@ -205,7 +205,7 @@ permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 copy the page supplies, because only the page knows what was being attempted.
 
-Every listing read — Users, Groups, connectors, the audit trail and the Showcase counter — goes
+Every listing read — Users, Groups, connectors, the audit trail and the Home counter — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the read's
 declaration (from its API module) with the declaration's arguments and its
 failure copy, and the hook reports to the page status around it; it sends nothing without the Permission, resets
@@ -390,14 +390,14 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table, deliberately flat:
 
-| Path               | Element                                                                                          | Notes                                                                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to `/showcase`                                                                                                            |
-| `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                                                  | every authenticated User; the counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
-| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                            |
-| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                            |
-| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                   |
-| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to login                                                                                                                              |
+| Path               | Element                                                                                          | Notes                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                  |
+| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
+| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                |
+| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                       |
+| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                             |
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
@@ -414,22 +414,22 @@ create and delete `connector:write`, token issue, rotate and revoke
 `connector:token`, the counter's buttons `counter:write`). A view the session
 cannot see is not requested either, so it never turns into a `403` on screen. A
 deep link to a page the session holds no Permission for is redirected to
-`/showcase`, exactly as any page it may not see.
+Home, `/`, exactly as any page it may not see.
 
 **Change-password route.** The backend confines a password Login's session whose
 password must be replaced (the change-required flag, see `/CONTEXT.md`): `GET
 /api/auth/me` and the login response report `passwordChangeRequired: true` with
 no Permission, and every endpoint but `POST /api/auth/change-password` and logout
 answers `403`. An Epic Login is never confined, flag or not, so its `/me` reports
-`passwordChangeRequired: false` and the launch lands on `/showcase`; the SPA
+`passwordChangeRequired: false` and the launch lands on Home, `/`; the SPA
 needs no rule of its own for that, since it acts only on what `/me` reports.
 `AuthUser` carries that flag, and `resolveSessionRoute` confines such a session
-to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
-the login route, an unknown path (which falls back to login first) — redirects
+to `/change-password`: any other path it asks for — Home, `/accounts`,
+the login route, an unknown path (which falls back to Home first) — redirects
 there, ahead of the Permission check and of any recorded return destination, so a
 flagged Superuser is confined exactly as a flagged User is. The signed-in shell offers Sign out,
 so a flagged User is never stuck on it. An unflagged User may open it too, for a
-voluntary change, and the showcase links to it.
+voluntary change, and Home links to it.
 
 `pages/change-password.tsx` submits current and new password (plus a
 confirmation checked in the browser) through `changePassword` on the auth
@@ -438,7 +438,7 @@ current password, and the seam would end the session on it unconditionally.
 `src/auth/api.ts` maps the outcomes. `204` means every session of the User has
 ended, the submitting one included, so the context clears its auth state and
 records why, and the guard returns the visitor to login with "Your password was
-changed" and no return destination — the next sign-in lands on `/showcase`, not
+changed" and no return destination — the next sign-in lands on Home, not
 back on the change. A `400` carries the backend's `PasswordRuleViolation`, and
 the page shows its statement of the unmet rule. The backend answers a wrong
 current password and a lockout with the same bodiless `401`, so `api.ts` tells
@@ -459,7 +459,7 @@ uncontrolled, because React mirrors a controlled input's value into the DOM
 It sends a Guest to login with a return destination, confines a flagged
 session to `/change-password`, renders an authenticated route for any session,
 renders a Permission-guarded one for a session holding any of its Permissions,
-and redirects every other session to `/showcase`. A Guest's redirect carries the
+and redirects every other session to Home, `/`. A Guest's redirect carries the
 provider's sign-in reason as `reason` beside the return destination; after a
 successful change it carries `reason: "password-changed"` instead of one, and
 after a lockout `reason: "locked"`.
@@ -470,9 +470,9 @@ _rendered_ and never what is _permitted_.
 
 `BrowserRouter` means real paths, not hashes, so the backend has to serve
 `index.html` for any unmatched path — that fallback is the backend's side of the
-SPA contract, and a deep link like `/showcase` 404s without it.
+SPA contract, and a deep link like `/accounts` or `/login` 404s without it.
 
-The four signed-in pages (Showcase, Accounts, Audit, Change password) are
+The four signed-in pages (Home, Accounts, Audit, Change password) are
 children of one layout route in `App.tsx`: a `ProtectedRoute` around
 `SignedInShell` (`pages/signed-in-shell.tsx`). The shell owns the header (who is
 signed in and the page title), the page's one error line, the back link and Sign
@@ -483,7 +483,7 @@ the line starts empty on every path. Each signed-in page is declared exactly onc
 `SIGNED_IN_PAGES` (`pages/signed-in-pages.tsx`): its path, element, optional
 `permissions` guard, and the shell metadata (title, back link, column width,
 centering). `App.tsx` maps the table to `<Route>`s, and the shell finds the
-current entry with `matchPath` (an unknown path falls back to the Showcase
+current entry with `matchPath` (an unknown path falls back to the Home
 layout), so **adding a signed-in page means adding one entry to that table** and
 nothing in `App.tsx` or the shell. (The router is `BrowserRouter`, so route
 `handle` / `useMatches` is not available; the table is the single source

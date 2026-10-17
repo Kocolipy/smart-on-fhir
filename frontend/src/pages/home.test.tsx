@@ -28,15 +28,15 @@ const COUNTER_USER = holding(["counter:read", "counter:write"]);
  * The page as `session` sees it, inside the signed-in layout that renders its
  * one error line, the count reading zero unless `answers` says otherwise.
  */
-const renderShowcase = (answers: Answers = {}, session: StartingSession = COUNTER_USER) =>
-  renderSignedIn("/showcase", session, { "GET /api/count": counted(0), ...answers });
+const renderHome = (answers: Answers = {}, session: StartingSession = COUNTER_USER) =>
+  renderSignedIn("/", session, { "GET /api/count": counted(0), ...answers });
 
 /** The page for a session holding exactly `permissions`, its links all a test reads. */
-const renderHolding = (permissions: Permission[]) => renderShowcase({}, holding(permissions));
+const renderHolding = (permissions: Permission[]) => renderHome({}, holding(permissions));
 
-describe("Showcase", () => {
+describe("Home", () => {
   it("offers every User the password change, and the accounts page only by Permission", async () => {
-    const { unmount } = await renderShowcase();
+    const { unmount } = await renderHome();
     expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
       "href",
       "/change-password",
@@ -91,7 +91,7 @@ describe("Showcase", () => {
   });
 
   it("shows counter:read the count without the controls that change it", async () => {
-    await renderShowcase({ "GET /api/count": counted(4) }, holding(["counter:read"]));
+    await renderHome({ "GET /api/count": counted(4) }, holding(["counter:read"]));
 
     expect(await screen.findByText("Clicked 4 times")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
@@ -108,19 +108,19 @@ describe("Showcase", () => {
   });
 
   it("renders the original home page and signed-in user", async () => {
-    await renderShowcase();
+    await renderHome();
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
   it("renders safely while the session's user details are unavailable", async () => {
-    const { requests } = await renderShowcase({}, STILL_CHECKING);
+    const { requests } = await renderHome({}, STILL_CHECKING);
     // No session details, so no Permission: nothing is offered and nothing is asked for.
     expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
     expect(requests()).toEqual([]);
   });
 
-  it("loads the current count when the showcase opens", async () => {
-    const { requests } = await renderShowcase({ "GET /api/count": counted(3) });
+  it("loads the current count when Home opens", async () => {
+    const { requests } = await renderHome({ "GET /api/count": counted(3) });
 
     expect(await screen.findByText("Clicked 3 times")).toBeInTheDocument();
     expect(requests()).toEqual([{ method: "GET", path: "/api/count" }]);
@@ -128,7 +128,7 @@ describe("Showcase", () => {
 
   it("disables counter actions while the initial count is loading", async () => {
     const loading = deferred();
-    await renderShowcase({ "GET /api/count": loading.answer });
+    await renderHome({ "GET /api/count": loading.answer });
 
     expect(increment()).toBeDisabled();
     expect(reset()).toBeDisabled();
@@ -140,14 +140,14 @@ describe("Showcase", () => {
   });
 
   it("shows no count while the initial count is loading", async () => {
-    await renderShowcase({ "GET /api/count": deferred().answer });
+    await renderHome({ "GET /api/count": deferred().answer });
 
     expect(screen.getByText("Loading the counter…")).toBeInTheDocument();
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
   });
 
   it("reports a failed initial counter read", async () => {
-    await renderShowcase({ "GET /api/count": bare(503) });
+    await renderHome({ "GET /api/count": bare(503) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the counter. Please try again.",
@@ -157,7 +157,7 @@ describe("Showcase", () => {
   // A body that drifted from `CountResponse` fails the read like a 5xx, and
   // shows no count: the page renders nothing it could not decode.
   it("reports a count body that does not decode, and shows no count", async () => {
-    await renderShowcase({ "GET /api/count": json({ count: "3" }) });
+    await renderHome({ "GET /api/count": json({ count: "3" }) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /^Unable to load the counter\. Please try again\.$/,
@@ -167,7 +167,7 @@ describe("Showcase", () => {
 
   // The count was never read, so no count is shown and nothing offers to change it.
   it("shows no count and offers no change after a failed initial counter read", async () => {
-    await renderShowcase({ "GET /api/count": bare(503) });
+    await renderHome({ "GET /api/count": bare(503) });
     await screen.findByRole("alert");
 
     expect(screen.queryByTestId("count")).not.toBeInTheDocument();
@@ -176,7 +176,7 @@ describe("Showcase", () => {
   });
 
   it("reports a refused counter update as permission denied and keeps the session", async () => {
-    const { requests, session } = await renderShowcase({
+    const { requests, session } = await renderHome({
       "GET /api/count": counted(2),
       "POST /api/count/increment": bare(403),
     });
@@ -195,7 +195,7 @@ describe("Showcase", () => {
 
   it("expires the auth state when the initial request is unauthenticated", async () => {
     const loading = deferred();
-    const { session } = await renderShowcase({ "GET /api/count": loading.answer });
+    const { session } = await renderHome({ "GET /api/count": loading.answer });
 
     await loading.settle(bare(401));
 
@@ -207,7 +207,7 @@ describe("Showcase", () => {
   });
 
   it("counts each click", async () => {
-    const { requests } = await renderShowcase({
+    const { requests } = await renderHome({
       "POST /api/count/increment": [counted(1), counted(2)],
     });
     const user = userEvent.setup();
@@ -220,7 +220,7 @@ describe("Showcase", () => {
   });
 
   it("uses the singular label at exactly one", async () => {
-    await renderShowcase({ "POST /api/count/increment": counted(1) });
+    await renderHome({ "POST /api/count/increment": counted(1) });
     const user = userEvent.setup();
 
     await user.click(increment());
@@ -228,7 +228,7 @@ describe("Showcase", () => {
   });
 
   it("disables Reset until there is something to reset", async () => {
-    await renderShowcase({ "POST /api/count/increment": counted(1) });
+    await renderHome({ "POST /api/count/increment": counted(1) });
     const user = userEvent.setup();
 
     expect(reset()).toBeDisabled();
@@ -238,7 +238,7 @@ describe("Showcase", () => {
 
   it("disables counter actions while an update is pending", async () => {
     const incrementing = deferred();
-    await renderShowcase({ "POST /api/count/increment": incrementing.answer });
+    await renderHome({ "POST /api/count/increment": incrementing.answer });
     const user = userEvent.setup();
 
     await user.click(increment());
@@ -252,7 +252,7 @@ describe("Showcase", () => {
   });
 
   it("returns the count to zero on reset", async () => {
-    const { requests } = await renderShowcase({
+    const { requests } = await renderHome({
       "POST /api/count/increment": counted(1),
       "POST /api/count/reset": counted(0),
     });
@@ -267,7 +267,7 @@ describe("Showcase", () => {
   });
 
   it("keeps the count and reports backend failures", async () => {
-    await renderShowcase({ "POST /api/count/increment": bare(503) });
+    await renderHome({ "POST /api/count/increment": bare(503) });
     const user = userEvent.setup();
 
     await user.click(increment());
@@ -283,7 +283,7 @@ describe("Showcase", () => {
   it.each([400, 404, 409])(
     "reports a %i refusal with the page's own default copy, not the hook's generic one",
     async (status) => {
-      await renderShowcase({ "POST /api/count/increment": bare(status) });
+      await renderHome({ "POST /api/count/increment": bare(status) });
       const user = userEvent.setup();
 
       await user.click(increment());
@@ -295,7 +295,7 @@ describe("Showcase", () => {
   );
 
   it("expires the auth state when an update is unauthenticated", async () => {
-    const { session } = await renderShowcase({
+    const { session } = await renderHome({
       "POST /api/count/increment": bare(401),
     });
     const user = userEvent.setup();

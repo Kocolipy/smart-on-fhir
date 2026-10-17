@@ -53,7 +53,7 @@ async function signedInBrowser(browser: Browser, userName: string) {
   const context = await freshBrowser(browser);
   const page = await context.newPage();
   await submitLogin(page, userName, OWN_PASSWORD);
-  await expect(page).toHaveURL(/\/showcase$/);
+  await expect(page).toHaveURL("/");
   await expect(page.getByText(`Signed in as ${userName}`)).toBeVisible();
   return page;
 }
@@ -69,9 +69,9 @@ async function park(page: Page) {
 
 /**
  * The page's next request, after the session was ended elsewhere: `Back`
- * remounts the showcase, whose counter read is refused, and the SPA sends the
+ * remounts Home, whose counter read is refused, and the SPA sends the
  * User to sign in with the expired-session notice. A read, never the counter's
- * increment — `showcase.spec.ts` asserts exact counts on the shared counter.
+ * increment — `home.spec.ts` asserts exact counts on the shared counter.
  * Every User holds the baseline `counter:read`, so the remount always reads.
  */
 async function expectNextRequestEndsSession(page: Page) {
@@ -125,7 +125,7 @@ test("a SCIM deactivation ends the User's session and refuses the next sign-in",
       // does not reveal that the account exists but is inactive.
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-      await expect(page).toHaveURL(/\/$/);
+      await expect(page).toHaveURL(/\/login$/);
     } finally {
       await page.context().close();
     }
@@ -180,7 +180,7 @@ test("a SCIM deletion ends the User's session and refuses the next sign-in", asy
 
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-      await expect(page).toHaveURL(/\/$/);
+      await expect(page).toHaveURL(/\/login$/);
     } finally {
       await page.context().close();
     }
@@ -210,7 +210,7 @@ test("a SCIM rename ends the User's session and only the new name signs in", asy
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
       await submitLogin(page, renamed, OWN_PASSWORD);
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       await expect(page.getByText(`Signed in as ${renamed}`)).toBeVisible();
     } finally {
       await page.context().close();
@@ -242,7 +242,7 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
       // Precondition: the membership made this User an Admin.
       await page.goto("/accounts");
       await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-      await page.goto("/showcase");
+      await page.goto("/");
       await park(page);
 
       const removed = await scimPatch(connector.scim, groupPath, [
@@ -255,9 +255,9 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
       // Signed in again, the User holds only the baseline Permissions: the page sends them
       // away, and the backend refuses the data behind it.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       await page.goto("/accounts");
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
     } finally {
       await page.context().close();
@@ -298,7 +298,7 @@ test("removal from a mapped Group over SCIM signs an Account admin's open SPA se
       await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Connectors", exact: true })).toHaveCount(0);
-      await page.goto("/showcase");
+      await page.goto("/");
       await park(page);
 
       const removed = await scimPatch(connector.scim, groupPath, [
@@ -311,9 +311,9 @@ test("removal from a mapped Group over SCIM signs an Account admin's open SPA se
       // Signed in again, the Role is gone: the Accounts page routes away and the
       // backend refuses the listing.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       await page.goto("/accounts");
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
     } finally {
       await page.context().close();

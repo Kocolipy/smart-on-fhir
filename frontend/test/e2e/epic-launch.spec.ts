@@ -18,7 +18,7 @@ import {
  * Epic Login end to end, with the SMART Health IT launcher standing in for
  * Epic: a provider EHR launch for a Practitioner whose ID is the `userName` of a
  * provisioned User opens our launch route, passes the launcher's authorization
- * and our callback, and lands on `/showcase` signed in as that User with the
+ * and our callback, and lands on Home (`/`) signed in as that User with the
  * Permissions its Groups confer; a launch for a Practitioner no User is
  * provisioned for lands on the login page's refused notice instead, as does a
  * launch whose `iss` is not exactly the configured FHIR base (D10), and a
@@ -92,7 +92,7 @@ function launchOptions(practitioner: string): string {
   return Buffer.from(JSON.stringify(options), "utf8").toString("base64url");
 }
 
-test("a provider EHR launch from the SMART launcher lands on /showcase as the Practitioner's User", async ({
+test("a provider EHR launch from the SMART launcher lands on Home as the Practitioner's User", async ({
   browser,
   page: adminPage,
 }) => {
@@ -121,7 +121,7 @@ test("a provider EHR launch from the SMART launcher lands on /showcase as the Pr
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page).toHaveURL("/");
     await expect(page.getByText(`Signed in as ${PRACTITIONER}`)).toBeVisible();
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
       permissions: string[];
@@ -139,7 +139,7 @@ test("a provider EHR launch from the SMART launcher lands on /showcase as the Pr
   }
 });
 
-test("a provider EHR launch for a User with the change-required flag lands on /showcase, not /change-password", async ({
+test("a provider EHR launch for a User with the change-required flag lands on Home, not /change-password", async ({
   browser,
 }) => {
   expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
@@ -156,7 +156,7 @@ test("a provider EHR launch for a User with the change-required flag lands on /s
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page).toHaveURL("/");
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
       passwordChangeRequired: boolean;
       username: string;
@@ -184,7 +184,7 @@ test("a provider EHR launch for an unprovisioned Practitioner lands on the refus
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 
-    await expect(page).toHaveURL(/\/\?signin=refused$/);
+    await expect(page).toHaveURL(/\/login\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
   } finally {
     await clinician.close();
@@ -209,7 +209,7 @@ test("a launch whose iss is not exactly the FHIR base lands on the refused notic
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 
-    await expect(page).toHaveURL(/\/\?signin=refused$/);
+    await expect(page).toHaveURL(/\/login\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
   } finally {
     await clinician.close();
@@ -251,7 +251,7 @@ test("a provider EHR launch whose token endpoint is unreachable lands on the una
     await page.goto(next);
 
     // Past the backend's read timeout (APP_EPIC_READ_TIMEOUT, 5 seconds by default).
-    await expect(page).toHaveURL(/\/\?signin=unavailable$/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/login\?signin=unavailable$/, { timeout: 20_000 });
     await expect(page.getByRole("status")).toHaveText(
       "Sign-in from Epic is temporarily unavailable. Try again shortly.",
     );

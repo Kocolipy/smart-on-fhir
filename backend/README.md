@@ -194,7 +194,7 @@ siblings emitted by the build are copied verbatim (resource filtering is off, so
 binaries are not corrupted).
 
 The backend serves static files and forwards client-side routes such as
-`/showcase` to `index.html`; `/api/**` and `/actuator/**` remain
+`/login` to `index.html`; `/api/**` and `/actuator/**` remain
 backend-only paths.
 
 ## Build and test

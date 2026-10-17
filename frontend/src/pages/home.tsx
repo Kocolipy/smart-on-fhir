@@ -18,7 +18,7 @@ import {
 
 import { ADMINISTRATION_PERMISSIONS } from "./accounts-api";
 import { AUDIT_EVENTS } from "./audit-api";
-import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./showcase-api";
+import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./home-api";
 
 const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
 
@@ -113,7 +113,7 @@ function CounterControls({
 }
 
 /**
- * The original home page, now available to authenticated users at /showcase.
+ * Home, the signed-in landing page at `/`.
  *
  * Every signed-in User lands here; what it shows follows the session's
  * Permissions. The counter is read only with `counter:read` and changed only
@@ -121,7 +121,7 @@ function CounterControls({
  * practice every signed-in User has the counter — and the link to the Accounts
  * page appears only for a User who may see one of its views.
  */
-export function Showcase() {
+export function Home() {
   const { user } = useAuth();
   const { increment, isUpdating, reset, view } = useCounter();
 

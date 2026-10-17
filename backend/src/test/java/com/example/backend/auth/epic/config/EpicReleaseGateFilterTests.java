@@ -19,7 +19,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 class EpicReleaseGateFilterTests {
 
     @ParameterizedTest
-    @ValueSource(strings = {"/api/auth/login", "/api/auth/epicx", "/api/auth/me", "/showcase", "/"})
+    @ValueSource(strings = {"/api/auth/login", "/api/auth/epicx", "/api/auth/me", "/login", "/"})
     void aClosedGatePassesEveryOtherPathThrough(String path) throws Exception {
         MockFilterChain chain = new MockFilterChain();
 

@@ -7,7 +7,7 @@ import { ADMINISTRATION_PERMISSIONS } from "@/pages/accounts-api";
 import { Audit } from "@/pages/audit";
 import { AUDIT_EVENTS } from "@/pages/audit-api";
 import { ChangePassword } from "@/pages/change-password";
-import { Showcase } from "@/pages/showcase";
+import { Home } from "@/pages/home";
 
 /** The Tailwind max-width of a page column; the widths the signed-in pages use. */
 type PageWidth = "max-w-md" | "max-w-2xl" | "max-w-6xl";
@@ -26,11 +26,11 @@ export interface SignedInPage {
 }
 
 /** The landing page, and what the shell falls back to for a path it does not know. */
-export const SHOWCASE_PAGE: SignedInPage = {
+export const HOME_PAGE: SignedInPage = {
   centered: true,
-  element: <Showcase />,
+  element: <Home />,
   path: DEFAULT_DESTINATION,
-  title: "Front End",
+  title: "Home",
   width: "max-w-2xl",
 };
 
@@ -41,9 +41,9 @@ export const SHOWCASE_PAGE: SignedInPage = {
  * entry here.
  */
 export const SIGNED_IN_PAGES: readonly SignedInPage[] = [
-  SHOWCASE_PAGE,
+  HOME_PAGE,
   {
-    back: { label: "Back to counter", to: DEFAULT_DESTINATION },
+    back: { label: "Back to home", to: DEFAULT_DESTINATION },
     element: <Accounts />,
     path: "/accounts",
     permissions: ADMINISTRATION_PERMISSIONS,
@@ -51,7 +51,7 @@ export const SIGNED_IN_PAGES: readonly SignedInPage[] = [
     width: "max-w-6xl",
   },
   {
-    back: { label: "Back to showcase", to: DEFAULT_DESTINATION },
+    back: { label: "Back to home", to: DEFAULT_DESTINATION },
     element: <Audit />,
     path: "/audit",
     permissions: [AUDIT_EVENTS.permission],

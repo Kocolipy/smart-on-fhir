@@ -13,7 +13,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /** What each route shows once its data has loaded, so nothing is checked mid-fetch. */
 const READY: Record<string, (page: Page) => Promise<void>> = {
-  "/showcase": async (page) => {
+  "/": async (page) => {
     await expect(page.getByTestId("count")).toHaveText(/^Clicked \d+ times?$/);
   },
   "/accounts": async (page) => {
@@ -27,10 +27,10 @@ const READY: Record<string, (page: Page) => Promise<void>> = {
 };
 
 const IDENTITIES = [
-  { role: "admin", routes: ["/showcase", "/accounts", "/change-password"] },
+  { role: "admin", routes: ["/", "/accounts", "/change-password"] },
   {
     role: "user",
-    routes: ["/showcase", "/change-password"],
+    routes: ["/", "/change-password"],
     storageState: "test/e2e/.auth/user.json",
   },
 ] as const;
@@ -64,7 +64,7 @@ for (const identity of IDENTITIES) {
         // Landing where asked proves the route rendered for this role rather
         // than redirecting; no alert means neither a refused load nor the
         // error boundary's fallback.
-        await expect(target).toHaveURL(new RegExp(`${route}$`));
+        await expect(target).toHaveURL(route);
         await READY[route]!(target);
         await expect(target.getByRole("alert")).toHaveCount(0);
       }

@@ -46,9 +46,9 @@ import org.springframework.stereotype.Component;
  * {@code AbsoluteSessionLifetimeFilter}, so its renewal cannot undo this.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
- * the session, whoever it belonged to (D24), and lands at {@code /?signin=refused} with no detail.
- * A {@code fhirUser} of another form is a protocol refusal, {@code INVALID_FHIR_USER}, handed to
- * the one Epic failure handler, which ends it. A User the login decision refused is recorded by
+ * the session, whoever it belonged to (D24), and lands at {@code /login?signin=refused} with no
+ * detail. A {@code fhirUser} of another form is a protocol refusal, {@code INVALID_FHIR_USER},
+ * handed to the one Epic failure handler, which ends it. A User the login decision refused is recorded by
  * the decision and its session ended by {@link LoginCompletion}; this handler only redirects.
  *
  * <p>A web adapter, because the session work is one, and a component rather than a bean of the
