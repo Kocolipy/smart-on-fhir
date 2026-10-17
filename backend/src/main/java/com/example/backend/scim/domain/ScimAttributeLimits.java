@@ -14,7 +14,7 @@ import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbid
  * {@code docs/openapi.yaml} and in the refusal's {@code detail}, not in {@code /Schemas}.
  *
  * <p>Lengths are counted in Unicode code points. A column holding a limited attribute is a UTF-8
- * {@code VARCHAR} four times the limit in bytes (ADR 0015), a code point taking at most four, so
+ * {@code VARCHAR} four times the limit in bytes (ADR 0013), a code point taking at most four, so
  * every value within the limit fits. Counting UTF-16 units instead would refuse a 256-character
  * name made of supplementary characters that the column stores without complaint.
  *
@@ -23,7 +23,7 @@ import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbid
  * a {@code userName} that fits can normalize into one that does not.
  *
  * <p>No stored string may contain U+0000: JSON can carry it, but it is hostile in logs and
- * terminals, which take it for the end of a string, so it is refused as input hygiene (ADR 0015).
+ * terminals, which take it for the end of a string, so it is refused as input hygiene (ADR 0013).
  * {@code userName} and {@code displayName}, of a User and of a Group, additionally refuse every
  * other C0 control and DEL. The database stores those, but these two are the names shown to an
  * administrator and written into logs, where a newline or an escape sequence forges a line or

@@ -151,7 +151,7 @@ class ScimAttributeLimitsTests {
 
     /**
      * The User attributes that are unique or looked up — the keys SQL Server would compare with
-     * trailing spaces ignored (ADR 0015) — and so refuse whitespace at either edge.
+     * trailing spaces ignored (ADR 0013) — and so refuse whitespace at either edge.
      */
     private static final Set<String> KEYS = Set.of("userName", "displayName", "emails.value",
             "emails.type");

@@ -35,10 +35,10 @@ import tools.jackson.databind.JsonNode;
  *       {@code error.stack_trace} — nor anywhere else in the stream. Every statement names its
  *       table by database and schema, so the driver's text and Spring's translated message,
  *       which quotes the statement, both carry all three; only the redaction keeps them out. In
- *       their place the record says {@code SQL Server error <n>} (ADR 0015).
+ *       their place the record says {@code SQL Server error <n>} (ADR 0013).
  *   <li><strong>Classification.</strong> {@code error.code} is the HTTP status the failure is
  *       answered with ({@code 500} off any request), never the database's error number, and
- *       {@code error.category} is ADR 0015's mapping for the failure.
+ *       {@code error.category} is ADR 0013's mapping for the failure.
  * </ul>
  *
  * <p>Each failure is driven through the service's own pool, as the app login, unless it is one

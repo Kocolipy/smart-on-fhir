@@ -43,7 +43,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * bound cut to what remains of its lifetime once that is the shorter
  * ({@link SignedInSession#boundByLifetime}, the same cut the Epic sign-in made),
  * so the renewal this request makes cannot keep the session, and the tokens on
- * it, in the store past the lifetime's end (ADR 0013, D29). Far from the end the
+ * it, in the store past the lifetime's end (ADR 0012, D29). Far from the end the
  * idle bound is untouched, and a session without Epic tokens is never touched.
  *
  * <p>Both questions — has the session outlived the policy, and whose was it — are
@@ -93,7 +93,7 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
             } else {
                 // This request renews the session for its idle bound again, so near the
                 // lifetime's end that bound would keep a session holding Epic's tokens, and the
-                // tokens with it, stored past the end. Cut it back to what remains (ADR 0013, D29).
+                // tokens with it, stored past the end. Cut it back to what remains (ADR 0012, D29).
                 signedIn.boundByLifetime(policy, now);
             }
         }

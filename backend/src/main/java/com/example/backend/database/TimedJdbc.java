@@ -5,7 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * A template of a caller's own over a pool's connections, with every statement bounded by a
- * query timeout (ADR 0015, "Bounded timeouts").
+ * query timeout (ADR 0013, "Bounded timeouts").
  *
  * <p>The pool's shared template is left as it is, so the bound belongs to the one adapter that
  * asked for it and reaches no other caller of the pool.

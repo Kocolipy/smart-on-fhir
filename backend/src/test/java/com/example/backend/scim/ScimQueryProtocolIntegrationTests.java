@@ -645,7 +645,7 @@ class ScimQueryProtocolIntegrationTests {
      * stateless paging over a tie returns each resource exactly once. {@code active} ties three
      * Users; {@code emails.type} ties alice and bob, whose primary-or-first email is a work one.
      * The id order is SQL Server's {@code UNIQUEIDENTIFIER} order, a documented deviation from
-     * the text order of the ids (ADR 0015).
+     * the text order of the ids (ADR 0013).
      */
     @ParameterizedTest
     @CsvSource({"active,ascending", "active,descending", "emails.type,ascending"})
@@ -1264,7 +1264,7 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     /**
-     * A documented deviation (ADR 0015, "Observable changes"): SQL Server pads a text comparison,
+     * A documented deviation (ADR 0013, "Observable changes"): SQL Server pads a text comparison,
      * so {@code eq}, {@code ne} and the ordering operators on free text ignore trailing spaces in
      * the stored value and in the filter's. {@code co}, {@code sw} and {@code ew} are
      * {@code LIKE} against a bound Unicode pattern, where SQL Server keeps trailing spaces

@@ -189,7 +189,7 @@ class ScimSeedServiceTests {
 
     /**
      * The Bootstrap Admin's password comes from deployment configuration, with working fallbacks
-     * on a public remote: a default credential, which IM8 ac-6 (ADR 0012) requires be replaced
+     * on a public remote: a default credential, which IM8 ac-6 (ADR 0011) requires be replaced
      * on first use. Dated by the seeding clock.
      */
     @Test

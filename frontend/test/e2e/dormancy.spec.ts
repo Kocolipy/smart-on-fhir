@@ -4,7 +4,7 @@ import { FIXTURE_PASSWORD, loginAsRole, submitLogin } from "./auth.helpers";
 import { freshBrowser, rowOf } from "./scim.helpers";
 
 /**
- * The dormancy lockout end to end (ADR 0011), through the `dormant`
+ * The dormancy lockout end to end (ADR 0007), through the `dormant`
  * development fixture.
  *
  * The dormancy job runs nightly and has no HTTP surface, so this spec relies on

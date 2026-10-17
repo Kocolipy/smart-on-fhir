@@ -110,7 +110,7 @@ attempt is aimed at one credential, so the limit belongs on the credential:
   total cost. Every attempt pays an Argon2id verification, so unthrottled Login
   is a CPU-exhaustion lever. An edge that can key on a JSON body field may add a
   per-`userName` limit on top.
-- **Epic Login** (ADR 0013, D19): the launch and the callback are browser
+- **Epic Login** (ADR 0012, D19): the launch and the callback are browser
   navigations from Epic, made before there is any session or credential of ours
   to key on, so the edge's rule caps their total cost. The callback matters most:
   every callback makes an outbound token call to Epic, so an unthrottled callback
@@ -137,7 +137,7 @@ log destination.
 ## Database security (secrets, key, TLS, monitoring)
 
 What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on RDS for SQL
-Server (ADR 0015, "Compliance resolutions" and "Standards resolutions"). The
+Server (ADR 0013, "Compliance resolutions" and "Standards resolutions"). The
 previous stack's controls were re-targeted, not replaced: the same key, the same
 secrets discipline, the same migrate step.
 
@@ -147,10 +147,10 @@ secrets discipline, the same migrate step.
   resolves to its current default build. `deploy.sh` asks RDS for that build
   before creating anything (`describe-db-engine-versions --default-only`), and
   `AutoMinorVersionUpgrade` applies newer builds (cumulative updates) in the
-  maintenance window, Sunday 04:00–05:00 UTC (ADR 0015, "Database patching").
+  maintenance window, Sunday 04:00–05:00 UTC (ADR 0013, "Database patching").
 - **Edition: Standard Edition, licence-included.** The SQL Server licence is part
   of the hourly instance price; there is nothing to bring or to track. It is the
-  edition ADR 0015 chose ("Scope") — Express caps a database at 10 GB, and
+  edition ADR 0013 chose ("Scope") — Express caps a database at 10 GB, and
   Developer Edition may not serve production — and choosing it is a
   stakeholder sign-off.
 - **Instance classes:** Standard Edition does not run on the small classes —
@@ -194,7 +194,7 @@ snapshot that is itself billed until you delete it.
 ### Collation and time zone
 
 - **The database is collated `Latin1_General_100_BIN2_UTF8`** — UTF-8 storage in
-  code-point order, which the schema and the SCIM sort depend on (ADR 0015,
+  code-point order, which the schema and the SCIM sort depend on (ADR 0013,
   "VARCHAR with database collation"). It is the **database's** collation, set by
   the bootstrap's `CREATE DATABASE … COLLATE`, which every column takes, and the
   bootstrap refuses a database it finds with any other collation rather than
@@ -209,7 +209,7 @@ snapshot that is itself billed until you delete it.
   internal extended procedures behind `sp_getapplock` (`sys.xp_userlock`) and a
   T-SQL `sp_executesql`: error 17750, "Could not load the DLL (server
   internal)". The seed lock is now a row lock on `scim_seed_locks` (`V1`), and
-  the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0015,
+  the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0013,
   "Addendum (2026-10-16)").
 - **Untested risk: Flyway on the Windows build.** Flyway guards every
   migration with `sp_getapplock`. On a BIN2_UTF8 server on the Linux image it
@@ -235,7 +235,7 @@ snapshot that is itself billed until you delete it.
   So the deployed server's collation is the one setting the suite does not
   reproduce.
 - **The server's time zone is UTC**, stated (`Timezone: UTC`) rather than
-  defaulted: storage is UTC only (ADR 0015, "Storage is UTC only").
+  defaulted: storage is UTC only (ADR 0013, "Storage is UTC only").
 
 Both are fixed when the instance is created; changing either replaces it.
 
@@ -354,7 +354,7 @@ never `set -x`:
 3. **The migrate step** (`backend-migrate.service`, [Migrate step](#migrate-step)).
 4. **The service** (`backend.service`), with the credentials `start.sh` resolves
    and `APP_DEV_FIXTURES_ENABLED=false`: no development fixture account is ever
-   seeded (ADR 0015, "Admin and fixture seeding are unchanged"); the Bootstrap
+   seeded (ADR 0013, "Admin and fixture seeding are unchanged"); the Bootstrap
    Admin and the Admin group are seeded by the service itself.
 
 Steps 3 and 4 need the JAR, which does not exist at boot: `deploy.sh` copies it
@@ -384,7 +384,7 @@ and on demand with `./db-bootstrap.sh <stack>`.
    variables (with `/opt/backend/secret.sh`, the instance's one secret-reading
    helper, which UserData and `migrate.sh` source too), and checks each login name and `DBName` against
    `^[a-z][a-z0-9_]{2,30}$` (which CloudFormation also enforces), that the three
-   logins differ, and that no password holds a quote (ADR 0015, as-2);
+   logins differ, and that no password holds a quote (ADR 0013, as-2);
 2. waits, for up to five minutes, until the master user signs in;
 3. signs in as each login with its secret's password, and names each one that
    cannot to the SQL (`RESET_LOGINS`, `|`-separated);
@@ -397,7 +397,7 @@ and on demand with `./db-bootstrap.sh <stack>`.
      and refuses one found with another collation;
    - sets compatibility level **160**, `READ_COMMITTED_SNAPSHOT ON` and
      `ALLOW_SNAPSHOT_ISOLATION ON`, each only if it is not already set — the
-     database creation options ADR 0015 assigns to whatever creates the database,
+     database creation options ADR 0013 assigns to whatever creates the database,
      since `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run in a
      migration's transaction;
    - makes the owner login a database user of its own name in **`db_owner`**;
@@ -425,7 +425,7 @@ Server's password-history policy). `./db-bootstrap.sh <stack>` re-runs it and
 counts those lines; `deploy.sh` runs it with `--expect-no-op` right after the
 boot, so a fresh stack proves the re-run changes nothing.
 
-**It echoes no secret** (ADR 0015, "The bootstrap does not echo"). No `set -x`;
+**It echoes no secret** (ADR 0013, "The bootstrap does not echo"). No `set -x`;
 `sqlcmd` runs without `-e`; the signing-in login's password reaches `sqlcmd` as
 `SQLCMDPASSWORD`, and every other value as a `sqlcmd` scripting variable read
 from its environment — `$(DATABASE_OWNER_PASSWORD)` in the SQL, never `-v` on a
@@ -445,7 +445,7 @@ here); every decision, the password reset included, is in the shared SQL.
 
 ### Migrate step
 
-**The running service never holds the owner credential** (ADR 0015, ac-1). The
+**The running service never holds the owner credential** (ADR 0013, ac-1). The
 schema migrations run beforehand, in a **migrate step**: the same JAR, started at
 its migrate entry point (`MigrationStep`) with no web server, which applies the
 Flyway migrations as the owner login and exits. The service itself runs with
@@ -529,7 +529,7 @@ deletion yourself once that snapshot is no longer needed.
   and `database.yaml` adds `sslProtocol=TLSv1.2` for every connection. There is
   no `trustServerCertificate`, so the driver validates RDS's certificate chain
   against the trust store and its name against the endpoint.
-- **The driver-scoped trust store** (ADR 0015, "The RDS CA trust store is
+- **The driver-scoped trust store** (ADR 0013, "The RDS CA trust store is
   driver-scoped"): at boot UserData downloads the region's RDS CA bundle
   (`https://truststore.pki.rds.amazonaws.com/<region>/<region>-bundle.pem`) and
   imports every certificate in it into `/opt/backend/rds-truststore.p12`, a
@@ -542,7 +542,7 @@ deletion yourself once that snapshot is no longer needed.
   untouched** — there is no `-Djavax.net.ssl.trustStore` — so the identity
   provider's discovery document and JWKS, and every other Epic call, keep
   validating against the JDK's own CAs. The service makes those calls on a
-  launch's first use, never at startup (ADR 0013), so `smoke.sh` proves it
+  launch's first use, never at startup (ADR 0012), so `smoke.sh` proves it
   directly: the running JVM has no `javax.net.ssl.trustStore` (`jcmd
 VM.system_properties`), and the same JDK, as the service user and with its
   default trust store, fetches Epic's discovery document and the JWKS it names
@@ -659,7 +659,7 @@ printed. Never run them with `bash -x`.
 ### An existing stack
 
 The move to SQL Server replaces the database engine, and with it the instance;
-the application holds no data that must be kept (ADR 0015). An existing stack
+the application holds no data that must be kept (ADR 0013). An existing stack
 on the previous engine does not update into this template: delete it
 (`cleanup.sh`) and deploy a fresh stack.
 
@@ -1084,7 +1084,7 @@ parameters file.
 `AppEpicConnectTimeout` and `AppEpicReadTimeout` become `APP_EPIC_CONNECT_TIMEOUT`
 and `APP_EPIC_READ_TIMEOUT`: the connect and read timeouts of every call the
 service makes to Epic — discovery, the JWKS and the token call, all through one
-client (ADR 0013, D25). Each is a duration such as `2s` or `1500ms`; left empty
+client (ADR 0012, D25). Each is a duration such as `2s` or `1500ms`; left empty
 they are 2 and 5 seconds, and a zero or negative value refuses startup. A call
 that times out, like one Epic answers `5xx`, sends the clinician to the login
 page's "temporarily unavailable" notice rather than the refused one, and is an
@@ -1102,7 +1102,7 @@ The service signs Epic client assertions with the **active** key
 `GET /api/auth/epic/jwks.json`, where Epic fetches it. The next key is published
 but never signs. The service has no expiry or rotation logic of its own: a key is
 published for exactly as long as configuration names it, and every step below is
-an operator's redeploy (`/docs/adr/0013-epic-login.md`, D14).
+an operator's redeploy (`/docs/adr/0012-epic-login.md`, D14).
 
 A redeploy here means changing the values the service starts with and
 restarting it. The keys and the `kid`s travel separately:
@@ -1153,7 +1153,7 @@ To withdraw a compromised key, skip the waiting: promote the next key (or a
 freshly created one) and remove the compromised key in a single redeploy.
 
 The keys are environment variables for now; the target is an AWS KMS-held key
-that never leaves KMS, which is open work (`/docs/adr/0013-epic-login.md`).
+that never leaves KMS, which is open work (`/docs/adr/0012-epic-login.md`).
 
 ---
 

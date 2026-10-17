@@ -60,7 +60,7 @@ import tools.jackson.databind.json.JsonMapper;
  * they are asserted here rather than against the in-memory fakes, which have no columns.
  *
  * <p>A U+0000 in any stored string is the same kind of refusal: it is hostile in logs and
- * terminals (ADR 0015 keeps the refusal as input hygiene), so it is refused as
+ * terminals (ADR 0013 keeps the refusal as input hygiene), so it is refused as
  * {@code 400 invalidValue} before the statement rather than stored.
  */
 @SpringBootTest
@@ -243,7 +243,7 @@ class ScimStoredLengthIntegrationTests {
      * in code points — every value here is made of supplementary characters, four bytes each in
      * UTF-8, so a {@code userName} of 256 of them is 512 UTF-16 units and 1024 bytes. SQL Server's
      * {@code VARCHAR(n)} counts bytes, so every Unicode-capable column is four times its limit
-     * (ADR 0015), and each stored value reads back whole.
+     * (ADR 0013), and each stored value reads back whole.
      */
     @Test
     void every_user_value_at_its_limit_is_stored_counting_code_points() throws Exception {
@@ -275,7 +275,7 @@ class ScimStoredLengthIntegrationTests {
     }
 
     /**
-     * An Epic Login's identity is the Practitioner ID its {@code userName} holds (ADR 0013, D2),
+     * An Epic Login's identity is the Practitioner ID its {@code userName} holds (ADR 0012, D2),
      * so the SSO claim is stored in that column and nowhere else: one of the column's full 256
      * code points, every one non-ASCII — two-, three- and four-byte characters alike — is stored,
      * and the Epic Login's lookup finds the User by it. Its first four code points are minted per
@@ -411,7 +411,7 @@ class ScimStoredLengthIntegrationTests {
      * {@code scim_external_ids} — holding U+0000 is {@code 400 invalidValue} on every verb that
      * can write it, naming the attribute and not the value, and the refusal changes nothing and
      * is audited as an invalid value. SQL Server could store the character; it is refused as input
-     * hygiene, because it is hostile in logs and terminals (ADR 0015).
+     * hygiene, because it is hostile in logs and terminals (ADR 0013).
      */
     @ParameterizedTest(name = "{1} {0}")
     @MethodSource("userAttributesByVerb")

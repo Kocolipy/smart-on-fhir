@@ -91,7 +91,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * A fault's one record and its answer: the generic {@code 500} — or, for a retried write the
      * database chose as the deadlock's victim again on its retry, {@code 503} with
-     * {@code Retry-After: 1} (ADR 0015's as-13; {@link ExhaustedRetry}), the same record under that
+     * {@code Retry-After: 1} (ADR 0013's as-13; {@link ExhaustedRetry}), the same record under that
      * status. Public for the connector administration adapter: it is on the application chain but
      * in the {@code scim} module, whose advice answers for its package, and its deadlocked writes
      * are answered in this chain's shape.

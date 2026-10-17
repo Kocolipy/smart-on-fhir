@@ -21,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Its callers are {@link LoginService}, which records every attempt it makes, and
  * {@link PasswordChangeService}, whose wrong current password counts toward the same run; nothing
  * else counts attempts. The counting is explicit rather than driven by Spring Security's authentication
- * events — see {@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}. Enforcement is not
+ * events — see {@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}. Enforcement is not
  * here: {@link LoginIdentityService} reports a locked identity to Spring Security, which rejects it
  * whatever the password, once it has compared that password as it would a wrong one.
  *

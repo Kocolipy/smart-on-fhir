@@ -1,7 +1,7 @@
 package com.example.backend.auth.application;
 
 /**
- * The log field names the dormancy job's records carry (ADR 0011), beside the job that writes
+ * The log field names the dormancy job's records carry (ADR 0007), beside the job that writes
  * them. The records themselves are built by {@link com.example.backend.observability.LogEvent}'s
  * shapes (ADR 0003); these are only the keys the job adds to them.
  */

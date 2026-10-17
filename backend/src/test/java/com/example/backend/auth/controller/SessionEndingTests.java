@@ -194,7 +194,7 @@ class SessionEndingTests {
         assertThat(response.getHeader("Clear-Site-Data")).isNull();
     }
 
-    /** ADR 0014, step 5: a refused Login that arrived without a session creates none. */
+    /** ADR 0001, step 5: a refused Login that arrived without a session creates none. */
     @Test
     void aLoginThatSignedNobodyInCreatesNoSessionWhenTheBrowserHeldNone() {
         MockHttpServletRequest request = new MockHttpServletRequest();

@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * Retries a write once when the database chose its transaction as a deadlock's victim — ADR
- * 0015's as-13, the single interceptor at the outermost transactional boundary that
+ * 0013's as-13, the single interceptor at the outermost transactional boundary that
  * {@code ScimWriteLocks} leaves the deadlock it cannot prevent to.
  *
  * <p>A deadlock victim's transaction is rolled back whole, so nothing it did stands and running

@@ -58,7 +58,7 @@ public class AuthController {
      *
      * <p>A refused Login has ended whatever session the browser held, whoever it
      * belonged to, before its {@code 401}: the password analogue of an Epic Login's
-     * refusal (ADR 0013, D24). The CSRF token ends with that session, and the SPA
+     * refusal (ADR 0012, D24). The CSRF token ends with that session, and the SPA
      * fetches the next one's.
      */
     @PostMapping("/login")

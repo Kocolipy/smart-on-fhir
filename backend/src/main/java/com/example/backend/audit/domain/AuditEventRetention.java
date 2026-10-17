@@ -17,7 +17,7 @@ public interface AuditEventRetention {
     /**
      * The most events one batch deletes: below SQL Server's lock-escalation threshold of 5,000
      * locks taken by one statement on one table or index, so a batch holds row locks only and
-     * never the table lock that would block an audit append for as long as it runs (ADR 0015).
+     * never the table lock that would block an audit append for as long as it runs (ADR 0013).
      */
     int BATCH_SIZE = 4000;
 

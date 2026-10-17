@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
  * at most {@link AuditEventRetention#BATCH_SIZE}, each committed in a transaction of its own on
  * the retention pool. A batch stays below SQL Server's lock-escalation threshold, so it holds row
  * locks only and an audit append is never queued behind it; a long run is many short
- * transactions rather than one that holds the table (ADR 0015). Retention is idempotent: a run
+ * transactions rather than one that holds the table (ADR 0013). Retention is idempotent: a run
  * that fails part-way keeps the batches it committed, and the next run deletes the rest.
  *
  * <p>Each run reports what it did — how many rows it removed, in how many batches

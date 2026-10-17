@@ -5,7 +5,7 @@ import java.util.Collection;
 import java.util.UUID;
 
 /**
- * Role revocation — the dormancy job's second step (ADR 0011) — as the directory carries it out.
+ * Role revocation — the dormancy job's second step (ADR 0007) — as the directory carries it out.
  *
  * <p>A port in the directory's domain for the login surface to call, because the dependency
  * between the two slices runs one way: the dormancy job lives in {@code auth} and decides

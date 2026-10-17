@@ -48,7 +48,7 @@ spring:
     open-in-view: false
     properties:
       # Hibernate binds and reads every timestamp at UTC, whatever zone the JVM
-      # runs in (ADR 0015, "Storage is UTC only").
+      # runs in (ADR 0013, "Storage is UTC only").
       hibernate.jdbc.time_zone: UTC
   flyway:
     # Off in the service. The deployed service never holds the owner credential:
@@ -189,7 +189,7 @@ spring:
 ---
 # A local run's SQL Server (compose.yaml) presents a self-signed certificate, so
 # the local profile alone trusts it without validation. Nowhere else: a
-# deployment validates the server's certificate (ADR 0015, dp-3), and
+# deployment validates the server's certificate (ADR 0013, dp-3), and
 # `TrustServerCertificateTest` fails the build if this setting appears in any
 # document but a local or test one. The connection is still encrypted
 # (`database.yaml`).

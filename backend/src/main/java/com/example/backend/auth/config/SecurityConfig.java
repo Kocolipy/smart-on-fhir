@@ -254,7 +254,7 @@ public class SecurityConfig {
         AuthenticationEntryPoint unauthorized = new SessionAuthenticationEntryPoint(accessRefusalLog);
         AccessDeniedHandler forbidden = new RefusalLoggingAccessDeniedHandler(
                 accessRefusalLog, auditTrail, routeTemplates);
-        // Epic Login (ADR 0013), whichever state APP_EPIC_ENABLED puts it in, and everything it
+        // Epic Login (ADR 0012), whichever state APP_EPIC_ENABLED puts it in, and everything it
         // adds to this chain. Off, its release gate is ordered first, as the SCIM one is in its
         // chain, so every request under /api/auth/epic is answered 404 before any session, CSRF
         // or authorization filter decides anything. On, its filters serve the authorize hop and

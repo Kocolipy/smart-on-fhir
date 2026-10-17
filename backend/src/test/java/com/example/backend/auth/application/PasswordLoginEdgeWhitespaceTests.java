@@ -30,7 +30,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * A password Login whose username begins or ends with whitespace is an unknown account, decided
- * before any lookup (ADR 0015): the same refusal, audit event and count as a name that matches
+ * before any lookup (ADR 0013): the same refusal, audit event and count as a name that matches
  * nobody, and nothing recorded against the User the trimmed name would have found.
  *
  * <p>The store here compares names as SQL Server does, trailing spaces ignored, so {@code ada }

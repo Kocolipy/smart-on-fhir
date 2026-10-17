@@ -36,7 +36,7 @@ class AuditEventRetentionAdapterTests {
 
     /**
      * At most 4,000 events, recorded before the cutoff, which is bound as an offset at UTC so the
-     * same events age out in any JVM zone (ADR 0015, "Storage is UTC only").
+     * same events age out in any JVM zone (ADR 0013, "Storage is UTC only").
      */
     @Test
     void aBatchDeletesAtMostFourThousandEventsRecordedBeforeTheCutoff() {
@@ -49,7 +49,7 @@ class AuditEventRetentionAdapterTests {
                 .isEqualTo(List.of(4000, OffsetDateTime.of(2025, 9, 25, 3, 30, 0, 0, ZoneOffset.UTC)));
     }
 
-    /** A batch that cannot finish within 60 s fails the run (ADR 0015, "Bounded timeouts"). */
+    /** A batch that cannot finish within 60 s fails the run (ADR 0013, "Bounded timeouts"). */
     @Test
     void aBatchTimesOutAfterSixtySeconds() {
         database.update(DELETE, 0);

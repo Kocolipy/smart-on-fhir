@@ -101,7 +101,7 @@ class AuditEventReadAdapterIntegrationTests {
      * An event appended between the listing's count and its page — committed by another
      * connection the moment the listing's first statement has run — is in neither: the two
      * statements read one snapshot, so the total an Admin is shown describes exactly the events
-     * beside it (ADR 0015). Under read-committed snapshot alone each statement would read its own,
+     * beside it (ADR 0013). Under read-committed snapshot alone each statement would read its own,
      * and the page would hold an event the total did not count.
      */
     @Test

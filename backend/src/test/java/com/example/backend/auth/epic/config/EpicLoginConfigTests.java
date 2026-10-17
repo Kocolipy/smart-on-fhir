@@ -43,7 +43,7 @@ class EpicLoginConfigTests {
     }
 
     /**
-     * Every variable ADR 0013's configuration table names, given as the process environment
+     * Every variable ADR 0012's configuration table names, given as the process environment
      * gives it — so this is the binding a deployment gets, relaxed-binding names included.
      */
     @Test

@@ -94,7 +94,7 @@ for access.
   its Permission, and a contract test proves each declaration against the
   running application.
 - IM8 ac-2 (MFA for privileged actions) and ac-4 (access review) are still not
-  met, and this decision does not address them (ADR 0012).
+  met, and this decision does not address them (ADR 0011).
 - Out of scope, deliberately: per-resource authorization (for example "may unlock
   Users in Group X only"), editing Roles or the mapping at runtime or through any
   UI, and Group nesting. A Permission applies to every resource of its kind, and

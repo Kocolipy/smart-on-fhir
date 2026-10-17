@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The seeding lock as the update lock on the one row of {@code scim_seed_locks}, held by the
- * calling transaction (ADR 0015).
+ * calling transaction (ADR 0013).
  *
  * <p>A row lock, as {@code ScheduledJobLockAdapter}'s is, rather than an application lock. The
  * V1 migration inserts the row before the service can start, so there is a row to lock even on a
@@ -35,9 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
  * transaction ends with the statement, so a call outside a transaction would succeed and protect
  * nothing. Refusing that call turns a silent loss of the guarantee into a startup failure.
  *
- * <p>It waits at most {@link #LOCK_TIMEOUT}, as the statement's query timeout (ADR 0015,
+ * <p>It waits at most {@link #LOCK_TIMEOUT}, as the statement's query timeout (ADR 0013,
  * "Bounded timeouts"). A wait that runs out fails the start rather than seed unserialized: as a
- * lock the database would not give ({@link CannotAcquireLockException}), which ADR 0015's mapping
+ * lock the database would not give ({@link CannotAcquireLockException}), which ADR 0013's mapping
  * classifies as a {@code database} failure to investigate.
  *
  * <p>JDBC rather than JPA, as in {@code ScheduledJobLockAdapter}: the row has no attributes worth

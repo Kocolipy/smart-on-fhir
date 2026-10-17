@@ -297,13 +297,13 @@ public class ArchitectureTest {
             .because("Transaction management belongs at the use-case/service boundary, method by"
                     + " method as much as class by class");
 
-    // The deadlock retry (ADR 0015's as-13)
+    // The deadlock retry (ADR 0013's as-13)
 
     /**
      * The public methods that open a transaction which may write and are deliberately NOT retried
      * on deadlock, each with the reason, written once here.
      *
-     * <p>ADR 0015's as-13 retries "a SCIM or administrative write", once, at its outermost
+     * <p>ADR 0013's as-13 retries "a SCIM or administrative write", once, at its outermost
      * transactional boundary, and never "read-only and scheduled paths: the next request or run
      * covers them". Every other public {@code @Transactional} method that is not read-only carries
      * {@link com.example.backend.observability.RetriedOnDeadlock}, which
@@ -326,7 +326,7 @@ public class ArchitectureTest {
                     "a refused password change's login-state event, not a SCIM or administrative"
                             + " write"),
             Map.entry("com.example.backend.auth.application.LoginService#logInFromEpic",
-                    "an Epic Login (ADR 0013): a login-state event, not a SCIM or administrative"
+                    "an Epic Login (ADR 0012): a login-state event, not a SCIM or administrative"
                             + " write; the clinician launches again"),
             Map.entry("com.example.backend.auth.application.PasswordChangeService#changePassword",
                     "the signed-in User's own password change: self-service, not a SCIM or"
@@ -395,7 +395,7 @@ public class ArchitectureTest {
             .and(DescribedPredicate.describe("are not exempted in NOT_RETRIED_ON_DEADLOCK",
                     (JavaMethod method) -> !NOT_RETRIED_ON_DEADLOCK.containsKey(retryKey(method))))
             .should().beAnnotatedWith(com.example.backend.observability.RetriedOnDeadlock.class)
-            .because("ADR 0015's as-13: every SCIM or administrative write is retried once on"
+            .because("ADR 0013's as-13: every SCIM or administrative write is retried once on"
                     + " deadlock; a write that is not says why in NOT_RETRIED_ON_DEADLOCK");
 
     /** An exemption names a write that exists and is not retried, so none outlives its method. */
@@ -445,7 +445,7 @@ public class ArchitectureTest {
                     }
                 }
             })
-            .because("ADR 0015's as-13: the retry sits at the outermost transactional boundary,"
+            .because("ADR 0013's as-13: the retry sits at the outermost transactional boundary,"
                     + " ahead of the transaction it runs again");
 
     /**
@@ -467,7 +467,7 @@ public class ArchitectureTest {
                             .map(target -> target.isAnnotatedWith(
                                     com.example.backend.observability.RetriedOnDeadlock.class))
                             .orElse(false)))
-            .because("ADR 0015's as-13: the retry is never nested, so no code that may run inside"
+            .because("ADR 0013's as-13: the retry is never nested, so no code that may run inside"
                     + " a transaction calls a retried write");
 
     /**
@@ -530,7 +530,7 @@ public class ArchitectureTest {
                                     method.getFullName() + ": " + found)));
                 }
             })
-            .because("ADR 0015's as-13 retries a deadlocked write, and a fail-open audit event"
+            .because("ADR 0013's as-13 retries a deadlocked write, and a fail-open audit event"
                     + " appended before more work would be appended again by the retry (ADR 0004)");
 
     /** A web adapter opens no transaction by hand either, around a retried write or otherwise. */
@@ -545,7 +545,7 @@ public class ArchitectureTest {
                                     "org.springframework.transaction.support")
                             || type.isAssignableTo(
                                     org.springframework.transaction.TransactionManager.class)))
-            .because("ADR 0015's as-13: a retried write called inside a handler's own transaction"
+            .because("ADR 0013's as-13: a retried write called inside a handler's own transaction"
                     + " would be nested, and not retried");
 
     /**
@@ -705,9 +705,9 @@ public class ArchitectureTest {
             // (backend/AGENTS.md).
             // scim reaches web for one thing: the connector administration adapter is on the
             // application chain, so its deadlocked writes' 503 is the application API's ApiError,
-            // answered by that API's own fault handler (ADR 0015's as-13). It reaches database for
+            // answered by that API's own fault handler (ADR 0013's as-13). It reaches database for
             // TimedJdbc: the seed lock's row-lock wait is bounded as every lock statement is (ADR
-            // 0015, "Bounded timeouts"), as the scheduled-job lock's is.
+            // 0013, "Bounded timeouts"), as the scheduled-job lock's is.
             Map.entry("scim", Set.of("audit", "authorization", "database", "observability", "web")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
             // counter and lifecycle are leaves, which no entry names: removing one must not break
@@ -770,7 +770,7 @@ public class ArchitectureTest {
     /**
      * Outbound HTTP lives in the Epic adapter.
      *
-     * <p>ADR 0013: Epic is reached through the one outbound client, {@code epicRestClient}, which
+     * <p>ADR 0012: Epic is reached through the one outbound client, {@code epicRestClient}, which
      * carries the timeouts (D25), the outbound log line and the call metrics. A second client
      * elsewhere would make calls with none of the three.
      */
@@ -784,7 +784,7 @@ public class ArchitectureTest {
                     "java.net.http..")
             .orShould().dependOnClassesThat().haveFullyQualifiedName("java.net.HttpURLConnection")
             .allowEmptyShould(true)
-            .because("ADR 0013: every outbound call goes through epicRestClient, which carries the"
+            .because("ADR 0012: every outbound call goes through epicRestClient, which carries the"
                     + " timeouts, logging and metrics");
 
     /**
@@ -1319,7 +1319,7 @@ public class ArchitectureTest {
      * Epic's tokens never reach a response.
      *
      * <p>{@link com.example.backend.auth.domain.EpicTokenSet} holds the access token, refresh
-     * token and {@code id_token} an Epic Login kept for its session (ADR 0013, D29), and
+     * token and {@code id_token} an Epic Login kept for its session (ADR 0012, D29), and
      * {@link com.example.backend.auth.domain.EpicTokens} hands them out. They are
      * for the backend to act at Epic on the clinician's behalf, never for the browser, so no REST
      * controller may depend on either: a handler that could take them could render them. The one
@@ -1334,7 +1334,7 @@ public class ArchitectureTest {
                 .haveNameMatching("com\\.example\\.backend\\.auth\\.domain\\."
                         + "(EpicTokenSet|EpicTokens)(\\$.*)?")
             .allowEmptyShould(true)
-            .because("ADR 0013, D29: Epic's tokens are held server-side and"
+            .because("ADR 0012, D29: Epic's tokens are held server-side and"
                     + " never returned to the browser, so no handler can be handed them");
 
     /**
@@ -1446,7 +1446,7 @@ public class ArchitectureTest {
     /**
      * A session is signed in only as part of a whole Login.
      *
-     * <p>ADR 0014: {@code SessionEstablishment} rotates the session id, saves the security context
+     * <p>ADR 0001: {@code SessionEstablishment} rotates the session id, saves the security context
      * and sets the principal index, and {@code LoginCompletion} is its one caller, so the decision,
      * the audit record and the refusal handling always surround it. Package-private keeps it out of
      * other packages; this keeps it from the controllers beside it in {@code auth.controller}.
@@ -1458,7 +1458,7 @@ public class ArchitectureTest {
             .and().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.SessionEstablishment(\\$.*)?")
             .should().dependOnClassesThat()
                 .haveFullyQualifiedName("com.example.backend.auth.controller.SessionEstablishment")
-            .because("ADR 0014: no adapter can sign a session in without the rest of the Login"
+            .because("ADR 0001: no adapter can sign a session in without the rest of the Login"
                     + " around it");
 
     /**
@@ -1477,7 +1477,7 @@ public class ArchitectureTest {
      * session at the caller's request, so it is not one of the module's reasons.
      *
      * <p>And a second: {@code EpicLaunchController}'s accepted launch, which replaces the session
-     * rather than ending it (ADR 0013, D9). It invalidates the session the browser held and opens
+     * rather than ending it (ADR 0012, D9). It invalidates the session the browser held and opens
      * the Login's new one in the same response, whose cookie names the new session; expiring the
      * cookie there would contradict it. Its refusals end the session through
      * {@code SessionEnding}, like every other Login that signed nobody in.

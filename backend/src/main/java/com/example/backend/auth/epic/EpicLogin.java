@@ -10,7 +10,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 
 /**
  * Epic Login, as the application chain sees it: one call, {@link #applyTo}, and nothing else
- * (ADR 0013). The startup record asks it one more thing, {@link #addStartupFields}.
+ * (ADR 0012). The startup record asks it one more thing, {@link #addStartupFields}.
  *
  * <p>The one answer to "is Epic Login on?". No caller asks that question of it directly; each
  * hands it what it adds to, and the adapter in place answers. Exactly one of its two adapters is

@@ -312,7 +312,7 @@ class LoginSessionHardeningIntegrationTests {
     // ---- a refused Login ends the browser's session ----------------------------------------------
 
     /**
-     * The password analogue of ADR 0013's D24: a refused Login ends whatever session the browser
+     * The password analogue of ADR 0012's D24: a refused Login ends whatever session the browser
      * held — here another User's — before its bare {@code 401}, so a shared browser is never left
      * signed in as the previous User. The session is gone from the store, not merely signed out,
      * and the refusal mints no session in its place.

@@ -3,7 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.observability.LogEvent.ErrorCategory;
 
 /**
- * The count of the Epic calls whose failure ended an Epic Login (ADR 0013, "Metrics"), for
+ * The count of the Epic calls whose failure ended an Epic Login (ADR 0012, "Metrics"), for
  * {@link LoginOutcomeService} to move without knowing the meter registry: a port, whose adapter is
  * the Epic package's Micrometer meter.
  */

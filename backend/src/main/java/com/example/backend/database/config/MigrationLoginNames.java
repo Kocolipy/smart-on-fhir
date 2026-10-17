@@ -7,7 +7,7 @@ import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomiz
 
 /**
  * Checks the login names the migrations put into DDL before Flyway runs a single statement (ADR
- * 0015, as-2; #66).
+ * 0013, as-2; #66).
  *
  * <p>The migrations learn the app and retention logins' names as Flyway placeholders and grant
  * each its role. A placeholder is spliced into the SQL text, so a name is accepted only when it

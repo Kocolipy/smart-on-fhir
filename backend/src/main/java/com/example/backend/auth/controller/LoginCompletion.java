@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * How every Login ends, by either login method: the one place the steps that end a Login run, in
- * one order (ADR 0014).
+ * one order (ADR 0001).
  *
  * <ol>
  *   <li><b>Decide.</b> The login decision is {@link LoginService}'s, handed the id of the session
@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
  *       {@code user-authentication} record and the {@code login} success count, naming the session
  *       the User goes on to use. Only now, so a Login that never got its session — the session
  *       step or the method's work failing — is not logged or counted a success.
- *   <li><b>On a refusal, end the browser's session</b>, whoever it belonged to (ADR 0013, D24,
+ *   <li><b>On a refusal, end the browser's session</b>, whoever it belonged to (ADR 0012, D24,
  *       and its password analogue), so a shared browser is never left signed in as the previous
  *       User after a Login that signed nobody in. {@link SessionEnding} ends it, for
  *       {@link SessionEnding.Reason#LOGIN_SIGNED_NOBODY_IN}: invalidated, the security context

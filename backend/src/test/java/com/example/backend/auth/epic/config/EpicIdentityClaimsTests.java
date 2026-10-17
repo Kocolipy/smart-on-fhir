@@ -14,7 +14,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
  * An {@code id_token} whose {@code iss} or {@code sub} begins or ends with whitespace is an invalid
- * token (ADR 0015), refused as every other claim failure is, and refused ahead of the remaining
+ * token (ADR 0013), refused as every other claim failure is, and refused ahead of the remaining
  * checks: Spring Security's OpenID Connect validator reads {@code iss} as a URL and throws on one
  * with a space, so a padded issuer reaching it would fail the callback rather than be refused.
  */

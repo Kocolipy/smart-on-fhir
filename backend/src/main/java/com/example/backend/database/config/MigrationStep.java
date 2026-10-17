@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Import;
 
 /**
  * The migrate step: the service's own JAR, started at this class instead of the service's, applies
- * the schema migrations as the owner login and exits (ADR 0015, ac-1; #66).
+ * the schema migrations as the owner login and exits (ADR 0013, ac-1; #66).
  *
  * <pre>
  * java -Dloader.main=com.example.backend.database.config.MigrationStep \

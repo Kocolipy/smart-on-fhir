@@ -5,7 +5,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 
 /**
  * The counts a Login's ending moves, by either login method — the one {@code login} counter
- * (ADR 0013, "Metrics") — for {@link LoginOutcomeService} to move without knowing the meter
+ * (ADR 0012, "Metrics") — for {@link LoginOutcomeService} to move without knowing the meter
  * registry: a port, whose adapter is the Micrometer meter.
  */
 public interface LoginCounts {

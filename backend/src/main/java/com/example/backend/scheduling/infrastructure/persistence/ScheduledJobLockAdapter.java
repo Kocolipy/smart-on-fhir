@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
 /**
  * Serializes each scheduled job on its own row of {@code scheduled_job_locks}.
  *
- * <p>{@code WITH (UPDLOCK, ROWLOCK, READPAST)} is the whole mechanism (ADR 0005, ADR 0015). The
+ * <p>{@code WITH (UPDLOCK, ROWLOCK, READPAST)} is the whole mechanism (ADR 0005, ADR 0013). The
  * row's update lock is held until the calling transaction ends, so a second run of the same job —
  * in this process or another one against the same database — reads past the held row and learns
  * it is not the one to run, without waiting; spike V3 verified that {@code READPAST} skips a held
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Repository;
  * run module ({@code ScheduledJobRunService}) opens it on the primary transaction manager and is
  * the adapter's only caller.
  *
- * <p>The one place the engine's lock syntax is written: a change of engine (ADR 0015) changes
+ * <p>The one place the engine's lock syntax is written: a change of engine (ADR 0013) changes
  * this statement and nothing that calls it.
  */
 @Repository
@@ -39,7 +39,7 @@ class ScheduledJobLockAdapter implements ScheduledJobLock {
             "SELECT count(*) FROM scheduled_job_locks WHERE job_name = ?";
 
     /**
-     * How long either statement may run (ADR 0015, "Bounded timeouts"). {@code READPAST} never
+     * How long either statement may run (ADR 0013, "Bounded timeouts"). {@code READPAST} never
      * waits on a held row, but a lock above the row — a table lock another session holds — would
      * still be waited for; the run then fails rather than holding its scheduler thread for ever.
      */

@@ -13,7 +13,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * The values ADR 0013's D22 says are never logged or audited, as one Epic Login actually handled
+ * The values ADR 0012's D22 says are never logged or audited, as one Epic Login actually handled
  * them, gathered by kind from both ends of the Login: what the test's browser sent, and what
  * {@link FakeEpic} was sent and answered with.
  *

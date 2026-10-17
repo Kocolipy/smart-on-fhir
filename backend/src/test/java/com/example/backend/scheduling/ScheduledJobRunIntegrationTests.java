@@ -92,7 +92,7 @@ class ScheduledJobRunIntegrationTests {
      * Two instances racing for one job's lock, observed in the server's own lock view: while the
      * first run is in its body, its job row carries exactly one lock — the first run's update
      * lock, granted — and the second run reads past it and skips at once, leaving no lock and no
-     * waiter of its own behind ({@code READPAST}, ADR 0005 and ADR 0015's V3).
+     * waiter of its own behind ({@code READPAST}, ADR 0005 and ADR 0013's V3).
      */
     @Test
     void ofTwoRacingInstancesOneHoldsTheJobRowAndTheOtherReadsPastItWithoutWaiting()

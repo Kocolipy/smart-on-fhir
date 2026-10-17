@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * The dormancy verdict (ADR 0011), decided without a clock: given a User and "now", which of the
+ * The dormancy verdict (ADR 0007), decided without a clock: given a User and "now", which of the
  * job's steps it owes. Every instant here is a literal offset from {@link #NOW}, so each boundary
  * is reached exactly — at it, one nanosecond before it and one after — for each basis a User can
  * be measured from: its last login, its creation, and an Unlock.

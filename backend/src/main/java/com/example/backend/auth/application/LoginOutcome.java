@@ -11,14 +11,14 @@ import java.util.UUID;
 
 /**
  * How a Login ended, by either login method: signed in, refused, or — for an Epic Login only —
- * unable to complete because Epic was unavailable (ADR 0013, D23). {@link LoginOutcomeService}
+ * unable to complete because Epic was unavailable (ADR 0012, D23). {@link LoginOutcomeService}
  * records each one; this is the whole of what it needs, and nothing Epic sent.
  */
 public sealed interface LoginOutcome {
 
     /**
      * The Login signed {@code userId} in by {@code method}: a password Login with no MFA factor, or
-     * an Epic Login with the one it was made with (ADR 0013, D17).
+     * an Epic Login with the one it was made with (ADR 0012, D17).
      */
     record SignedIn(UUID userId, AuditLoginMethod method, AuditMfaFactor mfaFactor)
             implements LoginOutcome {
@@ -146,7 +146,7 @@ public sealed interface LoginOutcome {
     }
 
     /**
-     * An Epic call that failed (ADR 0013, "Log", error categories): which call — {@code discovery},
+     * An Epic call that failed (ADR 0012, "Log", error categories): which call — {@code discovery},
      * {@code jwks} or {@code token} — its {@code error.category}, and its {@code error.code}.
      */
     record FailedCall(String call, ErrorCategory category, int code) {

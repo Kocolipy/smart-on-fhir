@@ -246,7 +246,7 @@ record ScimWriteEffects<A extends Enum<A>>(
     }
 
     /**
-     * What the dormancy job's Role revocation implies (ADR 0011): the User has already been removed
+     * What the dormancy job's Role revocation implies (ADR 0007): the User has already been removed
      * from each of these mapped Groups, so it loses each one's Role, in the order given, and its
      * Sessions end — once, with the one cause, however many Groups it left. Nothing is audited as
      * an attribute and nothing more is stored: the removals advanced the versions as they were

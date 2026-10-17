@@ -1,4 +1,4 @@
-# 13. Epic Login: SMART on FHIR EHR launch sign-in
+# 12. Epic Login: SMART on FHIR EHR launch sign-in
 
 Date: 2026-10-06
 
@@ -7,12 +7,12 @@ Date: 2026-10-06
 Accepted. Finalised 2026-10-08, when it retired the design spec it was built from
 (`docs/epic-smart-login.md`, kept in git history). This ADR is the sole authority on
 Epic Login: the flow, the interfaces, every decision D1–D29, the accepted risk D13,
-the IM8 policy position and the App-Standards deviations. ADR 0012 records the
+the IM8 policy position and the App-Standards deviations. ADR 0011 records the
 ac-2, ac-12 and as-8 positions it changes.
 
 Consolidated 2026-10-10. The 2026-10-09 addendum that keeps Epic's tokens for the
 session (#24) is now D29, and supersedes D8 for those tokens. The two addenda on how
-a Login ends, for both login methods, moved to ADR 0014. The text below states the
+a Login ends, for both login methods, moved to ADR 0001. The text below states the
 current position.
 
 The items under "Open items" below are confirmations from outside the code. Each
@@ -27,7 +27,7 @@ Epic verifies that client authentication against a JWKS the application publishe
 and fetches it from us. How the application holds and rotates its signing keys
 therefore has to suit Epic's verifier and the deployment's secrets handling.
 
-ADR-0012 records "no organisational IdP/SSO" and puts OAuth/JWT flows out of scope.
+ADR-0011 records "no organisational IdP/SSO" and puts OAuth/JWT flows out of scope.
 This ADR refines it for exactly one flow: the SMART on FHIR EHR launch, for
 clinicians, with password Login kept unchanged beside it.
 
@@ -133,7 +133,7 @@ Security's authorization-request filter build the request.
    `ACCOUNT_DISABLED`, and a User locked for any cause as `ACCOUNT_LOCKED`
    (`EpicLoginFailureReason`).
 7. **Session.** `LoginCompletion` signs the session in through
-   `SessionEstablishment`, exactly as for password Login (ADR 0014), with
+   `SessionEstablishment`, exactly as for password Login (ADR 0001), with
    `session-start` under method `sso`. The success handler then keeps Epic's
    tokens on the signed-in session (D29). The answer is `302 /`. The SPA's
    `/api/auth/me` → `authenticated` → `/showcase` path follows.
@@ -141,7 +141,7 @@ Security's authorization-request filter build the request.
    Epic being unreachable at `/?signin=unavailable` (D23). Neither carries any
    detail, and both end the browser's session first (D24).
 
-How a Login ends is ADR 0014's: `LoginCompletion` runs the decision, the session,
+How a Login ends is ADR 0001's: `LoginCompletion` runs the decision, the session,
 the method's own work and the recording in one order, and `LoginOutcomeService`
 writes each ending's audit record, log line and counts. For an Epic Login:
 
@@ -286,7 +286,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   Audit page shows it. While D4 holds, `sso` means Epic.
 - **D17: Epic Login is multi-factor, by the Epic organisation's attestation
   until Epic confirms the claim.** The Epic organisation enforces MFA at its own
-  sign-in, which meets ac-2 on the Epic path (ADR 0012, ac-2); its written
+  sign-in, which meets ac-2 on the Epic path (ADR 0011, ac-2); its written
   confirmation is an open item (below), and is referenced here once
   received. Until Epic confirms that an EHR launch's `id_token` carries `amr`,
   every Epic `LOGIN_SUCCESS` records its MFA factor as `idp-attested` (the audit
@@ -303,7 +303,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   alone is not evidence. `acr` is not read: its values are each deployment's
   own, none says MFA everywhere, and it names no factor to record — a token
   carrying only `acr` is refused with the switch on. Password Login stays the
-  ADR-0012 ac-2 deviation.
+  ADR-0011 ac-2 deviation.
 - **D18: input bounds.** `launch` and `code` are 1–8192 characters of printable
   ASCII with no whitespace (`U+0021`–`U+007E`), checked before either is held,
   sent or redeemed (`EpicInputBounds`). Both are opaque, so nothing about them
@@ -457,7 +457,7 @@ Micrometer, on the existing Prometheus registry:
   above; `none` for a success, so every series has the same tag keys) —
   `LoginMetrics`, behind the `LoginCounts` port `LoginOutcomeService` records
   through, registered whether or not Epic Login is on. Epic Login's series are
-  `method=sso`. It was `epic.login`, without the `method` tag, until ADR 0014;
+  `method=sso`. It was `epic.login`, without the `method` tag, until ADR 0001;
 - `epic.login.failed_calls` counter, tagged `call` and `error_category`: each Epic
   call whose failure ended a Login, so a refused credential (`cert/auth`), which no
   outbound status tells apart, can be alerted on — `EpicCallMetrics`, behind the
@@ -536,7 +536,7 @@ Micrometer, on the existing Prometheus registry:
   The KMS change therefore replaces the one environment-key implementation
   (`EnvironmentKeyClientAssertionSigner`) and nothing that uses it. For the same
   reason, the token call adds the assertion to its request itself and never gives
-  a library signer a private JWK. as-8 and ck-4 stay open in ADR-0012 until then.
+  a library signer a private JWK. as-8 and ck-4 stay open in ADR-0011 until then.
 
 ### Epic's tokens (D29)
 
@@ -673,19 +673,19 @@ follows.
 
 | Control                      | Was      | Resolution                                                                                                                                                 |
 | ---------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| as-8 Secrets management      | FAIL     | **Accepted deviation, open** (D16). The key is an environment variable for now; the target is AWS KMS. ADR-0012's as-8 entry is extended to name this key. |
+| as-8 Secrets management      | FAIL     | **Accepted deviation, open** (D16). The key is an environment variable for now; the target is AWS KMS. ADR-0011's as-8 entry is extended to name this key. |
 | ck-4 Key storage             | FAIL     | Same as as-8 (D16). A KMS-held key closes both.                                                                                                            |
-| ac-2 MFA                     | FAIL     | **Met on the Epic path** by the Epic organisation's MFA (D17). Password Login stays the ADR-0012 deviation.                                                |
+| ac-2 MFA                     | FAIL     | **Met on the Epic path** by the Epic organisation's MFA (D17). Password Login stays the ADR-0011 deviation.                                                |
 | as-1 Input validation        | AUTO-FIX | D18.                                                                                                                                                       |
 | as-4 Rate-limiting           | AUTO-FIX | D19.                                                                                                                                                       |
 | as-15 Change on compromise   | AUTO-FIX | D20.                                                                                                                                                       |
-| dp-3 TLS in transit          | AUTO-FIX | D21. The wider dp-3 entry in ADR-0012 stays open.                                                                                                          |
+| dp-3 TLS in transit          | AUTO-FIX | D21. The wider dp-3 entry in ADR-0011 stays open.                                                                                                          |
 | lm-16 Key signals            | AUTO-FIX | The metrics above.                                                                                                                                         |
 | lm-19 Log sanitisation       | AUTO-FIX | D22, the masking above, and `EpicLoginRedactionIntegrationTests`.                                                                                          |
-| ac-12 SSO for internal users | AUTO-FIX | ADR 0012, ac-12: clinicians sign in through their organisation via Epic; password Login for non-clinicians stays a deviation.                              |
-| ac-4 Access review           | AUTO-FIX | The existing ADR-0012 deviation is unchanged by Epic Login.                                                                                                |
+| ac-12 SSO for internal users | AUTO-FIX | ADR 0011, ac-12: clinicians sign in through their organisation via Epic; password Login for non-clinicians stays a deviation.                              |
+| ac-4 Access review           | AUTO-FIX | The existing ADR-0011 deviation is unchanged by Epic Login.                                                                                                |
 | pm-6 System documentation    | AUTO-FIX | The sequence diagram and network paths above.                                                                                                              |
-| as-10 HSTS                   | DEFERRED | Unchanged. Tracked under ADR-0012's dp-3 entry.                                                                                                            |
+| as-10 HSTS                   | DEFERRED | Unchanged. Tracked under ADR-0011's dp-3 entry.                                                                                                            |
 
 ### App-Standards position (spec-standards-check, 2026-10-06)
 
@@ -734,7 +734,7 @@ keeps the detail.
 SSO §4 rate-limits at the application layer, 10–60 attempts per registration per
 minute, reset on success. Here the launch and the callback are throttled at the
 network edge alone, with the limits in edge configuration (D19), as every other
-public authentication route already is (ADR-0012, as-4). The edge already
+public authentication route already is (ADR-0011, as-4). The edge already
 throttles the public routes, and keeps a flood off the JVM — and off Epic, since
 every callback this service accepts calls Epic's token endpoint. A deployment
 without edge throttling is misconfigured.
@@ -822,7 +822,7 @@ records the same reasons. The browser sees one answer for all of them,
 `/?signin=refused`, and the operational log says only "Epic sign-in refused",
 with no reason and no user field. The audit trail, read by an administrator,
 holds the detail. The `login` counter carries the reason as a tag; it counts
-events and names no account. Password Login keeps them the same way (ADR 0014).
+events and names no account. Password Login keeps them the same way (ADR 0001).
 
 ### Open items
 
@@ -859,10 +859,10 @@ values belong in `/infra/README.md` once registered.
 - The callback is served by a security filter, not a controller, so the API
   contract check lists it as filter-served rather than finding it in the handler
   mapping.
-- **as-8 (secrets management) and ck-4 (key storage) stay open** in ADR-0012
+- **as-8 (secrets management) and ck-4 (key storage) stay open** in ADR-0011
   until the KMS signer exists (the policy position above). The signing keys are
   deployment environment configuration, like the application's other secrets,
-  and a KMS-held key closes both. ADR 0012's as-8 and ck-4 entries name this
+  and a KMS-held key closes both. ADR 0011's as-8 and ck-4 entries name this
   key.
 - The public JWKS is derived from the private keys at startup, so the
   configuration holds nothing but the PEMs and `kid`s. The KMS signer will need

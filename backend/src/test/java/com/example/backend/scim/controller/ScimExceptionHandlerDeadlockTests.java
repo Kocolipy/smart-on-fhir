@@ -35,7 +35,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
- * ADR 0015's as-13 second deadlock as this package's handlers answer it: a SCIM write's in the
+ * ADR 0013's as-13 second deadlock as this package's handlers answer it: a SCIM write's in the
  * SCIM error document, the connector administration adapter's in the application chain's shape —
  * each {@code 503} with {@code Retry-After: 1} and the one {@code database} {@code ERROR}. Any
  * other failure of the kinds a deadlock arrives as is left unanswered, as before.

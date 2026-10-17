@@ -49,7 +49,7 @@ public interface ScimUserSessions {
      *
      * @param connectorId the connector whose write caused it, recorded as the actor; or
      *                    {@code null} when no connector made the write — the dormancy job's Role
-     *                    revocation (ADR 0011) — recorded with no actor
+     *                    revocation (ADR 0007) — recorded with no actor
      * @param userId      the User whose sessions end
      * @param causes      why; never empty
      */

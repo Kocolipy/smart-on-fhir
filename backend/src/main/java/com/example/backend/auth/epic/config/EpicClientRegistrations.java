@@ -22,10 +22,10 @@ import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
  * <ul>
  *   <li>client authentication {@code private_key_jwt} (D7): the token call adds our client
  *       assertion itself, from the {@code ClientAssertionSigner}, rather than handing a library
- *       signer a private key (ADR 0013);
+ *       signer a private key (ADR 0012);
  *   <li>{@code redirect_uri} exactly {@code APP_EPIC_REDIRECT_URI}, with no template to expand;
  *   <li>{@code scope=launch openid fhirUser}, in that order: identity only (D8), so the access
- *       token kept for the session (ADR 0013, D29) reads no FHIR resource and
+ *       token kept for the session (ADR 0012, D29) reads no FHIR resource and
  *       Epic issues no refresh token;
  *   <li>the issuer, so the {@code id_token}'s {@code iss} must equal it.
  * </ul>

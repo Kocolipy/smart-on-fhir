@@ -457,7 +457,7 @@ class ApiContractFixtureTests {
         });
     }
 
-    // ---- a write deadlocked on its retry too (ADR 0015, as-13) ------------------------
+    // ---- a write deadlocked on its retry too (ADR 0013, as-13) ------------------------
 
     /**
      * Each administrative write the database chooses as a deadlock's victim on its first attempt

@@ -7,7 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * Removes a User or Group a test created, straight through SQL, as a test's cleanup does.
  *
  * <p>The memberships naming the resource go first. Their foreign keys take no action
- * (ADR 0015) — the application's delete paths remove a resource's memberships themselves — so a
+ * (ADR 0013) — the application's delete paths remove a resource's memberships themselves — so a
  * resource row still named by one is refused rather than taking it along.
  */
 public final class ScimTestRows {

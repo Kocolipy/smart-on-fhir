@@ -23,7 +23,7 @@ import org.springframework.data.repository.query.Param;
  * {@link ScimUserEntity#WITH_RESOURCE_AND_EMAILS}. The one that does not is
  * {@link #findByResource_ReservedName}, whose User cannot be deleted. Left to the mapping,
  * Hibernate reads the User rows first and the eager resource and emails in later statements.
- * Under read-committed snapshot ({@code READ_COMMITTED_SNAPSHOT ON}, ADR 0015) each statement
+ * Under read-committed snapshot ({@code READ_COMMITTED_SNAPSHOT ON}, ADR 0013) each statement
  * sees what had committed when that statement began. A deletion that commits between them
  * therefore leaves a User row whose resource has gone, and the read fails with
  * {@code ObjectNotFoundException}: a {@code 500} for a User that was merely deleted while the

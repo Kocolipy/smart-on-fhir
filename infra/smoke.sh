@@ -180,7 +180,7 @@ check_secret_leaks() {
   SECRET_VALUES=()
 }
 
-# The running service holds no owner or master credential (ADR 0015, ac-1):
+# The running service holds no owner or master credential (ADR 0013, ac-1):
 # its JVM's own environment, read from /proc on the instance, names no
 # DATABASE_OWNER_* variable and contains no part of the owner or the master
 # secret — their ARNs or their passwords. Only the migrate step
@@ -209,7 +209,7 @@ check_service_holds_no_owner_credential() {
   print_info "owner credential check: the service runs without the owner and the master logins"
 }
 
-# The driver-scoped trust store left the JVM's default trust alone (ADR 0015):
+# The driver-scoped trust store left the JVM's default trust alone (ADR 0013):
 # the running service's JVM has no javax.net.ssl.trustStore, and the same JDK,
 # with its default trust store, fetches the identity provider's documents over
 # HTTPS — Epic's OIDC discovery document and the JWKS it names when Epic Login

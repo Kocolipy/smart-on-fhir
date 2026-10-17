@@ -243,7 +243,7 @@ class JdbcErrorLogRedactionTests {
     }
 
     /**
-     * The unmapped violation's record is classified as ADR 0015 maps it: {@code error.code} the
+     * The unmapped violation's record is classified as ADR 0013 maps it: {@code error.code} the
      * status the connector was answered with, {@code error.category} {@code database}.
      */
     @Test

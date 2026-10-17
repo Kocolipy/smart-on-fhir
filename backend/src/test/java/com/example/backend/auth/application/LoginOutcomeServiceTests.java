@@ -259,7 +259,7 @@ class LoginOutcomeServiceTests {
     }
 
     /**
-     * ADR 0013, "Audit": an Epic {@code LOGIN_FAILURE} carries its reason spelled as the reason's
+     * ADR 0012, "Audit": an Epic {@code LOGIN_FAILURE} carries its reason spelled as the reason's
      * own name — every reason on the list, so one added to it is held to the same.
      */
     @ParameterizedTest(name = "{0} is audited as {0}")

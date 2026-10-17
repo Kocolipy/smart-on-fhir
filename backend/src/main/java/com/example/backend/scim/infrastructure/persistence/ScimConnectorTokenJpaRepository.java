@@ -19,7 +19,7 @@ interface ScimConnectorTokenJpaRepository
     List<ScimConnectorTokenEntity> findByConnectorIdOrderByIssuedAtDesc(UUID connectorId);
 
     /**
-     * Locks this token's row for update ({@code WITH (UPDLOCK, ROWLOCK)}, ADR 0015) until the
+     * Locks this token's row for update ({@code WITH (UPDLOCK, ROWLOCK)}, ADR 0013) until the
      * transaction ends, and reports whether it exists.
      *
      * <p>Called only by {@link ScimWriteLockAdapter}, the one place the scim slice takes a lock;

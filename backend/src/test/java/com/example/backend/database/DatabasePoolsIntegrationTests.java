@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Import;
  * The service's two database pools as an operator sees them: the main pool, {@code app}, and the
  * audit retention job's, {@code retention}, each in the {@code db} health indicator — under the
  * bean that declares it, {@code dataSource} and {@code auditRetentionDataSource} — and in
- * Micrometer's Hikari series under its pool name (ADR 0015, lm-16; #66).
+ * Micrometer's Hikari series under its pool name (ADR 0013, lm-16; #66).
  *
  * <p>The retention pool starts on its first use. A health check is one — the {@code db} indicator
  * borrows a connection from every pool — so each test checks health first, as a deployment's

@@ -1,5 +1,5 @@
 -- The local SQL Server's database and its three logins, created the way the
--- deployed bootstrap creates them (ADR 0015). Run by the one-shot `sqlserver-init`
+-- deployed bootstrap creates them (ADR 0013). Run by the one-shot `sqlserver-init`
 -- service in compose.yaml, through scripts/local-db-init.sh, as `sa`.
 --
 -- Everything from `SET NOCOUNT ON` down is, line for line, the deployed stack's
@@ -59,7 +59,7 @@ BEGIN
     END;
 END;
 -- The collation set here is the database's; the server's is fixed when the
--- server is created (ADR 0015). A database found with another one is
+-- server is created (ADR 0013). A database found with another one is
 -- refused: altering it would not convert its columns.
 IF DB_ID(@database) IS NULL
 BEGIN

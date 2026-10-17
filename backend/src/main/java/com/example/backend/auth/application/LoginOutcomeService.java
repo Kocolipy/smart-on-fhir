@@ -22,12 +22,12 @@ import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.stereotype.Service;
 
 /**
- * Records how a Login ended, by either login method (ADR 0013, flow steps 6–8, and ADR 0014 for
+ * Records how a Login ended, by either login method (ADR 0012, flow steps 6–8, and ADR 0001 for
  * password Login): the one place each ending's audit record, log line and
  * counts are written, so no two endings — and no two login methods — can disagree about what an
  * ending emits. When each ending is recorded is the web adapter's Login completion's
  * ({@code LoginCompletion}), which runs one order for both methods: a success only once its
- * session is signed in (ADR 0014). Where the browser goes next is each
+ * session is signed in (ADR 0001). Where the browser goes next is each
  * method's web adapter's, and a function of the outcome alone: a password Login's bare
  * {@code 401}, an Epic Login's redirect.
  *
@@ -40,7 +40,7 @@ import org.springframework.stereotype.Service;
  *   <li><b>Refused.</b> A {@code LOGIN_FAILURE} under the login method with its reason; one
  *       {@code WARN} saying only that the Login was refused — "Login refused", or "Epic sign-in
  *       refused" with the field and rule of a refused input — but never the reason, which is
- *       the audit trail's alone (Logging §2.2; ADR 0013, "the account reasons are audit-only");
+ *       the audit trail's alone (Logging §2.2; ADR 0012, "the account reasons are audit-only");
  *       and {@code login} {@code outcome=refused} with the reason. A password Login's refusal
  *       is counted toward the failure run of the User it named, and its {@code LOGIN_FAILURE}
  *       names that User, or nobody, as {@code UNKNOWN_ACCOUNT}, when the name matched none. An
@@ -157,12 +157,12 @@ public class LoginOutcomeService {
 
     /**
      * The one {@code ERROR} of a failed Epic call: which call, and its {@code error.category}
-     * (ADR 0013, "Log") and code, followed up unless Epic was merely unavailable.
+     * (ADR 0012, "Log") and code, followed up unless Epic was merely unavailable.
      */
     private static void logFailedCall(FailedCall failed, String sessionHash) {
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             // be-log-sensitive-value matches any value named "code", for Epic's authorization
-            // code (ADR 0013, D22). This one is the failed call's error.code -- the HTTP status
+            // code (ADR 0012, D22). This one is the failed call's error.code -- the HTTP status
             // the failure maps to, never a value Epic sent -- so it is suppressed on this one
             // record and nowhere else.
             inSession(LogEvent.error(log, Operation.EPIC_LOGIN, failed.code(), failed.category(), // nosemgrep: be-log-sensitive-value

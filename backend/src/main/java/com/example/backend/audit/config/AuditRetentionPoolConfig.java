@@ -14,7 +14,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /**
  * The retention pool: the audit retention job's own connections, as the retention login (ADR
- * 0015, "Runtime model"; #66).
+ * 0013, "Runtime model"; #66).
  *
  * <p>The retention login is a member of {@code backend_audit_retention} only: it may read and
  * delete audit events and nothing else, and it is the one principal the audit table's guard lets

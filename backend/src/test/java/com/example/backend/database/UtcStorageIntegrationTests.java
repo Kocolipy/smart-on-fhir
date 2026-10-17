@@ -29,7 +29,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Storage is UTC only (ADR 0015): every instant the service writes is stored at offset
+ * Storage is UTC only (ADR 0013): every instant the service writes is stored at offset
  * {@code +00:00} in its {@code DATETIMEOFFSET} column, whatever zone the JVM runs in, the API
  * renders it with {@code Z}, and no column default reads the server's clock.
  *

@@ -161,7 +161,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      *
      * <p>The members' versions are advanced BEFORE the delete, because after it there is no
      * membership row left to read them from. The memberships are then deleted explicitly, before
-     * the resource row: the member-side foreign keys take no action (ADR 0015), so the database
+     * the resource row: the member-side foreign keys take no action (ADR 0013), so the database
      * refuses the Group's deletion while one remains. All of it happens in the caller's
      * transaction, so a failure leaves none of it.
      */

@@ -21,7 +21,7 @@ services:
       MSSQL_MEMORY_LIMIT_MB: "2048"
       # This server keeps its default collation (the deployed RDS server is
       # Latin1_General_100_BIN2_UTF8; infra/README.md). The database is created with
-      # Latin1_General_100_BIN2_UTF8 by the init below (ADR 0015); a server collated
+      # Latin1_General_100_BIN2_UTF8 by the init below (ADR 0013); a server collated
       # BIN2_UTF8 cannot load the internal procedures behind sp_getapplock, which
       # Flyway takes to guard every migration (the seed lock is a row lock).
     mem_limit: 3g
@@ -84,7 +84,7 @@ services:
     restart: unless-stopped
 
   # The SMART Health IT launcher: a local stand-in for Epic, for a real SMART EHR
-  # launch with no Epic sandbox (/docs/adr/0013-epic-login.md).
+  # launch with no Epic sandbox (/docs/adr/0012-epic-login.md).
   # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
   # `make infra-up` still starts only SQL Server and Redis. Start it with
   # `make epic-launcher-up`; backend/README.md, "Local Epic launcher", has the

@@ -11,7 +11,7 @@ import org.springframework.dao.PermissionDeniedDataAccessException;
 import org.springframework.transaction.TransactionException;
 
 /**
- * Which {@code error.category} a failure the database raised belongs to — ADR 0015's mapping —
+ * Which {@code error.category} a failure the database raised belongs to — ADR 0013's mapping —
  * and whether it is a deadlock's victim, the one failure the deadlock retry repeats. Both are
  * answered from one table of the failures SQL Server reports, keyed on the SQLState of the
  * {@link SQLException} in the cause chain <em>and</em> its vendor error number
@@ -166,7 +166,7 @@ public final class DatabaseFailureCategory {
     /**
      * Whether the database chose {@code failure}'s transaction as a deadlock's victim — the one
      * failure of the mapping's {@code database} rows that is retried, once, before it is an
-     * {@code ERROR} (the deadlock retry, ADR 0015's as-13): an {@link SQLException} in the cause
+     * {@code ERROR} (the deadlock retry, ADR 0013's as-13): an {@link SQLException} in the cause
      * chain whose row says so. SQL Server reports its victim (1205) under the serialization state
      * {@code 40001}, which it shares with the snapshot conflict (3960) that must not be retried,
      * so its rows key on the error number too.

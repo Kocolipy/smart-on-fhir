@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * them from, so a deployment's existing settings keep reaching it.
  *
  * <p>This is where a connection's TLS settings, its trust store and that store's password, and the
- * driver's login timeout belong once they leave the JDBC URL (ADR 0015, "The RDS CA trust store is
+ * driver's login timeout belong once they leave the JDBC URL (ADR 0013, "The RDS CA trust store is
  * driver-scoped" and "Bounded timeouts"). {@link DatabaseConnections} gives them to every pool,
  * and {@link MigrationConnection} to the migrate step's owner connection, so no connection the
  * service opens is made without them. Each key is passed to the driver as bound: write a

@@ -273,7 +273,7 @@ public record ScimLoginState(
 
     /**
      * The state with its dormancy basis restarted at {@code now}, as an Unlock and a Reactivation
-     * do (ADR 0011): a User an administrator or the directory has just brought back starts a fresh
+     * do (ADR 0007): a User an administrator or the directory has just brought back starts a fresh
      * window, so the job does not lock it again on its next run. Everything else is kept.
      */
     public ScimLoginState withDormancyBasisReset(Instant now) {

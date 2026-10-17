@@ -28,7 +28,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The directory's uniqueness rules, against the SQL Server schema (ADR 0015; #68).
+ * The directory's uniqueness rules, against the SQL Server schema (ADR 0013; #68).
  *
  * <p>Under the database collation {@code Latin1_General_100_BIN2_UTF8} equality is
  * case-sensitive, so a case-insensitive rule is enforced on the application-normalized column

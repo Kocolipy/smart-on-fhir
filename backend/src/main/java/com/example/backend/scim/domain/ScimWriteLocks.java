@@ -24,7 +24,7 @@ import java.util.UUID;
  * locked one after another in {@link #ORDER}, whatever order the caller named them in and
  * whatever database is underneath. The order is not left to a statement's {@code ORDER BY}: an
  * engine that locks rows as its scan reads them, before any sort (SQL Server under
- * {@code UPDLOCK}, ADR 0015), would take a batch in access-path order, and two writers would be
+ * {@code UPDLOCK}, ADR 0013), would take a batch in access-path order, and two writers would be
  * back to holding what the other waits for. Every caller locks through this module, so any total
  * order serves, provided there is exactly one.
  *
@@ -49,7 +49,7 @@ import java.util.UUID;
  * holds the joined row and waits on this one, and the database then detects it and fails one of
  * the two rather than hanging. Retrying the whole sorted batch would not close the window: a
  * transaction cannot give back row locks it already holds, so closing it means restarting the
- * transaction, which is the outermost transactional boundary's job (ADR 0015's deadlock retry),
+ * transaction, which is the outermost transactional boundary's job (ADR 0013's deadlock retry),
  * not this module's.
  *
  * <p>Every call must come before the transaction's first read of the rows it locks, so no copy

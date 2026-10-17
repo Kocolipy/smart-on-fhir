@@ -172,7 +172,7 @@ class ApiExceptionHandlerTests {
 
     /**
      * A data-access failure is the database's, so its {@code error.category} says so, while
-     * {@code error.code} stays the status the request was answered with (ADR 0015's mapping).
+     * {@code error.code} stays the status the request was answered with (ADR 0013's mapping).
      */
     @Test
     void aDataAccessFailureIsCategorisedAsADatabaseErrorUnderTheAnsweredStatus() {
@@ -195,7 +195,7 @@ class ApiExceptionHandlerTests {
     }
 
     /**
-     * ADR 0015's as-13: a retried write the database chose as the deadlock's victim again on its
+     * ADR 0013's as-13: a retried write the database chose as the deadlock's victim again on its
      * retry answers {@code 503} with {@code Retry-After: 1} and the stable body, and is still the
      * one {@code database} {@code ERROR}, needing investigation, that the 500 would have been.
      */

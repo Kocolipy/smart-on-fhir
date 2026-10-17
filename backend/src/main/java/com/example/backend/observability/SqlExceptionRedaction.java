@@ -44,7 +44,7 @@ final class SqlExceptionRedaction {
 
     /**
      * What a record says in place of an {@link SQLException}'s message: {@code SQL Server error
-     * <n>}, the server's error number, which identifies the failure and quotes nothing (ADR 0015,
+     * <n>}, the server's error number, which identifies the failure and quotes nothing (ADR 0013,
      * "SQL exception text is redacted"). A failure the driver raised itself carries {@code 0}.
      */
     static String redactedMessage(SQLException failure) {

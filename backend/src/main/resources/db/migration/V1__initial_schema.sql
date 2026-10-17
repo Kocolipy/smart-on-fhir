@@ -1,4 +1,4 @@
--- The complete schema, in T-SQL for SQL Server 2022 (ADR 0015). The application is
+-- The complete schema, in T-SQL for SQL Server 2022. The application is
 -- pre-production and a fresh database is the only supported starting state, so the
 -- schema is one migration rather than a history of them; the earlier migrations
 -- of the engine-neutral preparation (#62–#66) are folded into it. A change from here
@@ -137,7 +137,7 @@ CREATE TABLE scim_users (
     resource_id                    UNIQUEIDENTIFIER  NOT NULL,
 
     -- As the connector sent it, case and all. What is rendered back. Also the
-    -- Epic Practitioner ID an Epic Login links to (ADR 0013, D2), so an SSO
+    -- Epic Practitioner ID an Epic Login links to, so an SSO
     -- identity is stored here and nowhere else. 256 code points.
     user_name                      VARCHAR(1024)     NOT NULL,
 
@@ -145,7 +145,7 @@ CREATE TABLE scim_users (
     -- in the index so the normalization rule lives in one place — the domain —
     -- and the database enforces the result instead of re-implementing the rule in
     -- SQL, where the two could drift. SQL Server's LOWER does not lower-case as
-    -- Java does (ADR 0015, V4), which is one more reason the index compares this
+    -- Java does, which is one more reason the index compares this
     -- column and not a function of `user_name`. 256 code points.
     normalized_user_name           VARCHAR(1024)     NOT NULL,
 
@@ -193,7 +193,7 @@ CREATE TABLE scim_users (
     -- column's presence is the state and no clock is consulted to read it.
     locked_at                      DATETIMEOFFSET(6),
 
-    -- Why the User is locked (ADR 0011): a failure run (ADR 0007) or dormancy,
+    -- Why the User is locked: a failure run or dormancy,
     -- imposed by the dormancy job at the lockout window. It sits beside
     -- `locked_at`, set whenever it is set and cleared with it, so a helpdesk
     -- operator can tell a forgotten password from an abandoned account before
@@ -222,7 +222,7 @@ CREATE TABLE scim_users (
     -- `userName`. A deleted User's row is gone, which is what makes a former
     -- userName reusable. SQL Server pads a unique key's trailing spaces, so
     -- `ada` and `ada ` would collide here; the application refuses a userName
-    -- with edge whitespace before it reaches this (ADR 0015).
+    -- with edge whitespace before it reaches this.
     CONSTRAINT uq_scim_users_normalized_user_name UNIQUE (normalized_user_name),
 
     -- The last line behind the application: a write path that set one of
@@ -378,7 +378,7 @@ CREATE TABLE scim_groups (
 -- and "a deleted User" are all the same refusal — a foreign-key violation — with
 -- no prior read that two concurrent writes could both pass.
 --
--- Memberships are deleted explicitly, never by cascade (ADR 0015). Both keys are
+-- Memberships are deleted explicitly, never by cascade. Both keys are
 -- NO ACTION: a cascade from each would reach this table by two paths — resource
 -- -> user -> membership, and resource -> group -> membership — which SQL Server
 -- refuses. The User and Group delete paths
@@ -519,7 +519,7 @@ CREATE TABLE scim_connector_tokens (
 CREATE INDEX ix_scim_connector_tokens_connector_id
     ON scim_connector_tokens (connector_id);
 
--- The Permissions a token carries (ADR 0010), a row per Permission, from the same
+-- The Permissions a token carries, a row per Permission, from the same
 -- vocabulary a User's Roles grant, spelled as the wire spells them ('user:read').
 -- A child table because SQL Server has no arrays, and the table keeps the
 -- constraint the database enforced on the array column.
@@ -719,7 +719,7 @@ CREATE TABLE audit_events (
             'face', 'iris', 'retina', 'vbm'))
 );
 
--- Clustered on (occurred_at, id) rather than on the random-UUID key (ADR 0015).
+-- Clustered on (occurred_at, id) rather than on the random-UUID key.
 -- A random clustered key fragments on every insert into the highest-volume table,
 -- while retention deletes by age and the listing orders by it, so both become
 -- range operations on the clustered order. `id` makes the key unique.
@@ -733,7 +733,7 @@ CREATE INDEX ix_audit_events_subject_id ON audit_events (subject_id);
 -- 4. Scheduled-job serialization and showcase data
 -- =============================================================================
 
--- One lock row per scheduled job (ADR 0005). A run takes its own row inside the
+-- One lock row per scheduled job. A run takes its own row inside the
 -- run's transaction and holds it until that transaction ends. A second run of the
 -- SAME job — on this instance or another — finds the row locked and skips; a run
 -- of another job locks a different row and is never blocked by it.
@@ -749,7 +749,7 @@ INSERT INTO scheduled_job_locks (job_name) VALUES
     ('dormancy'),
     ('audit-retention');
 
--- The seeding lock as a row lock (ADR 0015, 2026-10-16 addendum).
+-- The seeding lock as a row lock.
 --
 -- Directory seeding at startup reads what exists and creates what is missing, so
 -- two instances starting together must not both read "absent". Each start's
@@ -787,8 +787,7 @@ CREATE TABLE user_counters (
 -- =============================================================================
 
 -- Three logins connect, each a member of exactly the role its work needs, so the
--- server enforces each one's privileges and nothing on a connection can widen them
--- (ADR 0015, "Runtime model"):
+-- server enforces each one's privileges and nothing on a connection can widen them:
 --
 --   the app login        member of `backend_app`; the request and audit append pools
 --   the retention login  member of `backend_audit_retention`; the retention pool

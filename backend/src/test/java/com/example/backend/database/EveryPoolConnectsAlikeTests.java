@@ -18,7 +18,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * Every pool the service declares reaches the database as the main pool does: through the same
  * URL and driver, and with every connection property a deployment sets on
  * {@code spring.datasource.hikari.data-source-properties} — where TLS, the trust store and the
- * login timeout are given to the driver (ADR 0015). A pool built without them would connect
+ * login timeout are given to the driver (ADR 0013). A pool built without them would connect
  * unencrypted, or not at all, the day they leave the URL.
  *
  * <p>The pools are built, never started: nothing here opens a connection.

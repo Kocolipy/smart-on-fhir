@@ -526,7 +526,7 @@ final class ScimConformanceCases {
         });
 
         // -- 400 invalidValue: a character the column or the name refuses, never a 500 --
-        // U+0000 is refused in every stored string, as input hygiene (ADR 0015); a name also
+        // U+0000 is refused in every stored string, as input hygiene (ADR 0013); a name also
         // refuses every other C0 control and DEL. The values are JSON escapes, so the body is
         // what a connector actually sends, and the refusal never echoes them.
         String nul = name() + "\\" + "u0000x";
@@ -1077,7 +1077,7 @@ final class ScimConformanceCases {
         }
     }
 
-    // ==== edge whitespace on the keys (ADR 0015) ==========================================
+    // ==== edge whitespace on the keys (ADR 0013) ==========================================
 
     /**
      * A key of {@code kind} — an attribute that is unique or looked up — with how a create or
@@ -1195,7 +1195,7 @@ final class ScimConformanceCases {
         }
     }
 
-    // ==== a write deadlocked on its retry too (docs/openapi.yaml; ADR 0015, as-13) ========
+    // ==== a write deadlocked on its retry too (docs/openapi.yaml; ADR 0013, as-13) ========
 
     /**
      * Each write the database chooses as a deadlock's victim on its first attempt and on the one

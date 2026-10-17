@@ -310,7 +310,7 @@ class AuditListingIntegrationTests {
 
     /**
      * Newest first; among equal instants, the greater id first — in SQL Server's own
-     * {@code uniqueidentifier} order (ADR 0015, "Observable changes").
+     * {@code uniqueidentifier} order (ADR 0013, "Observable changes").
      */
     private static List<String> expectedOrder(List<Seeded> events) {
         return events.stream()
@@ -357,7 +357,7 @@ class AuditListingIntegrationTests {
      * The server refusing the app login a privilege it needs (error 229) is a fault on this side,
      * answered as the generic {@code 500} with nothing of the driver's text — not the object, the
      * schema, the statement or the error number — and recorded as the one {@code ERROR} whose
-     * category says to check configuration (ADR 0015's as-13 and its mapping). The refusal is
+     * category says to check configuration (ADR 0013's as-13 and its mapping). The refusal is
      * made real by denying the app login's role its read of the trail, and the grant is given back
      * however the test ends.
      */

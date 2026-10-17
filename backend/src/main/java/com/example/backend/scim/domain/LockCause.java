@@ -3,7 +3,7 @@ package com.example.backend.scim.domain;
 /**
  * Why a User is locked. Recorded beside the lock instant, set with it and cleared with it, so a
  * helpdesk operator can tell a forgotten password from an abandoned account before unlocking
- * (ADR 0011).
+ * (ADR 0007).
  *
  * <p>The cause changes nothing about the lock itself: either lock closes the account to logins
  * until an administrator's Unlock, the login refusal is the same bare {@code 401} for both, and a

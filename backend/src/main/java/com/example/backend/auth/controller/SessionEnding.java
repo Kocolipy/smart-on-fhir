@@ -36,7 +36,7 @@ import org.springframework.stereotype.Component;
  * <p>The CSRF token is bound to the session, so it ends in step 2 with no work of its own here
  * (ADR 0009). The Session revocation of a User's other sessions is a different capability, owned
  * by {@code SessionRevocationService}; this ends only the session the request carries. A web
- * adapter, not an application service, because ending a session is servlet work (ADR 0014).
+ * adapter, not an application service, because ending a session is servlet work (ADR 0001).
  */
 @Component
 class SessionEnding {
@@ -73,8 +73,8 @@ class SessionEnding {
 
         /**
          * A Login ended without signing anyone in — refused by its decision, or failed before one
-         * — so whatever session the browser held, whoever it belonged to, ends (ADR 0014, step 5;
-         * ADR 0013, D24). Its outcome is recorded by {@code LoginOutcomeService}. No
+         * — so whatever session the browser held, whoever it belonged to, ends (ADR 0001, step 5;
+         * ADR 0012, D24). Its outcome is recorded by {@code LoginOutcomeService}. No
          * {@code Clear-Site-Data}: the SPA answers a refused Login on the login page it is on.
          */
         LOGIN_SIGNED_NOBODY_IN(false);

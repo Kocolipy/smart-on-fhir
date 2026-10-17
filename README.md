@@ -33,7 +33,7 @@ and once for the test suite, which must agree:
 
 | Image                                                         | Pinned in                                                                                         | Reviewed |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- |
-| SQL Server 2022 (`mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, amd64, Developer Edition) | `backend/compose.yaml` (tag + digest), `ContainerTestConfiguration.SQL_SERVER_IMAGE` (digest) | monthly (ADR 0015, "Database patching") |
+| SQL Server 2022 (`mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, amd64, Developer Edition) | `backend/compose.yaml` (tag + digest), `ContainerTestConfiguration.SQL_SERVER_IMAGE` (digest) | monthly (ADR 0013, "Database patching") |
 
 Its digest is `sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090`.
 The image is x86_64 only: Apple Silicon is not a supported development platform

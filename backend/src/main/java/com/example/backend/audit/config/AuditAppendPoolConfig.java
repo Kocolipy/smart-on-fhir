@@ -37,7 +37,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * as a member of {@code backend_app} only — which may insert an audit event and never change or
  * delete one — as every other statement the service issues, and reaches the database exactly as
  * the main pool does; there is no second set of credentials, no fallback for one, and never the
- * owner login. Nothing runs on a new connection: the login's privileges are the pool's (ADR 0015,
+ * owner login. Nothing runs on a new connection: the login's privileges are the pool's (ADR 0013,
  * "The audit append pool needs its own role switch", resolved by the separate logins of #66).
  * Only the pool's size and its connection timeout are its own ({@link AuditAppendPoolProperties}).
  * The pool starts lazily, on the first append, so a context that records no refusal opens no

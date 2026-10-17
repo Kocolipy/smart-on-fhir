@@ -420,7 +420,7 @@ class IdentityAdministrationServiceTests {
                 new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
     }
 
-    // Dormancy locks (ADR 0011)
+    // Dormancy locks (ADR 0007)
 
     /**
      * The listing says why a User is locked, so an operator can tell a forgotten password from

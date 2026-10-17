@@ -9,7 +9,7 @@ import java.lang.annotation.Target;
 
 /**
  * A write whose transaction is retried once when the database chose it as a deadlock's victim
- * (the deadlock retry, {@code DeadlockRetryAdapter}, ADR 0015's as-13). Placed on the
+ * (the deadlock retry, {@code DeadlockRetryAdapter}, ADR 0013's as-13). Placed on the
  * {@code @Transactional} method that opens a SCIM or administrative write's transaction — the
  * outermost transactional boundary — and nowhere else: a read-only path or a scheduled run is not
  * retried, because the next request or run covers it.

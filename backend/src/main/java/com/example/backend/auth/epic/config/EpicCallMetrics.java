@@ -8,7 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 
 /**
- * {@code epic.login.failed_calls} (ADR 0013, "Metrics"), the adapter of {@link EpicCallCounts}: one
+ * {@code epic.login.failed_calls} (ADR 0012, "Metrics"), the adapter of {@link EpicCallCounts}: one
  * count per Epic call whose failure ended a Login, tagged {@code call} and {@code error_category} —
  * so a refused credential ({@code cert/auth}), which no outbound status says, can be alerted on.
  * How the Login itself ended is the {@code login} counter's, which counts both login methods.
@@ -24,7 +24,7 @@ public final class EpicCallMetrics implements EpicCallCounts {
     /** The failed-call meter's name. */
     static final String FAILED_CALLS = "epic.login.failed_calls";
 
-    /** Every {@code error.category} an Epic call can fail under (ADR 0013, "Log"). */
+    /** Every {@code error.category} an Epic call can fail under (ADR 0012, "Log"). */
     private static final List<ErrorCategory> CALL_CATEGORIES = List.of(
             ErrorCategory.NETWORK, ErrorCategory.SERVER, ErrorCategory.CERT_AUTH, ErrorCategory.DATA);
 

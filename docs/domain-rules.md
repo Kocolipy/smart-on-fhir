@@ -130,7 +130,7 @@ decision's own transaction, so a success the trail cannot record is not a succes
 A Login by **EHR launch**: Epic opens the application in the clinician's system
 browser, Epic's OpenID Connect provider proves who the clinician is, and the
 session is then built exactly as password Login builds it. Password Login is
-unchanged, and a User may hold both. ADR 0013 records the decisions and the flow;
+unchanged, and a User may hold both. ADR 0012 records the decisions and the flow;
 `backend/docs/openapi.yaml` holds the three browser routes.
 
 **Linking by `userName`** — an Epic clinician is a User because the SCIM
@@ -222,7 +222,7 @@ session: no response carries them, `/api/auth/me` included, and the SPA holds no
 Epic credential. The patient and encounter context and the rest of the token
 response are discarded, and no FHIR API is called yet. Today Epic issues no
 refresh token, because the Login asks only for `launch openid fhirUser`
-(ADR 0013, D29).
+(ADR 0012, D29).
 
 **Input bounds** — what the browser hands a Login is checked before it is held,
 sent to Epic or redeemed:
@@ -267,7 +267,7 @@ it starts, bounded by the idle timeout and the absolute session lifetime, and
 ended by the next launch in that browser. Signing out of Epic does not end it.
 Ending it drops the Epic tokens it holds but does not revoke them at Epic: the
 access token stays valid there until it expires, and a refresh token, once one
-is issued, for its own lifetime. ADR 0013 records both as an accepted risk (D13).
+is issued, for its own lifetime. ADR 0012 records both as an accepted risk (D13).
 
 **A suspected compromise is a deactivation** — an Epic-linked User suspected
 compromised is deactivated in the directory, which revokes its sessions once the
@@ -416,7 +416,7 @@ whose `iss` or `sub` has edge whitespace is an invalid token (`INVALID_CLAIMS`).
 The reason is the engine, not the value: SQL Server ignores trailing spaces when it
 compares, so `alice` and `alice ` would collide as keys and match each other in a
 lookup; refusing them keeps a key meaning exactly the value the connector holds
-(ADR 0015).
+(ADR 0013).
 
 **Normalized SCIM storage** — the SQL Server representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
@@ -463,7 +463,7 @@ and audit detail expire under the configured audit-retention policy.
 **Deleted User** — a User removed with `DELETE`. Deletion advances the version of
 every Group it belonged to, then removes its Group memberships explicitly, in the
 same transaction and before the User itself — the schema never removes a membership
-by cascade, and refuses to delete a User a membership still names (ADR 0015). It
+by cascade, and refuses to delete a User a membership still names (ADR 0013). It
 then removes its other live rows — profile, emails, credential and password history
 and connector aliases — revokes its sessions once the deletion commits, and leaves a
 SCIM tombstone. Every
@@ -498,7 +498,7 @@ unadvertised attribute queryable, and a filter on `password` is
 `400 invalidFilter`. Sorting takes one
 attribute, puts missing values last ascending and first descending, and breaks ties
 by `id`. SQL Server, the directory's database, makes these filter and sort
-deviations, documented in `backend/docs/openapi.yaml` and recorded in ADR 0015
+deviations, documented in `backend/docs/openapi.yaml` and recorded in ADR 0013
 ("Observable changes" and its 2026-10-15 addendum): `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text
 (`name.*`, `displayName`, `locale`, `timezone`, `preferredLanguage` and the like)
 ignore trailing spaces in the stored and the compared value, because SQL Server
@@ -788,7 +788,7 @@ has no **lockout** at all; the
 `/api/auth/login` endpoint adds only the session, the CSRF token, and the bare
 `401`. Why the counting is recorded here rather than driven by Spring Security's
 authentication events is
-`docs/adr/0001-count-login-attempts-on-the-login-path.md`. A username that begins
+`docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md`. A username that begins
 or ends with whitespace names no User and is refused as an unknown one before any
 lookup (see **Edge whitespace**), so its failure lengthens no failure run.
 
@@ -808,7 +808,7 @@ the rest find the User locked and are not counted (below), so
 **Lockout** — the state a User enters for one of two causes, closing it to
 logins **permanently**: its failure run reaches the configured limit
 (`app.auth.lockout.max-attempts`, default 3) — cause `FAILURES` — or the dormancy
-job finds it past the lockout window — cause `DORMANCY` (ADR 0011). There is no
+job finds it past the lockout window — cause `DORMANCY` (ADR 0007). There is no
 duration, no configuration key expressing one, and no passage of time that lifts
 it. The only thing that ends it is an Admin performing Unlock (ADR 0007). The
 User's row records `locked_at`, the instant the lock was imposed, and `lock_cause`
@@ -1050,7 +1050,7 @@ Admin is never treated as dormant, by its reservation marker, for the reason it 
 exempt from lockout. Avoid "inactive" for this: a deactivated User is one whose
 `active` flag is false, which a dormant User may or may not be.
 
-**Dormancy job** — the scheduled job that enforces dormancy (ADR 0011), replacing
+**Dormancy job** — the scheduled job that enforces dormancy (ADR 0007), replacing
 the earlier inactivity-deactivation and dormant-authority jobs, daily at 04:00
 `Asia/Singapore` on its own scheduled job lock row, in two steps:
 

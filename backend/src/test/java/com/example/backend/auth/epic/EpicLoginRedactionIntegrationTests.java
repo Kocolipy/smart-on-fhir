@@ -35,14 +35,14 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
 /**
- * ADR 0013's D22, end to end, as an ADR-0003 redaction test: an Epic Login that succeeds, one
+ * ADR 0012's D22, end to end, as an ADR-0003 redaction test: an Epic Login that succeeds, one
  * refused for each reason the audit trail knows, and one for each way Epic can be unavailable
  * past discovery, each searched for every D22 value it handled — the {@code launch}, the
  * {@code state} and {@code nonce}, the authorization {@code code}, the PKCE verifier, the client
  * assertion, the {@code id_token}, the access token, the refresh token, and the private key
  * material of both signing keys — in the whole log stream it produced, the whole audit trail after
  * it, and every answer our callback gave the browser. Epic's three tokens are kept server-side for
- * a signed-in session (ADR 0013, D29), and none of them leaves it this way. The
+ * a signed-in session (ADR 0012, D29), and none of them leaves it this way. The
  * same paths hold the {@code login} counter's Epic series and the {@code epic.outbound} meters to the tags each should
  * move.
  *
@@ -90,7 +90,7 @@ class EpicLoginRedactionIntegrationTests {
     @BeforeEach
     void setUp() {
         // Epic issues a refresh token on every path here, so it is searched for as a D22 value
-        // beside the access token and the id_token (ADR 0013, D29).
+        // beside the access token and the id_token (ADR 0012, D29).
         EPIC.fake().issuingRefreshTokens();
         logs = EcsLogCapture.attach(environment);
     }

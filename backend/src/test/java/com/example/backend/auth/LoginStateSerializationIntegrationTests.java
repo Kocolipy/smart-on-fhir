@@ -46,7 +46,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * holder released. Every racer has therefore read the state before any other one wrote — the
  * interleaving a lost update needs — whichever lock it is waiting on.
  *
- * <p>Run on SQL Server under read-committed snapshot (ADR 0015's as-4): a racer reads the User
+ * <p>Run on SQL Server under read-committed snapshot (ADR 0013's as-4): a racer reads the User
  * from its own statement's snapshot, never blocked by the holder, and waits only on a lock;
  * the wait is observed in {@code sys.dm_exec_requests}, never assumed after a sleep.
  */

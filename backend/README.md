@@ -2,7 +2,7 @@
 
 A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
 identity directory, audit trail and per-User counters persisted in SQL Server 2022
-(ADR 0015).
+(ADR 0013).
 Identities are provisioned by an external directory over a SCIM 2.0 interface
 (`/scim/v2`); the session-authenticated application API lives under `/api`.
 Spring Session replaces the servlet container's in-memory session, so session
@@ -19,7 +19,7 @@ instances.
   arm64 build. On Apple Silicon it runs only under Rosetta emulation (Docker
   Desktop's "Use Rosetta for x86_64/amd64 emulation"), which Microsoft does not
   support and which is slow; Apple Silicon is not a supported development
-  platform (ADR 0015).
+  platform (ADR 0013).
 - Memory: the local SQL Server is capped at 2 GB (`MSSQL_MEMORY_LIMIT_MB`) in a
   3 GB container, and the test suite starts one SQL Server per test JVM — about
   0.9 GB each, two JVMs — so give WSL2 or Docker Desktop at least 8 GB.
@@ -308,7 +308,7 @@ whatever a replaced config file happens to say.
 
 ### Epic Login
 
-Epic SMART on FHIR EHR launch Login (`/docs/adr/0013-epic-login.md`, the sole authority on it).
+Epic SMART on FHIR EHR launch Login (`/docs/adr/0012-epic-login.md`, the sole authority on it).
 **Off by default**, and then nothing below is read or required: the app starts
 with no Epic variable at all, and every `/api/auth/epic/**` path answers `404`
 ahead of the session, CSRF and authorization checks, mirroring
@@ -330,11 +330,11 @@ ahead of the session, CSRF and authorization checks, mirroring
 | `APP_EPIC_MFA_EVIDENCE_REQUIRED` | no                    | `false` | Require MFA evidence in the `id_token`'s `amr` (D17); see below           |
 
 `APP_EPIC_MFA_EVIDENCE_REQUIRED` stays off until Epic confirms it sends `amr` on
-an EHR launch (ADR 0013, "Open items"). Off, the Epic organisation's MFA is an
+an EHR launch (ADR 0012, "Open items"). Off, the Epic organisation's MFA is an
 attestation and every Epic `LOGIN_SUCCESS` records the factor `idp-attested`.
 On, a token whose `amr` names no RFC 8176 second factor and not `mfa` is
 refused as `INVALID_CLAIMS`, and the factor recorded is the one `amr` named;
-ADR 0013 lists the factors accepted.
+ADR 0012 lists the factors accepted.
 
 **No default credentials**: this repository is public, so no URL, client id or
 key has a fallback anywhere. With the switch on, startup fails fast when a
@@ -347,7 +347,7 @@ the rule, **never the value**, and the bound settings print with both keys
 redacted. Startup does not contact Epic: discovery runs on the first launch and
 is kept for 24 hours, so a wrong issuer or an unreachable Epic shows on the first
 launch — as the login page's "temporarily unavailable" notice when Epic gives no
-answer within the timeouts or answers `5xx` — never as a failed deploy (ADR 0013).
+answer within the timeouts or answers `5xx` — never as a failed deploy (ADR 0012).
 
 Generate a key with `openssl genpkey -algorithm EC -pkeyopt
 ec_paramgen_curve:P-384`. The PEM may be given on one line, with or without its
@@ -452,7 +452,7 @@ A run deletes in batches of at most 4,000 events (`DELETE TOP (4000)`), each in 
 transaction of its own on the retention pool with a 60 s query timeout, until a
 batch comes back short. A batch stays below SQL Server's lock-escalation threshold
 of 5,000 locks, so it holds row locks only and an audit append never waits behind
-it (ADR 0015). A failed run reports what it had committed: every batch before the
+it (ADR 0013). A failed run reports what it had committed: every batch before the
 one that failed, or all of them when the run's lock transaction failed afterwards,
 since each batch commits on the retention pool before that transaction does; the
 next run deletes the rest. The job is serialized on its own `audit-retention` row
@@ -584,7 +584,7 @@ change moves the basis.
 ### Database logins
 
 The service reaches SQL Server as **three logins**, each holding only its own
-privileges, and nothing switches role on a connection (ADR 0015, "Runtime
+privileges, and nothing switches role on a connection (ADR 0013, "Runtime
 model"; `NoRoleSwitchTest`, in the `arch` tests, holds that no source
 or configuration file issues `SET ROLE`):
 
@@ -713,7 +713,7 @@ The local server keeps its default collation and only the database is collated
 zone"), but on this image a server collated `BIN2_UTF8`
 cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
 guard every migration. The service's own seed lock is a row lock and needs
-neither (ADR 0015, "Addendum (2026-10-16)").
+neither (ADR 0013, "Addendum (2026-10-16)").
 
 The `.env` variables it reads:
 
@@ -829,167 +829,9 @@ The test JVMs drop every `.env.example` key from their environment
 (`excludedEnvironmentVariables` in `pom.xml`), so the results do not depend on
 what the shell exported.
 
-Deletions, 2026-10-13: 17 test methods whose oracle and failure domain a
-surviving test already held — seven Epic meter `+1` checks
-(`EpicLoginRedactionIntegrationTests.theEpicLoginMetersMoveUnderTheExpectedTags`
-asserts every path's whole meter delta), three Group version-bump service
-tests that read the in-memory fake (`RepresentationChangeTests` owns the rule),
-three logout duplicates within `AuthControllerTests`, two discovery-needs-a-token
-copies (`ScimDiscoveryIntegrationTests`), one read-only-create refusal
-(`ScimUserProvisioningIntegrationTests`), and one Bootstrap Admin role check
-left over from `ROLE_ADMIN`'s retirement. The baseline gate after, on c4be0f8:
-`Tests run: 4751, Failures: 0, Errors: 0, Skipped: 0`, 28 contexts started.
-
-Scheduled-job run module, 2026-10-13 (ADR 0005 amendment): two service tests
-that re-tested the lock's per-job keying (`anotherJobHoldingItsLockDoesNotStopThisOne`
-in `DormancyServiceTests`, `anotherJobsLockBeingHeldDoesNotStopARetentionRun` in
-`AuditRetentionServiceTests`) moved into the module's own
-`ScheduledJobRunServiceTests` (fast gate, six tests). The new
-`ScheduledJobRunIntegrationTests` (five tests) joins the shared context. The
-baseline gate after: `Tests run: 4813, Failures: 0, Errors: 0, Skipped: 0`, up from
-4803 on bc8bc92.
-
-Separate database logins, 2026-10-14 (#66): the test contexts now connect as the
-app and retention logins and migrate as the owner login (`ContainerTestConfiguration`),
-with `DatabaseLogins` for the tests that must speak as another principal. New:
-`DatabasePoolsIntegrationTests` (joins the shared context), `MigrationStepIntegrationTests`
-(starts three Flyway-only contexts of the migrate step, no service context),
-`DataSourceConfigTests` and `AuditRetentionPoolConfigTests` (application context
-runners, no container), and `MigrationLoginNamesTests`, `MigrationProfilesTests` and
-`NoRoleSwitchTest` (fast gate). The role-switch assertion
-`theDeployedConfigurationMakesTheRuntimeRoleTheApplicationsOwn` was removed with the
-switch it pinned. The baseline gate after: `Tests run: 4860, Failures: 0, Errors: 0,
-Skipped: 0`, up from 4813 on 3d54d0d; 2:24 min against 2:48.
-
-Logging hardening, 2026-10-14 (#64, ADR 0003): three classes join the fast gate —
-`AuditRetentionRunLogTests` (7 tests), `DatabaseFailureCategoryTests` (26) and
-`DeadlockRetryAdapterTests` (12) — and three full-context classes join the shared
-configuration, adding no context of their own: `DatabaseFailureLogIntegrationTests`
-(7 tests, 3.7 s), `ScimDeadlockRetryIntegrationTests` (2 tests, 3.7 s, a forced
-deadlock on the previous engine) and `StartupLogConnectionDetailsTests` (2 tests, 38.3 s; each
-runs the migrate step and then `BackendApplication` in child JVMs against a
-database of its own, which makes it the slowest of the three).
-`ScheduledJobRegistrationTests` gains three cases for a failed run's committed
-progress, and `LogEventTests` lost three with the retired `jobSummary` shape. The
-baseline gate after: `Tests run: 4944, Failures: 0, Errors: 0, Skipped: 0`, up from
-4863 measured on a226ae1 (the entry above reads 4860), with 32 context starts, as on
-a226ae1, and Semgrep 0 findings; 7:00 min against 4:28.
-
-Database connections module, 2026-10-14 (architecture review B24): two classes
-join the fast gate — `DatabaseConnectionsTests` (11 tests) and
-`MigrationConnectionTests` (5) — and `EveryPoolConnectsAlikeTests` (3, an
-application context runner, no container) holds every pool to the main pool's
-driver properties. `MigrationStepIntegrationTests` gains one case (a driver
-property reaches the owner's connection), `AuditRetentionPoolConfigTests` gains
-two, and `AuditAppendPoolConfigTests` loses its connection-init-sql case to
-`EveryPoolConnectsAlikeTests`. Scoped PIT over the changed classes: 69 mutants,
-69 killed, line coverage 54/54. The baseline gate after: `Tests run: 4988,
-Failures: 0, Errors: 0, Skipped: 0`, up from 4967 on 98f8375, Semgrep 0
-findings, no context start added.
-
-Deadlock retry coverage and its 503, 2026-10-14 (architecture review B23, ADR 0015
-as-13): `DeadlockRetryRulesTests` (8 tests, planted classes, no context) joins the
-fast gate beside the seven new `ArchitectureTest` rules (86, up from 79), and `ScimExceptionHandlerDeadlockTests` (7) is a unit test.
-`DeadlockRetryAdapterTests` gains four cases (16), `ApiExceptionHandlerTests` three
-(17). `ScimDeadlockRetryIntegrationTests` (3 tests) now drives its second deadlock
-over HTTP to the `503` and adds a token rotation retried through `ForcedDeadlock`,
-the trigger the contract fixtures use for the documented `503`s:
-`ScimConformanceFixtureTests` gains eight (428) and `ApiContractFixtureTests` two
-(29). No class adds a configuration; the context start count reads 33 in two runs
-against 31 on df51e6b, the difference being where the forks place the two
-`@DirtiesContext` classes, which decides how often the shared context reboots.
-Scoped PIT over `DeadlockRetryAdapter`, `ExhaustedRetry`, `ApiExceptionHandler`
-and `ScimExceptionHandler`: 247 mutants, 247 detected (one of them a timeout in
-the unreadable-body handler's cause loop, which predates this change), line
-coverage 163/165, the two lines being `ExhaustedRetry`'s private constructor. The
-baseline gate after: `Tests run: 5033, Failures: 0, Errors: 0, Skipped: 0`, up
-from 4993 on df51e6b, Semgrep 0 findings; 4:32 min against 4:28.
-
-SQL Server switchover 1/5, 2026-10-14 (#68, ADR 0015; integration branch
-`mssql-cutover`): the suite runs on one SQL Server 2022 CU27 container per test JVM
-(`ContainerTestConfiguration`), each context on a database of its own created with
-the deployment's options. Before, on the previous engine at 6e8a882: `./scripts/verify.sh`
-308 s wall-clock (Maven `Total time: 04:48 min`), `Tests run: 5033, Failures: 0,
-Errors: 0, Skipped: 0`, 32 context starts, Semgrep 0 findings. After, on SQL Server:
-Maven `Total time: 06:23 min` (385 s), `Tests run: 5062, Failures: 46, Errors: 166,
-Skipped: 0`, 31 context starts (32, 31, 33 and 31 across four runs — the forks place
-the `@DirtiesContext` classes differently — with no configuration added: neither new
-full-context class starts one), Semgrep 0 findings. The failures are the suites the
-next switchover tickets port (locks, audit listing and error mapping in #69, the
-SCIM query SQL in #70, the remaining previous-engine SQL in tests in #72), and they also
-make the run slower than it will be: a failing wait runs to its patience. New:
-`ScimSchemaUniquenessIntegrationTests` (12 tests) and `UtcStorageIntegrationTests`
-(3) join the shared context; `TrustServerCertificateTest` (5) joins the fast gate;
-`DatabaseUrlTests` (2) starts the deployed configuration and fails it, opening no
-context; `DataSourceConfigTests` gains four (a missing URL; scoped PIT over
-`DataSourceConfig`: 20 mutants, 20 killed, line coverage 10/10). `ConnectorTokenPermissionsMigrationTests` was removed with the previous engine's
-`V6` it migrated through: the T-SQL `V1` is the only migration, and a fresh
-database the only starting state.
-
-SQL Server switchover 2/5, 2026-10-14 (#69, ADR 0015; integration branch
-`mssql-cutover`): locks, isolation, audit and error surfacing on SQL Server. Three
-classes join the fast gate, each over `ScriptedJdbc`, a JDBC fake at the driver
-boundary: `ScheduledJobLockAdapterTests` (7 tests), `ScimSeedLockAdapterTests` (6)
-and `AuditEventRetentionAdapterTests` (3); the fast gate runs 3,389 tests.
-`UserCounterSerializationIntegrationTests` (1 test) joins the shared configuration
-and starts no context of its own. Deleted:
-`DatabaseFailureCategoryTests.anyInvalidAuthorizationStateIsACertAuthFailure`, which
-pinned the previous engine's `28000` state (`sqlServersRefusedLoginIsACertAuthFailure` now
-pins SQL Server's error 18456), and
-`AuditRetentionSerializationIntegrationTests.ofTwoOverlappingRunsOneDeletesAndTheOtherSkipsLockHeldDeletingNothing`,
-replaced by the two batching cases that hold a run between its batches. Two
-`EcsErrorFieldsCustomizerTests` cases were renamed for the redacted text's new
-`SQL Server error <n>` wording. Grown: `DatabaseFailureCategoryTests` (39),
-`AuditRetentionServiceTests` (+5), `AuditRetentionRunLogTests` (+2),
-`AuditEventReadAdapterIntegrationTests` (+2), `AuditListingIntegrationTests`,
-`ScheduledJobRunIntegrationTests` and `ScimSeedIntegrationTests` (+1 each). Scoped
-PIT over `DatabaseFailureCategory`, `SqlExceptionRedaction`, `ScheduledJobLockAdapter`,
-`ScimSeedLockAdapter`, `AuditRetentionService`, `AuditEventRetentionAdapter`,
-`DeadlockRetryAdapter` and `TimedJdbc`, from the nine touched unit test classes: 242
-mutants, 242 detected (241 killed, 1 timed out), line coverage 161/165, the four
-lines being the private constructors of `SqlExceptionRedaction` and `TimedJdbc`.
-Before, on this branch with #68 alone:
-`Tests run: 5062, Failures: 48, Errors: 166, Skipped: 0` (#68's entry above
-records 46 failures from its own run), 31 context starts, Maven `Total time:
-06:34 min`. After: `Tests run: 5100, Failures: 23, Errors: 144, Skipped: 0`, 33
-context starts (31 and 32 in earlier runs of the same change — fork placement, no
-configuration added), `Total time: 07:23 min`. Of the 48 failures and 166 errors
-red at that baseline (#68's 46 and 166, plus two its own run did not see), 24
-failures and 22 errors now pass and one failure was deleted with its rewrite; the
-23 failures and 144 errors left were all red before, in the suites #70 (the SCIM
-query SQL) and #72 (previous-engine SQL and UUID read-backs in test setup) port, and no
-test newly fails. `./scripts/verify.sh` stops at the red tests before its scan, so
-the tests ran as `./mvnw -B clean verify -Dmaven.test.failure.ignore=true` and the
-scan as `./scripts/semgrep.sh`: 0 findings before, and
-`Ran 153 rules on 791 files: 0 findings` after.
-
-SQL Server switchover 5/5, 2026-10-16 (#72, ADR 0015; integration branch
-`mssql-cutover`): the last red tests port. Ten integration classes held the 32
-(21 failures, 11 errors) red at 95ee952: they read ids back with an untyped
-`getObject`, which the driver answers with the id's upper-case text, or still sent
-the previous engine's SQL. They now read rows through `UuidColumnRows`, which maps
-every `UNIQUEIDENTIFIER` column to a `UUID`, and send T-SQL; no test was added or
-removed. `DatabaseFailureCategoryTests`' case for the previous engine's deadlock
-state was renamed `aDeadlockVictimStateWithoutError1205IsNoDeadlock`. Scoped PIT over
-`EcsErrorFieldsCustomizer`, `DatabaseFailureCategory` and `ScimQuerySql`, from
-their three touched unit test classes: 493 mutants, 491 killed, 2 `NO_COVERAGE`
-(the compiler's unreachable `MatchException` default of the exhaustive switches in
-`ScimQuerySql.predicate` and `sqlType`, which no test can reach; recorded in the pull
-request as an accepted gap), line coverage 295/308.
-Before, at 95ee952: `./scripts/verify.sh` 437 s wall-clock, Maven `Total time:
-07:14 min`, `Tests run: 5122, Failures: 21, Errors: 11, Skipped: 0`, 33 context
-starts, the scan run on its own with 0 findings. After: `GATE_EXIT=0`, 458 s
-wall-clock, Maven `Total time: 07:18 min`, `Tests run: 5122, Failures: 0, Errors: 0,
-Skipped: 0`, 33 context starts (32 to 34 across five runs of the change — fork
-placement, no configuration added), Semgrep
-`Ran 153 rules on 772 files: 0 findings`. Against the pre-switchover baseline above
-(308 s, 32 contexts), the suite is 150 s slower; ADR 0015, "Verified behaviour",
-records every run, including one that failed
-`RefusalLogIntegrationTests.a_non_admin_admin_read_is_one_refusal_record` on a
-stopped context's session-cleanup task firing inside its capture window. `V1`'s
-comments were reworded in this change, so its Flyway checksum changed: a database
-migrated before it fails validation and must be recreated (`docker compose down
--v` locally).
+A test that must reach the database as the driver sees it, without a container,
+runs over `ScriptedJdbc`, a JDBC fake at the driver boundary that fails on any
+statement its script does not name, and so stays in the fast gate.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, `make integration-test` and `make epic-integration-test` from the

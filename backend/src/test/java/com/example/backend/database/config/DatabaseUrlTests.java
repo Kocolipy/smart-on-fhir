@@ -16,7 +16,7 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.DefaultResourceLoader;
 
 /**
- * The service learns where its database is from {@code DATABASE_URL} alone (ADR 0015; #68).
+ * The service learns where its database is from {@code DATABASE_URL} alone (ADR 0013; #68).
  *
  * <p>The URL used to fall back to a local database. A fallback is a published default for a
  * deployment that forgot the setting, and it would point the service at whatever answers on that

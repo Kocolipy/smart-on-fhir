@@ -62,7 +62,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The dormancy job end to end (ADR 0011), against a real SQL Server, the real seeded identities,
+ * The dormancy job end to end (ADR 0007), against a real SQL Server, the real seeded identities,
  * the real role mapping and the real job lock: the lockout at the lockout window with
  * {@code DORMANCY}, every mapped Group membership removed at the role-revocation window and the
  * unmapped ones kept, a re-added membership removed again, the Bootstrap Admin's exemption, an

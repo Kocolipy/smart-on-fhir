@@ -1,7 +1,7 @@
 package com.example.backend.scim.domain;
 
 /**
- * What the dormancy job owes one User at one instant (ADR 0011): nothing, the lockout, or the
+ * What the dormancy job owes one User at one instant (ADR 0007): nothing, the lockout, or the
  * lockout and role revocation together.
  *
  * <p>Decided by {@link DormancyPolicy#verdict}, which owns the whole decision — which instant the
