@@ -49,9 +49,9 @@ const EXPECTED: Record<
   monitoring: { accounts: null, audit: false, createConnector: false, unlock: false },
 };
 
-async function expectShowcase(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
-  await page.goto("/showcase");
-  await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
+async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   // Every fixture Role's User holds the baseline counter Permissions: the counter
   // is shown and offered to each. Its value is not asserted — it is per User.
   await expect(page.getByTestId("count")).toBeVisible();
@@ -68,8 +68,8 @@ async function expectAccounts(page: Page, view: AccountsView, createConnector: b
   await page.goto("/accounts");
   if (view === null) {
     // Routed away exactly as any page the User lacks the Permission for.
-    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+    await expect(page).toHaveURL("/");
     return;
   }
   await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
@@ -96,8 +96,8 @@ async function expectAudit(page: Page, canView: boolean) {
   await page.goto("/audit");
   if (!canView) {
     // Routed away exactly as any page the User lacks the Permission for.
-    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+    await expect(page).toHaveURL("/");
     return;
   }
   await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
@@ -123,7 +123,7 @@ test.describe("development Roles", () => {
       expect(body).not.toHaveProperty("role");
 
       // The pages and actions it is shown.
-      await expectShowcase(page, expected.accounts !== null, expected.audit);
+      await expectHome(page, expected.accounts !== null, expected.audit);
       await expectAccounts(page, expected.accounts, expected.createConnector);
       await expectAudit(page, expected.audit);
 

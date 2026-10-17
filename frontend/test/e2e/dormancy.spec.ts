@@ -57,7 +57,7 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
     const own = await returning.newPage();
     await submitLogin(own, DORMANT, FIXTURE_PASSWORD);
     await expect(own.getByRole("alert")).toHaveText("The username or password is incorrect.");
-    await expect(own).not.toHaveURL(/\/(showcase|change-password)$/);
+    await expect(own).toHaveURL(/\/login$/);
 
     // The Account admin unlocks it from the page.
     await row.getByRole("button", { name: `Unlock ${DORMANT}` }).click();
@@ -75,7 +75,7 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
 
     // And it signs in normally.
     await submitLogin(own, DORMANT, CHOSEN);
-    await expect(own).toHaveURL(/\/showcase$/);
+    await expect(own).toHaveURL("/");
     await expect(own.getByText(`Signed in as ${DORMANT}`)).toBeVisible();
 
     // The unlock restarted its dormancy window, so the list shows it in use again.

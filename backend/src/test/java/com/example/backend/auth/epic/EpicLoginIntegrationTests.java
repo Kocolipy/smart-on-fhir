@@ -480,7 +480,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(unprovisioned(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test
@@ -490,7 +490,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test
@@ -500,7 +500,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     /** D24: the refused browser is left signed in as nobody — its session is gone. */
@@ -557,7 +557,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     @Test
@@ -568,7 +568,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     /** D26: the code is single-use, so a token call that timed out is not sent again. */
@@ -601,7 +601,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     @Test
@@ -612,7 +612,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=unavailable");
+                .isEqualTo("/login?signin=unavailable");
     }
 
     /** A fetch that failed is Epic unavailable, not a reason to try again within the Login. */
@@ -721,7 +721,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signIn(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test
@@ -749,7 +749,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test
@@ -905,7 +905,7 @@ class EpicLoginIntegrationTests {
 
         assertThat(EPIC.fake().requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 3);
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
     }
 
     @Test

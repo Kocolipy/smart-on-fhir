@@ -45,6 +45,11 @@ whatever reason; the SPA returns its holder to login saying so.
 The protected path a Guest asked for before being sent to sign in, replayed once
 they have.
 
+**Home**:
+The signed-in landing page at `/`: where a User arrives after signing in with no
+Return destination, and where a successful Epic Login lands. The login page is
+`/login`.
+
 **Sign-in reason**:
 Why a Guest is at the login page — an Expired session, an Idle sign-out, a
 password change, a Lockout that a password change ran into, or an Epic Login

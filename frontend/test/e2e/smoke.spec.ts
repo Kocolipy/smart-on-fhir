@@ -10,14 +10,14 @@ import { expect, test } from "@playwright/test";
 // `page.waitForTimeout()` and never `waitForLoadState("networkidle")`.
 test.describe("smoke", () => {
   test("boots and renders the login page", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/login");
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await expect(page).toHaveTitle("Front End");
   });
 
   test("applies the Tailwind design tokens", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
 
     // If @tailwindcss/vite failed to generate the stylesheet, or src/index.css
@@ -45,7 +45,7 @@ test.describe("smoke", () => {
     });
     page.on("pageerror", (error) => errors.push(error.message));
 
-    await page.goto("/");
+    await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
 
     expect(errors).toEqual([]);

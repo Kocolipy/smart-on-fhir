@@ -129,7 +129,7 @@ export async function csrfHeaderFor(api: APIRequestContext): Promise<Record<stri
 
 /** Fill and submit the login form, without asserting where it lands. */
 export async function submitLogin(page: Page, username: string, password: string) {
-  await page.goto("/");
+  await page.goto("/login");
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -139,7 +139,7 @@ export async function submitLogin(page: Page, username: string, password: string
 export async function loginAs(page: Page, username: string, password: string) {
   await submitLogin(page, username, password);
 
-  await expect(page).toHaveURL(/\/showcase$/);
+  await expect(page).toHaveURL("/");
   await expect(page.getByText(`Signed in as ${username}`)).toBeVisible();
 }
 

@@ -87,14 +87,14 @@ change, when the backend side moves. What the SPA has to honour:
   Epic and back to `GET /api/auth/epic/callback`, and on success answers
   `302 /` with the session already signed in (session id rotated, pre-login
   CSRF token dropped). The SPA does nothing special: its ordinary start-up
-  `GET /api/auth/me` answers `authenticated`, and the guest route at `/` sends
-  the clinician on to `/showcase`. A refused launch lands at
-  `/?signin=refused` with its session ended — whoever's it was — and the
+  `GET /api/auth/me` answers `authenticated`, and `/` renders Home. Only the
+  failure landings are on the login page: a refused launch lands at
+  `/login?signin=refused` with its session ended — whoever's it was — and the
   login page shows only the neutral "Sign-in from Epic was refused"; the
   refusal's reason never reaches the browser. The second outcome is Epic being
   unavailable — no answer within the backend's timeouts, or an Epic `5xx`, on
   discovery, the JWKS or the token call — which lands at
-  `/?signin=unavailable`, its session ended the same way, and the login page
+  `/login?signin=unavailable`, its session ended the same way, and the login page
   shows "Sign-in from Epic is temporarily unavailable. Try again shortly."
   instead. The two are distinct on purpose (D23): a refused clinician should not
   retry, an unavailable one should. Neither marker carries any detail, and

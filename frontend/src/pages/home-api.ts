@@ -1,5 +1,5 @@
 /**
- * The counter endpoints the Showcase page reads and drives —
+ * The counter endpoints the Home page reads and drives —
  * `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page.
  *
  * Nothing here requests anything: the page sends each declaration through

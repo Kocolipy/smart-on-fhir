@@ -110,7 +110,7 @@ To launch by hand, provision a User over SCIM whose `userName` is the
 Practitioner ID you will launch as. A connector's write leaves a password change
 pending, which confines the User's password Login to `/change-password` but not
 its Epic Login: an Epic Login presents no password of ours, so it lands on
-`/showcase` whether or not the change is pending (ADR 0008's 2026-10-09
+Home (`/`) whether or not the change is pending (ADR 0008's 2026-10-09
 addendum). Then, in the launcher UI at
 `http://localhost:9009`:
 
@@ -121,7 +121,7 @@ addendum). Then, in the launcher UI at
   verifies our client assertion against it, from inside its container.
 - **App launch URL** `http://localhost:5173/api/auth/epic/launch`.
 
-Launching lands on `/showcase`, signed in as that User with its Groups'
+Launching lands on Home (`/`), signed in as that User with its Groups'
 Permissions. `make epic-integration-test` runs the same launch as a Playwright
 spec, which is Epic Login's E2E gate (`frontend/AGENTS.md`); it generates its own
 key and sets all of the above itself.

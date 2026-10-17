@@ -47,7 +47,7 @@ test("a lockout at the login page refuses the right password exactly as a wrong 
     // that the guessing worked.
     await submitLogin(page, userName, OWN_PASSWORD);
     await expect(page.getByRole("alert")).toHaveText(INCORRECT);
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
 
     // The same holds on the wire: the locked User's right password and a

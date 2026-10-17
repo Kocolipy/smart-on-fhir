@@ -11,10 +11,10 @@ import { holdsAny } from "./permissions";
 import type { SessionEndReason, SignInReasonState } from "./sign-in-reason";
 
 /** The login route, which is also where an unauthenticated visitor is sent. */
-export const LOGIN_PATH = "/";
+export const LOGIN_PATH = "/login";
 
-/** Where an authenticated visitor lands with no return destination recorded. */
-export const DEFAULT_DESTINATION = "/showcase";
+/** Home: where an authenticated visitor lands with no return destination recorded. */
+export const DEFAULT_DESTINATION = "/";
 
 /**
  * The self-service password change: open to every authenticated visitor, and

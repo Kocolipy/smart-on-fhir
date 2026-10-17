@@ -7,17 +7,17 @@ const CSRF_HEADER = "x-csrf-token";
 // What the SPA does when a request it expected to succeed comes back refused.
 // `src/lib/http.ts` classifies 401 and a 403 that survives the CSRF re-seed into
 // different results
-// and `src/pages/showcase.tsx` answers them differently — a real backend on the
+// and `src/pages/home.tsx` answers them differently — a real backend on the
 // other end is the only thing that proves those two statuses are what it
 // actually sends. The unit suites cover the same branches against a stubbed
 // `fetch`; these cover that the contract behind them is real.
 //
 // Neither test asserts a counter value: this spec shares the backend's single
-// counter with showcase.spec.ts under `fullyParallel`. Both requests here
+// counter with home.spec.ts under `fullyParallel`. Both requests here
 // are refused, so the count never moves.
 test.describe("sessions, signed in", () => {
   test("returns to the login page when the session has expired", async ({ context, page }) => {
-    await page.goto("/showcase");
+    await page.goto("/");
 
     const increment = page.getByRole("button", { name: "Increment" });
     // The initial load disables the button; waiting for it also guarantees the
@@ -31,7 +31,7 @@ test.describe("sessions, signed in", () => {
     // The 401 has to move the auth state to guest, not just show an error:
     // ProtectedRoute is what carries the user back to sign in.
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/login$/);
     // And tells them why: the expired-session state carried by the redirect is
     // the SPA's whole explanation of a 401, and a cold visit shows none.
     await expect(page.getByRole("status")).toHaveText("Your session ended. Please sign in again.");
@@ -40,7 +40,7 @@ test.describe("sessions, signed in", () => {
   test("reports a 403 that survives the re-seed as permission denied without ending the session", async ({
     page,
   }) => {
-    await page.goto("/showcase");
+    await page.goto("/");
 
     const increment = page.getByRole("button", { name: "Increment" });
     await expect(increment).toBeEnabled();
@@ -67,7 +67,7 @@ test.describe("sessions, signed in", () => {
 
     // A 403 is not a 401: the session survives, so the user stays where they are
     // instead of being sent back to sign in.
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page).toHaveURL("/");
     await expect(page.getByText("Signed in as admin")).toBeVisible();
   });
 });

@@ -80,8 +80,8 @@ import org.springframework.web.client.RestClientException;
  *
  * <p>Any OAuth error or failed check, and any Epic call that failed — discovery at the authorize
  * hop or the callback, the token call, the JWKS — goes to the one failure handler, Epic Login's
- * web adapter {@code EpicLoginFailureHandler}, which lands the browser at {@code /?signin=refused} or, when Epic was unavailable,
- * {@code /?signin=unavailable}, its session ended (D23, D24).
+ * web adapter {@code EpicLoginFailureHandler}, which lands the browser at {@code /login?signin=refused} or, when Epic was unavailable,
+ * {@code /login?signin=unavailable}, its session ended (D23, D24).
  */
 final class EpicLoginFlow {
 
@@ -138,9 +138,9 @@ final class EpicLoginFlow {
         http.addFilterBefore(new EpicCallbackFilter(pendingRequests, signInFailure),
                 OAuth2LoginAuthenticationFilter.class);
         http.oauth2Login(oauth2 -> oauth2
-                // The SPA's root is the login page; naming it keeps Spring Security from
-                // generating one of its own.
-                .loginPage("/")
+                // The SPA's login page; naming it keeps Spring Security from generating one of
+                // its own.
+                .loginPage("/login")
                 .loginProcessingUrl(EpicRoutes.CALLBACK)
                 .clientRegistrationRepository(registrations)
                 .authorizedClientRepository(EpicTokenHandOff.REPOSITORY)

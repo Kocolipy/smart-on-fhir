@@ -74,7 +74,7 @@ class EpicMfaEvidenceIntegrationTests {
                 EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
         assertThat(refusalsAudited("INVALID_CLAIMS")).isEqualTo(before + 1);
     }
 
@@ -88,7 +88,7 @@ class EpicMfaEvidenceIntegrationTests {
                 EPIC.provisionedFhirUser(), null);
 
         assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/?signin=refused");
+                .isEqualTo("/login?signin=refused");
         assertThat(refusalsAudited("INVALID_CLAIMS")).isEqualTo(before + 1);
     }
 

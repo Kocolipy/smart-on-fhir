@@ -45,7 +45,7 @@ test("warns before the idle limit, stays on Escape, and signs out at the limit",
       const page = await context.newPage();
       await page.clock.install();
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
 
       const me = await page.request.get("/api/auth/me");
       const { idleTimeoutSeconds } = (await me.json()) as { idleTimeoutSeconds: number };
@@ -70,7 +70,7 @@ test("warns before the idle limit, stays on Escape, and signs out at the limit",
       // A full limit from the stay, untouched: signed out, and told why.
       await page.clock.fastForward(idleTimeoutSeconds * 1000);
       await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-      await expect(page).toHaveURL(/\/$/);
+      await expect(page).toHaveURL(/\/login$/);
       await expect(page.getByRole("status")).toHaveText(INACTIVE_NOTICE);
       expect((await page.request.get("/api/auth/me")).status(), "logged out on the backend").toBe(
         401,
@@ -94,7 +94,7 @@ test("the warning's buttons answer the keyboard", async ({ browser }) => {
       const page = await context.newPage();
       await page.clock.install();
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL(/\/showcase$/);
+      await expect(page).toHaveURL("/");
       const { idleTimeoutSeconds } = (await (await page.request.get("/api/auth/me")).json()) as {
         idleTimeoutSeconds: number;
       };

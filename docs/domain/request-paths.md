@@ -19,7 +19,7 @@ error.
 **SPA shell** — `index.html`, the single document the single-page application
 boots from. A path with no server-side handler is _forwarded to the shell_ when
 it belongs to the client-side router, which is how a deep link such as
-`/showcase` survives a page reload.
+`/accounts` or `/login` survives a page reload.
 
 **File request** — a path whose **last** segment contains a dot
 (`/assets/index-a1b2c3.js`, `/favicon.ico`). A missing file request stays a 404;

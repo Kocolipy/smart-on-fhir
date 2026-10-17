@@ -5,63 +5,76 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { stubFetchWithCsrf } from "./lib/http.testHelpers";
 
+/** An unflagged signed-in session holding no Permission, as `/api/auth/me` reports it. */
+const SIGNED_IN_ADA = {
+  idleTimeoutSeconds: 900,
+  passwordChangeRequired: false,
+  permissions: [],
+  username: "ada",
+};
+
 describe("App", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
   });
 
-  it("renders login at the home route for a guest", async () => {
+  it("sends a guest's cold visit to Home on to login", async () => {
     stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
   });
 
-  it("redirects a guest away from the showcase", async () => {
-    window.history.replaceState(null, "", "/showcase");
+  it("sends a guest's visit to a path with no route of its own on to login", async () => {
+    window.history.replaceState(null, "", "/no-such-page");
     stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+  });
+
+  it("shows the refused notice on /login?signin=refused", async () => {
+    window.history.replaceState(null, "", "/login?signin=refused");
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    render(<App />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Sign-in from Epic was refused$/);
+  });
+
+  it("sends a User's visit to a path with no route of its own on to Home", async () => {
+    window.history.replaceState(null, "", "/no-such-page");
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });
 
-  it("renders the showcase when the session is authenticated", async () => {
-    window.history.replaceState(null, "", "/showcase");
-    stubFetchWithCsrf(
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            idleTimeoutSeconds: 900,
-            passwordChangeRequired: false,
-            permissions: [],
-            username: "ada",
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-            status: 200,
-          },
-        ),
-      ),
-    );
+  it("sends a User's visit to login on to Home", async () => {
+    window.history.replaceState(null, "", "/login");
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("renders Home when the session is authenticated", async () => {
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
   });
 
   describe("Sign out from the shell", () => {
-    const me = () =>
-      Response.json({
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        permissions: [],
-        username: "ada",
-      });
+    const me = () => Response.json(SIGNED_IN_ADA);
 
     it("takes the User to login with no Sign-in reason", async () => {
-      window.history.replaceState(null, "", "/showcase");
+      window.history.replaceState(null, "", "/");
       stubFetchWithCsrf(
         vi
           .fn()
@@ -77,7 +90,7 @@ describe("App", () => {
     });
 
     it("keeps the User signed in, saying so, when the logout fails", async () => {
-      window.history.replaceState(null, "", "/showcase");
+      window.history.replaceState(null, "", "/");
       stubFetchWithCsrf(
         vi
           .fn()
@@ -95,18 +108,15 @@ describe("App", () => {
     });
   });
 
-  it("returns to login when the showcase discovers an expired session", async () => {
-    window.history.replaceState(null, "", "/showcase");
+  it("returns to login when Home discovers an expired session", async () => {
     stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(
           Response.json({
-            idleTimeoutSeconds: 900,
-            passwordChangeRequired: false,
-            // counter:read, so the showcase reads the counter and meets the 401.
+            ...SIGNED_IN_ADA,
+            // counter:read, so Home reads the counter and meets the 401.
             permissions: ["counter:read"],
-            username: "ada",
           }),
         )
         .mockResolvedValueOnce(new Response(null, { status: 401 })),
@@ -114,7 +124,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/login");
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Your session ended. Please sign in again.",
     );
@@ -128,25 +138,12 @@ describe("App", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("signs in and sends the guest to the showcase", async () => {
+  it("signs in and sends the guest to Home", async () => {
     const [username, password] = ["ada", "correct-password"];
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            idleTimeoutSeconds: 900,
-            passwordChangeRequired: false,
-            permissions: [],
-            username: "ada",
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-            status: 200,
-          },
-        ),
-      );
+      .mockResolvedValueOnce(Response.json(SIGNED_IN_ADA));
     stubFetchWithCsrf(fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -155,14 +152,30 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Password"), password);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/showcase");
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/login", {
       body: JSON.stringify({ username, password }),
       credentials: "include",
       headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "test-token" },
       method: "POST",
     });
+  });
+
+  it("reads the counter on Home once signed in", async () => {
+    stubFetchWithCsrf(
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === "/api/count"
+            ? Response.json({ count: 3 })
+            : Response.json({ ...SIGNED_IN_ADA, permissions: ["counter:read", "counter:write"] }),
+        ),
+      ),
+    );
+    render(<App />);
+
+    expect(await screen.findByTestId("count")).toHaveTextContent(/^Clicked 3 times$/);
+    expect(window.location.pathname).toBe("/");
   });
 
   it("shows invalid credential errors", async () => {
@@ -186,38 +199,20 @@ describe("App", () => {
 
   it("redirects a User holding no Accounts Permission away from account administration", async () => {
     window.history.replaceState(null, "", "/accounts");
-    stubFetchWithCsrf(
-      vi.fn().mockResolvedValue(
-        Response.json({
-          idleTimeoutSeconds: 900,
-          passwordChangeRequired: false,
-          permissions: [],
-          username: "ada",
-        }),
-      ),
-    );
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/showcase");
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 
   it("redirects a User holding no audit:read away from the audit trail", async () => {
     window.history.replaceState(null, "", "/audit");
-    stubFetchWithCsrf(
-      vi.fn().mockResolvedValue(
-        Response.json({
-          idleTimeoutSeconds: 900,
-          passwordChangeRequired: false,
-          permissions: [],
-          username: "ada",
-        }),
-      ),
-    );
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/showcase");
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 
   it("renders the audit trail for a session holding audit:read", async () => {
@@ -316,7 +311,7 @@ describe("App with the change-required flag", () => {
 
   const changePage = () => screen.findByRole("heading", { name: "Change your password" });
 
-  it.each(["/showcase", "/accounts", "/audit", "/", "/no-such-page", "/change-password"])(
+  it.each(["/", "/login", "/accounts", "/audit", "/no-such-page", "/change-password"])(
     "lands a flagged session on /change-password from %s",
     async (path) => {
       window.history.replaceState(null, "", path);
@@ -352,16 +347,7 @@ describe("App with the change-required flag", () => {
 
   it("renders the change for an unflagged User, and sends a Visitor to login", async () => {
     window.history.replaceState(null, "", "/change-password");
-    stubFetchWithCsrf(
-      vi.fn().mockResolvedValue(
-        Response.json({
-          idleTimeoutSeconds: 900,
-          passwordChangeRequired: false,
-          permissions: [],
-          username: "ada",
-        }),
-      ),
-    );
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json(SIGNED_IN_ADA)));
     const { unmount } = render(<App />);
     expect(await changePage()).toBeInTheDocument();
     expect(window.location.pathname).toBe("/change-password");
@@ -370,7 +356,7 @@ describe("App with the change-required flag", () => {
     stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/login");
   });
 
   it("returns to login on a successful change, then signs in to the default destination", async () => {
@@ -380,14 +366,7 @@ describe("App with the change-required flag", () => {
       .fn()
       .mockResolvedValueOnce(Response.json(CONFINED))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(
-        Response.json({
-          idleTimeoutSeconds: 900,
-          passwordChangeRequired: false,
-          permissions: [],
-          username: "ada",
-        }),
-      )
+      .mockResolvedValueOnce(Response.json(SIGNED_IN_ADA))
       .mockResolvedValue(Response.json({ count: 0 }));
     stubFetchWithCsrf(fetchMock);
     const user = userEvent.setup();
@@ -399,7 +378,7 @@ describe("App with the change-required flag", () => {
     await user.click(screen.getByRole("button", { name: "Change password" }));
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/login");
     expect(screen.getByRole("status")).toHaveTextContent(
       /^Your password was changed\. Sign in with your new password\.$/,
     );
@@ -415,8 +394,8 @@ describe("App with the change-required flag", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     // Not replayed back to /change-password: the change recorded no return destination.
-    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/showcase");
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 
   it("keeps the session on a wrong current password and stays on the change", async () => {

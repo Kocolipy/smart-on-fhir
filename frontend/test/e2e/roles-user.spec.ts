@@ -20,13 +20,13 @@ import {
 // it is refused are both asserted.
 
 test.describe("baseline User pages", () => {
-  test("lands on the showcase with the counter and self-service, and no administration", async ({
+  test("lands on Home with the counter and self-service, and no administration", async ({
     page,
   }) => {
-    await page.goto("/showcase");
+    await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+    await expect(page).toHaveURL("/");
     await expect(page.getByTestId("count")).toBeVisible();
     await expect(page.getByRole("button", { name: "Increment" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reset" })).toBeVisible();
@@ -38,8 +38,8 @@ test.describe("baseline User pages", () => {
   test("is routed away from the accounts page by a deep link", async ({ page }) => {
     await page.goto("/accounts");
 
-    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
-    await expect(page).toHaveURL(/\/showcase$/);
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+    await expect(page).toHaveURL("/");
   });
 });
 

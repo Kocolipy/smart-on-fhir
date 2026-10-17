@@ -42,9 +42,9 @@ it. It is refused exactly as a name that matches nobody is, so a refusal never
 says the account exists. Password Login stays its recovery path: Epic proving a
 clinician is never a way into the deployment's last account.
 
-A refusal lands the browser at `/?signin=refused` with no detail, its session
-ended first whoever it belonged to, and the login page shows only "Sign-in from
-Epic was refused". It is audited once, as a `LOGIN_FAILURE` with login method
+A refusal lands the browser on the login page at `/login?signin=refused` with no
+detail, its session ended first whoever it belonged to, and the login page shows
+only "Sign-in from Epic was refused". It is audited once, as a `LOGIN_FAILURE` with login method
 `sso`, its reason, and the refused User's stable id — none for
 `UNKNOWN_ACCOUNT`, so an ID that matched nobody leaves no trace of itself. The
 reason is the audit trail's alone: the operational log says only "Epic sign-in
@@ -52,8 +52,8 @@ refused", because the reason tells whether an account exists.
 
 **Epic being unavailable is not a refusal.** When Epic does not answer in time,
 or answers with a server error, on any of the calls a Login makes, the launch
-lands at `/?signin=unavailable`, its session ended the same way, and the login
-page says to try again shortly. It names no User — none was ever resolved — and
+lands at `/login?signin=unavailable`, its session ended the same way, and the
+login page says to try again shortly. It names no User — none was ever resolved — and
 is audited as a `LOGIN_FAILURE` with login method `sso` and `EPIC_UNAVAILABLE`,
 counting toward no failure run.
 
@@ -74,11 +74,12 @@ fixed, it is not repeated on each audit event or stored per User.
 **Every launch is a fresh Login** — the launch ends whatever session the
 browser held, whoever it belonged to, and a refused launch leaves the browser
 signed out: a shared workstation is never left signed in as the previous User. A
-successful Epic Login is recorded as a password Login is — failure run cleared,
-dormancy basis moved, `LOGIN_SUCCESS` with login method `sso`, every other
-session of the User revoked — so one session per User holds across both
-Login paths. The authorities are the ones password Login gives the same User with
-the change-required flag clear: an Epic Login is **never a
+successful Epic Login lands on [Home](./sessions.md), `/`, and is recorded as a
+password Login is — failure run cleared, dormancy basis moved, `LOGIN_SUCCESS`
+with login method `sso`, every other session of the User revoked — so one session
+per User holds across both Login paths. The authorities are the ones password
+Login gives the same User with the change-required flag clear: an Epic Login is
+**never a
 [confined session](./passwords.md)**, because it presents no password of this
 service's and the flag marks an imposed password. A flagged User signed in
 through Epic holds its Permissions, `GET /api/auth/me` reports
@@ -124,7 +125,7 @@ same `state` — replayed, or racing the first — finds nothing and is refused 
 in. Epic's authorization codes are single-use besides.
 
 **Protocol refusals** — anything else short of a Login lands at
-`/?signin=refused` exactly as an account refusal does, its session ended, and
+`/login?signin=refused` exactly as an account refusal does, its session ended, and
 is audited once with no subject and its reason: Epic answering the callback with
 an OAuth error (`IDP_ERROR`), Epic's token endpoint refusing the code
 (`TOKEN_EXCHANGE_FAILED`), an `id_token` whose signature does not verify or is

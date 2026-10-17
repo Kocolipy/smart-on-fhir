@@ -79,7 +79,8 @@ async function settleAdminPassword(page: Page) {
   // Through the page: the forced change lands here by itself, the voluntary one
   // is opened directly. Either way the form is the same.
   await submitLogin(page, ADMIN_USERNAME, SEED_PASSWORD);
-  await expect(page).toHaveURL(/\/(?:change-password|showcase)$/);
+  // The forced change, or Home at the root exactly.
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/(?:change-password)?$/);
   await page.goto("/change-password");
   await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();
 

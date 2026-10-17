@@ -24,8 +24,9 @@ Treating a hiccup as a Guest would be worse than a wait: the User would sign in
 again, and under one session per User that ends every other session they hold.
 
 **Guest** — the session status of a person with no session: where a cold arrival
-starts and where a sign-out returns. A Guest may use only the login page; asking
-for a protected route records the return destination and sends them there.
+starts and where a sign-out returns. A Guest may use only the login page,
+`/login`; asking for a protected route records the return destination and sends
+them there.
 
 **Expired session** — a session that _was_ authenticated and which the backend
 has since refused with a `401`. The status becomes `guest` either way; what
@@ -39,6 +40,13 @@ and the request retried once, and a `403` that survives that is an
 redirected to sign in, recorded as `from` in router state and replayed once the
 status turns `authenticated`. Owned by the route guards, so no page navigates on
 its own behalf after signing in.
+
+**Home** — the signed-in landing page, at `/`, and the default destination: a
+sign-in with no return destination lands there, as does a successful Epic Login,
+and an authenticated visitor on the login page (`/login`) or on a page it may not
+see is sent there. `/` is a protected route like any other, so a Guest's cold
+visit records it as the return destination and goes to `/login`. A path with no
+route of its own goes to `/`, which is Home for a User and login for a Guest.
 
 **Idle timeout** and **absolute session lifetime** — the two independent bounds
 on every authenticated session, an Admin's included: 15 minutes without a request

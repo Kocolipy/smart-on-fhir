@@ -5,7 +5,7 @@ import { PageStatusScope, useStatusReporter } from "@/auth/page-status";
 import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SHOWCASE_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
+import { HOME_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
 
 /**
  * The layout route of every signed-in page: the header (who is signed in, the
@@ -38,7 +38,7 @@ export function SignedInShell() {
 function SignedInLayout({ error, pathname }: { error: string | null; pathname: string }) {
   const { user } = useAuth();
   const signOut = useSessionAction("logout", useStatusReporter());
-  const page = SIGNED_IN_PAGES.find((entry) => matchPath(entry.path, pathname)) ?? SHOWCASE_PAGE;
+  const page = SIGNED_IN_PAGES.find((entry) => matchPath(entry.path, pathname)) ?? HOME_PAGE;
   const confined = user?.passwordChangeRequired === true;
 
   return (

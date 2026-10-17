@@ -227,16 +227,16 @@ class ApiContractFixtureTests {
                                 .param("iss", "https://fhir.example.org/api/FHIR/R4/")
                                 .param("launch", "launch-context"), 302)
                         .getResponse().getRedirectedUrl())
-                        .isEqualTo("/?signin=refused"));
+                        .isEqualTo("/login?signin=refused"));
         add(all, "epic authorize: 302 refused with no launch pending", t ->
                 assertThat(t.expect(t.get("/api/auth/epic/authorize"), 302)
                         .getResponse().getRedirectedUrl())
-                        .isEqualTo("/?signin=refused"));
+                        .isEqualTo("/login?signin=refused"));
         add(all, "epic callback: 302 refused with no authorization pending", t ->
                 assertThat(t.expect(t.get("/api/auth/epic/callback")
                                 .param("code", "a-code").param("state", "a-state"), 302)
                         .getResponse().getRedirectedUrl())
-                        .isEqualTo("/?signin=refused"));
+                        .isEqualTo("/login?signin=refused"));
         add(all, "csrf: 200 with the session's token in the body, never cached", t -> {
             MvcResult issued = t.expect(t.get(SessionCsrf.PATH), 200);
             assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))

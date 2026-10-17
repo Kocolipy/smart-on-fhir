@@ -148,8 +148,9 @@ ran in, and then that session is ended.
 `AuthController.login` answers either the signed-in account or a bare `401`. Every
 refusal leaves through one `LoginRefusedException` and one handler, so a locked
 account's answer matches a wrong password's byte for byte. The Epic handlers
-redirect through one package-private `EpicLanding` to `/`, `/?signin=refused` or
-`/?signin=unavailable`, relative to the context path.
+redirect through one package-private `EpicLanding` to `/`,
+`/login?signin=refused` or `/login?signin=unavailable`, relative to the context
+path.
 
 ## Consequences
 

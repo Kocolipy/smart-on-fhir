@@ -730,7 +730,7 @@ CREATE UNIQUE CLUSTERED INDEX ix_audit_events_occurred_at
 CREATE INDEX ix_audit_events_subject_id ON audit_events (subject_id);
 
 -- =============================================================================
--- 4. Scheduled-job serialization and showcase data
+-- 4. Scheduled-job serialization and counter data
 -- =============================================================================
 
 -- One lock row per scheduled job. A run takes its own row inside the

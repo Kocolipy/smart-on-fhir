@@ -143,7 +143,7 @@ groups:
           summary: Epic's JWKS cannot be fetched, so Epic Login is unavailable
           description: >
             Fetches of Epic's id_token signing keys have timed out or been answered 5xx
-            for 5 minutes. Each such launch lands at /?signin=unavailable; clinicians
+            for 5 minutes. Each such launch lands at /login?signin=unavailable; clinicians
             cannot sign in from Epic, while password Login is unaffected.
           runbook: >
             Read the ERROR records with app.epic.call="jwks" for the category — "Epic
@@ -164,7 +164,7 @@ groups:
           summary: Epic's token or discovery endpoint is unavailable, so Epic Login is too
           description: >
             Calls to Epic's token or discovery endpoint have timed out or been answered
-            5xx for 5 minutes. Each such launch lands at /?signin=unavailable; clinicians
+            5xx for 5 minutes. Each such launch lands at /login?signin=unavailable; clinicians
             cannot sign in from Epic, while password Login is unaffected.
           runbook: >
             The call label names the endpoint. Read its ERROR records (app.epic.call)
@@ -208,7 +208,7 @@ groups:
           summary: Epic Logins are being refused at an unusual rate
           description: >
             More than three Epic Logins a minute have been refused for 10 minutes. The
-            browser is told only /?signin=refused, so clinicians see a refusal without a
+            browser is told only /login?signin=refused, so clinicians see a refusal without a
             reason.
           runbook: >
             Break login_total{method="sso", outcome="refused"} down by reason. ISS_MISMATCH or

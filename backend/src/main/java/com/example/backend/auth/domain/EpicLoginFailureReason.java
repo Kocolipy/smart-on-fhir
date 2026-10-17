@@ -8,7 +8,7 @@ import java.util.Objects;
  * {@code LOGIN_FAILURE} carries exactly one of, and the {@code reason} tag of the
  * {@code login} counter's Epic series, both spelled as the constant's name.
  *
- * <p>The reasons are audit-only. The browser is told nothing but {@code /?signin=refused}
+ * <p>The reasons are audit-only. The browser is told nothing but {@code /login?signin=refused}
  * (D23), and the operational log says only "Epic sign-in refused" (ADR 0012, "the account
  * reasons are audit-only"): the account reasons in particular tell whether an account exists,
  * which an investigation needs and an operational log reader does not.

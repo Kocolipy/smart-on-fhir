@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./showcase-api";
+import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./home-api";
 
 describe("COUNTER", () => {
   it("reads the count at /api/count, under counter:read", () => {

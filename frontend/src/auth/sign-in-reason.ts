@@ -45,7 +45,7 @@ const SESSION_END_REASONS: ReadonlySet<unknown> = new Set<SessionEndReason>([
 /**
  * The reasons an Epic launch lands with. Epic Login reaches the SPA by
  * full-page navigation, so these arrive as the backend's `?signin=` query
- * marker rather than router state.
+ * marker on the login page, `/login?signin=…`, rather than router state.
  */
 type EpicLandingReason = "epic-refused" | "epic-unavailable";
 
