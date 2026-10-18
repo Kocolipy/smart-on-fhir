@@ -15,10 +15,15 @@ import java.util.UUID;
  * these columns, and the dormancy job reads its candidates here. No SCIM use case depends on it;
  * the directory reaches the login state only through the module.
  *
- * <p>Each write is narrow, and says which columns it touches and whether it advances the
- * Resource version. Those rules are not left to the javadoc alone: the test tree's
- * {@code ScimLoginStateRepositoryContract} holds the SQL Server adapter and the in-memory store to
- * them alike.
+ * <p>Three writes. A login-state transition is written as what it changed ({@link #writeChange}):
+ * the module encodes each transition once, on {@link ScimLoginState}, and hands this the state it
+ * read and the state it decided. Two writes are not plain column diffs and stay operations of
+ * their own: imposing a lock is a compare-and-set ({@link #imposeLock}), and completing a password
+ * change replaces the credential and advances the version ({@link #completePasswordChange}).
+ *
+ * <p>Each write says which columns it touches and whether it advances the Resource version. Those
+ * rules are not left to the javadoc alone: the test tree's {@code ScimLoginStateRepositoryContract}
+ * holds the SQL Server adapter and the in-memory store to them alike.
  */
 public interface ScimLoginStateRepository {
 
@@ -36,34 +41,29 @@ public interface ScimLoginStateRepository {
     Optional<ScimLoginState> findLoginState(UUID id);
 
     /**
-     * Writes only the authentication-state columns of a User that already exists.
+     * Writes what one login-state transition changed: {@code before} is the state the login-state
+     * module read under the User's lock ({@link #findLoginState}), {@code after} the state it
+     * decided. Of the four login-state column sets — the failure run, the lock (its instant and its
+     * cause), the dormancy basis, the change-required flag — exactly those on which the two differ
+     * are written, as {@code after} holds them ({@link ScimLoginStateChange}); a set on which they
+     * agree is not written at all, and when they agree everywhere nothing is.
      *
-     * <p>Narrow on purpose, and in two directions at once. It cannot revert a profile
-     * attribute an administrator or a connector changed in between — the login path
-     * writes this row on every rejected attempt, and a full-row write from a value read
-     * at the start of the attempt would race them. And it deliberately does NOT advance
-     * the version or {@code lastModified}: a failure run and a lock instant are not SCIM
-     * attributes, so nothing a client can read has changed, and moving the ETag would
-     * make every failed login invalidate every connector's cached copy.
+     * <p>Narrow on purpose, and in two directions at once. It cannot revert a profile attribute an
+     * administrator or a connector changed in between, nor a login-state column the transition left
+     * alone: the login path writes this row on every rejected attempt, and a full-row write — or a
+     * whole-state write — from a value read at the start would race them. And it does NOT advance
+     * the version or {@code lastModified}: none of these columns is a SCIM attribute, so nothing a
+     * client can read has changed, and moving the ETag would make every failed login invalidate
+     * every connector's cached copy.
      *
-     * <p>Only the failure run and the lock instant are written; the state's password hash is
-     * IGNORED. The login path reads the User at the start of an attempt and writes this at the
-     * end, so writing the hash it read would revert a password a connector changed in between —
-     * silently restoring a credential that had just been replaced. The credential is written by
-     * {@link ScimUserRepository#replace} and by nothing else.
+     * <p>The credential is never written here, whatever either state holds: the module reads the
+     * hash with the rest of the state, so writing it would revert a password a connector changed in
+     * between — silently restoring a credential that had just been replaced. The credential is
+     * written by {@link ScimUserRepository#replace} and {@link #completePasswordChange}, and by
+     * nothing else. A write matching no row is silently nothing — the User was deleted between the
+     * read and the write.
      */
-    void updateLoginState(UUID id, ScimLoginState loginState);
-
-    /**
-     * Records use of the account — a login with no password change owed, or a completed
-     * self-service change: writes {@code lastAuthenticatedAt} and nothing else.
-     *
-     * <p>Narrow for the reason {@link #updateLoginState} is, and like it this does NOT
-     * advance the version: the dormancy basis is not a SCIM attribute, so a login changes
-     * nothing a connector reads. A write matching no row is silently nothing — the User was
-     * deleted between authenticating and this call.
-     */
-    void recordAuthentication(UUID id, Instant authenticatedAt);
+    void writeChange(UUID id, ScimLoginState before, ScimLoginState after);
 
     /**
      * The ids of every unlocked, unreserved User whose dormancy basis — {@code lastAuthenticatedAt},
@@ -94,27 +94,8 @@ public interface ScimLoginStateRepository {
     boolean imposeLock(UUID id, Lockout lockout);
 
     /**
-     * Restarts the dormancy window as of {@code at}: writes {@code lastAuthenticatedAt} and
-     * nothing else. An administrator's Unlock, so that the next dormancy run does not lock again
-     * a User that has not yet had the chance to sign in. Not a SCIM attribute: the version does
-     * not move. A write matching no row is silently nothing.
-     */
-    void resetDormancyBasis(UUID id, Instant at);
-
-    /**
-     * Sets the change-required flag as of {@code since}, and nothing else.
-     *
-     * <p>Narrow for the reason {@link #updateLoginState} is: every setter of the flag — a
-     * connector's password write, an Admin's forced change, an Unlock — is racing the login path's
-     * own writes to the same row, and a whole-state write would revert whichever landed between the
-     * read and this call. It does NOT advance the version: the flag is not a SCIM attribute, so
-     * setting it changes nothing a connector reads. A write matching no row is silently nothing.
-     */
-    void requirePasswordChange(UUID id, Instant since);
-
-    /**
      * Replaces the credential and clears the change-required flag in one write — the self-service
-     * change, and the only operation that clears the flag. Advances the version and
+     * change, and the only transition that clears the flag. Advances the version and
      * {@code lastModified}, because {@code password} is a SCIM attribute even though its value is
      * never rendered.
      *

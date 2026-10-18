@@ -83,7 +83,8 @@ class ScimUserPersistenceAdapterIntegrationTests {
             writeLocks.lockUserWrite(stored.id());
             ScimUser locked = users.findById(stored.id()).orElseThrow();
             inNewTransaction(() -> {
-                loginStates.recordAuthentication(stored.id(), LATER);
+                ScimLoginState read = loginStates.findLoginState(stored.id()).orElseThrow();
+                loginStates.writeChange(stored.id(), read, read.withDormancyBasisReset(LATER));
                 return null;
             });
             return users.replace(ScimIdentities.withActive(locked, true, locked.login()),
@@ -106,8 +107,9 @@ class ScimUserPersistenceAdapterIntegrationTests {
         ScimLoginState reread = inTransaction(() -> {
             users.findById(stored.id()).orElseThrow();
             inNewTransaction(() -> {
-                loginStates.updateLoginState(stored.id(),
-                        new ScimLoginState("hash", 2, null, null, EARLIER, null));
+                loginStates.writeChange(stored.id(),
+                        new ScimLoginState("hash", 1, null, null, EARLIER, LATER),
+                        new ScimLoginState("hash", 2, null, null, EARLIER, LATER));
                 return null;
             });
             return loginStates.findLoginState(stored.id()).orElseThrow();

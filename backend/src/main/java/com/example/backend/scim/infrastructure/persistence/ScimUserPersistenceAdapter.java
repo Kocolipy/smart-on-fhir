@@ -8,6 +8,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateChange;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimResourceType;
@@ -202,31 +203,30 @@ class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRe
     }
 
     /**
-     * Writes the authentication-state columns alone, leaving the resource row untouched.
+     * One statement per column set the change moved — the failure run, the lock, the dormancy
+     * basis, the flag — and none for a set it left alone, so a column the event did not change is
+     * never written back from its read. The credential is never written here, and the resource row
+     * is untouched: none of these columns is a SCIM attribute, so the version does not move.
      *
-     * <p>The absence of a version bump here is the behaviour, not an omission: a failure
-     * run and a lock instant are invisible to a SCIM client, so advancing the ETag would
-     * make every rejected login look like a representation change.
-     *
-     * <p>A write that matches no row is silently nothing. The login path reads the User
-     * and then writes it, so a zero here means the User was deleted in between — in which
-     * case there is no failure run left to record and nothing for this to report.
+     * <p>A write that matches no row is silently nothing: the User was deleted between the event's
+     * locked read and this, and there is no login state left to record.
      */
     @Override
-    public void updateLoginState(UUID id, ScimLoginState loginState) {
-        // The hash is deliberately not passed: see the port. Writing the hash read at the
-        // start of a login attempt would revert a password changed while the attempt ran.
-        users.updateLoginState(
-                id,
-                loginState.failedLoginAttempts(),
-                loginState.lockedAt(),
-                loginState.lockCause() == null ? null : loginState.lockCause().name());
-    }
-
-    /** The dormancy basis alone; the resource row and its version are untouched. */
-    @Override
-    public void recordAuthentication(UUID id, Instant authenticatedAt) {
-        users.recordAuthentication(id, authenticatedAt);
+    public void writeChange(UUID id, ScimLoginState before, ScimLoginState after) {
+        ScimLoginStateChange change = new ScimLoginStateChange(before, after);
+        if (change.movesFailureRun()) {
+            users.writeFailedLoginAttempts(id, after.failedLoginAttempts());
+        }
+        if (change.movesLock()) {
+            users.writeLock(id, after.lockedAt(),
+                    after.lockCause() == null ? null : after.lockCause().name());
+        }
+        if (change.movesDormancyBasis()) {
+            users.writeLastAuthenticatedAt(id, after.lastAuthenticatedAt());
+        }
+        if (change.movesChangeRequired()) {
+            users.writePasswordChangeRequiredSince(id, after.passwordChangeRequiredSince());
+        }
     }
 
     @Override
@@ -240,21 +240,9 @@ class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRe
         return users.imposeLock(id, lockout.at(), lockout.cause().name()) == 1;
     }
 
-    /** The dormancy basis alone; the resource row and its version are untouched. */
-    @Override
-    public void resetDormancyBasis(UUID id, Instant at) {
-        users.recordAuthentication(id, at);
-    }
-
     @Override
     public List<UUID> findAllIds() {
         return users.findAllIds();
-    }
-
-    /** The flag alone; the resource row and its version are untouched. */
-    @Override
-    public void requirePasswordChange(UUID id, Instant since) {
-        users.requirePasswordChange(id, since);
     }
 
     /**

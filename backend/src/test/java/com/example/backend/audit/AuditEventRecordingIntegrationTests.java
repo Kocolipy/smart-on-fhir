@@ -282,8 +282,8 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void aLockoutStandingSinceLongAgoProducesNoLiftAtTheNextAttempt() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
-                user.id(),
+        transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
+                loginStates, user.id(),
                 new ScimLoginState(
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(3600))));
         clearRecordedEvents();
@@ -319,8 +319,8 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void anUnlockOfAUserServingNoLockoutRecordsOnlyTheRunItCleared() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
-                user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
+        transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
+                loginStates, user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
@@ -338,8 +338,8 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void anUnlockOfALockedUserRecordsTheRunTheLockAndTheDormancyBasis() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
-                user.id(), new ScimLoginState(
+        transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
+                loginStates, user.id(), new ScimLoginState(
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(60))));
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
@@ -555,8 +555,8 @@ class AuditEventRecordingIntegrationTests {
     private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);
-            loginStates.updateLoginState(
-                    user.id(), ScimLoginState.of(user.login().passwordHash()));
+            ScimIdentities.storeFailureRun(
+                    loginStates, user.id(), ScimLoginState.of(user.login().passwordHash()));
             // Arranged through the store, which keeps what it is given: active again, and with
             // the shared seeded baseline's unflagged credential and unmoved dormancy basis.
             users.replace(ScimIdentities.withActive(user, true, new ScimLoginState(

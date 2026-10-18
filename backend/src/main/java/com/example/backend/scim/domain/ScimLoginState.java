@@ -1,7 +1,6 @@
 package com.example.backend.scim.domain;
 
 import java.time.Instant;
-import java.util.Objects;
 
 /**
  * A User's authentication state: the stored credential, the run of consecutive
@@ -28,12 +27,16 @@ import java.util.Objects;
  *
  * <p>{@code lastAuthenticatedAt} is the dormancy basis: when the User last used the account —
  * a successful login while no password change was required of it, or a completed self-service
- * change — or was last explicitly reactivated or unlocked. A login confined by a required change does not
- * move it, so an imposed credential nobody replaces still ages into the dormancy lockout. It is written by its own narrow port
- * operations ({@link ScimLoginStateRepository#recordAuthentication},
- * {@link ScimLoginStateRepository#resetDormancyBasis}) and by a SCIM replacement storing a
- * Reactivation's reset, never by {@link ScimLoginStateRepository#updateLoginState}, and like the
- * other components it is not a SCIM attribute — recording a login does not move the version.
+ * change — or was last explicitly reactivated or unlocked. A login confined by a required change
+ * does not move it, so an imposed credential nobody replaces still ages into the dormancy lockout.
+ * Every one of those moves is the one transition {@link #withDormancyBasisReset}, and like the
+ * other components the basis is not a SCIM attribute — recording a login does not move the
+ * version.
+ *
+ * <p>The login-state module writes a transition as what it changed: it hands
+ * {@link ScimLoginStateRepository#writeChange} the state it read and the state a transition below
+ * decided, and the store writes the columns that differ. A directory create or replacement stores
+ * the state the module decided for it with the profile, in the row write.
  *
  * <p>The transitions below are the login state's building blocks, not its rules: which of them an
  * event applies, and when, is the login-state module's to decide ({@link ScimUserLoginState} is
@@ -58,10 +61,10 @@ import java.util.Objects;
  *                             connector, an Admin forcing a change or lifting a lockout); its
  *                             value is when the change was last required. A presence
  *                             rather than a boolean plus a timestamp, as the lock is, so the two
- *                             cannot disagree. Written by its own narrow port operations and by
- *                             a SCIM create or replacement storing the module's decision, never
- *                             by {@link ScimLoginStateRepository#updateLoginState}, and not a SCIM
- *                             attribute.
+ *                             cannot disagree. Written as part of a login-state change
+ *                             ({@link ScimLoginStateRepository#writeChange}), cleared by a
+ *                             completed password change, and stored by a SCIM create or
+ *                             replacement storing the module's decision; not a SCIM attribute.
  */
 public record ScimLoginState(
         String passwordHash,
@@ -150,19 +153,6 @@ public record ScimLoginState(
      */
     public boolean isPasswordChangeRequired() {
         return passwordChangeRequiredSince != null;
-    }
-
-    /**
-     * Whether {@code other} holds the same failure run as this state: the same count and the same
-     * lock, instant and cause alike. Those are exactly the components
-     * {@link ScimLoginStateRepository#updateLoginState} writes, so a caller holding two states that
-     * share a run knows writing the second would change nothing. Everything else — the credential,
-     * the dormancy basis, the change-required flag — is not compared.
-     */
-    public boolean sameFailureRunAs(ScimLoginState other) {
-        return failedLoginAttempts == other.failedLoginAttempts
-                && Objects.equals(lockedAt, other.lockedAt)
-                && lockCause == other.lockCause;
     }
 
     /**
@@ -272,9 +262,12 @@ public record ScimLoginState(
     }
 
     /**
-     * The state with its dormancy basis restarted at {@code now}, as an Unlock and a Reactivation
-     * do (ADR 0007): a User an administrator or the directory has just brought back starts a fresh
-     * window, so the job does not lock it again on its next run. Everything else is kept.
+     * The state with its dormancy basis restarted at {@code now}: the one transition every move of
+     * the basis is. A use of the account — an unconfined Login, a completed self-service change —
+     * restarts the window because the account is in use (ADR 0008); an Unlock and a Reactivation
+     * restart it because a User an administrator or the directory has just brought back starts a
+     * fresh window, so the job does not lock it again on its next run (ADR 0007). Everything else
+     * is kept.
      */
     public ScimLoginState withDormancyBasisReset(Instant now) {
         if (now == null) {
