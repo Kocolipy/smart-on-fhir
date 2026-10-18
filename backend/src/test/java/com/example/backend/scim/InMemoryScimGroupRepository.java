@@ -184,17 +184,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /**
-     * Makes the next {@code deleteById} of this Group report that it removed nothing, while
-     * {@code findById} still answers with the Group until then.
-     *
-     * <p>That is the one window the production {@code delete} cannot otherwise be made to walk:
-     * it reads the Group, refuses a protected one, then deletes — and a concurrent transaction
-     * may remove the row in between, which is why the delete REPORTS what the repository did
-     * instead of assuming it succeeded. Against a real SQL Server the window needs two
-     * transactions to hit; here it is one call, and the behaviour reproduced is the adapter's
-     * own: {@code DELETE} matched no row, so it returns false.
-     */
-    /**
      * Removes the Group as the next {@code advanceVersion} of it runs, which then reports absence —
      * the window in which a concurrent delete lands between an alias-only write and its bump.
      */
@@ -210,6 +199,17 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         vanishBeforeReplace.add(id);
     }
 
+    /**
+     * Makes the next {@code deleteById} of this Group report that it removed nothing, while
+     * {@code findById} still answers with the Group until then.
+     *
+     * <p>That is the one window the production {@code delete} cannot otherwise be made to walk:
+     * it reads the Group, refuses a protected one, then deletes — and a concurrent transaction
+     * may remove the row in between, which is why the delete REPORTS what the repository did
+     * instead of assuming it succeeded. Against a real SQL Server the window needs two
+     * transactions to hit; here it is one call, and the behaviour reproduced is the adapter's
+     * own: {@code DELETE} matched no row, so it returns false.
+     */
     public void vanishBeforeNextDelete(UUID id) {
         vanishBeforeDelete.add(id);
     }
