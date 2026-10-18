@@ -28,3 +28,7 @@ bodies, and the ADRs in `/docs/adr/` record the decisions.
 - [Dormancy and scheduled jobs](dormancy.md) - The dormancy basis and windows, the dormancy job, the audit retention job, and scheduled job locks.
 - [Administration and audit](administration.md) - The Accounts page and its projections, and the SCIM audit trail and how it is read.
 - [Request paths](request-paths.md) - Reserved server paths, the SPA shell, and file requests.
+
+# Clinical data
+
+- [Patients](patient.md) - The FHIR R5 Patient's element rules, the NRIC system, the authoritative name text, derived age, the default patient, and dev-fixture-only seeding.
