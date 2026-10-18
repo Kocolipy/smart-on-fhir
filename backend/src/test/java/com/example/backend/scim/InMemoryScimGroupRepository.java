@@ -134,12 +134,10 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         requireDistinctDisplayName(group);
         requireLiveMembers(group);
 
-        List<ScimGroupMember> members = group.members();
-
         ScimGroup written = new ScimGroup(
                 current.id(),
                 group.displayName(),
-                members,
+                group.members(),
                 // Carried across, not taken from the argument: a write cannot reserve or
                 // un-reserve a Group.
                 current.reservedName(),
@@ -152,7 +150,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 current.displayName(),
                 group.displayName(),
                 userIdsOf(current.members()),
-                userIdsOf(members),
+                userIdsOf(group.members()),
                 group.lastModifiedAt()));
         return findById(current.id());
     }
@@ -306,17 +304,20 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     private ScimGroup asRead(ScimGroup group) {
         List<ScimGroupMember> members = group.members().stream()
                 .map(member -> users.findById(member.userId())
-                        .map(user -> new ScimGroupMember(user.id(), user.profile().memberLabel()))
-                        .orElse(member))
+                        .map(user -> new ReadMember(
+                                new ScimGroupMember(user.id(), user.profile().memberLabel()),
+                                user.profile().normalizedUserName().value()))
+                        .orElse(new ReadMember(member, null)))
                 .sorted(Comparator.comparing(
-                        (ScimGroupMember member) -> users.findById(member.userId())
-                                .map(user -> user.profile().normalizedUserName().value())
-                                .orElse(null),
-                        Comparator.nullsLast(Comparator.naturalOrder())))
+                        ReadMember::sortKey, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(ReadMember::member)
                 .toList();
         return new ScimGroup(group.id(), group.displayName(), members, group.reservedName(),
                 group.version(), group.createdAt(), group.lastModifiedAt());
     }
+
+    /** A member as read, beside the normalized {@code userName} it sorts by; null when unresolved. */
+    private record ReadMember(ScimGroupMember member, String sortKey) {}
 
     private static byte[] bytesOf(UUID id) {
         return java.nio.ByteBuffer.allocate(16)
