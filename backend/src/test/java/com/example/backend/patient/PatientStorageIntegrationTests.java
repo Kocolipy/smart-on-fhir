@@ -89,7 +89,7 @@ class PatientStorageIntegrationTests {
 
     @Test
     void aNameGivenByItsTextAloneReadsBackWithNoFamilyOrGivenPart() {
-        Patient suriani = patient(PatientName.of("Suriani"));
+        Patient suriani = patient(new PatientName("Suriani", null, List.of()));
 
         seeding.seedDevFixtures(List.of(suriani));
 
@@ -107,8 +107,8 @@ class PatientStorageIntegrationTests {
 
     @Test
     void seedingTwiceLeavesOneRowPerFixture() {
-        Patient first = patient(PatientName.of("First Fixture"));
-        Patient second = patient(PatientName.of("Second Fixture"));
+        Patient first = patient(new PatientName("First Fixture", null, List.of()));
+        Patient second = patient(new PatientName("Second Fixture", null, List.of()));
 
         SeedCounts once = seeding.seedDevFixtures(List.of(first, second));
         SeedCounts twice = seeding.seedDevFixtures(List.of(first, second));
@@ -164,7 +164,7 @@ class PatientStorageIntegrationTests {
 
     @Test
     void theAppLoginCannotChangeAPatient() {
-        Patient stored = patient(PatientName.of("Unchangeable"));
+        Patient stored = patient(new PatientName("Unchangeable", null, List.of()));
         seeding.seedDevFixtures(List.of(stored));
 
         assertThatThrownBy(() -> jdbc.update(
@@ -175,7 +175,7 @@ class PatientStorageIntegrationTests {
 
     @Test
     void theAppLoginCannotRemoveAPatient() {
-        Patient stored = patient(PatientName.of("Irremovable"));
+        Patient stored = patient(new PatientName("Irremovable", null, List.of()));
         seeding.seedDevFixtures(List.of(stored));
 
         assertThatThrownBy(() -> jdbc.update("DELETE FROM patients WHERE id = ?", stored.id()))

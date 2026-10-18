@@ -21,9 +21,4 @@ public record PatientName(String text, String family, List<String> given) {
         }
         given = given == null ? List.of() : List.copyOf(given);
     }
-
-    /** A name given by its text alone, with no family or given part. */
-    public static PatientName of(String text) {
-        return new PatientName(text, null, List.of());
-    }
 }

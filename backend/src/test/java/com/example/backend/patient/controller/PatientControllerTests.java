@@ -92,7 +92,7 @@ class PatientControllerTests {
 
     @Test
     void aNameWithNoFamilyOrGivenPartLeavesBothOut() throws Exception {
-        patients.given(new Patient(TAN_ID, "S7654321A", PatientName.of("Suriani"),
+        patients.given(new Patient(TAN_ID, "S7654321A", new PatientName("Suriani", null, List.of()),
                 AdministrativeGender.FEMALE, LocalDate.of(1990, 7, 1)));
 
         assertThat(body(read(TAN_ID)).get("name")).isEqualTo(json.readTree("""

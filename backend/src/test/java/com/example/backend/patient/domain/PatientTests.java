@@ -15,7 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class PatientTests {
 
     private static final UUID ID = UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11");
-    private static final PatientName NAME = PatientName.of("Tan Wei Ming");
+    private static final PatientName NAME = new PatientName("Tan Wei Ming", null, List.of());
     private static final LocalDate BORN = LocalDate.of(1985, 3, 12);
 
     @Test
@@ -57,14 +57,9 @@ class PatientTests {
     @ParameterizedTest
     @ValueSource(strings = {"", " ", "\t"})
     void aNameTextCannotBeBlank(String blank) {
-        assertThatThrownBy(() -> PatientName.of(blank))
+        assertThatThrownBy(() -> new PatientName(blank, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("A patient's name text is required");
-    }
-
-    @Test
-    void aNameGivenByItsTextAloneHasNoFamilyOrGivenPart() {
-        assertThat(PatientName.of("Suriani")).isEqualTo(new PatientName("Suriani", null, List.of()));
     }
 
     @Test

@@ -17,11 +17,13 @@ class PatientSeedServiceTests {
 
     private static final Patient FIRST = new Patient(
             UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11"), "S1111111A",
-            PatientName.of("Lim Mei Ling"), AdministrativeGender.FEMALE, LocalDate.of(1970, 1, 2));
+            new PatientName("Lim Mei Ling", null, List.of()),
+            AdministrativeGender.FEMALE, LocalDate.of(1970, 1, 2));
 
     private static final Patient SECOND = new Patient(
             UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a12"), "S2222222A",
-            PatientName.of("Ahmad bin Ismail"), AdministrativeGender.MALE, LocalDate.of(1980, 5, 6));
+            new PatientName("Ahmad bin Ismail", null, List.of()),
+            AdministrativeGender.MALE, LocalDate.of(1980, 5, 6));
 
     private final InMemoryPatientStore patients = new InMemoryPatientStore();
 
@@ -48,8 +50,8 @@ class PatientSeedServiceTests {
     @Test
     void onlyTheMissingFixtureIsInsertedAndTheOtherIsLeftAsItIs() {
         // Stored under the fixture's id, but changed since: seeding never overwrites.
-        Patient changed = new Patient(FIRST.id(), "S9999999A", PatientName.of("Changed"),
-                AdministrativeGender.OTHER, LocalDate.of(2000, 1, 1));
+        Patient changed = new Patient(FIRST.id(), "S9999999A",
+                new PatientName("Changed", null, List.of()), AdministrativeGender.OTHER, LocalDate.of(2000, 1, 1));
         patients.given(changed);
 
         SeedCounts counts = seeding.seedDevFixtures(List.of(FIRST, SECOND));
