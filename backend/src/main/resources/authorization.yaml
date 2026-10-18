@@ -26,6 +26,7 @@ app:
           - ops:read
           - counter:read
           - counter:write
+          - patient:read
       - name: Account admin
         permissions: [user:read, user:write, group:read]
       - name: Auditor

@@ -71,7 +71,7 @@ class DevelopmentRoleMappingIntegrationTests {
     private static final List<String> EVERY_PERMISSION_SORTED = List.of(
             "audit:read", "connector:read", "connector:token", "connector:write",
             "counter:read", "counter:write", "group:read", "group:write", "ops:read",
-            "user:read", "user:write");
+            "patient:read", "user:read", "user:write");
 
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -118,21 +118,21 @@ class DevelopmentRoleMappingIntegrationTests {
 
     /**
      * One fixture User per Role, each holding exactly its Role's Permissions plus the baseline
-     * counter Permissions every User holds, sorted by name.
+     * Permissions every User holds, sorted by name.
      */
     @Test
     void eachDevelopmentRolesUserSignsInHoldingThatRolesPermissions() throws Exception {
         assertThat(permissionsOnMe(logIn("account-admin", FIXTURE_PASSWORD)))
-                .containsExactly("counter:read", "counter:write", "group:read", "user:read",
-                        "user:write");
+                .containsExactly("counter:read", "counter:write", "group:read", "patient:read",
+                        "user:read", "user:write");
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                .containsExactly("audit:read", "counter:read", "counter:write");
+                .containsExactly("audit:read", "counter:read", "counter:write", "patient:read");
         assertThat(permissionsOnMe(logIn("connector-admin", FIXTURE_PASSWORD)))
                 .containsExactly("connector:read", "connector:token", "connector:write",
                         "counter:read", "counter:write", "group:read", "group:write",
-                        "user:read", "user:write");
+                        "patient:read", "user:read", "user:write");
         assertThat(permissionsOnMe(logIn("monitoring", FIXTURE_PASSWORD)))
-                .containsExactly("counter:read", "counter:write", "ops:read");
+                .containsExactly("counter:read", "counter:write", "ops:read", "patient:read");
     }
 
     /** The Superuser Group is the seeded Admin group, so the Bootstrap Admin holds everything. */
@@ -150,14 +150,14 @@ class DevelopmentRoleMappingIntegrationTests {
         try {
             assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
                     .containsExactly("audit:read", "counter:read", "counter:write", "group:read",
-                            "user:read", "user:write");
+                            "patient:read", "user:read", "user:write");
         } finally {
             removeMember(ACCOUNT_ADMINS, auditor);
         }
     }
 
     /**
-     * A User in no mapped Group holds no Role's Permission: only the baseline counter Permissions,
+     * A User in no mapped Group holds no Role's Permission: only the baseline Permissions,
      * and its baseline access.
      */
     @Test
@@ -166,7 +166,8 @@ class DevelopmentRoleMappingIntegrationTests {
 
         JsonNode me = me(session);
         assertThat(me.get("permissions").isArray()).isTrue();
-        assertThat(permissionsOnMe(session)).containsExactly("counter:read", "counter:write");
+        assertThat(permissionsOnMe(session))
+                .containsExactly("counter:read", "counter:write", "patient:read");
         assertThat(me.has("role")).as("there is no role field").isFalse();
         assertThat(mvc.perform(get("/api/self").cookie(session))
                         .andReturn().getResponse().getStatus())

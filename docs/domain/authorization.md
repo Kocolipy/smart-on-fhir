@@ -10,7 +10,8 @@ tags: [authorization, permissions, roles]
 **Permission** and **Role** — a Permission is one fine-grained power from a
 closed set defined in code (`user:read`, `user:write`, `group:read`,
 `group:write`, `audit:read`, `connector:read`, `connector:write`,
-`connector:token`, `ops:read`, `counter:read`, `counter:write`); a new one is a
+`connector:token`, `ops:read`, `counter:read`, `counter:write`,
+`patient:read`); a new one is a
 code change, because it means something only once a protected action declares
 it. A Role is a named set of them, defined in deployment configuration. Neither
 is stored in the database, and nothing at runtime creates or changes one.
@@ -45,6 +46,7 @@ declares nothing is refused. Three kinds of operation:
   and deletes them, `connector:token` issues, rotates and revokes their tokens;
   `ops:read` reaches every actuator endpoint but health, on whichever port
   actuator is served; `counter:read` / `counter:write` read and change the counter.
+  `patient:read` will gate reading a patient; no operation declares it yet.
 
 Beside the operations the chain admits two things that are not operations: any
 `GET` outside the reserved server paths, which is the SPA shell or a file
@@ -78,11 +80,11 @@ for its shape. The rules:
   Groups it is a _direct_ member of — nesting is not modelled — so holding an
   extra Role never takes a power away. A User in no mapped Group holds only the
   baseline Permissions and keeps baseline access.
-- **Baseline Permissions.** `counter:read` and `counter:write` are held by every
-  active User whatever its Groups, granted at Login beside `ROLE_USER` rather
-  than through a Role. The counter is a basic capability, and a Group every User
-  must join would be a second place for the fact that it is a User. A confined
-  session does not hold them.
+- **Baseline Permissions.** `counter:read`, `counter:write` and `patient:read`
+  are held by every active User whatever its Groups, granted at Login beside
+  `ROLE_USER` rather than through a Role. The counter and reading a patient are
+  basic capabilities, and a Group every User must join would be a second place
+  for the fact that it is a User. A confined session does not hold them.
 - **Taken at Login.** Permissions are resolved once, at Login, and the session
   carries them, together with the hash of the mapping they were resolved under. A
   confined session holds none.

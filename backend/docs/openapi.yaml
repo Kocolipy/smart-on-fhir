@@ -32,8 +32,9 @@ info:
     `sessionCookie: [<permission>]` names the one Permission the operation
     requires, from the closed set `user:read`, `user:write`, `group:read`,
     `group:write`, `audit:read`, `connector:read`, `connector:write`,
-    `connector:token`, `ops:read`, `counter:read`, `counter:write`. A session's
-    Permissions are the baseline `counter:read` and `counter:write`, which every
+    `connector:token`, `ops:read`, `counter:read`, `counter:write`,
+    `patient:read` (which no operation declares yet). A session's Permissions are
+    the baseline `counter:read`, `counter:write` and `patient:read`, which every
     active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
     reports them. A caller lacking the declared Permission gets a bodiless
     `403` that never names it (see `PermissionRequired`). The application chain
@@ -261,10 +262,10 @@ paths:
         to the change flow.
 
         `permissions` lists the Permissions the session was issued with, sorted
-        by name: the baseline `counter:read` and `counter:write`, which every
-        active User holds, and those the role mapping confers through the User's
-        direct Group memberships at sign-in. A User in no mapped Group gets the
-        baseline two and keeps baseline access. There is no role field: what a User may
+        by name: the baseline `counter:read`, `counter:write` and `patient:read`,
+        which every active User holds, and those the role mapping confers through
+        the User's direct Group memberships at sign-in. A User in no mapped Group
+        gets only the baseline Permissions and keeps baseline access. There is no role field: what a User may
         do is its Permissions.
       operationId: getCurrentUser
       security:
@@ -3034,15 +3035,16 @@ components:
               - group:read
               - group:write
               - ops:read
+              - patient:read
               - user:read
               - user:write
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
-            are the baseline `counter:read` and `counter:write`, which every active
-            User holds, together with the union of the Roles of every mapped Group the User was a
+            are the baseline `counter:read`, `counter:write` and `patient:read`, which
+            every active User holds, together with the union of the Roles of every mapped Group the User was a
             direct member of when it signed in (the role mapping, see the
             backend/docs/configuration/role-mapping.md), so a change of membership is seen
-            at the next sign-in. Only the baseline two for a User in no mapped Group, and
+            at the next sign-in. Only the baseline Permissions for a User in no mapped Group, and
             empty while `passwordChangeRequired` is true.
             What the SPA shows is decided from this list; what the server allows is
             decided by each operation's own declaration, never by the SPA.
@@ -3349,6 +3351,7 @@ components:
               - group:read
               - group:write
               - ops:read
+              - patient:read
               - user:read
               - user:write
         groups:

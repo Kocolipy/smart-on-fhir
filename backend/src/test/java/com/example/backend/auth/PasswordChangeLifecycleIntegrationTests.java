@@ -12,6 +12,7 @@ import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
+import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.PasswordChangeService;
@@ -670,10 +671,12 @@ class PasswordChangeLifecycleIntegrationTests {
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("passwordChangeRequired").booleanValue()).isEqualTo(confined);
         // There is no role field: "ADMIN" here means a member of the Superuser Group, which holds
-        // every Permission; "USER", a session holding only the baseline counter Permissions every
-        // User holds; null, a confined session holding none.
+        // every Permission; "USER", a session holding only the baseline Permissions every User
+        // holds; null, a confined session holding none.
         assertThat(body.has("role")).isFalse();
-        int expected = role == null ? 0 : "ADMIN".equals(role) ? Permission.values().length : 2;
+        int expected = role == null ? 0
+                : "ADMIN".equals(role) ? Permission.values().length
+                : LoginIdentityService.BASELINE_PERMISSIONS.size();
         assertThat(body.get("permissions").size()).isEqualTo(expected);
         Cookie session = login.getResponse().getCookie(sessionCookieName);
         assertThat(session).as("the login issued a session cookie").isNotNull();

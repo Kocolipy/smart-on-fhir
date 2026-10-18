@@ -53,7 +53,7 @@ import org.springframework.stereotype.Service;
  * <h2>Permissions come from the role mapping</h2>
  *
  * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — the counter's, which every
- * active User may read and change — and the Permissions of every Role the {@link RoleMapping}
+ * active User may read and change, and {@code patient:read} — and the Permissions of every Role the {@link RoleMapping}
  * assigns to a Group it is a direct member of, derived here too, once per login, for the same
  * reasons. A session confined by a required password change holds none, as it holds no role.
  */
@@ -67,13 +67,14 @@ public class LoginIdentityService implements UserDetailsService {
     private static final String USER_ROLE = "USER";
 
     /**
-     * The Permissions every active User holds whatever its Groups: the counter's. Granted here, at
-     * login, beside {@code ROLE_USER} rather than through a Role, because a Role is conferred by a
-     * Group and a redundant "every User" Group would be a second place for the same fact. A session
-     * confined by a required password change does not receive them.
+     * The Permissions every active User holds whatever its Groups: the counter's, and reading a
+     * patient. Granted here, at login, beside {@code ROLE_USER} rather than through a Role, because
+     * a Role is conferred by a Group and a redundant "every User" Group would be a second place for
+     * the same fact. A session confined by a required password change does not receive them.
      */
     public static final Set<Permission> BASELINE_PERMISSIONS =
-            Set.copyOf(EnumSet.of(Permission.COUNTER_READ, Permission.COUNTER_WRITE));
+            Set.copyOf(EnumSet.of(
+                    Permission.COUNTER_READ, Permission.COUNTER_WRITE, Permission.PATIENT_READ));
 
     /**
      * The only authority a password Login by a User with a pending required password change

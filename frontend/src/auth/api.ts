@@ -16,6 +16,7 @@ export const PERMISSIONS = [
   "group:read",
   "group:write",
   "ops:read",
+  "patient:read",
   "user:read",
   "user:write",
 ] as const;

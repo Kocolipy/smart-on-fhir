@@ -53,10 +53,10 @@ test.describe("baseline User API", () => {
    * missing Permission is what was refused. A 401 here would mean the request
    * arrived unauthenticated, and the test would be passing for the wrong reason.
    */
-  test("holds only the baseline counter Permissions and no role", async ({ page }) => {
+  test("holds only the baseline Permissions and no role", async ({ page }) => {
     const me = (await (await page.request.get("/api/auth/me")).json()) as Record<string, unknown>;
 
-    expect(me.permissions).toEqual(["counter:read", "counter:write"]);
+    expect(me.permissions).toEqual(["counter:read", "counter:write", "patient:read"]);
     expect(me).not.toHaveProperty("role");
   });
 
