@@ -1,9 +1,11 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import java.time.Instant;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -28,6 +31,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>The Groups here have no members. A Group's members are read in a statement of their own,
  * after the Group, so a Group deleted between the two is read with none. That is a stale read
  * rather than a failure, and asserting on it is not the point of these tests.
+ *
+ * <p>It also pins how the adapter refuses a reservation already held, the one Group rule the
+ * in-memory fake was found to break ({@code InMemoryScimGroupRepositoryTests} holds the fake's
+ * side).
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -71,6 +78,27 @@ class ScimGroupPersistenceAdapterIntegrationTests {
                 () -> groups.findAllById(List.of(victim.id()))));
 
         assertThat(page).isIn(List.of(), List.of(victim));
+    }
+
+    /**
+     * A second Admin group fails with the store's integrity violation, not as a taken
+     * {@code displayName}. The whole case runs in one transaction that the violation rolls back,
+     * so the seeded Admin group it releases first is back for every other class.
+     */
+    @Test
+    void aReservationAlreadyHeldFailsWithTheStoresIntegrityViolation() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        assertThatThrownBy(() -> inTransaction(() -> {
+            groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                    .ifPresent(holder -> groups.deleteById(holder.id(), now));
+            groups.createReserved(
+                    ScimIdentities.group(unique("adapter-first-admin")),
+                    ReservedResourceName.ADMIN_GROUP);
+            return groups.createReserved(
+                    ScimIdentities.group(unique("adapter-second-admin")),
+                    ReservedResourceName.ADMIN_GROUP);
+        })).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     // ---- helpers --------------------------------------------------------------------------

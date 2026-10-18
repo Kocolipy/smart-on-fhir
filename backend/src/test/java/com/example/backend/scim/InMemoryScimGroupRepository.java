@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * SCIM Group store for tests, standing in for the JPA adapter.
@@ -74,8 +75,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     @Override
     public ScimGroup createReserved(ScimGroup group, ReservedResourceName reservedName) {
         if (findByReservedName(reservedName).isPresent()) {
-            throw new DuplicateDisplayNameException(
-                    new IllegalStateException("that reservation is already held"));
+            throw new DataIntegrityViolationException("that reservation is already held");
         }
         return insert(group, reservedName);
     }
