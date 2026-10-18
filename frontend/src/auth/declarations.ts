@@ -26,12 +26,22 @@ export type DeclarationArgs<A extends readonly unknown[]> = A extends readonly [
   ? { args?: A }
   : { args: A };
 
-/** A gated `GET`, answering a body read by `decode`. */
-export interface ReadDeclaration<T, A extends readonly unknown[] = []> {
+/**
+ * A gated `GET`, answering a body read by `decode`.
+ *
+ * `N` says whether a `404` is an ordinary answer for this endpoint — nothing
+ * is there, and that is not an error — rather than a failure. It is opted into
+ * with `absentOnNotFound: true`, which makes {@link useGatedRead} show the
+ * `404` as `absent`; a declaration that leaves it out reads a `404` as
+ * `failed`, and its pages never have an `absent` view to handle.
+ */
+export interface ReadDeclaration<T, A extends readonly unknown[] = [], N extends boolean = false> {
   /** The Permission the backend requires; without it the read is never sent. */
   readonly permission: Permission;
   readonly path: (...args: A) => string;
   readonly decode: ApiDecoder<T>;
+  /** A `404` means nothing is there, shown as `absent`, rather than a failure. */
+  readonly absentOnNotFound?: N;
 }
 
 interface WriteTarget<A extends readonly unknown[]> {

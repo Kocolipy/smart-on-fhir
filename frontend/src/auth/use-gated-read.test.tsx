@@ -36,6 +36,12 @@ const COUNT_AT: ReadDeclaration<number, [path: string]> = {
   permission: "counter:read",
 };
 
+/** The same read, declared to treat a `404` as nothing there rather than as a failure. */
+const COUNT_OR_ABSENT_AT: ReadDeclaration<number, [path: string], true> = {
+  ...COUNT_AT,
+  absentOnNotFound: true,
+};
+
 /** A read naming no argument, as most listings are declared. */
 const COUNT: ReadDeclaration<number> = {
   decode: decodeCount,
@@ -78,12 +84,15 @@ interface Options {
 }
 
 /** The read as a page holds it, reporting into the page status around it. */
-function useRead({ failureMessage, path }: Options) {
-  return useGatedRead(COUNT_AT, { args: [path], failureMessage });
+function useRead(
+  declaration: ReadDeclaration<number, [path: string], boolean>,
+  { failureMessage, path }: Options,
+) {
+  return useGatedRead(declaration, { args: [path], failureMessage });
 }
 
 /** What the page shows for the read: the line the page status draws, and the read's view. */
-const shown = (result: { current: GatedRead<number> }) => ({
+const shown = (result: { current: GatedRead<number, boolean> }) => ({
   error: shownLine(),
   view: result.current.view,
 });
@@ -102,9 +111,14 @@ const inSession =
  * and `withOptions` re-render it as the session or the page would change it.
  */
 function renderRead({
+  declaration = COUNT_AT,
   options = {},
   permissions = ["counter:read"],
-}: { options?: Partial<Options>; permissions?: Permission[] } = {}) {
+}: {
+  declaration?: ReadDeclaration<number, [path: string], boolean>;
+  options?: Partial<Options>;
+  permissions?: Permission[];
+} = {}) {
   let auth = authState(permissions);
   let current: Options = { failureMessage: FAILURE, path: "/api/count", ...options };
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -112,10 +126,13 @@ function renderRead({
       <InPageStatus>{children}</InPageStatus>
     </AuthContext.Provider>
   );
-  const hook = renderHook(({ options: given }: { options: Options }) => useRead(given), {
-    initialProps: { options: current },
-    wrapper,
-  });
+  const hook = renderHook(
+    ({ options: given }: { options: Options }) => useRead(declaration, given),
+    {
+      initialProps: { options: current },
+      wrapper,
+    },
+  );
   return {
     result: hook.result,
     withOptions(change: Partial<Options>) {
@@ -247,6 +264,95 @@ describe("useGatedRead", () => {
     await answer(count(4));
     await act(() => reloaded);
     expect(shown(result)).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
+  });
+
+  it("fails a read that is not found when its declaration does not opt in", async () => {
+    const { result } = renderRead();
+    await answer(bare(404));
+
+    expect(shown(result)).toEqual({ error: FAILURE, view: { kind: "failed" } });
+  });
+
+  describe("when the declaration treats not found as absent", () => {
+    const renderAbsentRead = () => renderRead({ declaration: COUNT_OR_ABSENT_AT });
+
+    it("shows a read that is not found as absent, reporting nothing", async () => {
+      const { result } = renderAbsentRead();
+      await answer(bare(404));
+
+      expect(shown(result)).toEqual({ error: null, view: { kind: "absent" } });
+    });
+
+    it("is ready once a re-read finds what was absent", async () => {
+      const { result } = renderAbsentRead();
+      await answer(bare(404));
+
+      act(() => void result.current.reload());
+      await answer(count(2));
+
+      expect(shown(result)).toEqual({ error: null, view: { data: 2, kind: "ready" } });
+    });
+
+    it("is absent, keeping nothing as stale, once a re-read finds what was read gone", async () => {
+      const { result } = renderAbsentRead();
+      await answer(count(3));
+
+      act(() => void result.current.reload());
+      await answer(bare(404));
+
+      expect(shown(result)).toEqual({ error: null, view: { kind: "absent" } });
+    });
+
+    it("clears an earlier failure's line once a re-read finds nothing there", async () => {
+      const { result } = renderAbsentRead();
+      await answer(bare(500));
+
+      act(() => void result.current.reload());
+      await answer(bare(404));
+
+      expect(shown(result)).toEqual({ error: null, view: { kind: "absent" } });
+    });
+
+    it("keeps the absent view's answer only while it is the newest read", async () => {
+      const { result } = renderAbsentRead();
+      act(() => void result.current.reload());
+
+      await answerNewest(count(2));
+      await answer(bare(404)); // the mount read, answering last
+
+      expect(result.current.view).toEqual({ data: 2, kind: "ready" });
+    });
+
+    it.each([
+      ["a refusal", bare(403), FORBIDDEN_MESSAGE],
+      ["a plain failure", bare(500), FAILURE],
+      ["an unauthenticated read", bare(401), FAILURE],
+      ["a success body that does not decode", json({ count: "seven" }), FAILURE],
+    ])("still fails %s", async (_, given, line) => {
+      const { result } = renderAbsentRead();
+      await answer(given);
+
+      expect(shown(result)).toEqual({ error: line, view: { kind: "failed" } });
+    });
+
+    it("keeps the last data as stale when a re-read fails other than not found", async () => {
+      const { result } = renderAbsentRead();
+      await answer(count(3));
+
+      act(() => void result.current.reload());
+      await answer(bare(500));
+
+      expect(shown(result)).toEqual({ error: FAILURE, view: { data: 3, kind: "stale" } });
+    });
+
+    it("holds data a later response states as read after finding nothing there", async () => {
+      const { result } = renderAbsentRead();
+      await answer(bare(404));
+
+      act(() => result.current.update((current) => (current ?? 0) + 10));
+
+      expect(result.current.view).toEqual({ data: 10, kind: "ready" });
+    });
   });
 
   describe("when an older read answers after a newer one", () => {
