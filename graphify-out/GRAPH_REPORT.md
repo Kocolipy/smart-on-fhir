@@ -1,7 +1,7 @@
 # Graph Report - 125-gated-reads-can-treat-404  (2026-10-18)
 
 ## Corpus Check
-- 966 files · ~725,364 words
+- 966 files · ~725,373 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 17 file(s) not represented in the graph (top: (none) 11, .example 1, .properties 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bd379530`
+- Built from commit: `9efe0d09`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1476,10 +1476,10 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Why `auth/` is its own folder and not a page` connect `api.ts` to `.require`, `org.springframework.jdbc.core.JdbcTemplate`, `javax.sql.DataSource`, `PasswordAcceptanceTests`, `AuthProvider`, `ScimRequestObservationConventionTests`, `ScimAttributeLimitsTests`, `use-gated-read.ts`, `ApplicationLifecycleLogTests`, `ScriptedJdbc`, `use-gated-read.test.tsx`, `LogEvent`, `home.tsx`, `route-guards.tsx`?**
   _High betweenness centrality (0.090) - this node is a cross-community bridge._
+- **Why does `Operation` connect `Operation` to `list`, `org.springframework.jdbc.core.JdbcTemplate`, `.recorded`, `ScimUser`, `DeadlockRetryAdapter.java`, `Refusal`, `org.springframework.stereotype.Component`, `AuditRetentionRunLogTests.java`, `ScheduledJobMetricsTests`, `configuration/index.md`, `jakarta.servlet.http.HttpServletResponse`, `.fields`, `LogEvent`, `LoginCompletionTests`, `InMemoryScimUserRepository`, `OperationMessagesTests`, `SessionEnding.java`, `uuid`, `ScimBearerAuthenticationFilterTests.java`, `AuditAdministrativeRefusal`, `Cause`, `ScimAttributeLimitsTests`, `ScheduledJobRegistrationTests`, `The records`, `ScimUserRepository`, `org.junit.jupiter.api.BeforeEach`, `ScheduledJobMetrics`?**
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **Why does `ScimUser` connect `ScimUser` to `.recorded`, `ScimGroupServiceTests`, `AuditAppendOnlyIntegrationTests`, `ScimUserEntity`, `.verdict`, `ScimUserServiceTests`, `org.springframework.context.annotation.Import`, `.userWithLoginState`, `.group`, `LoginIdentityServiceTests`, `AdminAccountEndpointTests`, `PasswordAcceptanceTests`, `.require`, `.user`, `ScimLoginStateRepositoryContract`, `.given`, `LoginStateSerializationIntegrationTests`, `ScimVersionPrecondition`, `InMemoryScimUserRepository`, `DormancyVerdict`, `EpicLoginIntegrationTests.java`, `org.junit.jupiter.api.AfterEach`, `uuid`, `org.junit.jupiter.api.Test`, `PasswordChangeServiceTests`, `ScimGroup`, `LoginSessionHardeningIntegrationTests`, `ScimLargeMembershipIntegrationTests`, `DormancyServiceTests`, `ScimQuery`, `ScimSeedServiceTests`, `ScimUserRepository`?**
   _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `Operation` connect `Operation` to `list`, `org.springframework.jdbc.core.JdbcTemplate`, `.recorded`, `ScimUser`, `DeadlockRetryAdapter.java`, `Refusal`, `org.springframework.stereotype.Component`, `AuditRetentionRunLogTests.java`, `ScheduledJobMetricsTests`, `configuration/index.md`, `jakarta.servlet.http.HttpServletResponse`, `.fields`, `LogEvent`, `LoginCompletionTests`, `InMemoryScimUserRepository`, `OperationMessagesTests`, `SessionEnding.java`, `uuid`, `ScimBearerAuthenticationFilterTests.java`, `AuditAdministrativeRefusal`, `Cause`, `ScimAttributeLimitsTests`, `ScheduledJobRegistrationTests`, `The records`, `ScimUserRepository`, `org.junit.jupiter.api.BeforeEach`, `ScheduledJobMetrics`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
 - **What connects `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend` to the rest of the system?**
   _994 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `org.junit.jupiter.params.provider.MethodSource` be split into smaller, more focused modules?**

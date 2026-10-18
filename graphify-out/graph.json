@@ -22094,7 +22094,7 @@
       "file_type": "code",
       "norm_label": "usegatedread()",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L180"
+      "source_location": "L177"
     },
     {
       "id": "frontend_src_auth_use_gated_read_usekeyedstate",
@@ -22130,7 +22130,7 @@
       "file_type": "code",
       "norm_label": "viewof()",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L166"
+      "source_location": "L163"
     },
     {
       "id": "frontend_src_pages_listing_body_listingbody",
@@ -352052,7 +352052,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L187",
+      "source_location": "L184",
       "weight": 1.0
     },
     {
@@ -352064,7 +352064,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L188",
+      "source_location": "L185",
       "weight": 1.0
     },
     {
@@ -352076,7 +352076,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L189",
+      "source_location": "L186",
       "weight": 1.0
     },
     {
@@ -352088,7 +352088,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L190",
+      "source_location": "L187",
       "weight": 1.0
     },
     {
@@ -352100,7 +352100,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L191",
+      "source_location": "L188",
       "weight": 1.0
     },
     {
@@ -352112,7 +352112,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L210",
+      "source_location": "L209",
       "weight": 1.0
     },
     {
@@ -352124,7 +352124,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L215",
+      "source_location": "L214",
       "weight": 1.0
     },
     {
@@ -352136,7 +352136,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L229",
+      "source_location": "L230",
       "weight": 1.0
     },
     {
@@ -559226,7 +559226,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L166",
+      "source_location": "L163",
       "weight": 1.0
     },
     {
@@ -559237,7 +559237,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/use-gated-read.ts",
-      "source_location": "L180",
+      "source_location": "L177",
       "weight": 1.0
     },
     {
@@ -724496,5 +724496,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "bd37953004a7af34afdda161313f4773052f3c73"
+  "built_at_commit": "9efe0d0921fff20141153869bdc2231de875968a"
 }

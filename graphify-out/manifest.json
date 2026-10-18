@@ -3702,15 +3702,15 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/use-gated-read.test.tsx": {
-    "mtime": 1792312430.0053697,
-    "seen": 1792312693.5794914,
-    "ast_hash": "be46d5018445f2bd512a725f2cd5ddf0",
+    "mtime": 1792313323.5296676,
+    "seen": 1792313499.1141236,
+    "ast_hash": "669860fcbf5423647415568f1d2d6920",
     "semantic_hash": ""
   },
   "frontend/src/auth/use-gated-read.ts": {
-    "mtime": 1792312449.744847,
-    "seen": 1792312693.579492,
-    "ast_hash": "76b33abc328508a2dabdb06aa3dd224f",
+    "mtime": 1792313345.477126,
+    "seen": 1792313499.1141248,
+    "ast_hash": "2437c5a2d6b5c53ac03e1c672062c9cb",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/observability/ScheduledJobSpec.java": {
