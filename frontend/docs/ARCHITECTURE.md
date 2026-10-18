@@ -70,7 +70,9 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   and Home to each link. Which Permission a request requires is not here: it is
   declared on the endpoint (`declarations.ts`, below).
 - `declarations.ts` — the shape of an endpoint as data: a `ReadDeclaration`
-  (Permission, path, decoder) and a `WriteDeclaration` (the same, plus method
+  (Permission, path, decoder, and the opt-in `absentOnNotFound`, which makes a
+  `404` the read's `absent` view rather than a failure — see the gated read
+  below) and a `WriteDeclaration` (the same, plus method
   and optional JSON body; the decoder only for a write answering a body). A path
   is a function of the call's arguments, so the API module that exports the
   declaration builds it and no page concatenates one. A page reads
@@ -226,6 +228,27 @@ reloads without asking whether the path moved. What it returns is one closed
 copy goes to the page status, and a read that closes (its path moved, its gate
 shut) withdraws what it reported. A page switches on the view rather than
 re-checking the read's Permission or rebuilding the states from loose flags.
+
+A read whose `404` is an ordinary answer — the thing asked about may simply not
+be there, and the page has a normal way to say so ("No patient in context") —
+opts in on its declaration with `absentOnNotFound: true`, and its view gains a
+sixth member, `absent`. The opt-in belongs on the declaration, beside the path
+it describes, because whether "not found" is news is a fact about the endpoint,
+not about one page's use of it. `absent` is not an error: it reports nothing to
+the page status, so like `ready` it clears a line an earlier read of its own
+left. It keeps nothing either — a re-read that finds what was read gone moves
+`ready` to `absent`, never to `stale`, as data for something not there is not
+data to keep — and a re-read that finds it again moves `absent` to `ready`. It
+follows the same rule as every other answer: only the newest read lands. An
+`update()` while absent makes the data read, as it does while loading, since
+the response stating it says something is there now. Every other result
+(`forbidden`, a plain `failed`, an ended session) is unaffected by the flag,
+and a read that does not opt in reads a `404` as `failed`, as before. The view
+type follows the declaration (`ReadView<T, N>`), so a page whose read never
+opts in has no `absent` case to handle. Opt in only where a `404` means
+"nothing there"; where it means "this went away under you" — a User deleted
+since the listing was read — it is a failure the page has copy for, and stays
+one.
 
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the

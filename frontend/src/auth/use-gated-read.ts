@@ -40,20 +40,24 @@ export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> 
  * - `loading` — the first read for the current path is still in flight;
  * - `failed` — the latest read was refused or failed, and nothing was ever read;
  * - `ready` — the latest read succeeded, and `data` is its answer;
- * - `stale` — a re-read was refused or failed, and `data` is the last answer, kept.
+ * - `stale` — a re-read was refused or failed, and `data` is the last answer, kept;
+ * - `absent` — the latest read found nothing there (a `404`), which is not a
+ *   failure: only a read whose declaration opts in with `absentOnNotFound`
+ *   (`N`) has this view, and nothing earlier is kept as `stale` beside it.
  *
  * A re-read in flight is not a first load: the data stays `ready` meanwhile.
  */
-export type ReadView<T> =
+export type ReadView<T, N extends boolean = false> =
   | { kind: "not-permitted" }
   | { kind: "loading" }
   | { kind: "failed" }
   | { kind: "ready"; data: T }
-  | { kind: "stale"; data: T };
+  | { kind: "stale"; data: T }
+  | (N extends true ? { kind: "absent" } : never);
 
-export interface GatedRead<T> {
+export interface GatedRead<T, N extends boolean = false> {
   /** What the page renders. */
-  view: ReadView<T>;
+  view: ReadView<T, N>;
   /**
    * Reads now, for the arguments the next render names, keeping the current
    * data — as `stale` — if the re-read is refused. It always sends while the
@@ -69,12 +73,14 @@ export interface GatedRead<T> {
 
 /**
  * How the latest read for the current key went: `unread` before any has
- * answered, `ok` with its data, or `failed` with whatever data was kept.
+ * answered, `ok` with its data, `failed` with whatever data was kept, or
+ * `absent` — found nothing there, so there is no data to keep.
  */
 type ReadState<T> =
   | { outcome: "unread"; data: null }
   | { outcome: "ok"; data: T }
-  | { outcome: "failed"; data: T | null };
+  | { outcome: "failed"; data: T | null }
+  | { outcome: "absent"; data: null };
 
 const UNREAD: ReadState<never> = { data: null, outcome: "unread" };
 
@@ -153,8 +159,11 @@ function useOpenRead<T>(
   return reload;
 }
 
-/** The one view a read state stands for. */
-function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T> {
+/**
+ * The one view a read state stands for. A state is `absent` only for a read
+ * whose declaration opted in, so its view is one of that read's `N` views.
+ */
+function viewOf<T, N extends boolean>(allowed: boolean, state: ReadState<T>): ReadView<T, N> {
   if (!allowed) return { kind: "not-permitted" };
   switch (state.outcome) {
     case "unread":
@@ -163,13 +172,15 @@ function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T> {
       return { data: state.data, kind: "ready" };
     case "failed":
       return state.data === null ? { kind: "failed" } : { data: state.data, kind: "stale" };
+    case "absent":
+      return { kind: "absent" } as ReadView<T, N>;
   }
 }
 
-export function useGatedRead<T, A extends readonly unknown[]>(
-  { decode, path: pathOf, permission }: ReadDeclaration<T, A>,
+export function useGatedRead<T, A extends readonly unknown[], N extends boolean = false>(
+  { absentOnNotFound, decode, path: pathOf, permission }: ReadDeclaration<T, A, N>,
   options: GatedReadOptions<A>,
-): GatedRead<T> {
+): GatedRead<T, N> {
   const { failureMessage } = options;
   // An endpoint with a fixed path takes no arguments, and is handed none.
   const path = pathOf(...((options.args ?? []) as A));
@@ -188,17 +199,25 @@ export function useGatedRead<T, A extends readonly unknown[]>(
         report(null);
         return;
       }
+      // Nothing there is an answer, not a failure: there is no data to keep
+      // as `stale`, and nothing to report, so an earlier failure's line clears.
+      if (absentOnNotFound && result.kind === "failed" && result.status === 404) {
+        setState({ data: null, outcome: "absent" });
+        report(null);
+        return;
+      }
       setState((current) => ({ data: current.data, outcome: "failed" }));
       report(refusalMessage(result, failureMessage));
     },
-    [failureMessage, report, setState],
+    [absentOnNotFound, failureMessage, report, setState],
   );
 
   const reload = useOpenRead(allowed, read, land, report);
 
   // No need to memoise: `setState` is stable, and this is called from event
   // handlers, never named as a dependency. A response that states the data
-  // makes it read; only a read that failed stays failed, its data kept.
+  // makes it read — an `absent` one too, as the response says something is
+  // there now; only a read that failed stays failed, its data kept.
   const update = (next: (current: T | null) => T) => {
     setState((current) =>
       current.outcome === "failed"
