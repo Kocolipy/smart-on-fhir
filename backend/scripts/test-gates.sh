@@ -132,6 +132,8 @@ FAST_GATE=(
   com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
+  com/example/backend/scim/InMemoryScimLoginStateRepositoryContractTests
+  com/example/backend/scim/InMemoryScimUserRepositoryContractTests
   com/example/backend/scim/application/ConnectorAdministrationServiceTests
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests

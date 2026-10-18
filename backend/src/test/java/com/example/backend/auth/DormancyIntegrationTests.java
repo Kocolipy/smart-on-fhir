@@ -31,6 +31,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -110,6 +111,9 @@ class DormancyIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimLoginStateRepository loginStates;
 
     @Autowired
     private ScimGroupRepository groups;
@@ -266,7 +270,7 @@ class DormancyIntegrationTests {
                 .collect(Collectors.toMap(Function.identity(),
                         id -> policy.verdict(users.findById(id).orElseThrow(), now))));
         List<UUID> lockoutCandidates = read.execute(status ->
-                users.findDormantUnlockedUserIds(policy.lockoutCutoff(now))).stream()
+                loginStates.findDormantUnlockedUserIds(policy.lockoutCutoff(now))).stream()
                 .filter(fixtures::contains)
                 .toList();
         List<UUID> roleRevocationCandidates = read.execute(status ->
@@ -699,7 +703,7 @@ class DormancyIntegrationTests {
     /** As a successful self-service change leaves it, keeping the same credential. */
     private void completePasswordChange(UUID user) {
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
-                users.completePasswordChange(
+                loginStates.completePasswordChange(
                         user, users.findById(user).orElseThrow().login().passwordHash(),
                         clock.instant()));
     }

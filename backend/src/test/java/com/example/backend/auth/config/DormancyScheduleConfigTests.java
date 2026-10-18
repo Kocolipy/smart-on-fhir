@@ -67,6 +67,7 @@ class DormancyScheduleConfigTests {
     private Runnable scheduled(SessionRevocationService sessions) {
         DormancyService dormancy = new DormancyService(
                 users,
+                users,
                 groups,
                 new InMemoryScimWriteLocks(),
                 new ScimRoleRevocationService(

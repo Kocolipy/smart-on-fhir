@@ -30,10 +30,10 @@ import java.util.Objects;
  * a successful login while no password change was required of it, or a completed self-service
  * change — or was last explicitly reactivated or unlocked. A login confined by a required change does not
  * move it, so an imposed credential nobody replaces still ages into the dormancy lockout. It is written by its own narrow port
- * operations ({@link ScimUserRepository#recordAuthentication},
- * {@link ScimUserRepository#resetDormancyBasis}) and by a SCIM replacement storing a
- * Reactivation's reset, never by {@link ScimUserRepository#updateLoginState}, and like the other
- * components it is not a SCIM attribute — recording a login does not move the version.
+ * operations ({@link ScimLoginStateRepository#recordAuthentication},
+ * {@link ScimLoginStateRepository#resetDormancyBasis}) and by a SCIM replacement storing a
+ * Reactivation's reset, never by {@link ScimLoginStateRepository#updateLoginState}, and like the
+ * other components it is not a SCIM attribute — recording a login does not move the version.
  *
  * <p>The transitions below are the login state's building blocks, not its rules: which of them an
  * event applies, and when, is the login-state module's to decide ({@link ScimUserLoginState} is
@@ -60,7 +60,7 @@ import java.util.Objects;
  *                             rather than a boolean plus a timestamp, as the lock is, so the two
  *                             cannot disagree. Written by its own narrow port operations and by
  *                             a SCIM create or replacement storing the module's decision, never
- *                             by {@link ScimUserRepository#updateLoginState}, and not a SCIM
+ *                             by {@link ScimLoginStateRepository#updateLoginState}, and not a SCIM
  *                             attribute.
  */
 public record ScimLoginState(
@@ -155,7 +155,7 @@ public record ScimLoginState(
     /**
      * Whether {@code other} holds the same failure run as this state: the same count and the same
      * lock, instant and cause alike. Those are exactly the components
-     * {@link ScimUserRepository#updateLoginState} writes, so a caller holding two states that
+     * {@link ScimLoginStateRepository#updateLoginState} writes, so a caller holding two states that
      * share a run knows writing the second would change nothing. Everything else — the credential,
      * the dormancy basis, the change-required flag — is not compared.
      */

@@ -615,6 +615,7 @@ class DormancyServiceTests {
                 new RecordingOperationalAlerts());
         return new DormancyService(
                 users,
+                users,
                 groups,
                 writeLocks,
                 new ScimRoleRevocationService(users, groups, sessions, audit, MAPPING),

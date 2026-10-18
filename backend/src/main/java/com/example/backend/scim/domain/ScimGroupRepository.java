@@ -165,8 +165,8 @@ public interface ScimGroupRepository {
      * not, locked or not.
      *
      * <p>The dormancy job's role-revocation candidates, on the same basis as
-     * {@link ScimUserRepository#findDormantUnlockedUserIds}: {@code lastAuthenticatedAt}, or the
-     * creation time for a User that has never authenticated. Candidates only; the job re-reads
+     * {@link ScimLoginStateRepository#findDormantUnlockedUserIds}: {@code lastAuthenticatedAt}, or
+     * the creation time for a User that has never authenticated. Candidates only; the job re-reads
      * each User under its lock and decides again. An empty {@code groupIds} matches nothing.
      */
     List<ScimGroupMembership> findDormantMemberships(Collection<UUID> groupIds, Instant cutoff);

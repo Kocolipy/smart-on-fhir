@@ -186,6 +186,17 @@ class ScimLoginStateTests {
     }
 
     /**
+     * A run that has not reached the threshold is still a run to clear: no lock stands, but the
+     * count does, so the value is not "nothing to clear" and an accepted login must write it.
+     */
+    @Test
+    void clearing_a_run_that_has_not_locked_drops_the_count() {
+        ScimLoginState running = new ScimLoginState("hash", 2, null);
+
+        assertThat(running.withFailureRunCleared()).isEqualTo(ScimLoginState.of("hash"));
+    }
+
+    /**
      * Returned by identity so a caller can skip a pointless write. That is the only observable
      * difference between skipping the write and performing a redundant one, which is why the
      * assertion is on identity rather than on equality.
@@ -313,8 +324,8 @@ class ScimLoginStateTests {
 
     /**
      * Two states share a failure run when their count and their lock agree, whatever else differs:
-     * the run is exactly what {@link ScimUserRepository#updateLoginState} writes, so a caller can
-     * skip a write that would change nothing.
+     * the run is exactly what {@link ScimLoginStateRepository#updateLoginState} writes, so a caller
+     * can skip a write that would change nothing.
      */
     @Test
     void states_differing_only_outside_the_run_share_a_failure_run() {

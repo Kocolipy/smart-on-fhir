@@ -25,6 +25,7 @@ import com.example.backend.observability.SqlFailures;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
@@ -136,6 +137,9 @@ class AuditAppendOnlyIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimLoginStateRepository loginStates;
 
     @Autowired
     private IdentityAdministrationService administration;
@@ -538,7 +542,7 @@ class AuditAppendOnlyIntegrationTests {
     private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);
-            users.updateLoginState(user.id(), ScimLoginState.of(user.login().passwordHash()));
+            loginStates.updateLoginState(user.id(), ScimLoginState.of(user.login().passwordHash()));
             // Arranged through the store, which keeps what it is given: active again, and with
             // the shared seeded baseline's unflagged credential and unmoved dormancy basis.
             users.replace(ScimIdentities.withActive(user, true, new ScimLoginState(

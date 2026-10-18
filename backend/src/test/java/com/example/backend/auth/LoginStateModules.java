@@ -7,7 +7,7 @@ import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.LockoutPolicy;
-import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import java.time.Clock;
 
 /**
@@ -29,7 +29,7 @@ public final class LoginStateModules {
     }
 
     /** The module writing through {@code users} and deciding as of {@code clock}. */
-    public static LoginStateService over(ScimUserRepository users, Clock clock) {
+    public static LoginStateService over(ScimLoginStateRepository users, Clock clock) {
         RecordingAuditTrail audit = new RecordingAuditTrail();
         return over(
                 users,
@@ -48,7 +48,7 @@ public final class LoginStateModules {
      * {@code sessions} and auditing into {@code audit}, so the test can read both back.
      */
     public static LoginStateService over(
-            ScimUserRepository users,
+            ScimLoginStateRepository users,
             SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,

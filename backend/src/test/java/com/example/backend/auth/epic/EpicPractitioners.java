@@ -2,6 +2,7 @@ package com.example.backend.auth.epic;
 
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
@@ -24,6 +25,8 @@ final class EpicPractitioners {
 
     private final ScimUserRepository users;
 
+    private final ScimLoginStateRepository loginStates;
+
     private final PasswordEncoder passwordEncoder;
 
     private final TransactionTemplate transactions;
@@ -32,9 +35,11 @@ final class EpicPractitioners {
 
     private final List<UUID> seeded = new ArrayList<>();
 
-    EpicPractitioners(ScimUserRepository users, PasswordEncoder passwordEncoder,
-            PlatformTransactionManager transactionManager, JdbcTemplate jdbc) {
+    EpicPractitioners(ScimUserRepository users, ScimLoginStateRepository loginStates,
+            PasswordEncoder passwordEncoder, PlatformTransactionManager transactionManager,
+            JdbcTemplate jdbc) {
         this.users = users;
+        this.loginStates = loginStates;
         this.passwordEncoder = passwordEncoder;
         this.transactions = new TransactionTemplate(transactionManager);
         this.jdbc = jdbc;
@@ -71,7 +76,7 @@ final class EpicPractitioners {
     String provisionRequiredToChangePassword(Instant since) {
         String practitioner = provision();
         UUID id = idOf(practitioner);
-        transactions.executeWithoutResult(status -> users.requirePasswordChange(id, since));
+        transactions.executeWithoutResult(status -> loginStates.requirePasswordChange(id, since));
         return practitioner;
     }
 
@@ -81,7 +86,8 @@ final class EpicPractitioners {
         UUID id = idOf(practitioner);
         transactions.executeWithoutResult(status -> {
             ScimLoginState login = users.findById(id).orElseThrow().login();
-            users.updateLoginState(id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
+            loginStates.updateLoginState(
+                    id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
         });
         return practitioner;
     }

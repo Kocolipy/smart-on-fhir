@@ -9,6 +9,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
@@ -65,6 +66,9 @@ class LoginSessionHardeningIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimLoginStateRepository loginStates;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -138,7 +142,7 @@ class LoginSessionHardeningIntegrationTests {
     void aSecondConfinedLoginEndsTheFirstConfinedSession() throws Exception {
         UUID ada = create("single-session-confined");
         new TransactionTemplate(transactionManager).executeWithoutResult(
-                status -> users.requirePasswordChange(ada, Instant.now()));
+                status -> loginStates.requirePasswordChange(ada, Instant.now()));
         create("single-session-bystander");
         Cookie bystander = logIn("single-session-bystander", PASSWORD);
 
