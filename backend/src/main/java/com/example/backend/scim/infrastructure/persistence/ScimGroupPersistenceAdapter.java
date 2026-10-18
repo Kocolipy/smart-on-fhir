@@ -167,6 +167,12 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * the resource row: the member-side foreign keys take no action (ADR 0013), so the database
      * refuses the Group's deletion while one remains. All of it happens in the caller's
      * transaction, so a failure leaves none of it.
+     *
+     * <p>The resource row goes in a statement issued here, as the User adapter's does, rather than
+     * through {@code deleteById}: that one only schedules the delete for the next flush, and
+     * Hibernate flushes inserts before deletes, so a Group read or created later in the same
+     * transaction still met the old row — the {@code displayName} and the reservation were not
+     * free until commit.
      */
     @Override
     public boolean deleteById(UUID id, Instant now) {
@@ -176,7 +182,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         ResourceVersionStatements.advance(
                 ResourceVersionAdvance.groupDeleted(memberships.findMemberIds(id), now), resources);
         memberships.deleteMembershipsOf(id);
-        resources.deleteById(id);
+        resources.deleteResource(id);
         return true;
     }
 
