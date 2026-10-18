@@ -2,6 +2,7 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
@@ -27,7 +28,8 @@ import org.springframework.stereotype.Repository;
 
 /**
  * Maps the SCIM Group port onto the normalized JPA model. Each write describes itself to
- * {@link RepresentationChange}, which decides whose versions the port's promise advances.
+ * {@link ResourceVersionAdvance}, which decides whose versions the port's promise advances, and
+ * hands the answer to {@link ResourceVersionStatements}, which advances them.
  *
  * <p>Stores only. Every row a write here touches — the Group, its members before and after, the
  * Users whose versions advance — is locked before the write reaches this adapter, in one order,
@@ -76,7 +78,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      *
      * <p>That last part is easy to miss, and was missed: a create with members IS a membership
      * change for those Users — each one's rendered {@code groups} gains an entry. It is now
-     * {@link RepresentationChange#groupCreated}'s decision rather than this method's, so it
+     * {@link ResourceVersionAdvance#groupCreated}'s decision rather than this method's, so it
      * cannot be forgotten here again.
      *
      * <p>The reservation is a literal {@code null}: a Group that arrives through the
@@ -123,7 +125,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * every resource the change is visible in.
      *
      * <p>Whose versions move — the membership's symmetric difference, every member on a rename,
-     * nothing at all for an identical re-send — is {@link RepresentationChange#groupReplaced}'s
+     * nothing at all for an identical re-send — is {@link ResourceVersionAdvance#groupReplaced}'s
      * decision, made from the old and new state read here rather than reported by the caller.
      */
     @Override
@@ -138,21 +140,22 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         renameOrThrow(group);
         List<UUID> newMemberIds = replaceMemberships(group);
 
-        RepresentationChange.groupReplaced(
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.groupReplaced(
                         group.id(),
                         previousDisplayName,
                         group.displayName(),
                         previousMemberIds,
                         newMemberIds,
-                        group.lastModifiedAt())
-                .advanceIn(resources);
+                        group.lastModifiedAt()), resources);
         return findById(group.id());
     }
 
     @Override
     public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
         // A missing row advances nothing, and findById then reports the absence itself.
-        RepresentationChange.groupTouched(id, now).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.groupTouched(id, now), resources);
         return findById(id);
     }
 
@@ -170,7 +173,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         if (groups.findById(id).isEmpty()) {
             return false;
         }
-        RepresentationChange.groupDeleted(memberships.findMemberIds(id), now).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.groupDeleted(memberships.findMemberIds(id), now), resources);
         memberships.deleteMembershipsOf(id);
         resources.deleteById(id);
         return true;
@@ -231,7 +235,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         if (memberships.deleteMembership(groupId, userId) == 0) {
             return false;
         }
-        RepresentationChange.memberRemoved(groupId, userId, now).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.memberRemoved(groupId, userId, now), resources);
         return true;
     }
 
@@ -253,7 +258,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         }
         List<UUID> memberIds = memberIds(group);
         writeMemberships(group.id(), memberIds);
-        RepresentationChange.groupCreated(memberIds, group.lastModifiedAt()).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.groupCreated(memberIds, group.lastModifiedAt()), resources);
         // The row was written a few statements ago in this same transaction, so absence here is an
         // invariant broken, not a case: fail loudly rather than carry a branch no input can reach.
         return findById(group.id()).orElseThrow();

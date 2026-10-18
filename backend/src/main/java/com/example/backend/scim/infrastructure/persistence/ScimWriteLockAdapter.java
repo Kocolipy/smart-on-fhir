@@ -16,8 +16,9 @@ import org.springframework.stereotype.Repository;
  *
  * <p>The write path is lock, then store, then apply effects, each in one place: this, the User
  * and Group adapters, and {@code ScimWriteEffectsApplier}. The adapters therefore take no lock of
- * their own, and the bulk version advance {@link RepresentationChange} issues touches only rows
- * already held here, so the order it updates them in cannot matter.
+ * their own, and the bulk version advance {@link ResourceVersionStatements} issues — for the
+ * resources {@link com.example.backend.scim.domain.ResourceVersionAdvance} decides — touches only
+ * rows already held here, so the order it updates them in cannot matter.
  *
  * <p>Also the one place a connector token's row lock is taken ({@link ConnectorTokenLocks}), so
  * every lock statement the scim slice issues is issued here. A token write takes no resource lock

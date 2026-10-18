@@ -5,6 +5,7 @@ import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
@@ -134,7 +135,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         }
         ScimUserEntity entity = stored.get();
         String previousLabel =
-                ScimGroupMemberJpaRepository.memberLabel(entity.getDisplayName(), entity.getUserName());
+                ScimUserProfile.memberLabel(entity.getDisplayName(), entity.getUserName());
         ScimUserProfile profile = user.profile();
         ScimName name = profile.name();
         entity.replaceProfile(
@@ -162,20 +163,20 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         } catch (DataIntegrityViolationException violation) {
             throw translated(violation);
         }
-        RepresentationChange.userReplaced(
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.userReplaced(
                         user.id(),
                         previousLabel,
-                        ScimGroupMemberJpaRepository.memberLabel(
-                                profile.displayName(), profile.userName()),
+                        profile.memberLabel(),
                         memberships.findGroupIdsOfUser(user.id()),
-                        now)
-                .advanceIn(resources);
+                        now), resources);
         return findById(user.id());
     }
 
     @Override
     public void advanceVersion(UUID id, Instant now) {
-        RepresentationChange.userWritten(id, now).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.userWritten(id, now), resources);
     }
 
     @Override
@@ -263,7 +264,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         if (users.completePasswordChange(id, passwordHash) == 0) {
             return Optional.empty();
         }
-        RepresentationChange.userWritten(id, now).advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.userWritten(id, now), resources);
         return findById(id);
     }
 
@@ -279,8 +281,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      */
     @Override
     public void deleteById(UUID id, Instant now) {
-        RepresentationChange.userDeleted(memberships.findGroupIdsOfUser(id), now)
-                .advanceIn(resources);
+        ResourceVersionStatements.advance(
+                ResourceVersionAdvance.userDeleted(memberships.findGroupIdsOfUser(id), now), resources);
         memberships.deleteMembershipsHeldBy(id);
         resources.deleteResource(id);
     }

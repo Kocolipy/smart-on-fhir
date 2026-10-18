@@ -1,4 +1,4 @@
-package com.example.backend.scim.infrastructure.persistence;
+package com.example.backend.scim.domain;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -9,16 +9,19 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Which resources' rendered documents a SCIM write changed, and so whose version — and ETag —
- * it advances.
+ * Which resources' rendered documents a SCIM write changed, and so whose
+ * <em>Resource version</em> — and ETag — it advances.
  *
  * <p>One rule, decided here and nowhere else: <em>every resource whose representation a write
- * changed advances its version exactly once, and no other resource advances.</em> The adapters
- * describe the write — the membership before and after, the old and new name, what was deleted
- * — through one of the factories below, and {@link #advanceIn} carries the decision out. No
- * adapter names the ids itself, because a call site that had to work out who moved is a call
- * site that eventually forgets one: Group create with members once advanced none of them, and
- * a miss is silent — a connector keeps a stale ETag rather than receiving an error.
+ * changed advances its version exactly once, and no other resource advances.</em> A store
+ * describes the write — the membership before and after, the old and new name, what was deleted
+ * — through one of the factories below, and applies the answer, {@link #advanced()} at
+ * {@link #at()}, without adding to it or leaving anything out. No store names the ids itself,
+ * because a call site that had to work out who moved is a call site that eventually forgets one:
+ * Group create with members once advanced none of them, and a miss is silent — a connector keeps
+ * a stale ETag rather than receiving an error. That includes the in-memory stores the unit tests
+ * run against: a second copy of the rule there would let the tests pass against the old rule
+ * after this one changed.
  *
  * <p>Where a Group's change shows up in a User's document, and the reverse:
  *
@@ -32,22 +35,22 @@ import java.util.UUID;
  *       the User is in.
  * </ul>
  *
- * <p>Pure: it decides from the sets it is given and touches nothing until {@link #advanceIn},
- * which issues one statement per {@link BoundIdChunks chunk} of ids — one for any write naming
- * at most {@link BoundIdChunks#MAX_IDS}. Locking is not its concern, but it relies on the lock
- * module ({@link ScimWriteLockAdapter}): every resource it names is one the write already holds,
- * locked in the canonical order before the write began, so the bulk update takes no new lock and
- * the order it updates rows in cannot matter. The module locks a superset of what is decided
- * here — a User's Groups whether or not its label moved, a Group's members before and after
- * whether or not each one's rendering moved — so this rule can change without the locks having
- * to follow.
+ * <p>Pure: it decides from the sets it is given and touches nothing. Carrying the decision out is
+ * the persistence adapter's ({@code scim.infrastructure.persistence.ResourceVersionStatements}),
+ * which issues the statements in chunks small enough for SQL Server's parameter limit. Locking is
+ * not this module's concern either, but the decision relies on the lock module
+ * ({@link ScimWriteLocks}): every resource it names is one the write already holds, locked in the
+ * canonical order before the write began, so the bulk update takes no new lock and the order it
+ * updates rows in cannot matter. The lock module locks a superset of what is decided here — a
+ * User's Groups whether or not its label moved, a Group's members before and after whether or not
+ * each one's rendering moved — so this rule can change without the locks having to follow.
  */
-final class RepresentationChange {
+public final class ResourceVersionAdvance {
 
     private final Set<UUID> advanced;
     private final Instant at;
 
-    private RepresentationChange(Collection<UUID> advanced, Instant at) {
+    private ResourceVersionAdvance(Collection<UUID> advanced, Instant at) {
         this.advanced = Set.copyOf(advanced);
         this.at = Objects.requireNonNull(at, "at");
     }
@@ -57,8 +60,8 @@ final class RepresentationChange {
      * change, the calling connector's {@code externalId} alias written alone. Only that User's
      * document changed: its Groups render their members by id and label, and neither moved.
      */
-    static RepresentationChange userWritten(UUID userId, Instant now) {
-        return new RepresentationChange(List.of(userId), now);
+    public static ResourceVersionAdvance userWritten(UUID userId, Instant now) {
+        return new ResourceVersionAdvance(List.of(userId), now);
     }
 
     /**
@@ -76,7 +79,7 @@ final class RepresentationChange {
      * @param label         the label they render after it
      * @param groupsOfUser  the Groups the User is a direct member of
      */
-    static RepresentationChange userReplaced(
+    public static ResourceVersionAdvance userReplaced(
             UUID userId,
             String previousLabel,
             String label,
@@ -88,23 +91,24 @@ final class RepresentationChange {
         Set<UUID> changed = new LinkedHashSet<>();
         changed.add(userId);
         changed.addAll(groupsOfUser);
-        return new RepresentationChange(changed, now);
+        return new ResourceVersionAdvance(changed, now);
     }
 
     /**
      * A User deleted. Every Group it belonged to lost a member; the User itself has no version
      * left to advance.
      */
-    static RepresentationChange userDeleted(Collection<UUID> groupsOfUser, Instant now) {
-        return new RepresentationChange(groupsOfUser, now);
+    public static ResourceVersionAdvance userDeleted(Collection<UUID> groupsOfUser, Instant now) {
+        return new ResourceVersionAdvance(groupsOfUser, now);
     }
 
     /**
      * A Group created with these members. Each member's {@code groups} gained the new Group. The
      * Group's own version is not advanced: it starts at its initial value by definition.
      */
-    static RepresentationChange groupCreated(Collection<UUID> members, Instant lastModifiedAt) {
-        return new RepresentationChange(members, lastModifiedAt);
+    public static ResourceVersionAdvance groupCreated(
+            Collection<UUID> members, Instant lastModifiedAt) {
+        return new ResourceVersionAdvance(members, lastModifiedAt);
     }
 
     /**
@@ -121,7 +125,7 @@ final class RepresentationChange {
      *       each one's {@code groups} changed, gained or vanished.
      * </ul>
      */
-    static RepresentationChange groupReplaced(
+    public static ResourceVersionAdvance groupReplaced(
             UUID groupId,
             String previousDisplayName,
             String displayName,
@@ -133,61 +137,43 @@ final class RepresentationChange {
                 ? union(previousMembers, members)
                 : symmetricDifference(previousMembers, members);
         if (!renamed && movedMembers.isEmpty()) {
-            return new RepresentationChange(List.of(), lastModifiedAt);
+            return new ResourceVersionAdvance(List.of(), lastModifiedAt);
         }
         Set<UUID> changed = new LinkedHashSet<>();
         changed.add(groupId);
         changed.addAll(movedMembers);
-        return new RepresentationChange(changed, lastModifiedAt);
+        return new ResourceVersionAdvance(changed, lastModifiedAt);
     }
 
     /**
      * A change to the Group's representation that no Group column records — an {@code externalId}
      * alias written alone. Only the Group's document changed.
      */
-    static RepresentationChange groupTouched(UUID groupId, Instant now) {
-        return new RepresentationChange(List.of(groupId), now);
+    public static ResourceVersionAdvance groupTouched(UUID groupId, Instant now) {
+        return new ResourceVersionAdvance(List.of(groupId), now);
     }
 
     /**
      * A Group deleted. Every former member's {@code groups} lost it; the Group itself has no
      * version left to advance.
      */
-    static RepresentationChange groupDeleted(Collection<UUID> formerMembers, Instant now) {
-        return new RepresentationChange(formerMembers, now);
+    public static ResourceVersionAdvance groupDeleted(Collection<UUID> formerMembers, Instant now) {
+        return new ResourceVersionAdvance(formerMembers, now);
     }
 
     /** One membership removed: the Group lost a member and the User lost a Group. */
-    static RepresentationChange memberRemoved(UUID groupId, UUID userId, Instant now) {
-        return new RepresentationChange(List.of(groupId, userId), now);
+    public static ResourceVersionAdvance memberRemoved(UUID groupId, UUID userId, Instant now) {
+        return new ResourceVersionAdvance(List.of(groupId, userId), now);
     }
 
     /** The resources whose version this write advances, each once. */
-    Set<UUID> advanced() {
+    public Set<UUID> advanced() {
         return advanced;
     }
 
     /** The {@code lastModified} each advanced resource records. */
-    Instant at() {
+    public Instant at() {
         return at;
-    }
-
-    /**
-     * Advances every resource this change names, and none when it names none — an empty
-     * {@code IN} list is not portable SQL, and there would be nothing for it to match.
-     *
-     * <p>One statement per {@link BoundIdChunks chunk} of at most {@link BoundIdChunks#MAX_IDS}
-     * ids, all in the caller's transaction: SQL Server refuses a request binding more than 2,100
-     * parameters, and nothing caps how many resources a write changes — renaming or deleting a
-     * Group advances every member, and a Group's membership has no limit. Chunking adds no
-     * deadlock risk: every row named here is already locked, in the canonical order, by
-     * {@link ScimWriteLockAdapter}, so the statements take no new lock. Each statement flushes
-     * before and clears after, as one did.
-     */
-    void advanceIn(ScimResourceJpaRepository resources) {
-        for (List<UUID> chunk : BoundIdChunks.of(advanced)) {
-            resources.advanceVersions(chunk, at);
-        }
     }
 
     private static Set<UUID> symmetricDifference(

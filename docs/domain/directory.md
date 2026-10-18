@@ -126,8 +126,9 @@ the deployment replaces the mapping. The Admin group cannot be deleted.
 
 Every resource whose rendered document a SCIM write changed advances its version
 exactly once, and no other resource advances; the version is the resource's strong
-ETag and its `meta.version`. `RepresentationChange` is the one place that decides
-who moved, inside the statement that stores the change; the SCIM write apply step
+ETag and its `meta.version`. `ResourceVersionAdvance` (in `scim.domain`) is the
+one place that decides who moved, asked by the statement that stores the change
+and by the in-memory stores the unit tests use alike; the SCIM write apply step
 carries out everything else a write implies, and advances only the version of a
 write that stored nothing but an alias. A User's document lists its Groups by
 `displayName`, and a Group's lists its members by their member label — a member's

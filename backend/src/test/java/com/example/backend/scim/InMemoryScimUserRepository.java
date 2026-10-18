@@ -4,11 +4,13 @@ import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,10 +47,23 @@ import java.util.UUID;
  * it by taking the User's lock ({@link InMemoryScimWriteLocks}, which takes none) and deciding
  * from {@link #findLoginState}; that is proven against a real database by
  * {@code LoginStateSerializationIntegrationTests}.
+ *
+ * <p>Which resources a write advances is not decided here: every write that changes a User's
+ * rendered document asks {@link ResourceVersionAdvance}, as the adapter does, and applies its
+ * answer — to the Users held here and, once a Group store holds this one, to its Groups. A copy of
+ * the rule in this fake would keep the old rule after the adapters' changed, and the unit tests
+ * would go on passing against it.
  */
 public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private final Map<UUID, ScimUser> stored = new LinkedHashMap<>();
+
+    /**
+     * The Group store built over this one, if any: the Groups a User write advances or a User
+     * deletion leaves are held there. Set by its constructor; a test with no Group store has a
+     * directory in which no User is in any Group.
+     */
+    private InMemoryScimGroupRepository groups;
 
     private int writes;
 
@@ -77,6 +92,11 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      */
     public void vanishBeforeNextPasswordChange(UUID id) {
         vanishingAtPasswordChange = id;
+    }
+
+    /** Called by the Group store built over this one; see {@link #groups}. */
+    void attach(InMemoryScimGroupRepository groupStore) {
+        this.groups = groupStore;
     }
 
     @Override
@@ -197,8 +217,9 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     /**
      * Replaces the profile and stores the given credential, flag and dormancy basis, keeping the
      * STORED failure run and lock — the port's promise that a replacement never writes those —
-     * and advancing the version once. Decides nothing, as the adapter decides nothing: the login
-     * state given is the caller's.
+     * then advances what {@link ResourceVersionAdvance#userReplaced} names: the User, and its
+     * Groups when the member label moved. Decides nothing, as the adapter decides nothing: the
+     * login state given is the caller's.
      */
     @Override
     public Optional<ScimUser> replace(ScimUser user, Instant now) {
@@ -222,12 +243,18 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         user.login().lastAuthenticatedAt(),
                         user.login().passwordChangeRequiredSince()),
                 current.reservedName(),
-                current.version() + 1,
+                current.version(),
                 current.createdAt(),
-                now);
+                current.lastModifiedAt());
         stored.put(user.id(), updated);
         writes++;
-        return Optional.of(updated);
+        apply(ResourceVersionAdvance.userReplaced(
+                user.id(),
+                current.profile().memberLabel(),
+                updated.profile().memberLabel(),
+                groupIdsOf(user.id()),
+                now));
+        return findById(user.id());
     }
 
     /**
@@ -236,18 +263,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      */
     @Override
     public void advanceVersion(UUID id, Instant now) {
-        ScimUser current = stored.get(id);
-        if (current == null) {
-            return;
-        }
-        stored.put(id, new ScimUser(
-                current.id(),
-                current.profile(),
-                current.login(),
-                current.reservedName(),
-                current.version() + 1,
-                current.createdAt(),
-                now));
+        apply(ResourceVersionAdvance.userWritten(id, now));
     }
 
     /**
@@ -330,9 +346,16 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         return stored.values().stream().map(ScimUser::id).sorted().toList();
     }
 
-    /** Removes the User; the Groups it belonged to are the in-memory Group repository's concern. */
+    /**
+     * Advances what {@link ResourceVersionAdvance#userDeleted} names — every Group the User was
+     * in — then drops its memberships and the User, as the adapter does.
+     */
     @Override
     public void deleteById(UUID id, Instant now) {
+        apply(ResourceVersionAdvance.userDeleted(groupIdsOf(id), now));
+        if (groups != null) {
+            groups.dropMembershipsHeldBy(id);
+        }
         stored.remove(id);
         writes++;
     }
@@ -422,7 +445,10 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         writes++;
     }
 
-    /** The credential and the cleared flag together, advancing the version once. */
+    /**
+     * The credential and the cleared flag together, then what
+     * {@link ResourceVersionAdvance#userWritten} names: the User alone.
+     */
     @Override
     public Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now) {
         ScimUser current = stored.get(id);
@@ -442,11 +468,47 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         login.lastAuthenticatedAt(),
                         null),
                 current.reservedName(),
-                current.version() + 1,
+                current.version(),
                 current.createdAt(),
-                now);
+                current.lastModifiedAt());
         stored.put(id, updated);
         writes++;
-        return Optional.of(updated);
+        apply(ResourceVersionAdvance.userWritten(id, now));
+        return findById(id);
+    }
+
+    /**
+     * Carries out a decision made elsewhere: every resource it names, User or Group, advances its
+     * version once and records the decision's {@code lastModified}.
+     */
+    private void apply(ResourceVersionAdvance advance) {
+        advanceUsers(advance);
+        if (groups != null) {
+            groups.advanceGroups(advance);
+        }
+    }
+
+    /**
+     * Advances each User held here that the decision names, and nothing else — the resource row's
+     * version and {@code lastModified}, not a User column, so not counted in {@link #writes()}.
+     */
+    void advanceUsers(ResourceVersionAdvance advance) {
+        for (UUID id : advance.advanced()) {
+            ScimUser current = stored.get(id);
+            if (current != null) {
+                stored.put(id, new ScimUser(
+                        current.id(),
+                        current.profile(),
+                        current.login(),
+                        current.reservedName(),
+                        current.version() + 1,
+                        current.createdAt(),
+                        advance.at()));
+            }
+        }
+    }
+
+    private Collection<UUID> groupIdsOf(UUID userId) {
+        return groups == null ? List.of() : groups.groupIdsOf(userId);
     }
 }

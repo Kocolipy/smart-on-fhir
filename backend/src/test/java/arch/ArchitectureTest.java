@@ -1065,17 +1065,21 @@ public class ArchitectureTest {
                     + " remembering an accepted hash have one implementation (issue #103)");
 
     /**
-     * Which resources a SCIM write advances has one owner:
-     * {@code scim.infrastructure.persistence.RepresentationChange}. An adapter describes the write
-     * and the module decides; an adapter that advanced versions itself would be working out who
-     * moved on its own, which is how Group create with members once advanced none of them — and a
-     * miss is silent, a stale ETag rather than an error.
+     * Which resources a SCIM write advances has one owner,
+     * {@code scim.domain.ResourceVersionAdvance}, and carrying that decision out has one too:
+     * {@code scim.infrastructure.persistence.ResourceVersionStatements}, the only caller of the
+     * bulk advance. An adapter describes the write, the domain module decides and the statements
+     * apply its answer; an adapter that advanced versions itself would be working out who moved on
+     * its own, which is how Group create with members once advanced none of them — and a miss is
+     * silent, a stale ETag rather than an error. The decision itself is held infrastructure-free by
+     * {@link #no_domain_infrastructure_imports}, so the in-memory stores the unit tests run against
+     * can ask it too, rather than keeping a copy of the rule that could drift.
      */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule only_representation_change_advances_versions =
+    static final ArchRule only_resource_version_statements_advance_versions =
         noClasses()
             .that().doNotHaveFullyQualifiedName(
-                    "com.example.backend.scim.infrastructure.persistence.RepresentationChange")
+                    "com.example.backend.scim.infrastructure.persistence.ResourceVersionStatements")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is ScimResourceJpaRepository.advanceVersions",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
@@ -1084,8 +1088,9 @@ public class ArchitectureTest {
                                             "com.example.backend.scim.infrastructure.persistence"
                                                     + ".ScimResourceJpaRepository")))
             .allowEmptyShould(true)
-            .because("RepresentationChange decides which resources' versions a write advances,"
-                    + " so every write path applies one rule (issue #137)");
+            .because("ResourceVersionAdvance decides which resources' versions a write advances and"
+                    + " ResourceVersionStatements alone applies it, so every write path applies one"
+                    + " rule (issue #137, issue #114)");
 
     /**
      * A SCIM write's resource locks have one owner:

@@ -30,12 +30,12 @@ interface ScimGroupMemberJpaRepository
      *
      * <p>Takes a collection so a page of Groups costs one query rather than one per Group.
      *
-     * <p>The label is {@code coalesce(displayName, userName)}: SCIM's {@code members.display}
-     * is a human-readable label for the referenced resource, a User's {@code displayName} is
-     * that label when it has one, and {@code userName} is the one attribute every User is
-     * guaranteed to have. Resolved here, in the same statement as the membership, because
-     * it is read-only — RFC 7643 §4.2 derives it from the referenced resource, so there is
-     * no stored value it could come from.
+     * <p>The label is {@code coalesce(displayName, userName)}, the SQL statement of
+     * {@link com.example.backend.scim.domain.ScimUserProfile#memberLabel(String, String)}: the
+     * two must agree, because the Java rule decides whether a User write changed what this
+     * query renders. Resolved here, in the same statement as the membership, because it is
+     * read-only — RFC 7643 §4.2 derives it from the referenced resource, so there is no stored
+     * value it could come from.
      *
      * <p>Ordered by the member's normalized {@code userName} so a Group's membership renders
      * the same way on every read. SCIM does not require it; a set that reshuffled between
@@ -49,15 +49,6 @@ interface ScimGroupMemberJpaRepository
              where m.id.groupId in :groupIds
              order by u.normalizedUserName asc""")
     List<ScimGroupMemberRow> findMembersOfGroups(@Param("groupIds") Collection<UUID> groupIds);
-
-    /**
-     * The label {@link #findMembersOfGroups} renders a member with, from that member's own
-     * attributes: the same {@code coalesce(displayName, userName)}, for deciding whether a User
-     * write changed what its Groups show. Kept beside the query so the two cannot drift apart.
-     */
-    static String memberLabel(String displayName, String userName) {
-        return displayName != null ? displayName : userName;
-    }
 
     /**
      * The Groups this User is a direct member of — the read-only reverse view.
