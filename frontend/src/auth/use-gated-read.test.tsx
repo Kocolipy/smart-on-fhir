@@ -1,8 +1,17 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { jsonDecoder, readObject } from "@/lib/decode";
+import {
+  bare,
+  deferred,
+  fakeBackend,
+  json,
+  type Deferred,
+  type FakeBackend,
+  type WireAnswer,
+} from "@/lib/fake-backend.testHelpers";
 import { FORBIDDEN_MESSAGE } from "@/lib/http";
 
 import type { Permission } from "./api";
@@ -12,6 +21,9 @@ import type { ReadDeclaration } from "./declarations";
 import { useStatusReporter } from "./page-status";
 import { InPageStatus, shownLine } from "./page-status.testHelpers";
 import { useGatedRead, type GatedRead } from "./use-gated-read";
+
+// The hook reads the session's Permissions, and a test withdraws one mid-read,
+// so it runs against a hand-built auth state; its reads go to the backend layer.
 
 const decodeCount = jsonDecoder((body: unknown) =>
   readObject(body, "CountResponse").integer("count"),
@@ -33,8 +45,26 @@ const COUNT: ReadDeclaration<number> = {
 
 const FAILURE = "Unable to load the counter. Please try again.";
 
-/** Every request the hook sends, held open until the test answers it. */
-let sent: { path: string; answer: (response: Response) => void }[];
+/**
+ * The backend's replies, one per request in the order the hook sends them,
+ * each held open until the test settles it.
+ */
+let replies: Deferred[];
+/** How many replies each test holds: more than any test sends requests, so none repeats. */
+const REPLIES_HELD = 20;
+/** Which replies the test has settled, by the request's place in the order sent. */
+let settled: Set<number>;
+let backend: FakeBackend;
+
+/** The requests sent and not yet answered, oldest first, by their place in the order sent. */
+const open = () =>
+  backend
+    .requests()
+    .map((_, place) => place)
+    .filter((place) => !settled.has(place));
+
+/** The paths of the requests still open, oldest first. */
+const openPaths = () => open().map((place) => backend.requests()[place]!.path);
 
 const expireSession = vi.fn();
 
@@ -99,63 +129,51 @@ function renderRead({
   };
 }
 
-/** Answers the oldest open request. */
-async function answer(response: Response) {
-  const next = sent.shift();
-  if (next === undefined) throw new Error("no request is open");
-  await act(async () => next.answer(response));
+/** Answers the request at `place` in the order sent. */
+async function answerAt(place: number | undefined, given: WireAnswer) {
+  if (place === undefined) throw new Error("no request is open");
+  settled.add(place);
+  await replies[place]!.settle(given);
 }
+
+/** Answers the oldest open request. */
+const answer = (given: WireAnswer) => answerAt(open()[0], given);
 
 /** Answers the newest open request, ahead of any older one still open. */
-async function answerNewest(response: Response) {
-  const next = sent.pop();
-  if (next === undefined) throw new Error("no request is open");
-  await act(async () => next.answer(response));
-}
+const answerNewest = (given: WireAnswer) => {
+  const places = open();
+  return answerAt(places[places.length - 1], given);
+};
 
-const count = (value: number) => Response.json({ count: value });
+const count = (value: number) => json({ count: value });
 
 describe("useGatedRead", () => {
   beforeEach(() => {
-    sent = [];
     expireSession.mockReset();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        (path: string) =>
-          new Promise<Response>((resolve) => {
-            sent.push({ answer: resolve, path });
-          }),
-      ),
-    );
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    replies = Array.from({ length: REPLIES_HELD }, deferred);
+    settled = new Set();
+    backend = fakeBackend({ "GET /api/*": replies.map((reply) => reply.answer) });
   });
 
   it("sends nothing and shows nothing without the Permission", async () => {
     const { result } = renderRead({ permissions: [] });
     await act(async () => {});
 
-    expect(fetch).not.toHaveBeenCalled();
+    expect(backend.requests()).toEqual([]);
     expect(shown(result)).toMatchObject({ error: null, view: { kind: "not-permitted" } });
   });
 
   it("is loading, with nothing failed, until the read answers", () => {
     const { result } = renderRead();
 
-    expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
+    expect(openPaths()).toEqual(["/api/count"]);
     expect(shown(result)).toMatchObject({ error: null, view: { kind: "loading" } });
   });
 
   it("reads the path its declaration builds from the arguments, with a plain GET", () => {
     renderRead({ options: { path: "/api/elsewhere" } });
 
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const [path, init] = vi.mocked(fetch).mock.calls[0];
-    expect(path).toBe("/api/elsewhere");
-    expect(init?.method).toBeUndefined();
+    expect(backend.requests()).toEqual([{ method: "GET", path: "/api/elsewhere" }]);
   });
 
   it("reads a declaration that takes no arguments without being handed any", async () => {
@@ -163,7 +181,7 @@ describe("useGatedRead", () => {
       wrapper: inSession(["counter:read"]),
     });
 
-    expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
+    expect(openPaths()).toEqual(["/api/count"]);
     await answer(count(4));
     expect(result.current.view).toEqual({ data: 4, kind: "ready" });
   });
@@ -177,7 +195,7 @@ describe("useGatedRead", () => {
 
   it("shows the seam's copy for a refusal and keeps the session", async () => {
     const { result } = renderRead();
-    await answer(new Response(null, { status: 403 }));
+    await answer(bare(403));
 
     expect(shown(result)).toMatchObject({ error: FORBIDDEN_MESSAGE, view: { kind: "failed" } });
     expect(expireSession).not.toHaveBeenCalled();
@@ -185,21 +203,21 @@ describe("useGatedRead", () => {
 
   it("shows the page's failure copy for a plain failure", async () => {
     const { result } = renderRead();
-    await answer(new Response(null, { status: 500 }));
+    await answer(bare(500));
 
     expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("treats a success body that does not decode as a failure, not as data", async () => {
     const { result } = renderRead();
-    await answer(Response.json({ count: "seven" }));
+    await answer(json({ count: "seven" }));
 
     expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
 
   it("ends the session on an unauthenticated read and reports a failure", async () => {
     const { result } = renderRead();
-    await answer(new Response(null, { status: 401 }));
+    await answer(bare(401));
 
     expect(expireSession).toHaveBeenCalledTimes(1);
     expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
@@ -213,10 +231,10 @@ describe("useGatedRead", () => {
     act(() => {
       reloaded = result.current.reload();
     });
-    expect(sent.map((request) => request.path)).toEqual(["/api/count"]);
+    expect(openPaths()).toEqual(["/api/count"]);
     // A re-read is not a first load: what was read stays on screen meanwhile.
     expect(result.current.view).toEqual({ data: 3, kind: "ready" });
-    await answer(new Response(null, { status: 403 }));
+    await answer(bare(403));
     await act(() => reloaded);
     expect(shown(result)).toMatchObject({
       error: FORBIDDEN_MESSAGE,
@@ -247,7 +265,7 @@ describe("useGatedRead", () => {
       act(() => void result.current.reload());
 
       await answerNewest(count(2));
-      await answer(new Response(null, { status: 500 })); // the mount read, answering last
+      await answer(bare(500)); // the mount read, answering last
 
       expect(shownLine()).toBeNull();
     });
@@ -268,7 +286,7 @@ describe("useGatedRead", () => {
       const { result } = renderRead();
       act(() => void result.current.reload());
 
-      expect(sent.map((request) => request.path)).toEqual(["/api/count", "/api/count"]);
+      expect(openPaths()).toEqual(["/api/count", "/api/count"]);
     });
   });
 
@@ -301,7 +319,7 @@ describe("useGatedRead", () => {
     });
     await act(async () => {});
 
-    expect({ sent: vi.mocked(fetch).mock.calls.length, settled }).toEqual({
+    expect({ sent: backend.requests().length, settled }).toEqual({
       sent: 1,
       settled: true,
     });
@@ -312,7 +330,7 @@ describe("useGatedRead", () => {
 
     await act(() => result.current.reload());
 
-    expect(fetch).not.toHaveBeenCalled();
+    expect(backend.requests()).toEqual([]);
     expect(result.current.view).toEqual({ kind: "not-permitted" });
   });
 
@@ -335,7 +353,7 @@ describe("useGatedRead", () => {
 
   it("holds data a later response states as stale after a failed first read", async () => {
     const { result } = renderRead();
-    await answer(new Response(null, { status: 500 }));
+    await answer(bare(500));
 
     act(() => result.current.update((current) => (current ?? 0) + 10));
 
@@ -344,12 +362,12 @@ describe("useGatedRead", () => {
 
   it("resets and asks nothing when the Permission is withdrawn", async () => {
     const hook = renderRead();
-    await answer(new Response(null, { status: 500 }));
+    await answer(bare(500));
 
     hook.withPermissions([]);
 
     expect(shown(hook.result)).toMatchObject({ error: null, view: { kind: "not-permitted" } });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(backend.requests()).toHaveLength(1);
   });
 
   it("sends no re-read once the Permission is withdrawn", async () => {
@@ -359,7 +377,7 @@ describe("useGatedRead", () => {
     hook.withPermissions([]);
     await act(() => hook.result.current.reload());
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(backend.requests()).toHaveLength(1);
   });
 
   it("reads afresh when the Permission is granted", async () => {
@@ -383,12 +401,12 @@ describe("useGatedRead", () => {
 
   it("resets to loading and reads the new path when the path changes", async () => {
     const hook = renderRead();
-    await answer(new Response(null, { status: 500 }));
+    await answer(bare(500));
 
     hook.withOptions({ path: "/api/other" });
 
     expect(shown(hook.result)).toMatchObject({ error: null, view: { kind: "loading" } });
-    expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
+    expect(openPaths()).toEqual(["/api/other"]);
     await answer(count(2));
     expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
   });
@@ -417,7 +435,7 @@ describe("useGatedRead", () => {
     await act(() => reloaded);
 
     expect(hook.result.current.view).toEqual({ kind: "loading" });
-    expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
+    expect(openPaths()).toEqual(["/api/other"]);
   });
 
   it("re-reads the current path after the path has moved", async () => {
@@ -430,7 +448,7 @@ describe("useGatedRead", () => {
     act(() => {
       reloaded = hook.result.current.reload();
     });
-    expect(sent.map((request) => request.path)).toEqual(["/api/other"]);
+    expect(openPaths()).toEqual(["/api/other"]);
     await answer(count(3));
     await act(() => reloaded);
     expect(hook.result.current.view).toEqual({ data: 3, kind: "ready" });
@@ -442,7 +460,7 @@ describe("useGatedRead", () => {
     const failureMessage = "Unable to load the tally.";
 
     hook.withOptions({ failureMessage });
-    await answer(new Response(null, { status: 500 }));
+    await answer(bare(500));
 
     expect(shown(hook.result)).toMatchObject({
       error: failureMessage,

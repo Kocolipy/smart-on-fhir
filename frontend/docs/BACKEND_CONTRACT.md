@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: Backend contract
-description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, the session bounds, one session per User, Epic Login's landing, logout's Clear-Site-Data, and the CSP.
+description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, JSON request bodies, the session bounds, one session per User, Epic Login's landing, logout's Clear-Site-Data, and the CSP.
 tags: [csrf, sessions, csp, contract]
 ---
 
@@ -52,6 +52,13 @@ change, when the backend side moves. What the SPA has to honour:
   session and `ProtectedRoute` sends the user to login, the redirect carrying
   the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
   looks like a random sign-out to the user.
+- **A request body is JSON, and says so.** The backend reads a request body
+  through its JSON converter only, so a body sent without
+  `Content-Type: application/json` is refused `415` before any handler runs.
+  The SPA's bodies are built in two places, `src/auth/api.ts` (login, password
+  change) and `useGatedWrite`, and both name that type; a bodiless request
+  names none. The unit suites' fake backend keeps this rule, so a body sent
+  under any other type fails there too.
 - **Features reach the backend through `useSessionRequest`; only `src/auth/`
   reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
   place that can drift, and a direct `apiFetch` call puts the session-ending

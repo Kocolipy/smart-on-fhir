@@ -2,18 +2,15 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch } from "@/lib/http";
+import { bare, fakeBackend, json, type Answers } from "@/lib/fake-backend.testHelpers";
 
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState, signedIn } from "./auth-context.testHelpers";
 import { useSessionRequest } from "./use-session-request";
 
-vi.mock("@/lib/http", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/http")>()),
-  apiFetch: vi.fn(),
-}));
-
-const apiFetchMock = vi.mocked(apiFetch);
+// The hook reads one thing from the session — `expireSession` — so it runs
+// against a hand-built auth state; the backend it requests from is the
+// backend layer's.
 
 const state: AuthContextState = authState(signedIn());
 
@@ -21,66 +18,67 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   <AuthContext.Provider value={state}>{children}</AuthContext.Provider>
 );
 
-const request = () => renderHook(() => useSessionRequest(), { wrapper }).result.current;
+/** The hook's request, over a backend answering `answers`. */
+function request(answers: Answers) {
+  const backend = fakeBackend(answers);
+  const send = renderHook(() => useSessionRequest(), { wrapper }).result.current;
+  return { requests: backend.requests, send };
+}
 
 const decode = (response: Response) => response.json() as Promise<number>;
 
 describe("useSessionRequest", () => {
   beforeEach(() => {
-    apiFetchMock.mockReset();
     vi.mocked(state.expireSession).mockReset();
   });
 
   it("passes a successful result through untouched", async () => {
-    apiFetchMock.mockResolvedValue({ data: 7, kind: "ok" } as never);
+    const { send } = request({ "GET /api/count": json(7) });
 
-    await expect(request()("/api/count", {}, decode)).resolves.toEqual({ data: 7, kind: "ok" });
+    await expect(send("/api/count", {}, decode)).resolves.toEqual({ data: 7, kind: "ok" });
     expect(state.expireSession).not.toHaveBeenCalled();
   });
 
-  it("forwards the path, request and decoder to the transport", async () => {
-    apiFetchMock.mockResolvedValue({ data: 1, kind: "ok" } as never);
+  it("sends the path and request it is handed, and reads the answer with its decoder", async () => {
+    const { requests, send } = request({ "POST /api/count/increment": json(1) });
 
-    await request()("/api/count/increment", { method: "POST" }, decode);
+    const result = await send("/api/count/increment", { method: "POST" }, decode);
 
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/count/increment",
-      { method: "POST" },
-      expect.any(Function),
-    );
+    expect({ requests: requests(), result }).toEqual({
+      requests: [{ method: "POST", path: "/api/count/increment" }],
+      result: { data: 1, kind: "ok" },
+    });
   });
 
-  it("calls the transport without a decoder for a no-body request", async () => {
-    apiFetchMock.mockResolvedValue({ data: undefined, kind: "ok" } as never);
+  it("reads no body for a request sent without a decoder", async () => {
+    const { send } = request({ "GET /api/ping": json(1) });
 
-    await request()("/api/ping");
-
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/ping", {});
+    await expect(send("/api/ping")).resolves.toEqual({ data: undefined, kind: "ok" });
   });
 
-  it("ends the session itself when the transport reports it is unauthenticated", async () => {
-    apiFetchMock.mockResolvedValue({ kind: "unauthenticated" } as never);
+  it("ends the session itself on a 401, handing the caller a plain failure", async () => {
+    const { send } = request({ "GET /api/count": bare(401) });
 
-    const result = await request()("/api/count", {}, decode);
+    const result = await send("/api/count", {}, decode);
 
     expect(state.expireSession).toHaveBeenCalledOnce();
-    expect(result).not.toMatchObject({ kind: "unauthenticated" });
+    expect(result).toEqual({ kind: "failed", status: 401 });
   });
 
-  it.each([{ kind: "csrf-expired" }, { kind: "forbidden" }])(
-    "leaves a $kind result for the caller to report",
-    async (refusal) => {
-      apiFetchMock.mockResolvedValue(refusal as never);
+  it.each([
+    ["csrf-expired", { "GET /api/auth/csrf": bare(500) }, { method: "POST" }],
+    ["forbidden", { "GET /api/count": bare(403) }, {}],
+  ] as const)("leaves a %s result for the caller to report", async (kind, answers, init) => {
+    const { send } = request(answers);
 
-      await expect(request()("/api/count", {}, decode)).resolves.toEqual(refusal);
-      expect(state.expireSession).not.toHaveBeenCalled();
-    },
-  );
+    await expect(send("/api/count", init, decode)).resolves.toEqual({ kind });
+    expect(state.expireSession).not.toHaveBeenCalled();
+  });
 
   it("leaves a failed result for the caller to report", async () => {
-    apiFetchMock.mockResolvedValue({ kind: "failed", status: 503 } as never);
+    const { send } = request({ "GET /api/count": bare(503) });
 
-    await expect(request()("/api/count", {}, decode)).resolves.toEqual({
+    await expect(send("/api/count", {}, decode)).resolves.toEqual({
       kind: "failed",
       status: 503,
     });

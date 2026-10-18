@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { stubFetchWithCsrf } from "./lib/http.testHelpers";
+import { bare, fakeBackend } from "./lib/fake-backend.testHelpers";
 
 // Its own file because the page has to be replaced at module level: the point is
 // to prove App's real tree catches a page that throws, not a hand-built one.
@@ -14,13 +14,12 @@ vi.mock("@/pages/login", () => ({
 
 describe("App error boundary", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it("shows the generic fallback when a routed page throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    fakeBackend({ "GET /api/auth/me": bare(401) });
     render(<App />);
 
     expect(

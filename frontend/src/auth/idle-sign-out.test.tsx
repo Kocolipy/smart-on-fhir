@@ -3,20 +3,30 @@ import { useEffect, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as http from "@/lib/http";
+import {
+  bare,
+  fakeBackend,
+  json,
+  requestKey,
+  UNREACHABLE,
+  type Answers,
+  type FakeBackend,
+  type WireAnswer,
+} from "@/lib/fake-backend.testHelpers";
 import { Login } from "@/pages/login";
 
-import * as authApi from "./api";
+import type { AuthUser } from "./api";
 import { AuthProvider } from "./auth-context";
+import { AUTH_REQUESTS, testUser } from "./auth-context.testHelpers";
 import { useAuth } from "./auth-context-value";
 import { GuestRoute, ProtectedRoute } from "./route-guards";
 import { DEFAULT_DESTINATION, LOGIN_PATH } from "./session-route";
 import { useSessionRequest } from "./use-session-request";
 
-vi.mock("./api");
-vi.mock("@/lib/http");
+// The real provider, guards and Login page over the backend layer, under fake
+// timers: the logout, the stay and the session check all go over the wire.
 
-const api = vi.mocked(authApi);
+const { change: CHANGE, login: LOGIN, logout: LOGOUT, me: ME } = AUTH_REQUESTS;
 
 /**
  * A deliberately odd idle bound: a clock that signs out at exactly this many
@@ -27,12 +37,7 @@ const LIMIT_MS = IDLE_SECONDS * 1000;
 /** The warning opens a minute before the limit. */
 const WARN_AT_MS = LIMIT_MS - 60_000;
 
-const user = (idleTimeoutSeconds = IDLE_SECONDS): authApi.AuthUser => ({
-  idleTimeoutSeconds,
-  passwordChangeRequired: false,
-  permissions: [],
-  username: "ada",
-});
+const user = (idleTimeoutSeconds = IDLE_SECONDS): AuthUser => testUser({ idleTimeoutSeconds });
 
 const INACTIVE_MESSAGE = "You were signed out because you were inactive. Please sign in again.";
 
@@ -76,6 +81,25 @@ const advance = (ms: number) =>
     await vi.advanceTimersByTimeAsync(ms);
   });
 
+/** The backend the test runs over, set by {@link signedIn} or the test itself. */
+let backend: FakeBackend;
+
+/** How many times `request` was sent. */
+const sent = (request: string) =>
+  backend.requests().filter((sent) => requestKey(sent) === request).length;
+
+/** How many logouts were sent. */
+const logouts = () => sent(LOGOUT);
+
+/** How many stays were sent: every session check after the start-up one. */
+const stays = () => sent(ME) - 1;
+
+/** Clicks the button named `name`, and lets the requests it sends settle. */
+const click = (name: string) =>
+  act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
+
 /** A feature page that polls the backend through the session seam every ten seconds. */
 function PollingPage() {
   const request = useSessionRequest();
@@ -100,10 +124,11 @@ function PasswordChangeButton() {
 }
 
 async function signedIn(
-  current: authApi.AuthUser = user(),
+  current: AuthUser = user(),
   page: ReactNode = <p>Accounts page</p>,
+  answers: Answers = {},
 ) {
-  api.getCurrentUser.mockResolvedValue({ kind: "signed-in", user: current });
+  backend = fakeBackend({ [LOGOUT]: bare(204), [ME]: json(current), ...answers });
   render(
     <MemoryRouter initialEntries={["/accounts"]}>
       <AuthProvider>
@@ -121,23 +146,19 @@ async function signedIn(
       </AuthProvider>
     </MemoryRouter>,
   );
-  await act(async () => {});
+  await advance(0);
   expect(screen.getByText("Accounts page")).toBeInTheDocument();
-  // The start-up check and its sign-in are behind us; count from here.
-  api.getCurrentUser.mockClear();
-  vi.mocked(http.discardCsrfToken).mockClear();
 }
 
-/** What the stay's `GET /api/auth/me` comes back as, through the transport. */
-const stayAnswers = (result: http.ApiResult<void>) =>
-  vi.mocked(http.apiFetch).mockResolvedValue(result);
+/** What the stay's `GET /api/auth/me` comes back as. */
+const stayAnswers = (answer: WireAnswer | Promise<WireAnswer>) => backend.answer({ [ME]: answer });
 
 const warning = () => screen.queryByRole("alertdialog");
 
 /** Asserts the inactivity sign-out happened and the user landed on Login saying why. */
-function expectSignedOutForInactivity() {
-  expect(api.logout).toHaveBeenCalledOnce();
-  expect(http.discardCsrfToken).toHaveBeenCalled();
+async function expectSignedOutForInactivity() {
+  expect(logouts()).toBe(1);
+  expect(await backend.tokenForgotten()).toBe(true);
   expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${INACTIVE_MESSAGE}$`));
   expect(screen.queryByText("Accounts page")).not.toBeInTheDocument();
@@ -145,16 +166,14 @@ function expectSignedOutForInactivity() {
 
 describe("IdleSignOut", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
     vi.useFakeTimers();
     FakeBroadcastChannel.open = [];
     vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
-    api.logout.mockResolvedValue({ kind: "signed-out" });
-    stayAnswers({ data: undefined, kind: "ok" });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -163,16 +182,19 @@ describe("IdleSignOut", () => {
       await signedIn();
 
       await advance(LIMIT_MS - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       expect(screen.getByText("Accounts page")).toBeInTheDocument();
 
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("times the clock by the login response's figure too", async () => {
-      api.getCurrentUser.mockResolvedValue({ kind: "guest" });
-      api.login.mockResolvedValue({ kind: "signed-in", user: user(120) });
+      backend = fakeBackend({
+        [LOGOUT]: bare(204),
+        [ME]: bare(401),
+        [LOGIN]: json(user(120)),
+      });
       render(
         <MemoryRouter initialEntries={[LOGIN_PATH]}>
           <AuthProvider>
@@ -197,7 +219,7 @@ describe("IdleSignOut", () => {
           </AuthProvider>
         </MemoryRouter>,
       );
-      await act(async () => {});
+      await advance(0);
       fireEvent.change(screen.getByLabelText("Username"), { target: { value: "ada" } });
       fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret-value" } });
       await act(async () => {
@@ -206,9 +228,9 @@ describe("IdleSignOut", () => {
       expect(screen.getByText("Home page")).toBeInTheDocument();
 
       await advance(120_000 - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       await advance(1);
-      expect(api.logout).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(1);
     });
 
     it.each([
@@ -226,20 +248,19 @@ describe("IdleSignOut", () => {
       input();
 
       await advance(LIMIT_MS - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("does not count a request as activity, so a poll cannot keep a page signed in", async () => {
-      vi.mocked(http.apiFetch).mockResolvedValue({ data: undefined, kind: "ok" });
-      await signedIn(user(), <PollingPage />);
+      await signedIn(user(), <PollingPage />, { "GET /api/poll": bare(204) });
 
       await advance(LIMIT_MS - 1);
-      expect(vi.mocked(http.apiFetch).mock.calls.length).toBeGreaterThan(10);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(sent("GET /api/poll")).toBeGreaterThan(10);
+      expect(logouts()).toBe(0);
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("ignores input within a second of the last activity, and counts it from then on", async () => {
@@ -270,7 +291,7 @@ describe("IdleSignOut", () => {
       await advance(WARN_AT_MS);
 
       expect(warning()).not.toBeInTheDocument();
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("warns half-way through a limit shorter than two minutes", async () => {
@@ -281,7 +302,7 @@ describe("IdleSignOut", () => {
       await advance(1);
       expect(warning()).toBeInTheDocument();
       await advance(30_000);
-      expect(api.logout).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(1);
     });
 
     it("never signs out a session with no idle bound", async () => {
@@ -289,7 +310,7 @@ describe("IdleSignOut", () => {
 
       await advance(10 * 60 * 60 * 1000);
 
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       expect(FakeBroadcastChannel.open).toHaveLength(0);
     });
 
@@ -300,9 +321,9 @@ describe("IdleSignOut", () => {
       await advance(200_000);
       fireEvent.keyDown(document);
       await advance(LIMIT_MS - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("keeps the session on a stay where BroadcastChannel is unavailable", async () => {
@@ -310,18 +331,19 @@ describe("IdleSignOut", () => {
       await signedIn();
       await advance(WARN_AT_MS);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+      await click("Stay signed in");
 
       expect(warning()).not.toBeInTheDocument();
       await advance(LIMIT_MS - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
     });
 
     it("never fires for a session a password change locked, so login keeps saying why", async () => {
-      api.changePassword.mockResolvedValue({ kind: "locked" });
-      await signedIn(user(), <PasswordChangeButton />);
+      // The 401 ended the session too, so the check that follows it is refused.
+      await signedIn(user(), <PasswordChangeButton />, {
+        [ME]: [json(user()), bare(401)],
+        [CHANGE]: bare(401),
+      });
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Change password" }));
       });
@@ -329,7 +351,7 @@ describe("IdleSignOut", () => {
       await advance(LIMIT_MS);
 
       expect({
-        loggedOut: api.logout.mock.calls.length,
+        loggedOut: logouts(),
         notice: screen.getByRole("status").textContent,
       }).toEqual({
         loggedOut: 0,
@@ -352,14 +374,14 @@ describe("IdleSignOut", () => {
       // Signed out by a late timer, so no warning was open to mute the input.
       vi.setSystemTime(Date.now() + LIMIT_MS);
       await advance(WARN_AT_MS);
-      expect(api.logout).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(1);
 
       await advance(2_000);
       fireEvent.keyDown(document);
       fireEvent.scroll(document);
       await advance(LIMIT_MS);
 
-      expect(api.logout).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(1);
       // A browser removes a captured listener only when asked with `capture`
       // too; happy-dom ignores the flag, so the call itself is what is checked.
       for (const type of [
@@ -401,7 +423,7 @@ describe("IdleSignOut", () => {
       // Focusable from script, but no tab stop of its own: Tab goes to its buttons.
       expect(dialog).toHaveAttribute("tabindex", "-1");
       expect(screen.getByRole("button", { name: "Stay signed in" })).toBeEnabled();
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
     });
 
     it("is not dismissed by passive input, which would leave the backend's clock running", async () => {
@@ -413,44 +435,40 @@ describe("IdleSignOut", () => {
 
       expect(warning()).toBeInTheDocument();
       await advance(LIMIT_MS - WARN_AT_MS);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("staying makes one authenticated request and restarts the clock", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+      await click("Stay signed in");
 
-      expect(http.apiFetch).toHaveBeenCalledExactlyOnceWith("/api/auth/me", {});
+      expect(stays()).toBe(1);
       expect(warning()).not.toBeInTheDocument();
       // A full limit from the stay, not from the last input.
       await advance(WARN_AT_MS - 1);
       expect(warning()).not.toBeInTheDocument();
       await advance(LIMIT_MS - WARN_AT_MS);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("shows the stay in progress while its request is out", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      let answer: (result: http.ApiResult<void>) => void = () => undefined;
-      vi.mocked(http.apiFetch).mockReturnValue(
+      let answer: (given: WireAnswer) => void = () => undefined;
+      stayAnswers(
         new Promise((resolve) => {
           answer = resolve;
         }),
       );
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+      await click("Stay signed in");
       expect(screen.getByRole("button", { name: "Staying signed in…" })).toBeDisabled();
 
-      await act(async () => answer({ data: undefined, kind: "ok" }));
+      await act(async () => answer(json(user())));
       expect(warning()).not.toBeInTheDocument();
     });
 
@@ -464,35 +482,35 @@ describe("IdleSignOut", () => {
       });
 
       expect(cancel.defaultPrevented).toBe(true);
-      expect(http.apiFetch).toHaveBeenCalledExactlyOnceWith("/api/auth/me", {});
+      expect(stays()).toBe(1);
       expect(warning()).not.toBeInTheDocument();
     });
 
     it("leaves a session the backend has already ended to the ordinary expiry path", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      stayAnswers({ kind: "unauthenticated" });
+      await backend.holdToken();
+      stayAnswers(bare(401));
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+      await click("Stay signed in");
 
-      expect(api.logout).not.toHaveBeenCalled();
-      expect(http.discardCsrfToken).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(0);
+      expect(await backend.tokenForgotten()).toBe(true);
       expect(screen.getByRole("status")).toHaveTextContent(
         /^Your session ended\. Please sign in again\.$/,
       );
     });
 
     it.each([
-      ["cannot reach the backend", { kind: "failed" }],
-      ["is refused", { kind: "forbidden" }],
+      ["cannot reach the backend", UNREACHABLE],
+      ["fails", bare(500)],
+      ["is refused", bare(403)],
     ] as const)(
       "stays up when the stay request %s, and the limit decides",
-      async (_, result: http.ApiResult<void>) => {
+      async (_, answer: WireAnswer) => {
         await signedIn();
         await advance(WARN_AT_MS);
-        stayAnswers(result);
+        stayAnswers(answer);
 
         await act(async () => {
           fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
@@ -501,7 +519,7 @@ describe("IdleSignOut", () => {
         expect(warning()).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Stay signed in" })).toBeEnabled();
         await advance(LIMIT_MS - WARN_AT_MS);
-        expectSignedOutForInactivity();
+        await expectSignedOutForInactivity();
       },
     );
 
@@ -509,11 +527,9 @@ describe("IdleSignOut", () => {
       await signedIn();
       await advance(WARN_AT_MS);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
+      await click("Sign out");
 
-      expect(api.logout).toHaveBeenCalledOnce();
+      expect(logouts()).toBe(1);
       expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
@@ -521,11 +537,9 @@ describe("IdleSignOut", () => {
     it("keeps the session when a requested sign-out fails", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      api.logout.mockResolvedValue({ kind: "failed" });
+      backend.answer({ [LOGOUT]: bare(500) });
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
+      await click("Sign out");
 
       expect(screen.getByText("Accounts page")).toBeInTheDocument();
     });
@@ -536,11 +550,9 @@ describe("IdleSignOut", () => {
     it("says in the dialog that the User is still signed in when a requested sign-out fails", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      api.logout.mockResolvedValue({ kind: "failed" });
+      backend.answer({ [LOGOUT]: bare(500) });
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
+      await click("Sign out");
 
       expect(within(warning()!).getByRole("alert").textContent).toBe(
         "Unable to sign out. Please try again. You are still signed in.",
@@ -557,22 +569,20 @@ describe("IdleSignOut", () => {
     it("shows the requested sign-out in progress while its logout is out", async () => {
       await signedIn();
       await advance(WARN_AT_MS);
-      api.logout.mockReturnValue(new Promise(() => undefined));
+      backend.answer({ [LOGOUT]: new Promise<WireAnswer>(() => undefined) });
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-      });
+      await click("Sign out");
 
       expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
     });
 
     it("still ends the session at the limit when the inactivity logout fails", async () => {
       await signedIn();
-      api.logout.mockResolvedValue({ kind: "failed" });
+      backend.answer({ [LOGOUT]: bare(500) });
 
       await advance(LIMIT_MS);
 
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
   });
 
@@ -585,9 +595,9 @@ describe("IdleSignOut", () => {
       tab.postMessage("activity");
 
       await advance(LIMIT_MS - 1);
-      expect(api.logout).not.toHaveBeenCalled();
+      expect(logouts()).toBe(0);
       await advance(1);
-      expectSignedOutForInactivity();
+      await expectSignedOutForInactivity();
     });
 
     it("dismisses the warning when another tab is active", async () => {
@@ -620,9 +630,7 @@ describe("IdleSignOut", () => {
       tab.onmessage = heard;
       await advance(WARN_AT_MS);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
-      });
+      await click("Stay signed in");
 
       expect(heard).toHaveBeenCalledOnce();
     });
