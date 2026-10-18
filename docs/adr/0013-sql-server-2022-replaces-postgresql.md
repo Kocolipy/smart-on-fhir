@@ -769,7 +769,7 @@ held that many Groups.
 
 - **The rule.** A statement whose `IN` list has no cap of its own is issued once
   per chunk of at most 2,000 ids (`BoundIdChunks`), in the caller's transaction.
-  That covers the version advance (`RepresentationChange#advanceIn`), which a
+  That covers the version advance (`ResourceVersionStatements#advance`), which a
   rename, a delete or a membership change sizes by membership, and the Group
   adapter's membership read, which the listing sizes by the directory. A list a
   page bounds (`ScimPageRequest.MAX_COUNT`, 200) or the role mapping bounds (an

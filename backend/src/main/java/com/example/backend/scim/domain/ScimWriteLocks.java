@@ -31,7 +31,7 @@ import java.util.UUID;
  * <h2>Which rows</h2>
  *
  * <p>A superset of the rows the write advances, because the exact set — decided by
- * {@code RepresentationChange} — depends on state that may only be read under the lock. Locking a
+ * {@link ResourceVersionAdvance} — depends on state that may only be read under the lock. Locking a
  * row the write then leaves alone costs some concurrency and nothing else:
  *
  * <ul>

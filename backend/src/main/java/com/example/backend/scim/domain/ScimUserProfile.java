@@ -50,4 +50,30 @@ public record ScimUserProfile(
     public NormalizedUserName normalizedUserName() {
         return NormalizedUserName.of(userName);
     }
+
+    /**
+     * The label a Group renders this User with among its members ({@code members.display}).
+     *
+     * @see #memberLabel(String, String)
+     */
+    public String memberLabel() {
+        return memberLabel(displayName, userName);
+    }
+
+    /**
+     * The member label rule, from a User's two bare attributes: its {@code displayName} when it
+     * has one, else its {@code userName}. SCIM's {@code members.display} is a human-readable
+     * label for the referenced resource (RFC 7643 §4.2), a {@code displayName} is that label
+     * when there is one, and {@code userName} is the one attribute every User is guaranteed to
+     * have.
+     *
+     * <p>The one Java copy of the rule. It decides whether a User write changed what its Groups
+     * show, and so whether {@link ResourceVersionAdvance#userReplaced} advances them; the
+     * adapters and the in-memory fakes all ask it. The JPA projection that renders a Group's
+     * members states the same rule in its query, as {@code coalesce(displayName, userName)},
+     * because it resolves the label in the statement that reads the membership.
+     */
+    public static String memberLabel(String displayName, String userName) {
+        return displayName != null ? displayName : userName;
+    }
 }

@@ -178,6 +178,7 @@ FAST_GATE=(
   com/example/backend/scim/domain/PasswordNormalizationTests
   com/example/backend/scim/domain/PasswordPolicyTests
   com/example/backend/scim/domain/ReservedResourceNameTests
+  com/example/backend/scim/domain/ResourceVersionAdvanceTests
   com/example/backend/scim/domain/ScimAttributeLimitsTests
   com/example/backend/scim/domain/ScimConnectorTokenTests
   com/example/backend/scim/domain/ScimEmailTests
@@ -195,7 +196,7 @@ FAST_GATE=(
   com/example/backend/scim/domain/ScimUserTests
   com/example/backend/scim/domain/ScimVersionPreconditionTests
   com/example/backend/scim/infrastructure/persistence/IntegrityViolationsTests
-  com/example/backend/scim/infrastructure/persistence/RepresentationChangeTests
+  com/example/backend/scim/infrastructure/persistence/ResourceVersionStatementsTests
   com/example/backend/scim/infrastructure/persistence/ScimQuerySqlTests
   com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapterTests
   com/example/backend/scim/infrastructure/persistence/entity/CompositeKeyContractTests

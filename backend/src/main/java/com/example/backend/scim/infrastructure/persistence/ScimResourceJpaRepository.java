@@ -45,9 +45,10 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
     /**
      * Advances the version of every named resource and records when it changed.
      *
-     * <p>Called only by {@link RepresentationChange}, which decides which resources a write
-     * changed; {@code ArchitectureTest} holds that, so an adapter cannot work the ids out for
-     * itself and miss one.
+     * <p>Called only by {@link ResourceVersionStatements}, which carries out the decision
+     * {@link com.example.backend.scim.domain.ResourceVersionAdvance} makes about which resources
+     * a write changed; {@code ArchitectureTest} holds that, so an adapter cannot work the ids out
+     * for itself and miss one.
      *
      * <p>A bulk statement rather than a read-modify-write per row, and that is the point:
      * renaming a Group with two hundred members has to advance two hundred and one
@@ -64,7 +65,8 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
      *
      * <p>Each id is a bound parameter of its own, and SQL Server refuses a request with more
      * than 2,100, so {@code ids} holds at most {@link BoundIdChunks#MAX_IDS}:
-     * {@link RepresentationChange#advanceIn} issues one statement per chunk, in one transaction.
+     * {@link ResourceVersionStatements#advance} issues one statement per chunk, in one
+     * transaction.
      *
      * @return how many rows were advanced
      */

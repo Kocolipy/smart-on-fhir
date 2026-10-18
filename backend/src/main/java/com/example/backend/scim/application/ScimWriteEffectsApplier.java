@@ -33,10 +33,11 @@ import org.slf4j.LoggerFactory;
  *   <li><strong>Version advancement.</strong> A write whose only change is the calling
  *       connector's {@code externalId} advances the written resource's version on its own: the
  *       alias is not a column, so the use case stores no row the version could advance with. Every
- *       other advance happens in the store itself, where {@code RepresentationChange} decides who
- *       moved from the state the adapter read under the row lock — the label a User replacement
- *       overwrote, the membership a Group replacement or a removal changed, the Groups a deletion
- *       took a member from. That is deliberate: the who-moved rule stays in its one place, in the
+ *       other advance happens in the store itself, which asks
+ *       {@link com.example.backend.scim.domain.ResourceVersionAdvance} who moved from the state
+ *       the adapter read under the row lock — the label a User replacement overwrote, the
+ *       membership a Group replacement or a removal changed, the Groups a deletion took a member
+ *       from. That is deliberate: the who-moved rule stays in its one place, applied by the
  *       statement that stores the change, so no caller of a store — this step, the seed, a later
  *       use case — can store a change and forget the advance.
  *   <li><strong>Role changes</strong>, audited and logged at {@code INFO}, each the way its

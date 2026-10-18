@@ -37,6 +37,23 @@ class ScimUserProfileTests {
     }
 
     @Test
+    void the_profile_keeps_the_attributes_it_was_given() {
+        ScimName name = new ScimName("Barbara Jensen", "Jensen", "Barbara", null, null, null);
+        ScimUserProfile profile = new ScimUserProfile(
+                "bjensen", name, "Babs", "en-US", "en-GB", "Europe/London", true, null);
+
+        assertThat(profile)
+                .extracting(
+                        ScimUserProfile::name,
+                        ScimUserProfile::displayName,
+                        ScimUserProfile::preferredLanguage,
+                        ScimUserProfile::locale,
+                        ScimUserProfile::timezone,
+                        ScimUserProfile::active)
+                .containsExactly(name, "Babs", "en-US", "en-GB", "Europe/London", true);
+    }
+
+    @Test
     void null_emails_become_an_empty_list_rather_than_staying_null() {
         assertThat(profile("bjensen").emails()).isEmpty();
     }
@@ -59,5 +76,29 @@ class ScimUserProfileTests {
     void the_uniqueness_form_is_the_normalized_user_name() {
         assertThat(profile("BJensen").normalizedUserName())
                 .isEqualTo(NormalizedUserName.of("bjensen"));
+    }
+
+    @Test
+    void a_group_shows_a_member_by_its_display_name_when_it_has_one() {
+        ScimUserProfile profile = new ScimUserProfile(
+                "bjensen", null, "Barbara Jensen", null, null, null, true, null);
+
+        assertThat(profile.memberLabel()).isEqualTo("Barbara Jensen");
+    }
+
+    @Test
+    void a_group_shows_a_member_without_a_display_name_by_its_user_name() {
+        assertThat(profile("bjensen").memberLabel()).isEqualTo("bjensen");
+    }
+
+    @Test
+    void the_member_label_from_bare_attributes_prefers_the_display_name() {
+        assertThat(ScimUserProfile.memberLabel("Barbara Jensen", "bjensen"))
+                .isEqualTo("Barbara Jensen");
+    }
+
+    @Test
+    void the_member_label_from_bare_attributes_falls_back_to_the_user_name() {
+        assertThat(ScimUserProfile.memberLabel(null, "bjensen")).isEqualTo("bjensen");
     }
 }

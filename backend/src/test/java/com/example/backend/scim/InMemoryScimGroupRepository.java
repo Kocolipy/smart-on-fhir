@@ -2,6 +2,7 @@ package com.example.backend.scim;
 
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
@@ -27,10 +28,14 @@ import java.util.UUID;
  * pass while the production write failed. Every membership written here is checked against the
  * User store and refused the same way.
  *
- * <p>The version bumps the port PROMISES are performed here too, for the same reason — they are
- * the port's contract, not the adapter's private business, and a fake that skipped them would
- * hide a User left behind a stale ETag. A membership change advances the Group and the Users
- * added or removed; a rename advances the Group and every current member.
+ * <p>The version advances the port PROMISES are performed here too, for the same reason — they
+ * are the port's contract, not the adapter's private business, and a fake that skipped them would
+ * hide a User left behind a stale ETag. But WHICH resources a write advances is not decided here:
+ * each write describes itself to {@link ResourceVersionAdvance}, as the adapter does, and applies
+ * the answer to the Groups held here and the Users in the User store. A second copy of the rule in
+ * this fake once disagreed with the adapter — Group create with members advanced none of them in
+ * the adapter, and every unit test passed while the adapter was wrong — and a copy that is more
+ * eager than the adapter hides it just as surely as one that is lazier.
  */
 public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
@@ -49,6 +54,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     public InMemoryScimGroupRepository(InMemoryScimUserRepository users) {
         this.users = users;
+        users.attach(this);
     }
 
     /**
@@ -100,18 +106,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
         List<ScimGroupMember> members = withResolvedLabels(group.members());
 
-        // Mirrors the adapter: a replacement that changed NOTHING advances no version, not even
-        // the Group's own, so an idempotent re-send does not invalidate a connector's cached copy.
-        // Kept in step deliberately — this fake and the adapter already disagreed once about
-        // version bumps on create, and every unit test passed while the adapter was wrong. A fake
-        // that is more eager than the adapter hides the adapter just as surely as one that is
-        // lazier.
-        boolean renamed = !current.displayName().equals(group.displayName());
-        boolean membershipMoved = !userIdsOf(current.members()).equals(userIdsOf(members));
-        if (!renamed && !membershipMoved) {
-            return Optional.of(current);
-        }
-
         ScimGroup written = new ScimGroup(
                 current.id(),
                 group.displayName(),
@@ -119,12 +113,18 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 // Carried across, not taken from the argument: a write cannot reserve or
                 // un-reserve a Group.
                 current.reservedName(),
-                current.version() + 1,
+                current.version(),
                 current.createdAt(),
-                group.lastModifiedAt());
+                current.lastModifiedAt());
         stored.put(written.id(), written);
-        advanceAffectedUsers(current, written, group.lastModifiedAt());
-        return Optional.of(written);
+        apply(ResourceVersionAdvance.groupReplaced(
+                current.id(),
+                current.displayName(),
+                group.displayName(),
+                userIdsOf(current.members()),
+                userIdsOf(members),
+                group.lastModifiedAt()));
+        return findById(current.id());
     }
 
     @Override
@@ -133,18 +133,12 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
             stored.remove(id);
             return Optional.empty();
         }
-        ScimGroup current = stored.get(id);
-        if (current == null) {
-            return Optional.empty();
-        }
-        ScimGroup written = new ScimGroup(current.id(), current.displayName(), current.members(),
-                current.reservedName(), current.version() + 1, current.createdAt(), now);
-        stored.put(id, written);
-        return Optional.of(written);
+        apply(ResourceVersionAdvance.groupTouched(id, now));
+        return findById(id);
     }
 
-    private static java.util.Set<UUID> userIdsOf(List<ScimGroupMember> members) {
-        return members.stream().map(ScimGroupMember::userId).collect(java.util.stream.Collectors.toSet());
+    private static List<UUID> userIdsOf(List<ScimGroupMember> members) {
+        return members.stream().map(ScimGroupMember::userId).toList();
     }
 
     @Override
@@ -157,7 +151,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         if (removed == null) {
             return false;
         }
-        removed.members().forEach(member -> bumpUser(member.userId(), now));
+        apply(ResourceVersionAdvance.groupDeleted(userIdsOf(removed.members()), now));
         return true;
     }
 
@@ -251,24 +245,18 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 .toList();
     }
 
-    /** Drops one membership and advances the Group and the User, as the adapter does. */
+    /**
+     * Drops one membership, then advances what {@link ResourceVersionAdvance#memberRemoved} names,
+     * as the adapter does.
+     */
     @Override
     public boolean removeMember(UUID groupId, UUID userId, Instant now) {
         ScimGroup current = stored.get(groupId);
         if (current == null || !current.hasMember(userId)) {
             return false;
         }
-        stored.put(groupId, new ScimGroup(
-                current.id(),
-                current.displayName(),
-                current.members().stream()
-                        .filter(member -> !member.userId().equals(userId))
-                        .toList(),
-                current.reservedName(),
-                current.version() + 1,
-                current.createdAt(),
-                now));
-        bumpUser(userId, now);
+        stored.put(groupId, withoutMember(current, userId));
+        apply(ResourceVersionAdvance.memberRemoved(groupId, userId, now));
         return true;
     }
 
@@ -290,8 +278,9 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 group.createdAt(),
                 group.lastModifiedAt());
         stored.put(toStore.id(), toStore);
-        toStore.members().forEach(member -> bumpUser(member.userId(), group.lastModifiedAt()));
-        return toStore;
+        apply(ResourceVersionAdvance.groupCreated(
+                userIdsOf(toStore.members()), group.lastModifiedAt()));
+        return stored.get(toStore.id());
     }
 
     /** The unique constraint on the normalized display name, as the schema enforces it. */
@@ -329,48 +318,68 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     private String label(UUID userId) {
         return users.findById(userId)
-                .map(user -> user.profile().displayName() != null
-                        ? user.profile().displayName()
-                        : user.profile().userName())
+                .map(user -> user.profile().memberLabel())
                 .orElse(null);
     }
 
     /**
-     * The version bumps the port promises: everyone whose rendered representation changed.
-     *
-     * <p>A rename is visible to every current member, so it advances the union; a membership
-     * change is visible only to those added or removed, so it advances the symmetric difference.
+     * Carries out a decision made elsewhere: every resource it names, Group or User, advances its
+     * version once and records the decision's {@code lastModified}.
      */
-    private void advanceAffectedUsers(ScimGroup before, ScimGroup after, Instant now) {
-        boolean renamed = !before.displayName().equals(after.displayName());
-        before.members().forEach(member -> {
-            if (renamed || !after.hasMember(member.userId())) {
-                bumpUser(member.userId(), now);
-            }
-        });
-        after.members().forEach(member -> {
-            if (!before.hasMember(member.userId())) {
-                bumpUser(member.userId(), now);
-            }
-        });
+    private void apply(ResourceVersionAdvance advance) {
+        advanceGroups(advance);
+        users.advanceUsers(advance);
     }
 
     /**
-     * Advances one User's version without touching anything else.
+     * Advances each Group held here that the decision names, and nothing else.
      *
-     * <p>Done through the store's own map rather than through a User write, because this is not
-     * a change to any of the User's own columns: the real adapter advances the resource row
+     * <p>Done through the store's own map rather than through a Group write, because this is not
+     * a change to any of the Group's own columns: the real adapter advances the resource row
      * directly, and routing it through a column write would be a different statement from the one
      * production makes.
      */
-    private void bumpUser(UUID userId, Instant now) {
-        users.findById(userId).ifPresent(user -> users.given(new ScimUser(
-                user.id(),
-                user.profile(),
-                user.login(),
-                user.reservedName(),
-                user.version() + 1,
-                user.createdAt(),
-                now)));
+    void advanceGroups(ResourceVersionAdvance advance) {
+        for (UUID id : advance.advanced()) {
+            ScimGroup current = stored.get(id);
+            if (current != null) {
+                stored.put(id, new ScimGroup(current.id(), current.displayName(), current.members(),
+                        current.reservedName(), current.version() + 1, current.createdAt(),
+                        advance.at()));
+            }
+        }
+    }
+
+    /** The Groups this User is a direct member of, for the User store's writes to describe. */
+    List<UUID> groupIdsOf(UUID userId) {
+        return stored.values().stream()
+                .filter(group -> group.hasMember(userId))
+                .map(ScimGroup::id)
+                .toList();
+    }
+
+    /**
+     * Drops every membership this User holds, leaving each Group's version where it is — the
+     * User store's deletion has already advanced them, as the adapter's does before it deletes the
+     * rows.
+     */
+    void dropMembershipsHeldBy(UUID userId) {
+        for (UUID id : groupIdsOf(userId)) {
+            stored.put(id, withoutMember(stored.get(id), userId));
+        }
+    }
+
+    /** The Group as it is, less one member: version and {@code lastModified} untouched. */
+    private static ScimGroup withoutMember(ScimGroup group, UUID userId) {
+        return new ScimGroup(
+                group.id(),
+                group.displayName(),
+                group.members().stream()
+                        .filter(member -> !member.userId().equals(userId))
+                        .toList(),
+                group.reservedName(),
+                group.version(),
+                group.createdAt(),
+                group.lastModifiedAt());
     }
 }

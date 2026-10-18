@@ -1136,6 +1136,23 @@ class ScimUserServiceTests {
         assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
+    /**
+     * A deleted User's Groups each lost a member, so each one's rendered {@code members} changed:
+     * its version advances once and the User is no longer listed.
+     */
+    @Test
+    void a_deletion_advances_every_group_the_user_was_in_once_and_drops_the_membership() {
+        com.example.backend.scim.domain.ScimGroup engineers =
+                groups.create(ScimIdentities.group("Engineers", stored()));
+
+        service.delete(CONNECTOR, ada.id(), current());
+
+        com.example.backend.scim.domain.ScimGroup after =
+                groups.findById(engineers.id()).orElseThrow();
+        assertThat(after.version()).isEqualTo(engineers.version() + 1);
+        assertThat(after.hasMember(ada.id())).as("the membership went with the User").isFalse();
+    }
+
     @Test
     void a_deleted_users_former_user_name_is_free_for_the_next_create() {
         service.delete(CONNECTOR, ada.id(), current());
@@ -1159,6 +1176,21 @@ class ScimUserServiceTests {
         assertThat(written.groups()).extracting(
                         com.example.backend.scim.domain.ScimGroupReference::id)
                 .containsExactly(engineers.id());
+    }
+
+    /**
+     * Each Group renders its members by label — the {@code displayName} here — so a write that
+     * changes it changes every Group the User is in, and each one's version advances once.
+     */
+    @Test
+    void a_write_changing_the_member_label_advances_every_group_the_user_is_in_once() {
+        com.example.backend.scim.domain.ScimGroup engineers =
+                groups.create(ScimIdentities.group("Engineers", stored()));
+
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+
+        assertThat(groups.findById(engineers.id()).orElseThrow().version())
+                .isEqualTo(engineers.version() + 1);
     }
 
     /**
