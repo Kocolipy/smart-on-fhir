@@ -270,7 +270,7 @@ describe("useGatedRead", () => {
     const { result } = renderRead();
     await answer(bare(404));
 
-    expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
+    expect(shown(result)).toEqual({ error: FAILURE, view: { kind: "failed" } });
   });
 
   describe("when the declaration treats not found as absent", () => {

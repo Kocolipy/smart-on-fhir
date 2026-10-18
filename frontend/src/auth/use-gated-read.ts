@@ -159,11 +159,8 @@ function useOpenRead<T>(
   return reload;
 }
 
-/**
- * The one view a read state stands for. A state is `absent` only for a read
- * whose declaration opted in, so its view is one of that read's `N` views.
- */
-function viewOf<T, N extends boolean>(allowed: boolean, state: ReadState<T>): ReadView<T, N> {
+/** The one view a read state stands for, out of every view a read can have. */
+function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T, true> {
   if (!allowed) return { kind: "not-permitted" };
   switch (state.outcome) {
     case "unread":
@@ -173,7 +170,7 @@ function viewOf<T, N extends boolean>(allowed: boolean, state: ReadState<T>): Re
     case "failed":
       return state.data === null ? { kind: "failed" } : { data: state.data, kind: "stale" };
     case "absent":
-      return { kind: "absent" } as ReadView<T, N>;
+      return { kind: "absent" };
   }
 }
 
@@ -194,17 +191,19 @@ export function useGatedRead<T, A extends readonly unknown[], N extends boolean 
 
   const land = useCallback(
     (result: SessionResult<T>) => {
-      if (result.kind === "ok") {
-        setState({ data: result.data, outcome: "ok" });
-        report(null);
-        return;
-      }
-      // Nothing there is an answer, not a failure: there is no data to keep
-      // as `stale`, and nothing to report, so an earlier failure's line clears.
-      if (absentOnNotFound && result.kind === "failed" && result.status === 404) {
-        setState({ data: null, outcome: "absent" });
-        report(null);
-        return;
+      switch (result.kind) {
+        case "ok":
+          setState({ data: result.data, outcome: "ok" });
+          report(null);
+          return;
+        case "failed":
+          // Nothing there is an answer, not a failure: there is no data to keep
+          // as `stale`, and nothing to report, so an earlier failure's line clears.
+          if (absentOnNotFound && result.status === 404) {
+            setState({ data: null, outcome: "absent" });
+            report(null);
+            return;
+          }
       }
       setState((current) => ({ data: current.data, outcome: "failed" }));
       report(refusalMessage(result, failureMessage));
@@ -226,5 +225,7 @@ export function useGatedRead<T, A extends readonly unknown[], N extends boolean 
     );
   };
 
-  return { reload, update, view: viewOf(allowed, state) };
+  // A state is `absent` only when the declaration opted in, as its `N` says,
+  // so the view is narrowed once, here, to the views this read can have.
+  return { reload, update, view: viewOf(allowed, state) as ReadView<T, N> };
 }
