@@ -64,6 +64,24 @@ runtime classpath.
   the domain doc lists and nothing else, which a general FHIR model would make
   easy to drift from.
 
+### The module's edges: `auth` and `observability`
+
+The `patient` module is a leaf, like `counter`, and its ArchUnit entry
+(`backend/src/test/java/arch/ArchitectureTest.java`) lets it reach `auth` and
+`observability`. Issue #127 asked for `auth` alone. The deviation is deliberate:
+
+- The same issue requires the seeder to log one INFO record with its counts, and
+  the backend builds every log record through `observability.LogEvent`
+  (`be-log-record-outside-log-event`), so the seeder has to import it.
+- No compliant route avoids the edge. `auth` exposes no logging, and adding a
+  pass-through there would make `auth` a proxy for a module every other module
+  already reaches directly. The scheduling module's entry calls `observability`
+  "the logging base every module depends on"; it depends on nothing back, so the
+  edge adds no cycle and no state.
+- The edge carries only that one record. Nothing in `patient` reaches any other
+  module that holds state: not `scim`, so the directory's seeding and the patient
+  fixtures' stay apart.
+
 ## Consequences
 
 - Patient data in a deployment exists only where something writes it. Today only

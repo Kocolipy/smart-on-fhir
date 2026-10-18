@@ -90,7 +90,9 @@ nothing of Patients, and the patient module nothing of the directory.
   overwrites — so running it twice leaves one row per fixture.
 - **Logged without values.** Each run writes one INFO record
   (`app.event.action` `patient.seed`) with how many fixtures it inserted and how
-  many were already present, and no field of any Patient.
+  many were already present, and no field of any Patient. It is built with
+  `LogEvent`, as every record is, which is why the module may reach
+  `observability` as well as `auth` (ADR 0014).
 - **Dummy NRICs.** Every fixture's NRIC is well-formed but carries a
   **deliberately wrong check letter**, so it cannot be a real person's: the default
   patient's `S1234567A` would be `S1234567D` if it were valid.

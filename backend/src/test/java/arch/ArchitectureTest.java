@@ -718,7 +718,7 @@ public class ArchitectureTest {
             // patient is a leaf too. It may reach auth, and nothing else that holds state: not
             // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches
             // observability for one thing: its seeder's INFO record is built with LogEvent, as
-            // every record is (be-log-record-outside-log-event).
+            // every record is (be-log-record-outside-log-event; ADR 0014, "The module's edges").
             Map.entry("patient", Set.of("auth", "observability")),
             Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")));
 
