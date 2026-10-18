@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 
 import type { Permission, SessionCheckFailure } from "./api";
 import { useAuthState } from "./auth-context-value";
+import { requirementOf } from "./permissions";
 import { sessionCheckMessage } from "./session-action-copy";
 import {
   resolveSessionRoute,
@@ -86,11 +87,7 @@ export function ProtectedRoute({
   children: ReactNode;
   requiredPermissions?: readonly Permission[];
 }) {
-  return (
-    <SessionRoute requires={requiredPermissions ? { anyOf: requiredPermissions } : "authenticated"}>
-      {children}
-    </SessionRoute>
-  );
+  return <SessionRoute requires={requirementOf(requiredPermissions)}>{children}</SessionRoute>;
 }
 
 /** A route only a guest may see; an authenticated visitor is sent onward. */

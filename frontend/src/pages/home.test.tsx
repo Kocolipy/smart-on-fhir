@@ -13,7 +13,8 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
 
-import { renderSignedIn } from "./signed-in-shell.testHelpers";
+import { Home } from "./home";
+import { renderInLayout, renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
@@ -35,46 +36,81 @@ const renderHome = (answers: Answers = {}, session: StartingSession = COUNTER_US
 const renderHolding = (permissions: Permission[]) => renderHome({}, holding(permissions));
 
 describe("Home", () => {
-  it("offers every User the password change, and the accounts page only by Permission", async () => {
-    const { unmount } = await renderHome();
-    expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
-      "href",
-      "/change-password",
-    );
-    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
+  it("links a page it is handed only for a session that may open it, with no edit of its own", async () => {
+    const extra = {
+      homeLink: "View reports",
+      path: "/reports",
+      permissions: ["ops:read"] as const,
+    };
+    const routes = [{ element: <Home pages={[extra]} />, path: "/" }];
+
+    const { unmount } = await renderInLayout(routes, "/", holding(["ops:read"]), {});
+    expect(screen.getByRole("link", { name: "View reports" })).toHaveAttribute("href", "/reports");
     unmount();
 
-    // A Monitoring account's Permissions open no Accounts view and no audit trail.
-    const { unmount: unmountOther } = await renderHolding(["ops:read"]);
-    expect(screen.getByRole("link", { name: "Change password" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
-    unmountOther();
-
-    for (const view of ["user:read", "group:read", "connector:read"] as const) {
-      const { unmount: unmountView } = await renderHolding([view]);
-      expect(screen.getByRole("link", { name: "Manage accounts" })).toHaveAttribute(
-        "href",
-        "/accounts",
-      );
-      expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
-        "href",
-        "/change-password",
-      );
-      unmountView();
-    }
+    await renderInLayout(routes, "/", holding(["audit:read"]), {});
+    expect(screen.queryByRole("link", { name: "View reports" })).not.toBeInTheDocument();
   });
 
-  it("offers the audit trail only to a session holding audit:read", async () => {
-    const { unmount } = await renderHolding(["audit:read"]);
-    expect(screen.getByRole("link", { name: "View audit log" })).toHaveAttribute("href", "/audit");
-    // Its own Permission does not also open the Accounts page.
-    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
-    unmount();
+  it("links no page it is handed without a link label", async () => {
+    const unlabelled = { path: "/reports" };
+    await renderInLayout([{ element: <Home pages={[unlabelled]} />, path: "/" }], "/", holding([]));
 
-    await renderHolding(["user:read"]);
-    expect(screen.getByRole("link", { name: "Manage accounts" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("link")).toEqual([]);
+  });
+
+  // Each page Home links to, with the Permissions its route guard opens it for
+  // (none: every signed-in session), as the registry declares them today.
+  it.each([
+    ["Manage accounts", "/accounts", ["user:read", "group:read", "connector:read"]],
+    ["View audit log", "/audit", ["audit:read"]],
+    ["Change password", "/change-password", []],
+  ] as const)(
+    "links %s exactly for a session its route guard would open it to",
+    async (label, path, qualifying) => {
+      /** Where the link labelled `label` leads for a session holding `held`, or null if absent. */
+      const linkFor = async (held: readonly Permission[]) => {
+        const { unmount } = await renderHolding([...held]);
+        const href = screen.queryByRole("link", { name: label })?.getAttribute("href") ?? null;
+        unmount();
+        return href;
+      };
+      const forEverySession = qualifying.length === 0 ? path : null;
+
+      // A Monitoring account's Permission opens none of the guarded pages.
+      expect(await linkFor([])).toBe(forEverySession);
+      expect(await linkFor(["ops:read"])).toBe(forEverySession);
+      for (const permission of qualifying) expect(await linkFor([permission])).toBe(path);
+      expect(await linkFor([...qualifying])).toBe(path);
+    },
+  );
+
+  it("lists the pages it links to in registry order, and not itself", async () => {
+    await renderHolding(["user:read", "group:read", "connector:read", "audit:read"]);
+
+    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Manage accounts",
+      "View audit log",
+      "Change password",
+    ]);
+  });
+
+  it("styles a page link as an underlined text link", async () => {
+    await renderHolding([]);
+
+    expect(screen.getByRole("link", { name: "Change password" })).toHaveClass(
+      "text-sm",
+      "font-medium",
+      "underline",
+    );
+  });
+
+  it("shows its note about the counter as muted text", async () => {
+    await renderHolding([]);
+
+    expect(
+      screen.getByText("You are signed in. Your account has no access to the counter."),
+    ).toHaveClass("text-sm", "text-muted-foreground");
   });
 
   it("shows a baseline User no counter, asks for none, and keeps self-service", async () => {
