@@ -218,7 +218,7 @@ class LoginIdentityServiceTests {
     @Test
     void anEpicLoginReportsAFlaggedInactiveUserAsDisabled() {
         ScimUser retired = users.given(ScimIdentities.inactiveUser("eRETIRED1"));
-        users.requirePasswordChange(retired.id(), ScimIdentities.NOW);
+        ScimIdentities.storePasswordChangeRequired(users, retired.id(), ScimIdentities.NOW);
 
         assertThat(service.loadEpicLinkedUser("eRETIRED1").map(UserDetails::isEnabled))
                 .contains(false);

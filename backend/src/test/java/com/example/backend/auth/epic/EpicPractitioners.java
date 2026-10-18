@@ -76,7 +76,8 @@ final class EpicPractitioners {
     String provisionRequiredToChangePassword(Instant since) {
         String practitioner = provision();
         UUID id = idOf(practitioner);
-        transactions.executeWithoutResult(status -> loginStates.requirePasswordChange(id, since));
+        transactions.executeWithoutResult(
+                status -> ScimIdentities.storePasswordChangeRequired(loginStates, id, since));
         return practitioner;
     }
 
@@ -86,8 +87,8 @@ final class EpicPractitioners {
         UUID id = idOf(practitioner);
         transactions.executeWithoutResult(status -> {
             ScimLoginState login = users.findById(id).orElseThrow().login();
-            loginStates.updateLoginState(
-                    id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
+            ScimIdentities.storeFailureRun(
+                    loginStates, id, new ScimLoginState(login.passwordHash(), 5, Instant.now()));
         });
         return practitioner;
     }

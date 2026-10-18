@@ -1201,8 +1201,9 @@ public class ArchitectureTest {
      * the module decides the new state (issues #42, #43). The directory reaches the module through
      * the {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture
      * is written by the module too — and the persistence adapter, which implements these
-     * operations, calls its JPA repository rather than the port. Every narrow login-state write
-     * the port has is guarded, so the rule holds the whole boundary.
+     * operations, calls its JPA repository rather than the port. Every login-state write the port
+     * has — the change write, the conditional lock and the completed password change — is guarded,
+     * so the rule holds the whole boundary.
      *
      * <p>Not guarded here, because a call cannot say where its values came from:
      * {@code ScimUserRepository.create} and {@code replace}, which store a SCIM write's login state
@@ -1217,9 +1218,7 @@ public class ArchitectureTest {
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is a ScimLoginStateRepository login-state write",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            Set.of("updateLoginState", "recordAuthentication",
-                                            "resetDormancyBasis", "requirePasswordChange",
-                                            "completePasswordChange", "imposeLock")
+                            Set.of("writeChange", "completePasswordChange", "imposeLock")
                                     .contains(call.getName())
                                     && call.getTargetOwner().isAssignableTo(
                                             LOGIN_STATE_PORT)))

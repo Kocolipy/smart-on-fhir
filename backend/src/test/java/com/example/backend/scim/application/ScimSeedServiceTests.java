@@ -318,8 +318,8 @@ class ScimSeedServiceTests {
         seeding.seed(RECOVERY);
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
-        users.updateLoginState(
-                bootstrapAdmin.id(), bootstrapAdmin.login().withFailureCounted());
+        ScimIdentities.storeFailureRun(
+                users, bootstrapAdmin.id(), bootstrapAdmin.login().withFailureCounted());
 
         seeding.seed(RECOVERY);
 

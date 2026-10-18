@@ -6,6 +6,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateChange;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
@@ -184,33 +185,33 @@ public final class InMemoryScimUserRepository
                 .findFirst();
     }
 
+    /**
+     * The column sets {@link ScimLoginStateChange} says moved, onto the STORED state — never the
+     * credential, never the version. Counted in {@link #writes()} when it moves the run, the lock
+     * or the flag; a change of the dormancy basis alone is not counted, so that an accepted login
+     * with no failure run to clear writes nothing a test of that rule is asking about.
+     */
     @Override
-    public void updateLoginState(UUID id, ScimLoginState loginState) {
+    public void writeChange(UUID id, ScimLoginState before, ScimLoginState after) {
         ScimUser current = stored.get(id);
         if (current == null) {
-            // The User was deleted between the read and the write: there is no failure run left
-            // to record, so silence is the behaviour (the contract's missing-User case).
+            // The User was deleted between the read and the write: silence is the behaviour (the
+            // contract's missing-User case).
             return;
         }
+        ScimLoginStateChange change = new ScimLoginStateChange(before, after);
         stored.put(id, new ScimUser(
                 current.id(),
                 current.profile(),
-                // The stored hash is kept: this write carries the failure run only, so it cannot
-                // revert a password changed while a login attempt ran.
-                new ScimLoginState(
-                        current.login().passwordHash(),
-                        loginState.failedLoginAttempts(),
-                        loginState.lockedAt(),
-                        loginState.lockCause(),
-                        // Kept: this write is the failure run and the lock only.
-                        current.login().lastAuthenticatedAt(),
-                        current.login().passwordChangeRequiredSince()),
+                change.appliedTo(current.login()),
                 current.reservedName(),
-                // Deliberately unchanged: a failure run is not a SCIM attribute.
+                // Deliberately unchanged: no login-state column is a SCIM attribute.
                 current.version(),
                 current.createdAt(),
                 current.lastModifiedAt()));
-        writes++;
+        if (change.movesFailureRun() || change.movesLock() || change.movesChangeRequired()) {
+            writes++;
+        }
     }
 
     /**
@@ -266,27 +267,6 @@ public final class InMemoryScimUserRepository
     }
 
     /**
-     * Writes the dormancy basis alone, leaving the version where it is. Not counted in
-     * {@link #writes()}, which counts profile and failure-run writes: a login that had no failure
-     * run to clear still writes nothing a test of that rule is asking about.
-     */
-    @Override
-    public void recordAuthentication(UUID id, Instant authenticatedAt) {
-        ScimUser current = stored.get(id);
-        if (current == null) {
-            return;
-        }
-        stored.put(id, new ScimUser(
-                current.id(),
-                current.profile(),
-                withDormancyBasis(current.login(), authenticatedAt),
-                current.reservedName(),
-                current.version(),
-                current.createdAt(),
-                current.lastModifiedAt()));
-    }
-
-    /**
      * Unlocked, unreserved Users whose dormancy basis is strictly before the cutoff, by id — or,
      * once {@link #answerDormancyCandidatesWith} has been called, exactly the ids given.
      */
@@ -332,12 +312,6 @@ public final class InMemoryScimUserRepository
                 current.lastModifiedAt()));
         writes++;
         return true;
-    }
-
-    /** The dormancy basis alone, as {@link #recordAuthentication} writes it. */
-    @Override
-    public void resetDormancyBasis(UUID id, Instant at) {
-        recordAuthentication(id, at);
     }
 
     @Override
@@ -414,34 +388,6 @@ public final class InMemoryScimUserRepository
         stored.put(toStore.id(), toStore);
         writes++;
         return toStore;
-    }
-
-    private static ScimLoginState withDormancyBasis(ScimLoginState login, Instant basis) {
-        return new ScimLoginState(
-                login.passwordHash(),
-                login.failedLoginAttempts(),
-                login.lockedAt(),
-                login.lockCause(),
-                basis,
-                login.passwordChangeRequiredSince());
-    }
-
-    /** The flag alone; the version is untouched. */
-    @Override
-    public void requirePasswordChange(UUID id, Instant since) {
-        ScimUser current = stored.get(id);
-        if (current == null) {
-            return;
-        }
-        stored.put(id, new ScimUser(
-                current.id(),
-                current.profile(),
-                current.login().withPasswordChangeRequired(since),
-                current.reservedName(),
-                current.version(),
-                current.createdAt(),
-                current.lastModifiedAt()));
-        writes++;
     }
 
     /**

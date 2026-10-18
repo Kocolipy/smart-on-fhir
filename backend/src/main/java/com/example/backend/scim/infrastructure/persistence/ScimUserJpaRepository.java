@@ -81,32 +81,53 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
              where u.resourceId = :id""")
     Optional<ScimLoginStateValue> findLoginState(@Param("id") UUID id);
 
-    /**
-     * Writes the failure run, the lock instant and the lock's cause, and nothing else.
-     *
-     * <p>Narrow for the reason the account port's writes were: the login path writes this
-     * row on every rejected attempt, and a full-row write from a value read at the start
-     * of the attempt could revert a profile change that landed in between.
-     *
-     * <p>It deliberately does not touch {@code scim_resources}. None of these three
-     * columns is a SCIM attribute, so nothing a client can read has changed and the
-     * resource's version must not move — otherwise every wrong password would invalidate
-     * every connector's cached copy of the User.
-     *
-     * @return how many rows were written; zero when no User has that id
+    /*
+     * The four column-set writes below are what a login-state change is written with: the adapter
+     * issues one for each set the change moved, and none for a set it left alone, so a column the
+     * event did not change is never written back from its read. None touches {@code scim_resources}:
+     * no login-state column is a SCIM attribute, so nothing a client can read has changed and the
+     * version must not move — otherwise every wrong password would invalidate every connector's
+     * cached copy of the User. None writes the credential. Each returns how many rows it wrote,
+     * zero when no User has that id.
      */
+
+    /** Writes the failure run's count alone. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update ScimUserEntity u
-               set u.login.failedLoginAttempts = :failedLoginAttempts,
-                   u.login.lockedAt = :lockedAt,
+               set u.login.failedLoginAttempts = :failedLoginAttempts
+             where u.resourceId = :id""")
+    int writeFailedLoginAttempts(
+            @Param("id") UUID id, @Param("failedLoginAttempts") int failedLoginAttempts);
+
+    /** Writes the lock's instant and its cause together, both {@code null} for no lock. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.lockedAt = :lockedAt,
                    u.login.lockCause = :lockCause
              where u.resourceId = :id""")
-    int updateLoginState(
+    int writeLock(
             @Param("id") UUID id,
-            @Param("failedLoginAttempts") int failedLoginAttempts,
             @Param("lockedAt") Instant lockedAt,
             @Param("lockCause") String lockCause);
+
+    /** Writes the dormancy basis alone. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.lastAuthenticatedAt = :lastAuthenticatedAt
+             where u.resourceId = :id""")
+    int writeLastAuthenticatedAt(
+            @Param("id") UUID id, @Param("lastAuthenticatedAt") Instant lastAuthenticatedAt);
+
+    /** Writes the change-required flag alone, {@code null} for none. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.passwordChangeRequiredSince = :since
+             where u.resourceId = :id""")
+    int writePasswordChangeRequiredSince(@Param("id") UUID id, @Param("since") Instant since);
 
     /**
      * Stores the given lock instant and cause where no lock stands, and writes nothing else. The
@@ -129,18 +150,6 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
             @Param("lockCause") String lockCause);
 
     /**
-     * Writes the dormancy basis alone. Not a SCIM attribute, so the resource row — and with it
-     * the version — is untouched.
-     */
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("""
-            update ScimUserEntity u
-               set u.login.lastAuthenticatedAt = :authenticatedAt
-             where u.resourceId = :id""")
-    int recordAuthentication(
-            @Param("id") UUID id, @Param("authenticatedAt") Instant authenticatedAt);
-
-    /**
      * Unlocked, unreserved Users — active or not — whose dormancy basis, the last authentication
      * or creation when there has been none, is strictly before the cutoff.
      */
@@ -156,14 +165,6 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     /** Every live User's stable id, in id order. */
     @Query("select u.resourceId from ScimUserEntity u order by u.resourceId")
     List<UUID> findAllIds();
-
-    /** Sets the change-required flag alone; the resource row and its version are untouched. */
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("""
-            update ScimUserEntity u
-               set u.login.passwordChangeRequiredSince = :since
-             where u.resourceId = :id""")
-    int requirePasswordChange(@Param("id") UUID id, @Param("since") Instant since);
 
     /**
      * Replaces the credential and clears the change-required flag in one statement. The caller

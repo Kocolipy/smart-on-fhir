@@ -142,7 +142,8 @@ class LoginSessionHardeningIntegrationTests {
     void aSecondConfinedLoginEndsTheFirstConfinedSession() throws Exception {
         UUID ada = create("single-session-confined");
         new TransactionTemplate(transactionManager).executeWithoutResult(
-                status -> loginStates.requirePasswordChange(ada, Instant.now()));
+                status -> ScimIdentities.storePasswordChangeRequired(
+                        loginStates, ada, Instant.now()));
         create("single-session-bystander");
         Cookie bystander = logIn("single-session-bystander", PASSWORD);
 

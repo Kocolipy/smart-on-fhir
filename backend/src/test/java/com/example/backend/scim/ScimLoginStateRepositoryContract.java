@@ -20,8 +20,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * What every {@link ScimLoginStateRepository} does, whatever stores the User row: the SQL Server
- * adapter, and the in-memory store the login-state module's unit tests run against. Each narrow
- * write has a rule about which columns it touches and whether it moves the Resource version; a
+ * adapter, and the in-memory store the login-state module's unit tests run against. Each write
+ * has a rule about which columns it touches and whether it moves the Resource version — for the
+ * change write, which columns move for which difference, and that nothing else does; a
  * unit test that passes against the in-memory store says something about production only while
  * both follow those rules, so each runs this.
  *
@@ -66,80 +67,183 @@ public abstract class ScimLoginStateRepositoryContract {
         assertThat(loginStates().findLoginState(UUID.randomUUID())).isEmpty();
     }
 
-    // ---- updateLoginState ----------------------------------------------------------------------
+    // ---- writeChange ---------------------------------------------------------------------------
+    //
+    // Each column case stores a state the change's two sides both disagree with everywhere but in
+    // the column under test — as a concurrent writer would leave it — so a column written although
+    // the two sides agree on it shows up as a reverted value, and the credential, which both sides
+    // carry differently from the row, shows up if it is written at all.
 
     @Test
-    void updating_the_login_state_writes_the_failure_run_and_the_lock() {
-        ScimUser user = stored(new ScimLoginState("hash", 1, null, null, EARLIER, null));
+    void a_changed_failure_run_writes_the_count_and_nothing_else() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 1, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
 
-        loginStates().updateLoginState(user.id(),
-                new ScimLoginState("hash", 5, LATER, LockCause.FAILURES, EARLIER, null));
+        loginStates().writeChange(user.id(),
+                new ScimLoginState("read-hash", 1, null, null, LATER, null),
+                new ScimLoginState("decided-hash", 2, null, null, LATER, null));
 
-        assertThat(loginStateOf(user))
-                .extracting(ScimLoginState::failedLoginAttempts, ScimLoginState::lockedAt,
-                        ScimLoginState::lockCause)
-                .containsExactly(5, LATER, LockCause.FAILURES);
+        assertThat(loginStateOf(user)).isEqualTo(new ScimLoginState(
+                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
+    }
+
+    @Test
+    void a_changed_lock_writes_its_instant_and_cause_and_nothing_else() {
+        ScimUser user = stored(new ScimLoginState("hash", 3, null, null, EARLIER, EARLIER));
+
+        loginStates().writeChange(user.id(),
+                new ScimLoginState("read-hash", 0, null, null, LATER, null),
+                new ScimLoginState("decided-hash", 0, LATER, LockCause.FAILURES, LATER, null));
+
+        assertThat(loginStateOf(user)).isEqualTo(new ScimLoginState(
+                "hash", 3, LATER, LockCause.FAILURES, EARLIER, EARLIER));
+    }
+
+    @Test
+    void a_lifted_lock_clears_its_instant_and_cause() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 0, EARLIER, LockCause.DORMANCY, EARLIER, null));
+        ScimLoginState read = loginStateOf(user);
+
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 0, null, null, EARLIER, null));
+
+        assertThat(loginStateOf(user)).isEqualTo(
+                new ScimLoginState("hash", 0, null, null, EARLIER, null));
+    }
+
+    /** A lock re-dated under the same cause is a changed lock. */
+    @Test
+    void a_lock_changed_in_its_instant_alone_writes_the_instant() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 0, EARLIER, LockCause.FAILURES, EARLIER, null));
+        ScimLoginState read = loginStateOf(user);
+
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 0, LATER, LockCause.FAILURES, EARLIER, null));
+
+        assertThat(loginStateOf(user).lockedAt()).isEqualTo(LATER);
+    }
+
+    /** The cause is part of the lock: a lock differing in its cause alone is a changed lock. */
+    @Test
+    void a_lock_changed_in_its_cause_alone_writes_the_cause() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 0, EARLIER, LockCause.FAILURES, EARLIER, null));
+        ScimLoginState read = loginStateOf(user);
+
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 0, EARLIER, LockCause.DORMANCY, EARLIER, null));
+
+        assertThat(loginStateOf(user).lockCause()).isEqualTo(LockCause.DORMANCY);
+    }
+
+    @Test
+    void a_changed_dormancy_basis_writes_the_basis_and_nothing_else() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
+
+        loginStates().writeChange(user.id(),
+                new ScimLoginState("read-hash", 0, null, null, EARLIER, null),
+                new ScimLoginState("decided-hash", 0, null, null, LATER, null));
+
+        assertThat(loginStateOf(user)).isEqualTo(new ScimLoginState(
+                "hash", 2, EARLIER, LockCause.FAILURES, LATER, EARLIER));
+    }
+
+    @Test
+    void a_changed_change_required_flag_writes_the_flag_and_nothing_else() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, null));
+
+        loginStates().writeChange(user.id(),
+                new ScimLoginState("read-hash", 0, null, null, LATER, EARLIER),
+                new ScimLoginState("decided-hash", 0, null, null, LATER, LATER));
+
+        assertThat(loginStateOf(user)).isEqualTo(new ScimLoginState(
+                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, LATER));
+    }
+
+    /** Every column set moved at once, as an Unlock moves them: each is written. */
+    @Test
+    void a_change_of_every_column_set_writes_each_of_them() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 3, EARLIER, LockCause.FAILURES, EARLIER, null));
+        ScimLoginState read = loginStateOf(user);
+
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 0, null, null, LATER, LATER));
+
+        assertThat(loginStateOf(user)).isEqualTo(
+                new ScimLoginState("hash", 0, null, null, LATER, LATER));
+    }
+
+    @Test
+    void a_change_whose_two_sides_agree_writes_nothing() {
+        ScimUser user = stored(new ScimLoginState(
+                "hash", 1, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
+        ScimLoginState read = new ScimLoginState(
+                "read-hash", 0, LATER, LockCause.DORMANCY, LATER, LATER);
+
+        loginStates().writeChange(user.id(), read, read);
+
+        assertThat(loginStateOf(user)).isEqualTo(new ScimLoginState(
+                "hash", 1, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
     }
 
     /**
-     * The hash in the given state is the one the login attempt read at its start; a password
-     * changed since then must survive the attempt's write.
+     * The hash in both states is the one the event read; a password changed since then survives
+     * the write, even when the decided state carries a hash of its own.
      */
     @Test
-    void updating_the_login_state_keeps_a_credential_written_since_it_was_read() {
+    void a_change_keeps_a_credential_written_since_it_was_read() {
         ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
         ScimLoginState read = loginStateOf(user);
         loginStates().completePasswordChange(user.id(), "new-hash", WRITTEN_AT);
 
-        loginStates().updateLoginState(user.id(), new ScimLoginState(
-                read.passwordHash(), 1, null, null, read.lastAuthenticatedAt(), null));
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("decided-hash", 1, null, null, EARLIER, null));
 
         assertThat(loginStateOf(user).passwordHash()).isEqualTo("new-hash");
     }
 
-    /** A connector's change landing between a login's read and its write survives the write. */
+    /** A connector's change landing between an event's read and its write survives the write. */
     @Test
-    void updating_the_login_state_keeps_profile_attributes_written_since_it_was_read() {
+    void a_change_keeps_profile_attributes_written_since_it_was_read() {
         ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
         ScimLoginState read = loginStateOf(user);
         users().replace(ScimIdentities.withDisplayName(user, "Renamed"), WRITTEN_AT);
 
-        loginStates().updateLoginState(user.id(), new ScimLoginState(
-                read.passwordHash(), 1, null, null, read.lastAuthenticatedAt(), null));
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 1, LATER, LockCause.FAILURES, LATER, LATER));
 
         assertThat(users().findById(user.id()).orElseThrow().profile().displayName())
                 .isEqualTo("Renamed");
     }
 
+    /**
+     * None of the login-state columns is a SCIM attribute: a rejected login, an Unlock or a forced
+     * change must not move a connector's ETag or {@code meta.lastModified}.
+     */
     @Test
-    void updating_the_login_state_keeps_the_dormancy_basis_and_the_change_required_flag() {
-        ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, LATER));
+    void a_change_does_not_advance_the_version() {
+        ScimUser user = stored(new ScimLoginState("hash", 1, null, null, EARLIER, null));
+        ScimLoginState read = loginStateOf(user);
 
-        loginStates().updateLoginState(user.id(),
-                new ScimLoginState("hash", 1, null, null, null, null));
-
-        assertThat(loginStateOf(user))
-                .isEqualTo(new ScimLoginState("hash", 1, null, null, EARLIER, LATER));
-    }
-
-    /** A failure run is not a SCIM attribute: a rejected login must not move a connector's ETag. */
-    @Test
-    void updating_the_login_state_does_not_advance_the_version() {
-        ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-
-        loginStates().updateLoginState(user.id(),
-                new ScimLoginState("hash", 5, LATER, LockCause.FAILURES, EARLIER, null));
+        loginStates().writeChange(user.id(), read,
+                new ScimLoginState("hash", 5, LATER, LockCause.FAILURES, LATER, LATER));
 
         assertThat(versionOf(user)).isEqualTo(Tuple.tuple(ScimUser.INITIAL_VERSION,
                 ScimIdentities.NOW));
     }
 
     @Test
-    void updating_the_login_state_of_a_missing_user_is_silently_nothing() {
+    void a_change_of_a_missing_user_is_silently_nothing() {
         UUID missing = UUID.randomUUID();
 
-        assertThatCode(() -> loginStates().updateLoginState(missing,
-                new ScimLoginState("hash", 1, null, null, null, null)))
+        assertThatCode(() -> loginStates().writeChange(missing,
+                new ScimLoginState("hash", 0, null, null, null, null),
+                new ScimLoginState("hash", 1, LATER, LockCause.FAILURES, LATER, LATER)))
                 .doesNotThrowAnyException();
     }
 
@@ -198,73 +302,6 @@ public abstract class ScimLoginStateRepositoryContract {
     void imposing_a_lock_on_a_missing_user_reports_that_it_did_not_apply() {
         assertThat(loginStates().imposeLock(UUID.randomUUID(),
                 new Lockout(LATER, LockCause.DORMANCY))).isFalse();
-    }
-
-    // ---- recordAuthentication and resetDormancyBasis -------------------------------------------
-
-    @Test
-    void recording_an_authentication_moves_the_dormancy_basis_alone() {
-        ScimUser user = stored(new ScimLoginState(
-                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, EARLIER));
-
-        loginStates().recordAuthentication(user.id(), LATER);
-
-        assertThat(loginStateOf(user)).isEqualTo(
-                new ScimLoginState("hash", 2, EARLIER, LockCause.FAILURES, LATER, EARLIER));
-    }
-
-    @Test
-    void recording_an_authentication_does_not_advance_the_version() {
-        ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-
-        loginStates().recordAuthentication(user.id(), LATER);
-
-        assertThat(versionOf(user)).isEqualTo(Tuple.tuple(ScimUser.INITIAL_VERSION,
-                ScimIdentities.NOW));
-    }
-
-    @Test
-    void resetting_the_dormancy_basis_moves_it_alone() {
-        ScimUser user = stored(new ScimLoginState(
-                "hash", 2, EARLIER, LockCause.DORMANCY, EARLIER, EARLIER));
-
-        loginStates().resetDormancyBasis(user.id(), LATER);
-
-        assertThat(loginStateOf(user)).isEqualTo(
-                new ScimLoginState("hash", 2, EARLIER, LockCause.DORMANCY, LATER, EARLIER));
-    }
-
-    @Test
-    void resetting_the_dormancy_basis_does_not_advance_the_version() {
-        ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-
-        loginStates().resetDormancyBasis(user.id(), LATER);
-
-        assertThat(versionOf(user)).isEqualTo(Tuple.tuple(ScimUser.INITIAL_VERSION,
-                ScimIdentities.NOW));
-    }
-
-    // ---- requirePasswordChange -----------------------------------------------------------------
-
-    @Test
-    void requiring_a_password_change_sets_the_flag_alone() {
-        ScimUser user = stored(new ScimLoginState(
-                "hash", 2, EARLIER, LockCause.FAILURES, EARLIER, null));
-
-        loginStates().requirePasswordChange(user.id(), LATER);
-
-        assertThat(loginStateOf(user)).isEqualTo(
-                new ScimLoginState("hash", 2, EARLIER, LockCause.FAILURES, EARLIER, LATER));
-    }
-
-    @Test
-    void requiring_a_password_change_does_not_advance_the_version() {
-        ScimUser user = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-
-        loginStates().requirePasswordChange(user.id(), LATER);
-
-        assertThat(versionOf(user)).isEqualTo(Tuple.tuple(ScimUser.INITIAL_VERSION,
-                ScimIdentities.NOW));
     }
 
     // ---- completePasswordChange ----------------------------------------------------------------

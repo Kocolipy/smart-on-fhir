@@ -542,7 +542,8 @@ class AuditAppendOnlyIntegrationTests {
     private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);
-            loginStates.updateLoginState(user.id(), ScimLoginState.of(user.login().passwordHash()));
+            ScimIdentities.storeFailureRun(
+                    loginStates, user.id(), ScimLoginState.of(user.login().passwordHash()));
             // Arranged through the store, which keeps what it is given: active again, and with
             // the shared seeded baseline's unflagged credential and unmoved dormancy basis.
             users.replace(ScimIdentities.withActive(user, true, new ScimLoginState(

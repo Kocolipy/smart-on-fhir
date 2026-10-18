@@ -173,7 +173,10 @@ class LoginStateSerializationIntegrationTests {
         CountDownLatch release = new CountDownLatch(1);
         Future<?> holder = racers.submit(() -> inTransaction(() -> {
             writeLocks.lock(List.of(userId));
-            loginStates.updateLoginState(userId, users.findById(userId).orElseThrow().login());
+            // A before differing in the run makes the store write the run as it stands: the
+            // row's lock taken, and nothing on it changed.
+            ScimLoginState stored = loginStates.findLoginState(userId).orElseThrow();
+            loginStates.writeChange(userId, stored.withFailureCounted(), stored);
             holding.countDown();
             await(release);
         }));

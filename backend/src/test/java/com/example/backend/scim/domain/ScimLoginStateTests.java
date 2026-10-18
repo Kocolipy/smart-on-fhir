@@ -4,8 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -322,45 +328,130 @@ class ScimLoginStateTests {
                 passwordHash, 2, NOW, LockCause.DORMANCY, NOW.minusSeconds(60), required));
     }
 
+    // ---- what a transition changed (ScimLoginStateChange) ----------------------------------
+
+    /** The column sets a login-state change can move, as the store writes them. */
+    private enum ColumnSet { FAILURE_RUN, LOCK, DORMANCY_BASIS, CHANGE_REQUIRED }
+
+    private static final Instant BASIS = NOW.minusSeconds(60);
+
+    private static final Instant FLAGGED = NOW.minusSeconds(30);
+
+    /** The state a transition read under the User's lock: every column set holding a value. */
+    private static final ScimLoginState READ =
+            new ScimLoginState("hash", 2, NOW, LockCause.FAILURES, BASIS, FLAGGED);
+
     /**
-     * Two states share a failure run when their count and their lock agree, whatever else differs:
-     * the run is exactly what {@link ScimLoginStateRepository#updateLoginState} writes, so a caller
-     * can skip a write that would change nothing.
+     * What a concurrent writer stored since the read, different in every column, so that a set
+     * the change does not move reads back as this and a set it moves reads back as its after.
      */
-    @Test
-    void states_differing_only_outside_the_run_share_a_failure_run() {
-        ScimLoginState state = new ScimLoginState("hash", 2, NOW, LockCause.FAILURES, null, null);
+    private static final ScimLoginState STORED = new ScimLoginState(
+            "stored-hash", 5, NOW.plusSeconds(1), LockCause.DORMANCY,
+            NOW.minusSeconds(61), NOW.minusSeconds(31));
 
-        assertThat(state.sameFailureRunAs(new ScimLoginState(
-                "other", 2, NOW, LockCause.FAILURES, NOW.minusSeconds(60), NOW))).isTrue();
+    /**
+     * Each difference a transition can make from {@link #READ}, the one column set it moves, and
+     * {@link #STORED} with that change applied. Sides that agree — built from equal values, not
+     * the same objects — and a difference in the credential alone move nothing.
+     */
+    static Stream<Arguments> changes() {
+        return Stream.of(
+                Arguments.of("the failure run",
+                        new ScimLoginState("hash", 3, NOW, LockCause.FAILURES, BASIS, FLAGGED),
+                        EnumSet.of(ColumnSet.FAILURE_RUN),
+                        new ScimLoginState("stored-hash", 3, NOW.plusSeconds(1),
+                                LockCause.DORMANCY, NOW.minusSeconds(61), NOW.minusSeconds(31))),
+                Arguments.of("a lifted lock",
+                        new ScimLoginState("hash", 2, null, null, BASIS, FLAGGED),
+                        EnumSet.of(ColumnSet.LOCK),
+                        new ScimLoginState("stored-hash", 5, null, null,
+                                NOW.minusSeconds(61), NOW.minusSeconds(31))),
+                Arguments.of("the lock's instant alone",
+                        new ScimLoginState(
+                                "hash", 2, NOW.plusSeconds(9), LockCause.FAILURES, BASIS, FLAGGED),
+                        EnumSet.of(ColumnSet.LOCK),
+                        new ScimLoginState("stored-hash", 5, NOW.plusSeconds(9),
+                                LockCause.FAILURES, NOW.minusSeconds(61), NOW.minusSeconds(31))),
+                Arguments.of("the lock's cause alone",
+                        new ScimLoginState("hash", 2, NOW, LockCause.DORMANCY, BASIS, FLAGGED),
+                        EnumSet.of(ColumnSet.LOCK),
+                        new ScimLoginState("stored-hash", 5, NOW, LockCause.DORMANCY,
+                                NOW.minusSeconds(61), NOW.minusSeconds(31))),
+                Arguments.of("the dormancy basis",
+                        new ScimLoginState("hash", 2, NOW, LockCause.FAILURES,
+                                NOW.plusSeconds(10), FLAGGED),
+                        EnumSet.of(ColumnSet.DORMANCY_BASIS),
+                        new ScimLoginState("stored-hash", 5, NOW.plusSeconds(1),
+                                LockCause.DORMANCY, NOW.plusSeconds(10), NOW.minusSeconds(31))),
+                Arguments.of("a cleared change-required flag",
+                        new ScimLoginState("hash", 2, NOW, LockCause.FAILURES, BASIS, null),
+                        EnumSet.of(ColumnSet.CHANGE_REQUIRED),
+                        new ScimLoginState("stored-hash", 5, NOW.plusSeconds(1),
+                                LockCause.DORMANCY, NOW.minusSeconds(61), null)),
+                Arguments.of("a re-dated change-required flag",
+                        new ScimLoginState("hash", 2, NOW, LockCause.FAILURES, BASIS,
+                                NOW.plusSeconds(20)),
+                        EnumSet.of(ColumnSet.CHANGE_REQUIRED),
+                        new ScimLoginState("stored-hash", 5, NOW.plusSeconds(1),
+                                LockCause.DORMANCY, NOW.minusSeconds(61), NOW.plusSeconds(20))),
+                Arguments.of("the credential alone",
+                        new ScimLoginState(
+                                "other-hash", 2, NOW, LockCause.FAILURES, BASIS, FLAGGED),
+                        EnumSet.noneOf(ColumnSet.class),
+                        STORED),
+                Arguments.of("nothing: the two sides agree",
+                        new ScimLoginState("hash", 2, Instant.parse("2026-01-01T00:00:00Z"),
+                                LockCause.FAILURES, Instant.parse("2025-12-31T23:59:00Z"),
+                                Instant.parse("2025-12-31T23:59:30Z")),
+                        EnumSet.noneOf(ColumnSet.class),
+                        STORED));
     }
 
-    /** A different count is a different failure run. */
-    @Test
-    void a_different_count_is_a_different_failure_run() {
-        assertThat(new ScimLoginState("hash", 2, null)
-                .sameFailureRunAs(new ScimLoginState("hash", 3, null))).isFalse();
+    private static Set<ColumnSet> moved(ScimLoginStateChange change) {
+        Set<ColumnSet> moved = EnumSet.noneOf(ColumnSet.class);
+        if (change.movesFailureRun()) {
+            moved.add(ColumnSet.FAILURE_RUN);
+        }
+        if (change.movesLock()) {
+            moved.add(ColumnSet.LOCK);
+        }
+        if (change.movesDormancyBasis()) {
+            moved.add(ColumnSet.DORMANCY_BASIS);
+        }
+        if (change.movesChangeRequired()) {
+            moved.add(ColumnSet.CHANGE_REQUIRED);
+        }
+        return moved;
     }
 
-    /** A different lock instant is a different failure run. */
     @Test
-    void a_different_lock_instant_is_a_different_failure_run() {
-        assertThat(new ScimLoginState("hash", 3, NOW)
-                .sameFailureRunAs(new ScimLoginState("hash", 3, NOW.plusSeconds(1)))).isFalse();
+    void a_change_carries_the_state_read_and_the_state_decided() {
+        ScimLoginState decided = READ.withFailureRunCleared();
+
+        ScimLoginStateChange change = new ScimLoginStateChange(READ, decided);
+
+        assertThat(List.of(change.before(), change.after())).containsExactly(READ, decided);
     }
 
-    /** A lock where the other has none is a different failure run. */
-    @Test
-    void a_lock_against_none_is_a_different_failure_run() {
-        assertThat(new ScimLoginState("hash", 3, NOW)
-                .sameFailureRunAs(new ScimLoginState("hash", 3, null))).isFalse();
+    /** Each column set is compared on its own, and the credential is never one of them. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("changes")
+    void a_change_moves_exactly_the_column_set_that_differs(
+            String difference, ScimLoginState after, Set<ColumnSet> expected,
+            ScimLoginState applied) {
+        assertThat(moved(new ScimLoginStateChange(READ, after))).isEqualTo(expected);
     }
 
-    /** The same instant locked for another cause is a different failure run. */
-    @Test
-    void a_different_lock_cause_is_a_different_failure_run() {
-        assertThat(new ScimLoginState("hash", 0, NOW, LockCause.FAILURES, null, null)
-                .sameFailureRunAs(new ScimLoginState("hash", 0, NOW, LockCause.DORMANCY, null, null)))
-                .isFalse();
+    /**
+     * Applied to what is stored now, a change takes each set it moves from its after and keeps
+     * every other set — and the credential always — as stored, so a concurrent write to a set the
+     * transition did not change survives it.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("changes")
+    void a_change_applied_to_the_stored_state_replaces_only_the_sets_it_moves(
+            String difference, ScimLoginState after, Set<ColumnSet> moved,
+            ScimLoginState expected) {
+        assertThat(new ScimLoginStateChange(READ, after).appliedTo(STORED)).isEqualTo(expected);
     }
 }

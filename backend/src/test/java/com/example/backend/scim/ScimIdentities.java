@@ -4,6 +4,7 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -118,6 +119,30 @@ public final class ScimIdentities {
             ScimUserRepository users, ReservedResourceName reservation, Instant at) {
         users.findByReservedName(reservation)
                 .ifPresent(holder -> users.deleteById(holder.id(), at));
+    }
+
+    /**
+     * Arranges the stored User's failure run and lock — count, instant and cause — as {@code run}
+     * holds them, through the login-state port's change write, leaving every other column as
+     * stored. For a test arranging a run or a lock rather than exercising the module that decides
+     * one.
+     */
+    public static void storeFailureRun(
+            ScimLoginStateRepository loginStates, UUID id, ScimLoginState run) {
+        ScimLoginState stored = loginStates.findLoginState(id).orElseThrow();
+        loginStates.writeChange(id, stored, new ScimLoginState(
+                stored.passwordHash(), run.failedLoginAttempts(), run.lockedAt(), run.lockCause(),
+                stored.lastAuthenticatedAt(), stored.passwordChangeRequiredSince()));
+    }
+
+    /**
+     * Arranges the stored User's change-required flag as set since {@code since}, through the
+     * login-state port's change write, leaving every other column as stored.
+     */
+    public static void storePasswordChangeRequired(
+            ScimLoginStateRepository loginStates, UUID id, Instant since) {
+        ScimLoginState stored = loginStates.findLoginState(id).orElseThrow();
+        loginStates.writeChange(id, stored, stored.withPasswordChangeRequired(since));
     }
 
     /** The minimum profile: a userName, an active flag, and nothing else assigned. */
