@@ -91,6 +91,10 @@ The `patient` module is a leaf, like `counter`, and its ArchUnit entry
   R4 → R5 mapping and decides how a Patient's id relates to the EHR's.
 - If served elements grow to ones that differ between R4 and R5, the mapping in
   that adapter grows with them; the wire stays R5.
-- Adopting a FHIR library later, for validation or for many more resource types,
-  is open: it would replace the hand-written records inside the controller
-  package, not the port or the wire.
+- Adopting a FHIR library later, for many more resource types, is open: it would
+  replace the hand-written records inside the controller package, not the port or
+  the wire.
+- Validation needed no runtime library (#129): HAPI FHIR's R5 validator holds the
+  served JSON against base R5 in **test scope only**, and the build's Enforcer
+  refuses HAPI in any scope that reaches the packaged JAR, so the runtime
+  classpath stays FHIR-library-free (`/docs/domain/patient.md`).

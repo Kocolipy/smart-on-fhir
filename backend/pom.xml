@@ -20,6 +20,7 @@
     <properties>
         <java.version>25</java.version>
         <pitest.version>1.30.0</pitest.version>
+        <hapi-fhir.version>8.12.1</hapi-fhir.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
         <enforcer.version>3.5.0</enforcer.version>
         <resources-plugin.version>3.3.1</resources-plugin.version>
@@ -39,6 +40,22 @@
         -->
         <frontend.dist.dir>${project.basedir}/../frontend/dist</frontend.dist.dir>
     </properties>
+
+    <!--
+      commons-io reaches only the test classpath, by two paths: Testcontainers' commons-compress
+      needs 2.20.0, while HAPI FHIR's hapi-fhir-base pins 2.17.0 on a nearer path and would win,
+      breaking commons-compress (an IllegalAccessError on its first gzip read). Neither the
+      Spring Boot BOM nor HAPI's manages it, so the newer of the two is pinned here.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.20.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -179,6 +196,37 @@
             <artifactId>testcontainers-mssqlserver</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          HAPI FHIR's R5 validator, which proves the Patient and OperationOutcome JSON the
+          service writes by hand are valid base R5 (/docs/domain/patient.md). Test scope only:
+          ADR 0014 keeps every FHIR library off the runtime classpath, and the enforcer's
+          `hapi-test-scope-only` execution below fails the build if any HAPI artifact, direct
+          or transitive, resolves in another scope.
+        -->
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>hapi-fhir-structures-r5</artifactId>
+            <version>${hapi-fhir.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>hapi-fhir-validation</artifactId>
+            <version>${hapi-fhir.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>hapi-fhir-validation-resources-r5</artifactId>
+            <version>${hapi-fhir.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>hapi-fhir-caching-caffeine</artifactId>
+            <version>${hapi-fhir.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -244,6 +292,37 @@
                                         of whatever `mvn` resolves to on this machine.
                                     </message>
                                 </requireMavenVersion>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                    <!--
+                      ADR 0014: no FHIR library on the runtime classpath. HAPI FHIR validates the
+                      hand-written FHIR JSON in tests only, so any ca.uhn.hapi.fhir artifact (its
+                      org.hl7.fhir.* core libraries share the groupId) resolving in a scope that
+                      reaches the packaged JAR, directly or transitively, fails the build here.
+                    -->
+                    <execution>
+                        <id>hapi-test-scope-only</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>ca.uhn.hapi.fhir:*:*:*:compile</exclude>
+                                        <exclude>ca.uhn.hapi.fhir:*:*:*:runtime</exclude>
+                                        <exclude>ca.uhn.hapi.fhir:*:*:*:provided</exclude>
+                                        <exclude>ca.uhn.hapi.fhir:*:*:*:system</exclude>
+                                    </excludes>
+                                    <message>
+                                        HAPI FHIR is a test-scope dependency only (ADR 0014): the
+                                        service renders FHIR itself and packages no FHIR library.
+                                    </message>
+                                </bannedDependencies>
                             </rules>
                             <fail>true</fail>
                         </configuration>
