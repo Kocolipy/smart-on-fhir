@@ -37,8 +37,37 @@ import org.springframework.dao.DataIntegrityViolationException;
  * this fake once disagreed with the adapter — Group create with members advanced none of them in
  * the adapter, and every unit test passed while the adapter was wrong — and a copy that is more
  * eager than the adapter hides it just as surely as one that is lazier.
+ *
+ * <p>None of that is taken on trust. {@link ScimGroupRepositoryContract} states what the port
+ * promises, and this store and the SQL Server adapter each pass it
+ * ({@code InMemoryScimGroupRepositoryContractTests}, {@code SqlServerScimGroupRepositoryContractTests}):
+ * those are the proof of this fake's fidelity, the adapter is the reference where the two disagree,
+ * and a rule added to the port belongs in its contract first. What the contract found here is why
+ * a read renders each member's label from the User as it now stands, in normalized
+ * {@code userName} order, and why the dormant memberships sort their ids as SQL Server does.
+ *
+ * <p>What it does NOT model is concurrency, as the User store does not: the {@code vanishBefore*}
+ * hooks below stand in for the windows a concurrent delete would open.
  */
 public final class InMemoryScimGroupRepository implements ScimGroupRepository {
+
+    /**
+     * SQL Server's {@code uniqueidentifier} order: the bytes of an id as its text writes them, the
+     * last group first, then the fourth, then the first three groups each from its least
+     * significant byte. Not {@link UUID#compareTo}, which compares two signed halves and disagrees
+     * with the engine on ids differing only in their first group.
+     */
+    private static final Comparator<UUID> SQL_SERVER_ID_ORDER = (left, right) -> {
+        byte[] leftBytes = bytesOf(left);
+        byte[] rightBytes = bytesOf(right);
+        for (int index : new int[] {10, 11, 12, 13, 14, 15, 8, 9, 7, 6, 5, 4, 3, 2, 1, 0}) {
+            int compared = Integer.compare(leftBytes[index] & 0xff, rightBytes[index] & 0xff);
+            if (compared != 0) {
+                return compared;
+            }
+        }
+        return 0;
+    };
 
     private final Map<UUID, ScimGroup> stored = new LinkedHashMap<>();
 
@@ -82,14 +111,15 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     @Override
     public Optional<ScimGroup> findById(UUID id) {
-        return Optional.ofNullable(stored.get(id));
+        return Optional.ofNullable(stored.get(id)).map(this::asRead);
     }
 
     @Override
     public Optional<ScimGroup> findByReservedName(ReservedResourceName reservedName) {
         return stored.values().stream()
                 .filter(group -> reservedName == group.reservedName())
-                .findFirst();
+                .findFirst()
+                .map(this::asRead);
     }
 
     @Override
@@ -104,12 +134,10 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         requireDistinctDisplayName(group);
         requireLiveMembers(group);
 
-        List<ScimGroupMember> members = withResolvedLabels(group.members());
-
         ScimGroup written = new ScimGroup(
                 current.id(),
                 group.displayName(),
-                members,
+                group.members(),
                 // Carried across, not taken from the argument: a write cannot reserve or
                 // un-reserve a Group.
                 current.reservedName(),
@@ -122,7 +150,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 current.displayName(),
                 group.displayName(),
                 userIdsOf(current.members()),
-                userIdsOf(members),
+                userIdsOf(group.members()),
                 group.lastModifiedAt()));
         return findById(current.id());
     }
@@ -156,17 +184,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /**
-     * Makes the next {@code deleteById} of this Group report that it removed nothing, while
-     * {@code findById} still answers with the Group until then.
-     *
-     * <p>That is the one window the production {@code delete} cannot otherwise be made to walk:
-     * it reads the Group, refuses a protected one, then deletes — and a concurrent transaction
-     * may remove the row in between, which is why the delete REPORTS what the repository did
-     * instead of assuming it succeeded. Against a real SQL Server the window needs two
-     * transactions to hit; here it is one call, and the behaviour reproduced is the adapter's
-     * own: {@code DELETE} matched no row, so it returns false.
-     */
-    /**
      * Removes the Group as the next {@code advanceVersion} of it runs, which then reports absence —
      * the window in which a concurrent delete lands between an alias-only write and its bump.
      */
@@ -182,13 +199,28 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         vanishBeforeReplace.add(id);
     }
 
+    /**
+     * Makes the next {@code deleteById} of this Group report that it removed nothing, while
+     * {@code findById} still answers with the Group until then.
+     *
+     * <p>That is the one window the production {@code delete} cannot otherwise be made to walk:
+     * it reads the Group, refuses a protected one, then deletes — and a concurrent transaction
+     * may remove the row in between, which is why the delete REPORTS what the repository did
+     * instead of assuming it succeeded. Against a real SQL Server the window needs two
+     * transactions to hit; here it is one call, and the behaviour reproduced is the adapter's
+     * own: {@code DELETE} matched no row, so it returns false.
+     */
     public void vanishBeforeNextDelete(UUID id) {
         vanishBeforeDelete.add(id);
     }
 
     @Override
     public List<ScimGroup> findAllById(List<UUID> ids) {
-        return ids.stream().map(stored::get).filter(java.util.Objects::nonNull).toList();
+        return ids.stream()
+                .map(stored::get)
+                .filter(java.util.Objects::nonNull)
+                .map(this::asRead)
+                .toList();
     }
 
     /** How many Groups are stored. */
@@ -201,6 +233,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     public List<ScimGroup> findAllOrderedByNormalizedDisplayName() {
         return stored.values().stream()
                 .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
+                .map(this::asRead)
                 .toList();
     }
 
@@ -240,8 +273,9 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                         // The candidate query's SQL predicate, basis < cutoff.
                         .filter(user -> user.dormancyBasis().isBefore(cutoff))
                         .isPresent())
-                .sorted(Comparator.comparing(ScimGroupMembership::userId)
-                        .thenComparing(ScimGroupMembership::groupId))
+                // The candidate query's ORDER BY, which sorts the ids as SQL Server does.
+                .sorted(Comparator.comparing(ScimGroupMembership::userId, SQL_SERVER_ID_ORDER)
+                        .thenComparing(ScimGroupMembership::groupId, SQL_SERVER_ID_ORDER))
                 .toList();
     }
 
@@ -260,6 +294,38 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return true;
     }
 
+    /**
+     * The Group as the adapter's read renders it: each member's label read from the User as it
+     * now stands, and the members in their normalized {@code userName} order — the order the
+     * membership query reads them in, whatever order they were written in. A member naming no User
+     * in the User store, which only {@link #given} can arrange, keeps the label it was given and
+     * reads last.
+     */
+    private ScimGroup asRead(ScimGroup group) {
+        List<ScimGroupMember> members = group.members().stream()
+                .map(member -> users.findById(member.userId())
+                        .map(user -> new ReadMember(
+                                new ScimGroupMember(user.id(), user.profile().memberLabel()),
+                                user.profile().normalizedUserName().value()))
+                        .orElse(new ReadMember(member, null)))
+                .sorted(Comparator.comparing(
+                        ReadMember::sortKey, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(ReadMember::member)
+                .toList();
+        return new ScimGroup(group.id(), group.displayName(), members, group.reservedName(),
+                group.version(), group.createdAt(), group.lastModifiedAt());
+    }
+
+    /** A member as read, beside the normalized {@code userName} it sorts by; null when unresolved. */
+    private record ReadMember(ScimGroupMember member, String sortKey) {}
+
+    private static byte[] bytesOf(UUID id) {
+        return java.nio.ByteBuffer.allocate(16)
+                .putLong(id.getMostSignificantBits())
+                .putLong(id.getLeastSignificantBits())
+                .array();
+    }
+
     /** Puts a Group in the store directly, for a test arranging state rather than exercising a write. */
     public ScimGroup given(ScimGroup group) {
         stored.put(group.id(), group);
@@ -272,7 +338,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         ScimGroup toStore = new ScimGroup(
                 group.id(),
                 group.displayName(),
-                withResolvedLabels(group.members()),
+                group.members(),
                 reservedName,
                 group.version(),
                 group.createdAt(),
@@ -280,7 +346,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         stored.put(toStore.id(), toStore);
         apply(ResourceVersionAdvance.groupCreated(
                 userIdsOf(toStore.members()), group.lastModifiedAt()));
-        return stored.get(toStore.id());
+        return findById(toStore.id()).orElseThrow();
     }
 
     /** The unique constraint on the normalized display name, as the schema enforces it. */
@@ -303,23 +369,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
             throw new UnknownGroupMemberException(
                     new IllegalStateException("a member does not name a live User"));
         }
-    }
-
-    /**
-     * The membership with each member's label resolved from the referenced User, as the real
-     * adapter's projection does — {@code display} is read-only, so a submitted one is replaced
-     * rather than kept.
-     */
-    private List<ScimGroupMember> withResolvedLabels(List<ScimGroupMember> members) {
-        return members.stream()
-                .map(member -> new ScimGroupMember(member.userId(), label(member.userId())))
-                .toList();
-    }
-
-    private String label(UUID userId) {
-        return users.findById(userId)
-                .map(user -> user.profile().memberLabel())
-                .orElse(null);
     }
 
     /**
