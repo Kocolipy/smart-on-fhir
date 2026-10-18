@@ -894,9 +894,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimGroupRepository.java": {
-    "mtime": 1792291865.8609362,
-    "seen": 1792291902.0312686,
-    "ast_hash": "2aafb5b837d293b1daa1743e04cdf775",
+    "mtime": 1792292264.9422848,
+    "seen": 1792292769.887522,
+    "ast_hash": "37512b45c9477c19cc16b3fb3a011d0d",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimLoginState.java": {
@@ -1500,9 +1500,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/InMemoryScimGroupRepository.java": {
-    "mtime": 1792287170.3066232,
-    "seen": 1792291902.031618,
-    "ast_hash": "b8dbf8a0d14513fcad906d98d29a7531",
+    "mtime": 1792292276.815187,
+    "seen": 1792292769.9041848,
+    "ast_hash": "18e6c811a0f1ef2637b873a3dcd8c783",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/InMemoryScimPasswordHistoryRepository.java": {
@@ -5034,9 +5034,9 @@
     "semantic_hash": ""
   },
   "backend/scripts/test-gates.sh": {
-    "mtime": 1792291865.8580148,
-    "seen": 1792291902.0308936,
-    "ast_hash": "dfcaceccf786eac5862625b0447c49ac",
+    "mtime": 1792292333.3581731,
+    "seen": 1792292769.8684452,
+    "ast_hash": "fa935198d6802fd4a6f763e79c00f890",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/LoginStateSerializationIntegrationTests.java": {
@@ -5304,9 +5304,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/infrastructure/persistence/ScimGroupPersistenceAdapterIntegrationTests.java": {
-    "mtime": 1792287170.3132763,
-    "seen": 1792291902.0317187,
-    "ast_hash": "6f84af3cc69b469143a483b31f1058e5",
+    "mtime": 1792292335.9981759,
+    "seen": 1792292769.9096074,
+    "ast_hash": "71c1a02720958c2924bd03291860fe2f",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/observability/SqlFailures.java": {
@@ -5859,6 +5859,12 @@
     "mtime": 1792291865.8609362,
     "seen": 1792291902.0317254,
     "ast_hash": "5674008fe65573901aa127987a388389",
+    "semantic_hash": ""
+  },
+  "backend/src/test/java/com/example/backend/scim/InMemoryScimGroupRepositoryTests.java": {
+    "mtime": 1792292332.7301724,
+    "seen": 1792292769.904188,
+    "ast_hash": "c0acb43572e9eaeadfaa27813eebeb5e",
     "semantic_hash": ""
   }
 }
