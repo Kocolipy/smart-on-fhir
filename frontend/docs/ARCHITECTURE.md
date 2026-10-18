@@ -64,8 +64,11 @@ map; `/frontend/AGENTS.md` points here rather than repeating it.
   `run` resolves `"stayed"` or `"moved-on"`, which the Change password page
   reads to clear its fields after a refusal.
 - `permissions.ts` — the `holds` / `holdsAny` checks every guard and page
-  reads. Which Permission a request requires is not here: it is declared on the
-  endpoint (`declarations.ts`, below).
+  reads, and the one rule for whether a session may open a page:
+  `requirementOf` reads a page's `permissions` as its requirement, and
+  `mayOpen` decides it. `resolveSessionRoute` applies them to a guarded route,
+  and Home to each link. Which Permission a request requires is not here: it is
+  declared on the endpoint (`declarations.ts`, below).
 - `declarations.ts` — the shape of an endpoint as data: a `ReadDeclaration`
   (Permission, path, decoder) and a `WriteDeclaration` (the same, plus method
   and optional JSON body; the decoder only for a write answering a body). A path
@@ -390,14 +393,14 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table, deliberately flat:
 
-| Path               | Element                                                                                          | Notes                                                                                                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                  |
-| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
-| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                |
-| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                |
-| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                       |
-| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                             |
+| Path               | Element                                                                                          | Notes                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                                          |
+| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The counter by `counter:read` / `counter:write` (baseline, held by every User), a link to each entry with a `homeLink` exactly when its guard would open it |
+| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                                        |
+| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                                        |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                                               |
+| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                                                     |
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
@@ -405,10 +408,10 @@ actions from the `permissions` `GET /api/auth/me` and the login response report
 owns requires (Users `user:read`, Groups `group:read`, connectors
 `connector:read`, the audit trail `audit:read`, the counter `counter:read`),
 `accounts-api.ts` derives `ADMINISTRATION_PERMISSIONS` from its three listings,
-and `src/auth/permissions.ts` holds the `holds` / `holdsAny` checks; a
-route states its requirement as `requiredPermissions`, read off those
-declarations in `signed-in-pages.tsx`, which
-`resolveSessionRoute` reads as "any one of these", and a page hides each action
+and `src/auth/permissions.ts` holds the `holds` / `holdsAny` / `mayOpen`
+checks; a route states its requirement as `requiredPermissions`, read off those
+declarations in `signed-in-pages.tsx`, which `requirementOf` reads as "any one
+of these", and a page hides each action
 it lacks the Permission for (Unlock and the forced change `user:write`, connector
 create and delete `connector:write`, token issue, rotate and revoke
 `connector:token`, the counter's buttons `counter:write`). A view the session
@@ -481,13 +484,16 @@ out; a page renders none of them, only its body. The shell holds the page status
 the page, its panels and Sign out report to it, the latest failure shows, and
 the line starts empty on every path. Each signed-in page is declared exactly once, as an entry in
 `SIGNED_IN_PAGES` (`pages/signed-in-pages.tsx`): its path, element, optional
-`permissions` guard, and the shell metadata (title, back link, column width,
-centering). `App.tsx` maps the table to `<Route>`s, and the shell finds the
-current entry with `matchPath` (an unknown path falls back to the Home
-layout), so **adding a signed-in page means adding one entry to that table** and
-nothing in `App.tsx` or the shell. (The router is `BrowserRouter`, so route
-`handle` / `useMatches` is not available; the table is the single source
-instead.) The back link is withheld from a session confined to
+`permissions` guard, optional `homeLink` (its link's label on Home), and the
+shell metadata (title, back link, column width, centering). Home is handed the
+other entries rather than importing the table, so the two never import each
+other, and links each one carrying a `homeLink`, in table order, for a session
+`mayOpen` says the entry's guard would let in. `App.tsx` maps the table to
+`<Route>`s, and the shell finds the current entry with `matchPath` (an unknown
+path falls back to the Home layout), so **adding a signed-in page means adding
+one entry to that table** and nothing in `App.tsx` or the shell. (The router is
+`BrowserRouter`, so route `handle` / `useMatches` is not available; the table is
+the single source instead.) The back link is withheld from a session confined to
 `/change-password`. An entry with `permissions` (Accounts, Audit) is wrapped in
 its own `ProtectedRoute` inside the shell. Sign out shows a pending state while the logout is in flight.
 When the logout fails or comes back CSRF-expired, the auth context's `logout`

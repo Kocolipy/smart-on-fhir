@@ -2,8 +2,7 @@ import { Link } from "react-router-dom";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { holds, holdsAny } from "@/auth/permissions";
-import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
+import { holds, mayOpen, requirementOf } from "@/auth/permissions";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
@@ -16,11 +15,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { ADMINISTRATION_PERMISSIONS } from "./accounts-api";
-import { AUDIT_EVENTS } from "./audit-api";
 import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./home-api";
 
 const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
+
+/** A signed-in page as Home reads it to link it. */
+export interface LinkablePage {
+  /** Its link's label on Home, which links it for every session that may open it. Omit to leave it off Home. */
+  homeLink?: string;
+  path: string;
+  /** Renders only for a session holding at least one of these. Omit for every signed-in session. */
+  permissions?: readonly Permission[];
+}
 
 /**
  * The counter's state and the two changes to it. The current count is read
@@ -118,10 +124,13 @@ function CounterControls({
  * Every signed-in User lands here; what it shows follows the session's
  * Permissions. The counter is read only with `counter:read` and changed only
  * with `counter:write` — baseline Permissions every active User holds, so in
- * practice every signed-in User has the counter — and the link to the Accounts
- * page appears only for a User who may see one of its views.
+ * practice every signed-in User has the counter. It links each page it is
+ * handed (the other `SIGNED_IN_PAGES` entries, in registry order) that carries
+ * a link label, exactly when that page's route guard would open it for this
+ * session (`mayOpen`). It is handed them rather than importing the registry,
+ * which imports Home.
  */
-export function Home() {
+export function Home({ pages }: { pages: readonly LinkablePage[] }) {
   const { user } = useAuth();
   const { increment, isUpdating, reset, view } = useCounter();
 
@@ -143,19 +152,13 @@ export function Home() {
           view={view}
         />
         <div className="ml-auto flex gap-4">
-          {holdsAny(user, ADMINISTRATION_PERMISSIONS) ? (
-            <Link className={LINK_CLASS} to="/accounts">
-              Manage accounts
-            </Link>
-          ) : null}
-          {holds(user, AUDIT_EVENTS.permission) ? (
-            <Link className={LINK_CLASS} to="/audit">
-              View audit log
-            </Link>
-          ) : null}
-          <Link className={LINK_CLASS} to={CREDENTIAL_CHANGE_PATH}>
-            Change password
-          </Link>
+          {pages
+            .filter((page) => page.homeLink && mayOpen(user, requirementOf(page.permissions)))
+            .map((page) => (
+              <Link className={LINK_CLASS} key={page.path} to={page.path}>
+                {page.homeLink}
+              </Link>
+            ))}
         </div>
       </CardFooter>
     </Card>

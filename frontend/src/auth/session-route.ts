@@ -7,7 +7,7 @@
  */
 
 import type { Permission, SessionCheckFailure } from "./api";
-import { holdsAny } from "./permissions";
+import { mayOpen, type PageRequirement } from "./permissions";
 import type { SessionEndReason, SignInReasonState } from "./sign-in-reason";
 
 /** The login route, which is also where an unauthenticated visitor is sent. */
@@ -23,11 +23,11 @@ export const DEFAULT_DESTINATION = "/";
 export const CREDENTIAL_CHANGE_PATH = "/change-password";
 
 /**
- * What a route requires of the current visitor: a guest, any authenticated
- * session, or an authenticated session holding at least one of the named
- * Permissions.
+ * What a route requires of the current visitor: a guest, or what a signed-in
+ * page requires — any authenticated session, or one holding at least one of
+ * the named Permissions.
  */
-export type SessionRequirement = "authenticated" | "guest" | { anyOf: readonly Permission[] };
+export type SessionRequirement = "guest" | PageRequirement;
 
 /**
  * State a redirect carries forward.
@@ -124,11 +124,9 @@ export function resolveSessionRoute({
  * is routed away to the default destination, never rendered empty.
  */
 function authenticatedRoute(
-  requires: Exclude<SessionRequirement, "guest">,
-  permissions: readonly Permission[] = [],
+  requires: PageRequirement,
+  permissions: readonly Permission[] | undefined,
 ): SessionRoute {
-  if (requires === "authenticated" || holdsAny({ permissions }, requires.anyOf)) {
-    return { kind: "render" };
-  }
+  if (mayOpen({ permissions }, requires)) return { kind: "render" };
   return { kind: "redirect", to: DEFAULT_DESTINATION };
 }

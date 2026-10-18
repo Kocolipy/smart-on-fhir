@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { holds, holdsAny } from "./permissions";
+import { holds, holdsAny, mayOpen, requirementOf } from "./permissions";
 
 describe("holds", () => {
   it("is true only for a Permission the session holds", () => {
@@ -15,6 +15,10 @@ describe("holds", () => {
     expect(holds(null, "user:read")).toBe(false);
     expect(holds(undefined, "user:read")).toBe(false);
   });
+
+  it("is false for a session whose Permissions are not known yet", () => {
+    expect(holds({}, "user:read")).toBe(false);
+  });
 });
 
 describe("holdsAny", () => {
@@ -28,5 +32,31 @@ describe("holdsAny", () => {
     expect(holdsAny(user, ["user:read", "connector:read"])).toBe(false);
     expect(holdsAny(user, [])).toBe(false);
     expect(holdsAny(null, ["ops:read"])).toBe(false);
+  });
+});
+
+describe("requirementOf", () => {
+  it("requires only a signed-in session of a page that names no Permissions", () => {
+    expect(requirementOf(undefined)).toBe("authenticated");
+  });
+
+  it("requires any one of the Permissions a page names", () => {
+    expect(requirementOf(["user:read", "audit:read"])).toEqual({
+      anyOf: ["user:read", "audit:read"],
+    });
+  });
+});
+
+describe("mayOpen", () => {
+  it("opens a page requiring only a signed-in session to every session", () => {
+    expect(mayOpen({ permissions: [] }, "authenticated")).toBe(true);
+  });
+
+  it("opens a page that names Permissions only to a session holding one of them", () => {
+    const user = { permissions: ["audit:read"] as const };
+    expect([
+      mayOpen(user, { anyOf: ["user:read", "audit:read"] }),
+      mayOpen(user, { anyOf: ["user:read"] }),
+    ]).toEqual([true, false]);
   });
 });
