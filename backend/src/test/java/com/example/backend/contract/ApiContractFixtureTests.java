@@ -190,6 +190,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         authentication(all);
         self(all);
         counter(all);
+        patient(all);
         administration(all);
         connectors(all);
         deadlockedWrites(all);
@@ -343,6 +344,33 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 t.expect(t.csrf(t.post(path)).cookie(confined), 403);
                 t.expect(t.post(path).cookie(admin), 403);
                 t.expect(t.csrf(t.post(path)), 401);
+            }
+        });
+    }
+
+    // ---- /api/patient/{id} --------------------------------------------------------------
+
+    private static void patient(List<Fixture> all) {
+        add(all, "patient: GET as FHIR, an unknown id's OperationOutcome, and the refusals", t -> {
+            // The fixture's own row, not a development fixture: this context seeds none.
+            UUID id = UUID.randomUUID();
+            String nric = "T" + ThreadLocalRandom.current().nextInt(1_000_000, 10_000_000) + "Z";
+            t.jdbc.update("INSERT INTO patients (id, nric, name_text, gender, birth_date)"
+                    + " VALUES (?, ?, 'Contract Fixture', 'unknown', '1990-01-02')", id, nric);
+            try {
+                // patient:read is baseline: every active User holds it, the Superuser and a User
+                // in no mapped Group alike. Only a confined session lacks it.
+                Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+                Cookie user = t.settle(t.provision(true));
+                Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
+                t.expect(t.get("/api/patient/" + id).cookie(admin), 200);
+                t.expect(t.get("/api/patient/" + id).cookie(user), 200);
+                t.expect(t.get("/api/patient/" + UUID.randomUUID()).cookie(user), 404);
+                t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
+                t.expect(t.get("/api/patient/" + id), 401);
+            } finally {
+                // The app login holds no DELETE on patients; the owner removes the row.
+                t.logins.owner().jdbc().update("DELETE FROM patients WHERE id = ?", id);
             }
         });
     }

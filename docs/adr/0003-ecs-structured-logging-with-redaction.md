@@ -152,7 +152,8 @@ unauthenticated.
   `user-administration`.
 - An operation with no local name has an action that no other such operation
   shares (`LogEventTests.everyOperationIsIdentifiableFromItsRecord`).
-  `ROLE_MAPPING_STARTUP` therefore carries a local name beside
+  `ROLE_MAPPING_STARTUP` and `PATIENT_SEED` (the development patient
+  fixtures' startup seeding) therefore carry a local name beside
   `APPLICATION_STARTUP`.
 
 #### Operations with no event.action
@@ -196,6 +197,7 @@ holds this list to the code.
 | `ROLE_GRANT`               | `user-administration`         | `identity.role_grant`               |
 | `ROLE_REVOKE`              | `user-administration`         | `identity.role_revoke`              |
 | `ROLE_MAPPING_STARTUP`     | `application-startup`         | `authorization.role_mapping`        |
+| `PATIENT_SEED`             | `application-startup`         | `patient.seed`                      |
 | `SESSION_START`            | `session-start`               | —                                   |
 | `SESSION_END`              | `session-end`                 | —                                   |
 | `AUDIT_RETENTION`          | — (exception, above)          | `audit.retention`                   |

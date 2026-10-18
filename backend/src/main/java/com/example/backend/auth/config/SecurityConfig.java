@@ -356,6 +356,8 @@ public class SecurityConfig {
                                 .hasAuthority(Permission.COUNTER_READ.value())
                         .requestMatchers(HttpMethod.POST, "/api/count/increment", "/api/count/reset")
                                 .hasAuthority(Permission.COUNTER_WRITE.value())
+                        .requestMatchers(read("/api/patient/*"))
+                                .hasAuthority(Permission.PATIENT_READ.value())
                         // Operational telemetry (the Prometheus scrape) and every other
                         // actuator endpoint but health, on whichever port actuator is served.
                         // A scrape describes the whole service's traffic, so it needs ops:read.

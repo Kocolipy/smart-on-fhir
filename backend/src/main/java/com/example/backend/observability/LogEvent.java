@@ -682,6 +682,8 @@ public final class LogEvent {
         ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping",
                 onSuccess("Role mapping validated"),
                 onChange("Sessions issued under another role mapping ended")),
+        PATIENT_SEED(Action.APPLICATION_STARTUP, "patient.seed",
+                onSuccess("Development patient fixtures seeded")),
         SESSION_START(Action.SESSION_START, null,
                 onSuccess("Session started")),
         SESSION_END(Action.SESSION_END, null,

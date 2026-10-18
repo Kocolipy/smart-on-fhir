@@ -33,7 +33,7 @@ info:
     requires, from the closed set `user:read`, `user:write`, `group:read`,
     `group:write`, `audit:read`, `connector:read`, `connector:write`,
     `connector:token`, `ops:read`, `counter:read`, `counter:write`,
-    `patient:read` (which no operation declares yet). A session's Permissions are
+    `patient:read`. A session's Permissions are
     the baseline `counter:read`, `counter:write` and `patient:read`, which every
     active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
     reports them. A caller lacking the declared Permission gets a bodiless
@@ -153,6 +153,7 @@ servers:
 tags:
   - name: Authentication
   - name: Counter
+  - name: Patient
   - name: Administration
   - name: Connectors
   - name: Audit
@@ -699,6 +700,52 @@ paths:
           description: |
             The CSRF token is missing or stale (see `CsrfTokenRejected`), or the
             caller does not hold `counter:write` (see `PermissionRequired`).
+  /api/patient/{id}:
+    get:
+      tags: [Patient]
+      summary: Read a patient as a FHIR R5 Patient
+      description: |
+        Returns the patient held under `id` as a base FHIR R5 `Patient` resource
+        (no `meta`, so no `meta.profile`), rendered from the service's own tables
+        rather than proxied from a FHIR server (ADR 0014). Read-only: nothing in
+        the API changes a patient.
+
+        Requires `patient:read`, a baseline Permission every active User holds,
+        so only a session confined by a required password change is refused.
+        Both documented answers are FHIR JSON, `application/fhir+json;
+        fhirVersion=5.0`; the refusals below are the application API's own.
+      operationId: getPatient
+      security:
+        - sessionCookie: [patient:read]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The patient's id, a UUID, which is also its FHIR resource id.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The patient.
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirPatient"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
+        "404":
+          description: |
+            No patient is held under `id`: an `OperationOutcome` with one issue,
+            `severity: error` and `code: not-found`, whose `diagnostics` are
+            generic. An ordinary answer, not a fault — the SPA shows it as "No
+            patient in context".
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
   /api/admin/accounts:
     get:
       tags: [Administration]
@@ -3382,6 +3429,93 @@ components:
             Whether this is the Superuser Group — the server-seeded Admin group,
             whose Role holds every Permission, which cannot be renamed or deleted
             and whose Bootstrap Admin membership is frozen.
+    FhirPatient:
+      type: object
+      description: |
+        A base FHIR R5 `Patient`, with exactly the elements the service holds.
+        `name[0].text` is authoritative; `family` and `given` are left out when
+        the name is not split. Age is never sent: it is derived from `birthDate`.
+      required: [resourceType, id, identifier, name, gender, birthDate]
+      additionalProperties: false
+      properties:
+        resourceType:
+          type: string
+          enum: [Patient]
+        id:
+          type: string
+          format: uuid
+        identifier:
+          type: array
+          minItems: 1
+          maxItems: 1
+          description: Exactly one, the NRIC. Dummy values only; their shape is not checked.
+          items:
+            type: object
+            required: [system, value]
+            additionalProperties: false
+            properties:
+              system:
+                type: string
+                enum: ["https://fhir.synapxe.sg/NamingSystem/nric"]
+              value:
+                type: string
+                minLength: 1
+        name:
+          type: array
+          minItems: 1
+          maxItems: 1
+          description: Exactly one, the official name.
+          items:
+            type: object
+            required: [use, text]
+            additionalProperties: false
+            properties:
+              use:
+                type: string
+                enum: [official]
+              text:
+                type: string
+                minLength: 1
+              family:
+                type: string
+              given:
+                type: array
+                minItems: 1
+                items:
+                  type: string
+        gender:
+          type: string
+          enum: [male, female, other, unknown]
+        birthDate:
+          type: string
+          format: date
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    FhirOperationOutcome:
+      type: object
+      description: A FHIR R5 `OperationOutcome` with one issue.
+      required: [resourceType, issue]
+      additionalProperties: false
+      properties:
+        resourceType:
+          type: string
+          enum: [OperationOutcome]
+        issue:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: object
+            required: [severity, code, diagnostics]
+            additionalProperties: false
+            properties:
+              severity:
+                type: string
+                enum: [error]
+              code:
+                type: string
+                enum: [not-found]
+              diagnostics:
+                type: string
     CountResponse:
       type: object
       required: [count]

@@ -351,6 +351,8 @@ public class ArchitectureTest {
                     "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedDormantDevFixture",
                     "startup seeding of the development fixtures: the next start seeds"),
+            Map.entry("com.example.backend.patient.application.PatientSeedService#seedDevFixtures",
+                    "startup seeding of the development patient fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimRoleRevocationService#revokeRoles",
                     "the dormancy job's Role revocation, joining the run's batch transaction: a"
                             + " scheduled path, which the next run covers"),
@@ -713,6 +715,11 @@ public class ArchitectureTest {
             // counter and lifecycle are leaves, which no entry names: removing one must not break
             // another module.
             Map.entry("counter", Set.of("auth")),
+            // patient is a leaf too. It may reach auth, and nothing else that holds state: not
+            // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches
+            // observability for one thing: its seeder's INFO record is built with LogEvent, as
+            // every record is (be-log-record-outside-log-event).
+            Map.entry("patient", Set.of("auth", "observability")),
             Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")));
 
     private static final String ROOT_PACKAGE = "com.example.backend";
