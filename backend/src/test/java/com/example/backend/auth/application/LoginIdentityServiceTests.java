@@ -258,6 +258,29 @@ class LoginIdentityServiceTests {
                 .hasMessage("User not found");
     }
 
+    /** A missing name is the unknown name it is too, not a failure of normalization. */
+    @Test
+    void refusesAMissingUsernameTheWayItRefusesAnUnknownOne() {
+        assertThatThrownBy(() -> service.loadUserByUsername(null))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    /**
+     * A name ending in whitespace names nobody, even on a store that ignores trailing spaces as
+     * SQL Server does and so would find {@code ada} for {@code ada } if it were asked: the refusal
+     * is decided before the lookup, not by it.
+     */
+    @Test
+    void refusesANameEndingInWhitespaceEvenWhereTheStoreWouldFindTheUserItPadsOnto() {
+        users.ignoreTrailingSpacesInNameLookupsAsSqlServerDoes();
+        users.given(ScimIdentities.user("ada"));
+
+        assertThatThrownBy(() -> service.loadUserByUsername("ada "))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
     /**
      * A credentialless identity — no password hash ever set — must still produce
      * {@code UserDetails} with a non-null password: {@code User.withUsername} throws on
