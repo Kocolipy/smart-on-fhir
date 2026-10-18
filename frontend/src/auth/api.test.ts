@@ -173,6 +173,7 @@ describe("the user decoder", () => {
       "group:read",
       "group:write",
       "ops:read",
+      "patient:read",
       "user:read",
       "user:write",
     ];

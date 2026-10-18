@@ -201,7 +201,7 @@ class LoginIdentityServiceTests {
                 List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
 
         assertThat(mapped.loadEpicLinkedUser("eGRACE1").map(LoginIdentityServiceTests::authoritiesOf))
-                .contains(List.of("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write"));
+                .contains(List.of(HELPDESK_AUTHORITIES));
     }
 
     /** A flagged User the Epic path links to is still reported locked when it is locked. */
@@ -422,7 +422,7 @@ class LoginIdentityServiceTests {
 
     /**
      * Baseline access is what being an active identity means, so an identity outside the
-     * Admin group holds {@code ROLE_USER} and the baseline counter Permissions, and nothing else.
+     * Admin group holds {@code ROLE_USER} and the baseline Permissions, and nothing else.
      */
     @Test
     void anIdentityOutsideTheAdminGroupHoldsUserAuthorityAlone() {
@@ -504,7 +504,7 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly(BASELINE);
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
+                .containsExactly(HELPDESK_AUTHORITIES);
     }
 
     /** And the converse: a removal likewise takes effect at the next login, not before. */
@@ -516,13 +516,13 @@ class LoginIdentityServiceTests {
 
         UserDetails issuedWhileHelpdesk = mapped.loadUserByUsername("ada");
         assertThat(authoritiesOf(issuedWhileHelpdesk))
-                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
+                .containsExactly(HELPDESK_AUTHORITIES);
 
         groups.replace(helpdesk.replacedWith(helpdesk.displayName(), List.of(), ScimIdentities.NOW))
                 .orElseThrow();
 
         assertThat(authoritiesOf(issuedWhileHelpdesk))
-                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
+                .containsExactly(HELPDESK_AUTHORITIES);
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
     }
 
@@ -535,7 +535,7 @@ class LoginIdentityServiceTests {
 
         UserDetails details = mapped.loadUserByUsername("ada");
 
-        assertThat(authoritiesOf(details)).containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
+        assertThat(authoritiesOf(details)).containsExactly(HELPDESK_AUTHORITIES);
         assertThat(details.isEnabled()).isFalse();
     }
 
@@ -574,7 +574,7 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
-                        "user:read", "user:write");
+                        "patient:read", "user:read", "user:write");
     }
 
     /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
@@ -586,12 +586,12 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
-                        "user:read");
+                        "patient:read", "user:read");
     }
 
     /**
      * No mapped Group: no Role's Permission, and baseline access all the same — which includes
-     * the counter's Permissions, held by every active User whatever its Groups.
+     * the baseline Permissions, held by every active User whatever its Groups.
      */
     @Test
     void aUserInNoMappedGroupHoldsOnlyTheBaselinePermissions() {
@@ -659,10 +659,15 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * What every active User holds with no mapped Group: {@code ROLE_USER} and the counter's two
+     * What every active User holds with no mapped Group: {@code ROLE_USER} and the baseline
      * Permissions, sorted by name as Spring Security's {@code User} keeps them.
      */
-    private static final String[] BASELINE = {"ROLE_USER", "counter:read", "counter:write"};
+    private static final String[] BASELINE =
+            {"ROLE_USER", "counter:read", "counter:write", "patient:read"};
+
+    /** The baseline beside the Helpdesk Role's {@code user:read} and {@code user:write}, sorted. */
+    private static final String[] HELPDESK_AUTHORITIES =
+            {"ROLE_USER", "counter:read", "counter:write", "patient:read", "user:read", "user:write"};
 
     private List<String> authoritiesOf(String userName) {
         return authoritiesOf(service.loadUserByUsername(userName));

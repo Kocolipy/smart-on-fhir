@@ -427,7 +427,10 @@ directory that a test run writes into belongs on this list.
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
-— there is no role. Each API module declares the Permission every endpoint it
+— there is no role. `PERMISSIONS` in `src/auth/api.ts` is the closed set the
+backend's `Permission` enum defines, and a session reporting a name outside it
+fails decoding. It includes `patient:read`, a baseline Permission every User
+holds, which no page declares yet. Each API module declares the Permission every endpoint it
 owns requires (Users `user:read`, Groups `group:read`, connectors
 `connector:read`, the audit trail `audit:read`, the counter `counter:read`),
 `accounts-api.ts` derives `ADMINISTRATION_PERMISSIONS` from its three listings,

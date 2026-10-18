@@ -227,7 +227,7 @@ issue and on rotation alike.
 **Baseline access**:
 What every active User holds without any Role and without a required password
 change: self-service, spelled `ROLE_USER` in the session and not a Role, and the
-baseline Permissions `counter:read` and `counter:write`.
+baseline Permissions `counter:read`, `counter:write` and `patient:read`.
 
 **Counter**:
 Each User's own tally at `/api/count`, the application's sample feature, read

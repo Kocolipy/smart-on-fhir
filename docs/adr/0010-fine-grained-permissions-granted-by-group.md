@@ -7,7 +7,9 @@ Date: 2026-10-03
 Accepted. It supersedes the original design's
 authorization matrix — reachability per authority (`ROLE_USER`, `ROLE_ADMIN`)
 declared as path and method rules in deployment configuration — replaces the earlier
-method-security plan, and closes App-Standards finding USR-2.
+method-security plan, and closes App-Standards finding USR-2. The closed
+Permission set and the baseline Permissions it lists are extended by the
+2026-10-18 addendum below.
 
 ## Context
 
@@ -99,3 +101,12 @@ for access.
   Users in Group X only"), editing Roles or the mapping at runtime or through any
   UI, and Group nesting. A Permission applies to every resource of its kind, and
   a mapping changes only by redeploying.
+
+## Addendum (2026-10-18): `patient:read` is a baseline Permission
+
+`patient:read` joins the closed set, and it is baseline on the same terms as
+`counter:read` and `counter:write`: every active User holds it at sign-in,
+whatever its Groups, because reading a patient is the application's basic
+capability rather than an administrative one. A confined session does not hold
+it, and the Superuser Role is granted it in the mapping, since startup still
+requires that Role to hold every Permission.

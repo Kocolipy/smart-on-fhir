@@ -67,6 +67,7 @@ app:
           - ops:read
           - counter:read
           - counter:write
+          - patient:read
     groups:
       - id: 00000000-0000-4000-8000-00000000a001
         role: Superuser
