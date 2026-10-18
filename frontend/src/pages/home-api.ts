@@ -26,13 +26,13 @@ export const DEFAULT_PATIENT_ID = "00000000-0000-4000-8000-00000000c001";
 const NRIC_SYSTEM = "https://fhir.synapxe.sg/NamingSystem/nric";
 
 /**
- * A FHIR R5 administrative gender code. Spelled out rather than imported:
+ * The FHIR R5 administrative gender codes. Spelled out rather than imported:
  * `@types/fhir` is a devDependency, which production source may not import
  * (`cq-no-devdep-in-prod`), so `home-api.test.ts` holds this to `fhir5`'s own.
  */
-export type PatientGender = "male" | "female" | "other" | "unknown";
+const GENDERS = ["male", "female", "other", "unknown"] as const;
 
-const GENDERS: readonly PatientGender[] = ["male", "female", "other", "unknown"];
+export type PatientGender = (typeof GENDERS)[number];
 
 /** A FHIR `date` to the day, the precision the backend serves a birth date at. */
 const DAY_PRECISION_DATE = /^\d{4}-\d{2}-\d{2}$/;
