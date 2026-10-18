@@ -143,6 +143,28 @@ describe("Home", () => {
     expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
   });
 
+  it("shows the Patient card above the counter's card", async () => {
+    await renderHome(
+      {
+        "GET /api/patient/00000000-0000-4000-8000-00000000c001": json({
+          birthDate: "1985-03-12",
+          gender: "male",
+          identifier: [{ system: "https://fhir.synapxe.sg/NamingSystem/nric", value: "S1234567A" }],
+          name: [{ text: "Tan Wei Ming", use: "official" }],
+          resourceType: "Patient",
+        }),
+      },
+      holding(["patient:read", "counter:read", "counter:write"]),
+    );
+    await screen.findByText("Tan Wei Ming");
+
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Home",
+      "Patient",
+      "Baseline is live",
+    ]);
+  });
+
   it("renders the original home page and signed-in user", async () => {
     await renderHome();
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();

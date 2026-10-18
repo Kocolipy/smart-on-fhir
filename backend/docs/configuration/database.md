@@ -24,8 +24,10 @@ fails startup. The test JVMs drop all of them (`pom.xml`).
 
 - **`backend_app`** holds full DML on the tables whose lifecycle the application
   owns (the `scim_*` directory tables and `user_counters`) and narrower grants
-  where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`
-  and `audit_events`, no `UPDATE` on `scim_user_password_history`, and
+  where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`,
+  `audit_events` and `patients` (V2; the insert is the development patient
+  seeder's, and nothing changes or removes a patient), no `UPDATE` on
+  `scim_user_password_history`, and
   `SELECT` only on `scheduled_job_locks` and `scim_seed_locks` (a locking read
   needs no more), so the app login cannot change or remove
   the row a job or seeding serializes on. An `UPDATE` or `DELETE` of a recorded event from

@@ -52,6 +52,15 @@ change, when the backend side moves. What the SPA has to honour:
   session and `ProtectedRoute` sends the user to login, the redirect carrying
   the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
   looks like a random sign-out to the user.
+- **A patient read answers FHIR, and `404` there means "not there".**
+  `GET /api/patient/{id}` answers `application/fhir+json; fhirVersion=5.0`
+  — an R5 `Patient`, or for an id no patient is held under a `404` with a
+  `not-found` `OperationOutcome` — and the SPA sends no `Accept` header that
+  would refuse it. Its declaration (`PATIENT`, `src/pages/home-api.ts`) opts in
+  to `absentOnNotFound`, so that `404` is the Patient card's "No patient in
+  context" and reports nothing to the page status; any other failure is
+  "Couldn't load patient". Its `401` and `403` are the application API's own,
+  as everywhere.
 - **A request body is JSON, and says so.** The backend reads a request body
   through its JSON converter only, so a body sent without
   `Content-Type: application/json` is refused `415` before any handler runs.

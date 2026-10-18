@@ -130,6 +130,10 @@ FAST_GATE=(
   com/example/backend/observability/SessionHashTests
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
   com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
+  com/example/backend/patient/application/PatientSeedServiceTests
+  com/example/backend/patient/config/PatientSeedConfigTests
+  com/example/backend/patient/controller/PatientControllerTests
+  com/example/backend/patient/domain/PatientTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
   com/example/backend/scim/InMemoryScimGroupRepositoryContractTests

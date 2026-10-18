@@ -234,8 +234,8 @@ Each User's own tally at `/api/count`, the application's sample feature, read
 and changed through the baseline Permissions.
 
 **Development fixtures**:
-The development Role mapping's Groups and Users, seeded only when
-`APP_DEV_FIXTURES_ENABLED` is on.
+The development Role mapping's Groups and Users, and the dummy Patients, seeded
+only when `APP_DEV_FIXTURES_ENABLED` is on.
 
 **Self-service**:
 An operation needing a signed-in session and no Permission, acting only on the
@@ -367,6 +367,26 @@ The daily scheduled job that deletes audit events older than the retention perio
 **Scheduled job lock**:
 The per-job row a scheduled job run holds, so two runs of one job never overlap
 across instances.
+
+### Patients
+
+Rules: [patient](docs/domain/patient.md). Decided in ADR 0014.
+
+**Patient**:
+The person care is about, as this service holds them: one NRIC, an official
+name whose text is authoritative, a gender and a date of birth, served as a FHIR
+R5 `Patient` resource at `GET /api/patient/{id}`. Age is derived from the date of
+birth, never held.
+_Avoid_: patient record, demographics, subject (a Patient is no User)
+
+**Default patient**:
+The one Patient Home shows until a SMART launch supplies the patient in context:
+a development fixture under a fixed id, so it exists only where the development
+fixtures are on.
+
+**Patient card**:
+Home's card showing the Default patient's name, NRIC, gender, date of birth and
+age, or "No patient in context" when there is none.
 
 ### Database
 

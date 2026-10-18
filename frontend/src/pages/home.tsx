@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 
 import { COUNTER, INCREMENT_COUNTER, RESET_COUNTER } from "./home-api";
+import { PatientCard } from "./patient-card";
 
 const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
 
@@ -122,8 +123,10 @@ function CounterControls({
  * Home, the signed-in landing page at `/`.
  *
  * Every signed-in User lands here; what it shows follows the session's
- * Permissions. The counter is read only with `counter:read` and changed only
- * with `counter:write` — baseline Permissions every active User holds, so in
+ * Permissions. The Patient card comes first: the default patient, read with
+ * `patient:read`, a baseline Permission every active User holds. The counter
+ * is read only with `counter:read` and changed only with `counter:write` —
+ * baseline Permissions every active User holds, so in
  * practice every signed-in User has the counter. It links each page it is
  * handed (the other `SIGNED_IN_PAGES` entries, in registry order) that carries
  * a link label, exactly when that page's route guard would open it for this
@@ -135,32 +138,37 @@ export function Home({ pages }: { pages: readonly LinkablePage[] }) {
   const { increment, isUpdating, reset, view } = useCounter();
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Baseline is live</CardTitle>
-        <CardDescription>React + Vite + Tailwind, with the tooling gates wired up.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <CounterReading view={view} />
-      </CardContent>
-      <CardFooter className="gap-2">
-        <CounterControls
-          increment={increment}
-          isUpdating={isUpdating}
-          may={(request) => holds(user, request.permission)}
-          reset={reset}
-          view={view}
-        />
-        <div className="ml-auto flex gap-4">
-          {pages
-            .filter((page) => page.homeLink && mayOpen(user, requirementOf(page.permissions)))
-            .map((page) => (
-              <Link className={LINK_CLASS} key={page.path} to={page.path}>
-                {page.homeLink}
-              </Link>
-            ))}
-        </div>
-      </CardFooter>
-    </Card>
+    <div className="flex w-full flex-col gap-4">
+      <PatientCard />
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>Baseline is live</CardTitle>
+          <CardDescription>
+            React + Vite + Tailwind, with the tooling gates wired up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CounterReading view={view} />
+        </CardContent>
+        <CardFooter className="gap-2">
+          <CounterControls
+            increment={increment}
+            isUpdating={isUpdating}
+            may={(request) => holds(user, request.permission)}
+            reset={reset}
+            view={view}
+          />
+          <div className="ml-auto flex gap-4">
+            {pages
+              .filter((page) => page.homeLink && mayOpen(user, requirementOf(page.permissions)))
+              .map((page) => (
+                <Link className={LINK_CLASS} key={page.path} to={page.path}>
+                  {page.homeLink}
+                </Link>
+              ))}
+          </div>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }
