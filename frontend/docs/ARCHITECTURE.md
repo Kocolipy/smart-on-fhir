@@ -197,6 +197,19 @@ reach the idle timeout. The pager names a total only once a read of
 the current query has stated one, and never fewer pages than the one shown, so
 a page still loading or one that failed reads "Page 3", not "Page 3 of 1".
 
+`pages/patient-card.tsx` is Home's Patient card, above the counter's. It reads
+the default patient, `GET /api/patient/{DEFAULT_PATIENT_ID}`, through the
+`PATIENT` declaration in `pages/home-api.ts` (`patient:read`, opting in to
+`absent`), whose decoder reads the R5 `Patient` (typed by `@types/fhir`'s
+`fhir5`) down to the name's `text`, the NRIC, the gender code and the birth
+date. `DEFAULT_PATIENT_ID` copies the backend seeder's fixed id
+(`DevPatientFixtures`), which owns it. The card shows the loading line, the
+patient — every field a plain text node, never markup — with the age beside
+the date of birth (completed years on today's date in Asia/Singapore, from
+the card's injectable `Clock`), "No patient in context" for the `404`, and
+nothing for any other failure, whose "Couldn't load patient" is on the
+layout's error line; it offers no retry.
+
 `pages/listing-body.tsx` is the one listing body Accounts, Connectors and Audit
 render a gated read through: the loading line, the empty line, and a blank body
 for a failure — whose copy is on the page's error line, so a failure is never
@@ -210,7 +223,7 @@ permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 copy the page supplies, because only the page knows what was being attempted.
 
-Every listing read — Users, Groups, connectors, the audit trail and the Home counter — goes
+Every listing read — Users, Groups, connectors, the audit trail, the Home counter and Home's patient — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the read's
 declaration (from its API module) with the declaration's arguments and its
 failure copy, and the hook reports to the page status around it; it sends nothing without the Permission, resets
@@ -230,7 +243,8 @@ shut) withdraws what it reported. A page switches on the view rather than
 re-checking the read's Permission or rebuilding the states from loose flags.
 
 A read whose `404` is an ordinary answer — the thing asked about may simply not
-be there, and the page has a normal way to say so ("No patient in context") —
+be there, and the page has a normal way to say so (the Patient card's "No
+patient in context", its first user) —
 opts in on its declaration with `absentOnNotFound: true`, and its view gains a
 sixth member, `absent`. The opt-in belongs on the declaration, beside the path
 it describes, because whether "not found" is news is a fact about the endpoint,
@@ -303,7 +317,10 @@ that takes `unknown` and returns the value or throws `DecodeError`, built from
 the primitives in `lib/decode.ts`, and `apiFetch` turns a success body that does
 not decode into `failed` with no `status`. Each wire type's decoder lives beside
 the type, in the module that owns it. `lib/instant.ts` is the one way an instant
-from the backend is written on a page.
+from the backend is written on a page, and `lib/calendar.ts` the one way a
+calendar date is (`d MMM yyyy`) and the one place "today" is read: through a
+`Clock` a component is handed, `systemClock` by default, so a test states the
+day it runs on and no page writes an inline `new Date()`.
 
 It lives in `lib/` because `auth/` sits above it and it must not know about
 sessions. That places it under `mb-lib-is-a-leaf`, so it stays
@@ -416,23 +433,23 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table, deliberately flat:
 
-| Path               | Element                                                                                          | Notes                                                                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                                          |
-| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The counter by `counter:read` / `counter:write` (baseline, held by every User), a link to each entry with a `homeLink` exactly when its guard would open it |
-| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                                        |
-| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                                        |
-| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                                               |
-| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                                                     |
+| Path               | Element                                                                                          | Notes                                                                                                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                                                                              |
+| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The Patient card by `patient:read`, the counter by `counter:read` / `counter:write` (baseline, held by every User), a link to each entry with a `homeLink` exactly when its guard would open it |
+| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                                                                            |
+| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                                                                            |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                                                                                   |
+| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                                                                                         |
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
 — there is no role. `PERMISSIONS` in `src/auth/api.ts` is the closed set the
 backend's `Permission` enum defines, and a session reporting a name outside it
-fails decoding. It includes `patient:read`, a baseline Permission every User
-holds, which no page declares yet. Each API module declares the Permission every endpoint it
+fails decoding. Each API module declares the Permission every endpoint it
 owns requires (Users `user:read`, Groups `group:read`, connectors
-`connector:read`, the audit trail `audit:read`, the counter `counter:read`),
+`connector:read`, the audit trail `audit:read`, the counter `counter:read`,
+Home's patient `patient:read`, a baseline Permission every User holds),
 `accounts-api.ts` derives `ADMINISTRATION_PERMISSIONS` from its three listings,
 and `src/auth/permissions.ts` holds the `holds` / `holdsAny` / `mayOpen`
 checks; a route states its requirement as `requiredPermissions`, read off those
