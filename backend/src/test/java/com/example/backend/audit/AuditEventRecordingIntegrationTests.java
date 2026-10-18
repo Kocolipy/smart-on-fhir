@@ -23,6 +23,7 @@ import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
@@ -86,6 +87,9 @@ class AuditEventRecordingIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimLoginStateRepository loginStates;
 
     @Autowired
     private InMemoryAccountSessions accountSessions;
@@ -278,7 +282,7 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void aLockoutStandingSinceLongAgoProducesNoLiftAtTheNextAttempt() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> users.updateLoginState(
+        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
                 user.id(),
                 new ScimLoginState(
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(3600))));
@@ -315,7 +319,7 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void anUnlockOfAUserServingNoLockoutRecordsOnlyTheRunItCleared() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> users.updateLoginState(
+        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
                 user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
@@ -334,7 +338,7 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void anUnlockOfALockedUserRecordsTheRunTheLockAndTheDormancyBasis() throws Exception {
         ScimUser user = require(USER);
-        transactions.executeWithoutResult(status -> users.updateLoginState(
+        transactions.executeWithoutResult(status -> loginStates.updateLoginState(
                 user.id(), new ScimLoginState(
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(60))));
 
@@ -551,7 +555,7 @@ class AuditEventRecordingIntegrationTests {
     private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);
-            users.updateLoginState(
+            loginStates.updateLoginState(
                     user.id(), ScimLoginState.of(user.login().passwordHash()));
             // Arranged through the store, which keeps what it is given: active again, and with
             // the shared seeded baseline's unflagged credential and unmoved dormancy basis.

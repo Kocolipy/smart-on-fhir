@@ -12,6 +12,7 @@ import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
@@ -65,6 +66,9 @@ class LoginStateSerializationIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
+
+    @Autowired
+    private ScimLoginStateRepository loginStates;
 
     @Autowired
     private ScimWriteLocks writeLocks;
@@ -169,7 +173,7 @@ class LoginStateSerializationIntegrationTests {
         CountDownLatch release = new CountDownLatch(1);
         Future<?> holder = racers.submit(() -> inTransaction(() -> {
             writeLocks.lock(List.of(userId));
-            users.updateLoginState(userId, users.findById(userId).orElseThrow().login());
+            loginStates.updateLoginState(userId, users.findById(userId).orElseThrow().login());
             holding.countDown();
             await(release);
         }));

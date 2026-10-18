@@ -13,6 +13,7 @@ import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimRoleRevocation;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -95,6 +96,7 @@ public class DormancyService {
     private static final Logger log = LoggerFactory.getLogger(DormancyService.class);
 
     private final ScimUserRepository users;
+    private final ScimLoginStateRepository loginStates;
     private final ScimGroupRepository groups;
     private final ScimWriteLocks writeLocks;
     private final ScimRoleRevocation roleRevocation;
@@ -108,6 +110,7 @@ public class DormancyService {
 
     public DormancyService(
             ScimUserRepository users,
+            ScimLoginStateRepository loginStates,
             ScimGroupRepository groups,
             ScimWriteLocks writeLocks,
             ScimRoleRevocation roleRevocation,
@@ -119,6 +122,7 @@ public class DormancyService {
             AuditTrail audit,
             Clock clock) {
         this.users = users;
+        this.loginStates = loginStates;
         this.groups = groups;
         this.writeLocks = writeLocks;
         this.roleRevocation = roleRevocation;
@@ -145,7 +149,8 @@ public class DormancyService {
         Instant now = clock.instant();
         List<ScimGroupMembership> revocationCandidates = groups.findDormantMemberships(
                 roleMapping.mappedGroupIds(), policy.roleRevocationCutoff(now));
-        List<UUID> lockoutCandidates = users.findDormantUnlockedUserIds(policy.lockoutCutoff(now));
+        List<UUID> lockoutCandidates =
+                loginStates.findDormantUnlockedUserIds(policy.lockoutCutoff(now));
         writeLocks.lock(resourcesToLock(revocationCandidates, lockoutCandidates));
         List<UUID> rolesRevoked = revokeRoles(revocationCandidates, now);
         List<UUID> locked = lockDormantUsers(lockoutCandidates, now);

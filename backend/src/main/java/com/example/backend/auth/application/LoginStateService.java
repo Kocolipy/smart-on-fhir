@@ -7,10 +7,10 @@ import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserProfile;
-import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Duration;
@@ -89,25 +89,25 @@ import org.springframework.stereotype.Service;
  *
  * <h2>Narrow writes</h2>
  *
- * <p>Every write goes through one narrow port operation per field set —
- * {@link ScimUserRepository#updateLoginState} for the run and the lock,
- * {@link ScimUserRepository#imposeLock} for the dormancy lock,
- * {@link ScimUserRepository#recordAuthentication} and
- * {@link ScimUserRepository#resetDormancyBasis} for the basis,
- * {@link ScimUserRepository#requirePasswordChange} and
- * {@link ScimUserRepository#completePasswordChange} for the flag — never a full-row write, and a
- * field the decision leaves unchanged is not written at all. A directory create or replacement is
- * not one of these writes: the state this hands back rides the profile's own row write, which
- * writes only the columns that differ.
+ * <p>Every write goes through one narrow operation per field set on the login-state port,
+ * {@link ScimLoginStateRepository} — {@link ScimLoginStateRepository#updateLoginState} for the run
+ * and the lock, {@link ScimLoginStateRepository#imposeLock} for the dormancy lock,
+ * {@link ScimLoginStateRepository#recordAuthentication} and
+ * {@link ScimLoginStateRepository#resetDormancyBasis} for the basis,
+ * {@link ScimLoginStateRepository#requirePasswordChange} and
+ * {@link ScimLoginStateRepository#completePasswordChange} for the flag — never a full-row write,
+ * and a field the decision leaves unchanged is not written at all. A directory create or
+ * replacement is not one of these writes: the state this hands back rides the profile's own row
+ * write, which writes only the columns that differ.
  *
  * <h2>Serialization</h2>
  *
  * <p>Every event that writes the login state is serialized here, so no caller decides whether to
  * lock: each takes the User's resource lock through {@link ScimWriteLocks} and decides from the
- * state re-read under it ({@link ScimUserRepository#findLoginState}), never from the copy of the
- * User it was handed. That copy names the User — its id, and the reservation marker the Bootstrap
- * Admin's exemption is read off, neither of which a write changes — and nothing else is taken
- * from it. Two events on one User therefore end as one serial order of them would:
+ * state re-read under it ({@link ScimLoginStateRepository#findLoginState}), never from the copy of
+ * the User it was handed. That copy names the User — its id, and the reservation marker the
+ * Bootstrap Admin's exemption is read off, neither of which a write changes — and nothing else is
+ * taken from it. Two events on one User therefore end as one serial order of them would:
  *
  * <ul>
  *   <li>N parallel failures against a User one short of the limit impose exactly one Lockout,
@@ -166,7 +166,7 @@ public class LoginStateService implements ScimUserLoginState {
     public record ForcedChange(ScimLoginState state, boolean imposed) {
     }
 
-    private final ScimUserRepository users;
+    private final ScimLoginStateRepository loginStates;
     private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
     private final LockoutPolicy policy;
@@ -178,13 +178,13 @@ public class LoginStateService implements ScimUserLoginState {
      *              the login state is serialized here rather than by its caller
      */
     public LoginStateService(
-            ScimUserRepository users,
+            ScimLoginStateRepository loginStates,
             ScimWriteLocks locks,
             SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
-        this.users = users;
+        this.loginStates = loginStates;
         this.locks = locks;
         this.sessions = sessions;
         this.policy = policy;
@@ -229,7 +229,7 @@ public class LoginStateService implements ScimUserLoginState {
         ScimLoginState before = stateUnderLock(user);
         writeFailureRun(user, before, before.withFailureRunCleared());
         if (!confines(kind, before)) {
-            users.recordAuthentication(user.id(), clock.instant());
+            loginStates.recordAuthentication(user.id(), clock.instant());
         }
     }
 
@@ -247,10 +247,10 @@ public class LoginStateService implements ScimUserLoginState {
         ScimLoginState before = stateUnderLock(user);
         writeFailureRun(user, before, before.withFailureRunCleared());
         Instant now = clock.instant();
-        if (users.completePasswordChange(user.id(), passwordHash, now).isEmpty()) {
+        if (loginStates.completePasswordChange(user.id(), passwordHash, now).isEmpty()) {
             return Optional.empty();
         }
-        users.recordAuthentication(user.id(), now);
+        loginStates.recordAuthentication(user.id(), now);
         return Optional.of(now);
     }
 
@@ -272,12 +272,12 @@ public class LoginStateService implements ScimUserLoginState {
         }
         Instant now = clock.instant();
         after = after.withDormancyBasisReset(now);
-        users.resetDormancyBasis(user.id(), now);
+        loginStates.resetDormancyBasis(user.id(), now);
         if (!before.hasPassword()) {
             return new Unlock(after, false, before.lockCause(), attemptsCleared);
         }
         after = after.withPasswordChangeRequired(now);
-        users.requirePasswordChange(user.id(), now);
+        loginStates.requirePasswordChange(user.id(), now);
         return new Unlock(after, true, before.lockCause(), attemptsCleared);
     }
 
@@ -296,7 +296,7 @@ public class LoginStateService implements ScimUserLoginState {
             return new ForcedChange(before, false);
         }
         ScimLoginState after = before.withPasswordChangeRequired(clock.instant());
-        users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
+        loginStates.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
         return new ForcedChange(after, true);
     }
 
@@ -309,14 +309,16 @@ public class LoginStateService implements ScimUserLoginState {
      *
      * <p>Decided on the state stored under the User's lock, which the job already holds as part
      * of its batch, so a failure lock the login path committed before it is kept rather than
-     * overwritten. The store's own compare-and-set ({@link ScimUserRepository#imposeLock}) says
-     * whether the lock was imposed, and refuses to overwrite a standing one whatever this read.
+     * overwritten. The store's own compare-and-set ({@link ScimLoginStateRepository#imposeLock})
+     * says whether the lock was imposed, and refuses to overwrite a standing one whatever this
+     * read.
      *
      * @return whether this imposed the lock
      */
     public boolean dormancyLocked(ScimUser user, Instant now) {
         ScimLoginState locked = stateUnderLock(user).withDormancyLock(now);
-        return users.imposeLock(user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
+        return loginStates.imposeLock(
+                user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
     }
 
     /**
@@ -377,8 +379,8 @@ public class LoginStateService implements ScimUserLoginState {
             ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
         ScimLoginState before = stateUnderLock(fixture);
         writeFailureRun(fixture, before, before.withFailureRunCleared());
-        users.completePasswordChange(fixture.id(), passwordHash, now);
-        users.resetDormancyBasis(fixture.id(), now.minus(dormantFor));
+        loginStates.completePasswordChange(fixture.id(), passwordHash, now);
+        loginStates.resetDormancyBasis(fixture.id(), now.minus(dormantFor));
     }
 
     /**
@@ -389,13 +391,13 @@ public class LoginStateService implements ScimUserLoginState {
      */
     private ScimLoginState stateUnderLock(ScimUser user) {
         locks.lock(List.of(user.id()));
-        return users.findLoginState(user.id()).orElse(user.login());
+        return loginStates.findLoginState(user.id()).orElse(user.login());
     }
 
     /** Writes the run and the lock when the decision changed either, and nothing otherwise. */
     private void writeFailureRun(ScimUser user, ScimLoginState before, ScimLoginState after) {
         if (!after.sameFailureRunAs(before)) {
-            users.updateLoginState(user.id(), after);
+            loginStates.updateLoginState(user.id(), after);
         }
     }
 }

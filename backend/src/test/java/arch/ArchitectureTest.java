@@ -1168,6 +1168,10 @@ public class ArchitectureTest {
     private static final String LOGIN_STATE_MODULE =
             "com.example.backend.auth.application.LoginStateService";
 
+    /** The port the login state is written and its dormancy candidates read through. */
+    private static final String LOGIN_STATE_PORT =
+            "com.example.backend.scim.domain.ScimLoginStateRepository";
+
     /**
      * What a newly imposed failure Lockout implies has one owner: the login-state module,
      * {@code auth.application.LoginStateService}. It writes the counted failure and, on the
@@ -1211,18 +1215,37 @@ public class ArchitectureTest {
             .that().resideInAPackage("com.example.backend..")
             .and().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
             .should().callMethodWhere(DescribedPredicate.describe(
-                    "target is a ScimUserRepository login-state write",
+                    "target is a ScimLoginStateRepository login-state write",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
                             Set.of("updateLoginState", "recordAuthentication",
                                             "resetDormancyBasis", "requirePasswordChange",
                                             "completePasswordChange", "imposeLock")
                                     .contains(call.getName())
                                     && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.scim.domain.ScimUserRepository")))
+                                            LOGIN_STATE_PORT)))
             .allowEmptyShould(true)
             .because("one module decides the login state, so no path writes the failure run, the"
                     + " lock, the dormancy basis, the change-required flag or the completed"
                     + " password change its own way (issues #42, #43)");
+    /**
+     * The login-state port's clients are the login path's: the login-state module, which writes
+     * through it, and the dormancy job, which reads its lockout candidates there — both in
+     * {@code auth.application}. Nothing in the directory reaches it, a SCIM use case least of all:
+     * a SCIM write asks the module through the {@code ScimUserLoginState} port and stores what it
+     * answers through {@code ScimUserRepository}. The persistence adapter, which implements the
+     * port, is the one other class that names it.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_login_path_reaches_the_login_state_port =
+        noClasses()
+            .that().resideInAPackage("com.example.backend..")
+            .and().resideOutsideOfPackages(
+                    "com.example.backend.auth.application..",
+                    "com.example.backend.scim.infrastructure.persistence..")
+            .and().doNotHaveFullyQualifiedName(LOGIN_STATE_PORT)
+            .should().dependOnClassesThat().haveFullyQualifiedName(LOGIN_STATE_PORT)
+            .because("the directory leaves the login state to the login path, so no SCIM service"
+                    + " writes or reads it through a port of its own (issue #116)");
 
     /**
      * The directory decides no login state: nothing in {@code scim} outside the value itself

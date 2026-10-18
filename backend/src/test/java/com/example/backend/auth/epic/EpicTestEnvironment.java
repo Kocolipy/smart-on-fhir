@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic;
 
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
@@ -167,6 +168,7 @@ final class EpicTestEnvironment implements BeforeEachCallback, AfterEachCallback
         fake = FakeEpic.start(port, CLIENT_ID, ACTIVE_KID,
                 () -> EpicTestFixtures.publishedJwks(ourJwks));
         practitioners = new EpicPractitioners(context.getBean(ScimUserRepository.class),
+                context.getBean(ScimLoginStateRepository.class),
                 context.getBean(PasswordEncoder.class),
                 context.getBean(PlatformTransactionManager.class),
                 context.getBean(JdbcTemplate.class));

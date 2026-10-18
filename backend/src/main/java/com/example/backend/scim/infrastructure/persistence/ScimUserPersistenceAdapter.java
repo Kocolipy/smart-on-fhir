@@ -8,6 +8,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
@@ -29,11 +30,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
- * Maps the SCIM User port onto the normalized JPA model. Stores only: the locks a write needs are
- * taken before it reaches here, in one order, by {@link ScimWriteLockAdapter}.
+ * Maps the SCIM User ports onto the normalized JPA model: the directory's
+ * {@link ScimUserRepository} and the login path's {@link ScimLoginStateRepository}, in one class
+ * because both are one table, and so one bean either port is injected from. Stores only: the
+ * locks a write needs are taken before it reaches here, in one order, by
+ * {@link ScimWriteLockAdapter}.
  */
 @Repository
-class ScimUserPersistenceAdapter implements ScimUserRepository {
+class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRepository {
 
     /** The order the administrative listing promises: by normalized {@code userName}. */
     private static final Sort BY_NORMALIZED_USER_NAME = Sort.by("normalizedUserName");

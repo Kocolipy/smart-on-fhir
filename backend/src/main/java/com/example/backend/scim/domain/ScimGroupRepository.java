@@ -38,10 +38,12 @@ public interface ScimGroupRepository {
      * case, and the only thing stopping a connector from minting a Group that claims
      * administrative authority would be that the use case happens to pass null.
      *
+     * <p>A reservation already held is not a taken {@code displayName}: it fails with the store's
+     * own integrity violation, which no caller translates. Either refusal is fatal to the calling
+     * transaction, so seeding looks the reservation up first rather than catching one.
+     *
      * @throws DuplicateDisplayNameException when a live Group already holds the normalized
-     *                                       {@code displayName}, or when the reservation is
-     *                                       already held — fatal to the calling transaction,
-     *                                       so seeding looks first rather than catching this
+     *                                       {@code displayName}
      */
     ScimGroup createReserved(ScimGroup group, ReservedResourceName reservedName);
 
@@ -165,8 +167,8 @@ public interface ScimGroupRepository {
      * not, locked or not.
      *
      * <p>The dormancy job's role-revocation candidates, on the same basis as
-     * {@link ScimUserRepository#findDormantUnlockedUserIds}: {@code lastAuthenticatedAt}, or the
-     * creation time for a User that has never authenticated. Candidates only; the job re-reads
+     * {@link ScimLoginStateRepository#findDormantUnlockedUserIds}: {@code lastAuthenticatedAt}, or
+     * the creation time for a User that has never authenticated. Candidates only; the job re-reads
      * each User under its lock and decides again. An empty {@code groupIds} matches nothing.
      */
     List<ScimGroupMembership> findDormantMemberships(Collection<UUID> groupIds, Instant cutoff);

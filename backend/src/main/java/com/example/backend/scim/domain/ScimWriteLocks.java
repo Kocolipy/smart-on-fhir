@@ -56,7 +56,7 @@ import java.util.UUID;
  * read before the lock was granted can be served in place of the committed one. Two writers find
  * the row before they can name it, and say so: the startup seed's Admin-group restore, and the
  * login-state module, whose Login finds the User by name — that module decides from
- * {@link ScimUserRepository#findLoginState}, a read no earlier copy can answer. A call must
+ * {@link ScimLoginStateRepository#findLoginState}, a read no earlier copy can answer. A call must
  * also come before the transaction holds any other resource lock: a row already held when the
  * batch is asked for was taken outside the order. A resource that does not exist locks nothing,
  * and its absence is the following read's to report.

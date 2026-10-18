@@ -2,9 +2,11 @@ package com.example.backend.scim;
 
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
+import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -89,6 +91,33 @@ public final class ScimIdentities {
                 user.version(),
                 user.createdAt(),
                 user.lastModifiedAt());
+    }
+
+    /** {@code user} with {@code displayName} as its display name and everything else as it was. */
+    public static ScimUser withDisplayName(ScimUser user, String displayName) {
+        ScimUserProfile profile = user.profile();
+        return new ScimUser(
+                user.id(),
+                new ScimUserProfile(profile.userName(), profile.name(), displayName,
+                        profile.preferredLanguage(), profile.locale(), profile.timezone(),
+                        profile.active(), profile.emails()),
+                user.login(),
+                user.reservedName(),
+                user.version(),
+                user.createdAt(),
+                user.lastModifiedAt());
+    }
+
+    /**
+     * Frees {@code reservation} in {@code users} by deleting whoever holds it, as of {@code at}, so
+     * a test can claim it through {@code createReserved}: a reservation is held once per store. A
+     * store shared with other tests — the seeded Bootstrap Admin holds its reservation there — must
+     * undo the deletion afterwards.
+     */
+    public static void releaseReservation(
+            ScimUserRepository users, ReservedResourceName reservation, Instant at) {
+        users.findByReservedName(reservation)
+                .ifPresent(holder -> users.deleteById(holder.id(), at));
     }
 
     /** The minimum profile: a userName, an active flag, and nothing else assigned. */

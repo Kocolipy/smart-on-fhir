@@ -6,6 +6,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * SCIM User store for tests, standing in for the JPA adapter. Shared so the lockout and the
@@ -27,18 +29,15 @@ import java.util.UUID;
  * <p>Keyed by the resource's stable id, exactly as the real table is: {@code userName} is a
  * mutable attribute looked up by scanning, not the row's identity.
  *
- * <p>Two behaviours here are load-bearing rather than conveniences, because a fake that got
- * them wrong would hide the defect the real design exists to prevent:
- *
- * <ul>
- *   <li>{@link #updateLoginState} writes the login columns ONLY and does not advance the
- *       version. A fake that replaced the whole row would let a failed login revert a profile
- *       attribute or a credential written since the login's read, and one that bumped the
- *       version would hide that a failed login must not move a connector's ETag.
- *   <li>{@link #create} refuses a reservation and {@link #createReserved} applies one, so a
- *       test cannot accidentally mint a protected resource through the provisioning path —
- *       which is the guarantee the real adapter makes by passing a literal null.
- * </ul>
+ * <p>It implements both User ports, {@link ScimUserRepository} and
+ * {@link ScimLoginStateRepository}, over one map, as the JPA adapter implements both over one
+ * table. Which columns each write touches and whether it advances the version are load-bearing
+ * rather than conveniences — a fake that got them wrong would hide the defect the real design
+ * exists to prevent, such as a failed login reverting a profile attribute or moving a connector's
+ * ETag — so they are not taken on trust here. {@link ScimUserRepositoryContract} and
+ * {@link ScimLoginStateRepositoryContract} state them, and this store and the SQL Server adapter
+ * each pass both ({@code InMemory*ContractTests}, {@code SqlServer*ContractTests}): those are the
+ * proof of this fake's fidelity, and a rule added to either port belongs in its contract first.
  *
  * <p>What it does NOT model is concurrency. Every call here completes before the next begins, so
  * two writers can never both read a state and then each write a decision made from it: the
@@ -54,7 +53,8 @@ import java.util.UUID;
  * the rule in this fake would keep the old rule after the adapters' changed, and the unit tests
  * would go on passing against it.
  */
-public final class InMemoryScimUserRepository implements ScimUserRepository {
+public final class InMemoryScimUserRepository
+        implements ScimUserRepository, ScimLoginStateRepository {
 
     private final Map<UUID, ScimUser> stored = new LinkedHashMap<>();
 
@@ -107,8 +107,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     @Override
     public ScimUser createReserved(ScimUser user, ReservedResourceName reservedName) {
         if (findByReservedName(reservedName).isPresent()) {
-            throw new DuplicateUserNameException(
-                    new IllegalStateException("that reservation is already held"));
+            throw new DataIntegrityViolationException("that reservation is already held");
         }
         return insert(user, reservedName);
     }
@@ -189,21 +188,21 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     public void updateLoginState(UUID id, ScimLoginState loginState) {
         ScimUser current = stored.get(id);
         if (current == null) {
-            // The real adapter's UPDATE matches no row and reports nothing, because the User
-            // was deleted between the read and the write. Silence is the behaviour.
+            // The User was deleted between the read and the write: there is no failure run left
+            // to record, so silence is the behaviour (the contract's missing-User case).
             return;
         }
         stored.put(id, new ScimUser(
                 current.id(),
                 current.profile(),
-                // The stored hash is kept, as the adapter keeps it: this write carries the failure
-                // run only, so it cannot revert a password changed while a login attempt ran.
+                // The stored hash is kept: this write carries the failure run only, so it cannot
+                // revert a password changed while a login attempt ran.
                 new ScimLoginState(
                         current.login().passwordHash(),
                         loginState.failedLoginAttempts(),
                         loginState.lockedAt(),
                         loginState.lockCause(),
-                        // Kept, as the adapter keeps it: this write is the failure run only.
+                        // Kept: this write is the failure run and the lock only.
                         current.login().lastAuthenticatedAt(),
                         current.login().passwordChangeRequiredSince()),
                 current.reservedName(),
@@ -218,8 +217,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      * Replaces the profile and stores the given credential, flag and dormancy basis, keeping the
      * STORED failure run and lock — the port's promise that a replacement never writes those —
      * then advances what {@link ResourceVersionAdvance#userReplaced} names: the User, and its
-     * Groups when the member label moved. Decides nothing, as the adapter decides nothing: the
-     * login state given is the caller's.
+     * Groups when the member label moved. Decides nothing: the login state given is the
+     * caller's.
      */
     @Override
     public Optional<ScimUser> replace(ScimUser user, Instant now) {
@@ -258,8 +257,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     /**
-     * The version and {@code lastModified} alone, as the adapter advances them for an alias
-     * written alone. Not counted in {@link #writes()}: no User column is written.
+     * The version and {@code lastModified} alone, for an alias written alone. Not counted in
+     * {@link #writes()}: no User column is written.
      */
     @Override
     public void advanceVersion(UUID id, Instant now) {
@@ -307,8 +306,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     /**
-     * The given lock and its cause where none stands, as the adapter's conditional statement
-     * stores them; the failure run and everything else are kept as stored.
+     * The given lock and its cause where none stands, a compare-and-set; the failure run and
+     * everything else are kept as stored.
      */
     @Override
     public boolean imposeLock(UUID id, Lockout lockout) {
@@ -348,7 +347,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     /**
      * Advances what {@link ResourceVersionAdvance#userDeleted} names — every Group the User was
-     * in — then drops its memberships and the User, as the adapter does.
+     * in — then drops its memberships and the User.
      */
     @Override
     public void deleteById(UUID id, Instant now) {
@@ -427,7 +426,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 login.passwordChangeRequiredSince());
     }
 
-    /** The flag alone, as the adapter's narrow statement writes it; the version is untouched. */
+    /** The flag alone; the version is untouched. */
     @Override
     public void requirePasswordChange(UUID id, Instant since) {
         ScimUser current = stored.get(id);

@@ -1,6 +1,7 @@
 package com.example.backend;
 
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
@@ -20,8 +21,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * this each one would first have to change that password — which would then differ from the one
  * the next class sharing the cached context logs in with.
  *
- * <p>So the flag is cleared through the real {@link ScimUserRepository#completePasswordChange}
- * port, keeping the same hash: the state a deployment is in after its operator rotated the
+ * <p>So the flag is cleared through the real
+ * {@link ScimLoginStateRepository#completePasswordChange} port, keeping the same hash: the state a deployment is in after its operator rotated the
  * credential, minus the rotation. It runs on {@link ApplicationReadyEvent}, which fires after every
  * {@code ApplicationRunner} — seeding included — has finished.
  *
@@ -32,13 +33,14 @@ public class SeededBootstrapAdminTestConfiguration {
 
     @Bean
     ApplicationListener<ApplicationReadyEvent> bootstrapAdminFirstLoginChangeCompleted(
-            ScimUserRepository users, PlatformTransactionManager transactions, Clock clock) {
+            ScimUserRepository users, ScimLoginStateRepository loginStates,
+            PlatformTransactionManager transactions, Clock clock) {
         return ready -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
             ScimUser bootstrapAdmin = users
                     .findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)
                     .orElseThrow();
             if (bootstrapAdmin.login().isPasswordChangeRequired()) {
-                users.completePasswordChange(
+                loginStates.completePasswordChange(
                         bootstrapAdmin.id(), bootstrapAdmin.login().passwordHash(), clock.instant());
             }
         });
