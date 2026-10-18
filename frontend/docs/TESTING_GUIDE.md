@@ -327,76 +327,115 @@ makes requests the backend refuses, which leaves the count untouched.
 ### Unit-testing a module that calls the API
 
 Everything under `src/` reaches the backend through `apiFetch` in
-`src/lib/http.ts`. Each layer is tested at its own seam, and only the page
-suites see the whole pipeline:
+`src/lib/http.ts`. Two kinds of suite test that seam itself:
 
 - **`src/lib/http.test.ts`** stubs `fetch` and proves credentials, CSRF
   recovery, status classification and decoding, for any request.
 - **The declaration suites** (`src/pages/*-api.test.ts`, `src/auth/api.test.ts`)
   prove each endpoint's path, decoder and Permission once.
-- **The hook suites under `src/auth/`** (`use-gated-read`, `use-gated-write`,
-  `use-session-request`, `use-session-action`, `route-guards`) test their hook
-  against a hand-built `AuthContext` value, from `authState()` over one of the
-  sessions in `src/auth/auth-context.testHelpers.ts` (`signedIn({ permissions })`,
-  `CHECKING`, `unchecked()`), so a field added to the auth state changes one
-  builder, not every suite. A hook that reports to the page status runs inside
-  the real one, `InPageStatus` in `src/auth/page-status.testHelpers.tsx`, and
-  the suite reads the line back with `shownLine()`.
+
+**Every other suite fakes the backend one way: through the test adapter, and
+nothing but `fetch`.** No suite above the transport mocks `@/lib/http` or
+`src/auth/api.ts`, stubs `fetch` itself, or states its backend as an ordered
+response chain. A suite that fakes auth internals breaks whenever they move,
+and proves what it asserts only about the internals it faked.
+
+#### The test adapter: two layers
+
+**The backend layer** is `fakeBackend(answers?)` in
+`src/lib/fake-backend.testHelpers.ts`: a fake backend behind the global `fetch`
+for the rest of the test, and nothing else — no router, no provider. It answers
+from the **wire answers** the suite gives, keyed `"METHOD /path"`:
+`json(body, status?)`, `bare(status)`, `UNREACHABLE` for a network failure, or a
+`deferred()` the test settles when it chooses. A list answers in turn, its last
+answer repeating; a key ending in `*` answers every path it prefixes. It keeps
+the backend's side of the contract with stand-ins: `GET /api/auth/csrf` hands out
+a token (unless the suite answers that key itself, say `bare(500)` for a token
+that cannot be had), an unsafe request that does not carry the token is refused
+`403`, and a body not sent as `application/json` is refused `415`
+(`docs/BACKEND_CONTRACT.md` holds both rules). A request
+nothing answers is answered `501` and fails the test by name when it ends, so a
+suite cannot pass on a request it never stated.
+
+It hands back `requests()` — method, path and parsed JSON body of everything
+sent, in order — and `answer()` to change an answer mid-test. The token fetches
+are left out of `requests()` unless the suite asks for them with
+`requests({ tokenFetches: true })`, and so is each request's `Content-Type`
+unless it asks with `requests({ contentType: true })` — for a write proving it
+names its body JSON, or names none when it sends none. `requestKey(sent)` gives
+a sent request's `"METHOD /path"` key, to count one kind of request; the auth
+endpoints' own keys are `AUTH_REQUESTS`, beside `testUser` in
+`src/auth/auth-context.testHelpers.ts`, so no suite spells them again.
+
+**The token being forgotten is proved on the wire**, never by counting
+`discardCsrfToken` calls: the next unsafe request fetches a fresh token first.
+`holdToken()` sends an unsafe request so a token is held, and `tokenForgotten()`
+sends the next one and says whether a `GET /api/auth/csrf` went out before it. A
+session action sent unsafe — login, logout, the password change — has fetched a
+token itself, so a suite reads `tokenForgotten()` straight after it.
+
+**The render layer** is `renderAsSession()` in
+`src/auth/session-adapter.testHelpers.tsx`, built on the backend layer: it mounts
+the real `AuthProvider` inside a `MemoryRouter`, for a session the suite states —
+`holding(permissions, user?)` for one signed in (`EVERY_PERMISSION`, derived
+from the Permission list in `src/auth/api.ts` and kept beside `testUser`, for a
+Superuser's), `GUEST`, or `STILL_CHECKING`. It answers the start-up
+`GET /api/auth/me` from that session and every other request from the suite's
+wire answers, and re-exports the answer vocabulary so a page suite imports from
+one place. It resolves once the start-up check has settled, and hands back the
+backend layer's `requests()` (the start-up check left out) and `answer()`, plus
+`session()` (its status and sign-in reason) to assert that a `401` ended the
+session as `expired` or that a `403` left it standing. An empty `requests()` is
+how a suite proves nothing was sent for a session lacking a Permission.
+
+#### Which suite uses which layer
+
 - **A page suite** (`src/pages/*.test.tsx`) renders the real page through the
-  **session test adapter**, `renderAsSession()` in
-  `src/auth/session-adapter.testHelpers.tsx`, and fakes nothing but `fetch`. A
-  signed-in page renders where the app renders it, inside the real signed-in
-  layout, which owns its one error line: `renderSignedIn(path, session,
-answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
+  render layer. A signed-in page renders where the app renders it, inside the
+  real signed-in layout, which owns its one error line: `renderSignedIn(path,
+session, answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
   signed-in page under `SignedInShell` and renders the adapter at `path`. A
   suite for one part of a page — the Connectors panel — routes that part alone
   under the same layout with `renderInLayout(routes, path, session, answers)`,
-  which `renderSignedIn` is built on.
+  which `renderSignedIn` is built on. A suite's own wrapper takes the wire
+  answers before the session, so `renderAccounts(answers, session)`,
+  `renderHome(answers, session)` and `renderShell(path, answers, session)` read
+  alike.
+- **A suite that brings its own router or provider** uses the backend layer
+  directly. `src/App.test.tsx` renders the whole app, which owns its router and
+  `AuthProvider`, over an answer table per test. `auth-context.test.tsx` mounts
+  the real provider as its subject, and `idle-sign-out.test.tsx` the real
+  provider, guards and Login page under fake timers. `use-session-action.test.tsx`
+  runs its hook under the real provider too, since the outcome it reads is the
+  backend's answer as the session action classifies it.
+- **The hooks that read the session rather than change it** — `use-gated-read`,
+  `use-gated-write`, `use-session-request` — run against a hand-built
+  `AuthContext` value, from `authState()` over one of the sessions in
+  `src/auth/auth-context.testHelpers.ts` (`signedIn({ permissions })`,
+  `CHECKING`, `unchecked()`), so a test states the Permissions held, withdraws
+  one mid-test, and sees `expireSession` called; their requests still go to the
+  backend layer. The gated read holds every answer open with a list of
+  `deferred()`s under one `*` key, so a test settles them in any order.
+  `route-guards` sends no request and needs only the hand-built value.
 
-Both kinds sign in as the same User, `testUser(overrides?)` in
+All of them sign in as the same User, `testUser(overrides?)` in
 `src/auth/auth-context.testHelpers.ts`: `ada`, unflagged, with a 15-minute idle
-limit. A suite that needs a `UserResponse` body — the login's — answers with it
-too, rather than writing the User out again.
+limit. A suite that needs a `UserResponse` body — the login's — answers with
+it too, rather than writing the User out again. A hook that reports to the page
+status runs inside the real one, `InPageStatus` in
+`src/auth/page-status.testHelpers.tsx`, and the suite reads the line back with
+`shownLine()`.
 
-The adapter mounts the real `AuthProvider` inside a `MemoryRouter`, for a
-session the suite states: `holding(permissions, user?)` for one signed in
-(`EVERY_PERMISSION`, derived from the Permission list in `src/auth/api.ts` and
-kept beside `testUser`, for a Superuser's), `GUEST`, or `STILL_CHECKING`. It
-answers the start-up `GET /api/auth/me` from that session and the CSRF token
-through `stubFetchWithCsrf()`, which also refuses `403` an unsafe request that
-does not carry the token. Every other request is answered from the **wire answers** the
-suite gives, keyed `"METHOD /path"`: `json(body, status?)`, `bare(status)`,
-`UNREACHABLE` for a network failure, or a `deferred()` the test settles when it
-chooses. A list answers in turn, its last answer repeating; a key ending in `*`
-answers every path it prefixes. The real declarations, `apiFetch` and the
-decoders all run under the page, so a body that drifted from its type shows up
-as the page's failure copy, and a page-wide rule — the single error line — is
-tested with every panel present. No page suite mocks `@/lib/http`, a panel, or
-the auth context.
-
-`renderAsSession()` resolves once the start-up check has settled, and hands
-back `requests()` (method, path and parsed JSON body of everything the page
-sent, the start-up check and the token fetches left out), `answer()` to change
-an answer mid-test, and `session()` (its status and sign-in reason) to assert
-that a `401` ended the session as `expired` or that a `403` left it standing. A
-request nothing answers is recorded and fails the test by name when it ends, so
-a page cannot pass on a request the suite never stated. An empty `requests()` is
-how a suite proves nothing was sent for a session lacking a Permission.
-
-This replaced mocking `apiFetch` with data already decoded and mocking the
-Connectors panel out of the Accounts page. That pattern is what let the Accounts
-page ship two error lines (fixed in #82): the panel that drew the second line
-was never rendered in the page's own suite. Since then the layout owns the line
-and nothing below it can make a second (`auth/page-status.ts`), and the page
-suites render inside the layout, so its Sign out shares the line they assert on.
-
-A suite's own wrapper over the adapter takes the wire answers before the
-session, so `renderAccounts(answers, session)`, `renderHome(answers, session)`
-and `renderShell(path, answers, session)` read alike.
-
-A suite that renders the whole app (`src/App.test.tsx`) stubs `fetch` with
-`stubFetchWithCsrf()` from `src/lib/http.testHelpers.ts` directly, since `App`
-owns its own `AuthProvider` and router.
+The real declarations, `apiFetch` and the decoders all run under every one of
+these suites, so a body that drifted from its type shows up as the page's
+failure copy, and a page-wide rule — the single error line — is tested with
+every panel present. The page suites replaced mocking `apiFetch` with data
+already decoded and mocking the Connectors panel out of the Accounts page. That
+pattern is what let the Accounts page ship two error lines (fixed in #82): the
+panel that drew the second line was never rendered in the page's own suite.
+Since then the layout owns the line and nothing below it can make a second
+(`auth/page-status.ts`), and the page suites render inside the layout, so its
+Sign out shares the line they assert on.
 
 ### Flakiness — the rules that keep these tests green
 

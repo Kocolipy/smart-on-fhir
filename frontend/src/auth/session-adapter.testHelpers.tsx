@@ -4,75 +4,40 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { useEffect, type ReactElement } from "react";
 import { MemoryRouter, type InitialEntry } from "react-router-dom";
-import { onTestFinished, vi } from "vitest";
 
-import { stubFetchWithCsrf } from "@/lib/http.testHelpers";
+import {
+  bare,
+  fakeBackend,
+  json,
+  requestKey,
+  type Answers,
+  type FakeBackend,
+  type SentRequest,
+  type WireAnswer,
+} from "@/lib/fake-backend.testHelpers";
 
-import { ME_PATH, type AuthUser, type Permission } from "./api";
+import type { AuthUser, Permission } from "./api";
 import { AuthProvider } from "./auth-context";
-import { testUser } from "./auth-context.testHelpers";
+import { AUTH_REQUESTS, testUser } from "./auth-context.testHelpers";
 import { useAuthState, type AuthStatus } from "./auth-context-value";
 import type { SessionEndReason } from "./sign-in-reason";
 
-// A page suite renders the real page inside the real `AuthProvider`, for a
-// session it states, and fakes nothing but `fetch`: the start-up session check
-// and the CSRF token are answered from that session, and every other request
-// from the wire answers the suite gives. So the page's declarations, `apiFetch`'s
-// classification and the decoders all run under it, and the auth state's shape
-// is nobody's business but `src/auth`'s.
+// The render layer of the test adapter. A page suite renders the real page
+// inside the real `AuthProvider`, for a session it states, and fakes nothing
+// but `fetch`: the backend layer (`@/lib/fake-backend.testHelpers`) answers the
+// start-up session check from that session, the CSRF token from its stand-in,
+// and every other request from the wire answers the suite gives. So the page's
+// declarations, `apiFetch`'s classification and the decoders all run under it,
+// and the auth state's shape is nobody's business but `src/auth`'s.
 
-/** A fetch that never reached the backend: the network failed, so `fetch` rejects. */
-export const UNREACHABLE = { unreachable: true } as const;
-
-/** What the backend answers one request with: a status and, for a JSON answer, its body. */
-export type WireAnswer = { status: number; body?: unknown } | typeof UNREACHABLE;
-
-/** A JSON answer: `body` serialized, under `status` (`200` unless named). */
-export const json = (body: unknown, status = 200): WireAnswer => ({ body, status });
-
-/** An answer with a status and no body: `204`, or a refusal the page reads by status alone. */
-export const bare = (status: number): WireAnswer => ({ status });
-
-/** An answer now, or one the test settles later (see {@link deferred}). */
-type Answer = WireAnswer | Promise<WireAnswer>;
-
-/**
- * What the backend answers, by `"METHOD /path"` — the path whole, query
- * included. A key ending in `*` answers every path it is a prefix of that no
- * exact key names. A list answers in turn, its last answer repeating, so a
- * re-read or a retry is stated by what it gets back.
- */
-export type Answers = Record<string, Answer | readonly Answer[]>;
-
-/** One request the page sent, as the backend saw it: method, path and parsed JSON body. */
-interface SentRequest {
-  body?: unknown;
-  method: string;
-  path: string;
-}
-
-/** An answer the test gives when it chooses, so it controls the order outcomes land in. */
-export interface Deferred {
-  answer: Promise<WireAnswer>;
-  /** Gives the answer, and lets everything it causes render. */
-  settle: (answer: WireAnswer) => Promise<void>;
-}
-
-export function deferred(): Deferred {
-  let resolve!: (answer: WireAnswer) => void;
-  const answer = new Promise<WireAnswer>((settle) => {
-    resolve = settle;
-  });
-  return {
-    answer,
-    settle: (given) =>
-      act(async () => {
-        resolve(given);
-        // A macrotask, so the whole fetch → decode → state chain has drained.
-        await new Promise((done) => setTimeout(done, 0));
-      }),
-  };
-}
+export {
+  bare,
+  deferred,
+  json,
+  UNREACHABLE,
+  type Answers,
+  type WireAnswer,
+} from "@/lib/fake-backend.testHelpers";
 
 /**
  * The session the browser holds, as the start-up `GET /api/auth/me` finds it.
@@ -102,7 +67,7 @@ export const STILL_CHECKING: StartingSession = { status: "checking" };
 const NEVER: Promise<WireAnswer> = new Promise(() => undefined);
 
 /** How the backend answers `GET /api/auth/me` for the session it holds. */
-function meAnswer(session: StartingSession): Answer {
+function meAnswer(session: StartingSession): WireAnswer | Promise<WireAnswer> {
   switch (session.status) {
     case "authenticated":
       return json(session.user);
@@ -115,73 +80,24 @@ function meAnswer(session: StartingSession): Answer {
   }
 }
 
-async function toResponse(answer: Answer): Promise<Response> {
-  const given = await answer;
-  if ("unreachable" in given) throw new TypeError("Failed to fetch");
-  return given.body === undefined
-    ? new Response(null, { status: given.status })
-    : Response.json(given.body, { status: given.status });
-}
-
-const parseBody = (body: RequestInit["body"]): unknown =>
-  typeof body === "string" ? JSON.parse(body) : undefined;
+const ME_REQUEST = AUTH_REQUESTS.me;
 
 /**
- * The fake backend behind `fetch`: the session's own check, then `answers`.
- * Every request the page sends is recorded; one nothing answers is recorded
- * as unanswered and fails the test when it finishes.
+ * `answers`, with the start-up check answered from `session` first. Any later
+ * check gets the suite's own answer to it, or else the session's again.
  */
-function fakeBackend(session: StartingSession, initial: Answers) {
-  let answers: Answers = { ...initial };
-  const turns = new Map<string, number>();
-  const sent: SentRequest[] = [];
-  const unanswered: string[] = [];
-  let sessionChecked = false;
-
-  const keyFor = (request: string): string | undefined => {
-    if (request in answers) return request;
-    return Object.keys(answers)
-      .filter((key) => key.endsWith("*") && request.startsWith(key.slice(0, -1)))
-      .sort((a, b) => b.length - a.length)[0];
-  };
-
-  const next = (key: string): Answer => {
-    const given = answers[key];
-    if (!Array.isArray(given)) return given as Answer;
-    const turn = turns.get(key) ?? 0;
-    turns.set(key, turn + 1);
-    return given[Math.min(turn, given.length - 1)] as Answer;
-  };
-
-  const respond = (path: string, init?: RequestInit): Promise<Response> => {
-    const method = (init?.method ?? "GET").toUpperCase();
-    const request = `${method} ${path}`;
-    // The start-up check is the session's, not the page's: answered from it,
-    // and not among the page's requests.
-    if (!sessionChecked && request === `GET ${ME_PATH}`) {
-      sessionChecked = true;
-      return toResponse(meAnswer(session));
-    }
-    const body = parseBody(init?.body);
-    sent.push(body === undefined ? { method, path } : { body, method, path });
-    const key = keyFor(request);
-    if (key !== undefined) return toResponse(next(key));
-    // Any later check of the session stands as the session itself answers it.
-    if (request === `GET ${ME_PATH}`) return toResponse(meAnswer(session));
-    unanswered.push(request);
-    return toResponse(bare(501));
-  };
-
+function withSessionCheck(session: StartingSession, answers: Answers): Answers {
+  const later = answers[ME_REQUEST] ?? meAnswer(session);
   return {
-    /** Replaces the answers to the keys named, each starting again from its first turn. */
-    answer: (more: Answers) => {
-      answers = { ...answers, ...more };
-      for (const key of Object.keys(more)) turns.delete(key);
-    },
-    requests: (): readonly SentRequest[] => [...sent],
-    respond,
-    unanswered,
+    ...answers,
+    [ME_REQUEST]: [meAnswer(session), ...(Array.isArray(later) ? later : [later])],
   };
+}
+
+/** What the page sent: the start-up check is the session's, not the page's. */
+function withoutSessionCheck(sent: readonly SentRequest[]): readonly SentRequest[] {
+  const check = sent.findIndex((request) => requestKey(request) === ME_REQUEST);
+  return check === -1 ? sent : [...sent.slice(0, check), ...sent.slice(check + 1)];
 }
 
 /** What the session has come to, as the adapter reads it off the provider. */
@@ -199,27 +115,21 @@ function SessionProbe({ onRead }: { onRead: (reading: SessionReading) => void })
 
 /**
  * Renders `ui` as `session` sees it: inside a router at `at` and the real
- * `AuthProvider`, with `fetch` faked by the CSRF stand-in and a backend that
- * answers the session's start-up check and then `answers`. Resolves once the
- * start-up check has settled — except for {@link STILL_CHECKING}, which never
- * does — so the page renders for the session from the first assertion.
+ * `AuthProvider`, over the fake backend answering the session's start-up check
+ * and then `answers`. Resolves once the start-up check has settled — except
+ * for {@link STILL_CHECKING}, which never does — so the page renders for the
+ * session from the first assertion.
  *
- * Read what was sent with `requests()`, change an answer mid-test with
- * `answer()`, and see whether the page ended the session with `session()`.
+ * Read what the page sent with `requests()` (the start-up check left out),
+ * change an answer mid-test with `answer()`, and see whether the page ended
+ * the session with `session()`.
  */
 export async function renderAsSession(
   ui: ReactElement,
   session: StartingSession,
   { answers = {}, at = "/" }: { answers?: Answers; at?: InitialEntry } = {},
 ) {
-  const backend = fakeBackend(session, answers);
-  stubFetchWithCsrf(backend.respond);
-  onTestFinished(() => {
-    vi.unstubAllGlobals();
-    if (backend.unanswered.length > 0) {
-      throw new Error(`No answer was given for: ${backend.unanswered.join(", ")}`);
-    }
-  });
+  const backend = fakeBackend(withSessionCheck(session, answers));
 
   let reading: SessionReading = { signInReason: null, status: "checking" };
   const onRead = (next: SessionReading) => {
@@ -244,7 +154,8 @@ export async function renderAsSession(
   return {
     ...rendered,
     answer: backend.answer,
-    requests: backend.requests,
+    requests: (...shown: Parameters<FakeBackend["requests"]>): readonly SentRequest[] =>
+      withoutSessionCheck(backend.requests(...shown)),
     session: (): SessionReading => reading,
   };
 }

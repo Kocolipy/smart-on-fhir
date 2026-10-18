@@ -1,6 +1,12 @@
 import { vi } from "vitest";
 
-import { PERMISSIONS, type AuthUser, type Permission, type SessionCheckFailure } from "./api";
+import {
+  ME_PATH,
+  PERMISSIONS,
+  type AuthUser,
+  type Permission,
+  type SessionCheckFailure,
+} from "./api";
 import type { AuthContextState, Session } from "./auth-context-value";
 
 // ---- the User a test signs in as ------------------------------------------------
@@ -22,11 +28,28 @@ export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
   };
 }
 
+// ---- the auth endpoints, as the backend layer keys them -------------------------
+
+/**
+ * The session's own requests, each as the `"METHOD /path"` key a suite answers
+ * it by in the backend layer (`@/lib/fake-backend.testHelpers`).
+ */
+export const AUTH_REQUESTS = {
+  /** The password change. */
+  change: "POST /api/auth/change-password",
+  login: "POST /api/auth/login",
+  logout: "DELETE /api/auth/logout",
+  me: `GET ${ME_PATH}`,
+  token: "GET /api/auth/csrf",
+} as const;
+
 // ---- auth state builders, for the hooks under src/auth ---------------------------
 //
-// A hook suite tests its hook at the hook's own seam, against a hand-built
-// `AuthContext` value. A page suite renders through the real provider with
-// `renderAsSession` (`./session-adapter.testHelpers`) instead.
+// A hook that reads the session rather than changes it — the gated read and
+// write, the session request — is tested at its own seam, against a hand-built
+// `AuthContext` value, its requests going to the backend layer
+// (`@/lib/fake-backend.testHelpers`). A page suite renders through the real
+// provider with `renderAsSession` (`./session-adapter.testHelpers`) instead.
 
 /** Every member of the auth state that is not the session: the actions and controls. */
 type AuthActions = Omit<AuthContextState, keyof Session>;
