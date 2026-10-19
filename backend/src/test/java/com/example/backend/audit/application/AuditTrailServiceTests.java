@@ -11,6 +11,7 @@ import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
@@ -43,6 +44,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -65,6 +67,19 @@ class AuditTrailServiceTests {
     private static final UUID ACTOR = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
     private static final UUID SUBJECT = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+    /** What a counted failure below the limit moves. */
+    private static final Set<AuditLoginStateAttribute> RUN =
+            Set.of(AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS);
+
+    /** What the failure reaching the limit moves: the run and the lock. */
+    private static final Set<AuditLoginStateAttribute> RUN_AND_LOCK = Set.of(
+            AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS, AuditLoginStateAttribute.LOCKED_AT,
+            AuditLoginStateAttribute.LOCK_CAUSE);
+
+    /** What an Unlock of a credentialed User locked for failures moves: everything. */
+    private static final Set<AuditLoginStateAttribute> FULL_UNLOCK =
+            EnumSet.allOf(AuditLoginStateAttribute.class);
 
     private static final UUID GROUP = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
@@ -194,9 +209,9 @@ class AuditTrailServiceTests {
     @Test
     void aRefusedLoginRecordsItsLoginMethod() {
         trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
-                AuditLoginMethod.PASSWORD));
+                AuditLoginMethod.PASSWORD, RUN));
         trail.append(new Audited.LoginFailure(
-                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.SSO));
+                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.SSO, Set.of()));
 
         assertThat(events.appended).extracting(AuditEvent::loginMethod)
                 .containsExactly("password", "sso");
@@ -237,8 +252,8 @@ class AuditTrailServiceTests {
 
     @Test
     void aRefusedLoginNamesTheReasonAndNoActor() {
-        trail.append(new Audited.LoginFailure(
-                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD, RUN));
 
         AuditEvent event = events.only();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOGIN_FAILURE);
@@ -282,7 +297,7 @@ class AuditTrailServiceTests {
     @Test
     void aRefusedLoginAgainstAnUnknownNameRecordsNoSubjectAtAll() {
         trail.append(new Audited.LoginFailure(
-                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD));
+                null, AuditRefusalReason.UNKNOWN_ACCOUNT, AuditLoginMethod.PASSWORD, Set.of()));
 
         AuditEvent event = events.only();
         assertThat(event.subjectId()).isNull();
@@ -298,10 +313,12 @@ class AuditTrailServiceTests {
     @Test
     void theOnlyLockoutLiftNamesItsAdministratorAndTheCauseItLifted() {
         trail.append(new Audited.LockoutLiftedByUnlock(
-                ACTOR, SUBJECT, AuditLockCause.DORMANCY, false));
+                ACTOR, SUBJECT, AuditLockCause.DORMANCY, Set.of(AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE,
+                        AuditLoginStateAttribute.LAST_AUTHENTICATED_AT,
+                        AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)));
         trail.append(new Audited.LockoutLiftedByUnlock(
-                ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
-        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, true));
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, FULL_UNLOCK));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, RUN));
 
         assertThat(events.appended).extracting(AuditEvent::errorCode)
                 .containsExactly("DORMANCY", "FAILURES", null);
@@ -318,22 +335,156 @@ class AuditTrailServiceTests {
     /**
      * An Unlock's paths are what it changed: the failure run when it held attempts, and — when a
      * lock stood — the lock, its cause and the dormancy basis the lift restarts. A User serving no
-     * lockout and holding no run had nothing changed at all.
+     * lockout and holding no run had nothing changed at all. The change-required flag an Unlock
+     * also moves is its {@code PASSWORD_CHANGE_REQUIRE}'s to name, never the lift's.
      */
     @Test
     void aLockoutLiftRecordsWhatTheUnlockChanged() {
         trail.append(new Audited.LockoutLiftedByUnlock(
-                ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, FULL_UNLOCK));
         trail.append(new Audited.LockoutLiftedByUnlock(
-                ACTOR, SUBJECT, AuditLockCause.DORMANCY, false));
-        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, true));
-        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, false));
+                ACTOR, SUBJECT, AuditLockCause.DORMANCY, Set.of(AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE,
+                        AuditLoginStateAttribute.LAST_AUTHENTICATED_AT,
+                        AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, RUN));
+        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, null, Set.of()));
 
         assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
                 List.of("failedLoginAttempts", "lockedAt", "lockCause", "lastAuthenticatedAt"),
                 List.of("lockedAt", "lockCause", "lastAuthenticatedAt"),
                 List.of("failedLoginAttempts"),
                 List.of());
+    }
+
+    /**
+     * A login-state refusal names exactly what its transition moved, in the recorded order
+     * whatever the set's: nothing when nothing was counted, the run when it lengthened, and the
+     * run and the lock on the Lockout it imposed.
+     */
+    @Test
+    void aLoginStateRefusalNamesExactlyWhatItsTransitionMoved() {
+        trail.append(new Audited.LoginFailure(
+                SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.PASSWORD, Set.of()));
+        trail.append(new Audited.PasswordChangeRefused(
+                SUBJECT, AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, RUN));
+        trail.append(new Audited.LockoutSet(SUBJECT, new LinkedHashSet<>(List.of(
+                AuditLoginStateAttribute.LOCK_CAUSE, AuditLoginStateAttribute.LOCKED_AT,
+                AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS))));
+
+        assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
+                List.of(),
+                List.of("failedLoginAttempts"),
+                List.of("failedLoginAttempts", "lockedAt", "lockCause"));
+    }
+
+    /**
+     * A Lockout's row names what the failure moved when the event was built: a caller's set that
+     * changes afterwards does not change the row.
+     */
+    @Test
+    void aLockoutSetNamesWhatWasMovedWhenItWasBuilt() {
+        Set<AuditLoginStateAttribute> moved = EnumSet.copyOf(RUN_AND_LOCK);
+        Audited.LockoutSet lockout = new Audited.LockoutSet(SUBJECT, moved);
+        moved.clear();
+
+        trail.append(lockout);
+
+        assertThat(events.only().changedPaths())
+                .containsExactly("failedLoginAttempts", "lockedAt", "lockCause");
+    }
+
+    /**
+     * A required change's row names the flag moved when the event was built: a caller's set that
+     * changes afterwards does not change the row.
+     */
+    @Test
+    void aRequiredChangeNamesWhatWasMovedWhenItWasBuilt() {
+        Set<AuditLoginStateAttribute> moved = EnumSet.copyOf(FULL_UNLOCK);
+        Audited.PasswordChangeRequired required =
+                new Audited.PasswordChangeRequired(ACTOR, SUBJECT, moved);
+        moved.clear();
+
+        trail.append(required);
+
+        assertThat(events.only().changedPaths()).containsExactly("passwordChangeRequiredSince");
+    }
+
+    static Stream<Arguments> eventsBuiltFromEqualValues() {
+        Set<AuditLoginStateAttribute> run = new LinkedHashSet<>(RUN);
+        Set<AuditLoginStateAttribute> unlock = new LinkedHashSet<>(FULL_UNLOCK);
+        List<Role> roles = new ArrayList<>(List.of(new Role("Superuser", Set.of())));
+        return Stream.of(
+                Arguments.of(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                                AuditLoginMethod.PASSWORD, RUN),
+                        new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                                AuditLoginMethod.PASSWORD, run)),
+                Arguments.of(new Audited.LockoutSet(SUBJECT, RUN_AND_LOCK),
+                        new Audited.LockoutSet(SUBJECT, EnumSet.copyOf(RUN_AND_LOCK))),
+                Arguments.of(new Audited.LockoutLiftedByUnlock(
+                                ACTOR, SUBJECT, AuditLockCause.FAILURES, FULL_UNLOCK),
+                        new Audited.LockoutLiftedByUnlock(
+                                ACTOR, SUBJECT, AuditLockCause.FAILURES, unlock)),
+                Arguments.of(new Audited.DormancyLockout(SUBJECT, RUN_AND_LOCK),
+                        new Audited.DormancyLockout(SUBJECT, EnumSet.copyOf(RUN_AND_LOCK))),
+                Arguments.of(new Audited.DormancyRoleRevocation(SUBJECT, roles),
+                        new Audited.DormancyRoleRevocation(SUBJECT, List.copyOf(roles))),
+                Arguments.of(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK),
+                        new Audited.PasswordChangeRequired(ACTOR, SUBJECT, unlock)),
+                Arguments.of(new Audited.PasswordChanged(SUBJECT, FULL_UNLOCK),
+                        new Audited.PasswordChanged(SUBJECT, unlock)),
+                Arguments.of(new Audited.PasswordChangeRefused(
+                                SUBJECT, AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, RUN),
+                        new Audited.PasswordChangeRefused(
+                                SUBJECT, AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, run)));
+    }
+
+    /**
+     * An event is a value: two built from equal values are one event, whatever kind of set or
+     * list the caller held its attributes or Roles in.
+     */
+    @ParameterizedTest
+    @MethodSource("eventsBuiltFromEqualValues")
+    void anEventBuiltFromEqualValuesIsTheSameEvent(Audited event, Audited sameValues) {
+        assertThat(event).isEqualTo(sameValues);
+    }
+
+    /** A Lockout is recorded against the locked User, with no actor: no principal imposed it. */
+    @Test
+    void aLockoutSetNamesTheLockedUserAndNoActor() {
+        trail.append(new Audited.LockoutSet(SUBJECT, RUN_AND_LOCK));
+
+        assertThat(events.only()).extracting(AuditEvent::actorId, AuditEvent::subjectId)
+                .containsExactly(null, SUBJECT);
+    }
+
+    /** A required change names the administrator who required it and the User who owes it. */
+    @Test
+    void aRequiredChangeNamesItsAdministratorAndTheUserWhoOwesIt() {
+        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK));
+
+        assertThat(events.only()).extracting(AuditEvent::actorId, AuditEvent::subjectId)
+                .containsExactly(ACTOR, SUBJECT);
+    }
+
+    /** Of what an Unlock moved, its required change names the flag alone. */
+    @Test
+    void aRequiredChangeNamesTheFlagAloneOfWhatItsTransitionMoved() {
+        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK));
+
+        assertThat(events.only().changedPaths()).containsExactly("passwordChangeRequiredSince");
+    }
+
+    /**
+     * A completed change names the credential, and the flag only when it cleared one — never the
+     * run it clears or the basis it moves.
+     */
+    @Test
+    void aCompletedChangeNamesTheCredentialAndOnlyAFlagItCleared() {
+        trail.append(new Audited.PasswordChanged(SUBJECT, Set.of(
+                AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS,
+                AuditLoginStateAttribute.LAST_AUTHENTICATED_AT)));
+
+        assertThat(events.only().changedPaths()).containsExactly("password");
     }
 
     /**
@@ -346,12 +497,13 @@ class AuditTrailServiceTests {
     @Test
     void everyEventAboutTheLoginIdentityNamesTheScimUserResourceType() {
         trail.append(new Audited.LoginSuccess(SUBJECT, AuditLoginMethod.PASSWORD));
-        trail.append(new Audited.LoginFailure(
-                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD, RUN));
         trail.append(new Audited.Logout(SUBJECT));
-        trail.append(new Audited.LockoutSet(SUBJECT));
-        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
-        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT));
+        trail.append(new Audited.LockoutSet(SUBJECT, RUN_AND_LOCK));
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, FULL_UNLOCK));
+        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK));
         trail.append(new Audited.ScimUserCreated(ACTOR, SUBJECT));
         trail.append(new Audited.ScimUsersQueried(ACTOR, 3, null));
 
@@ -368,7 +520,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void theRequestIsRecordedAsItsRouteTemplate() {
-        trail.append(new Audited.LockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES, true));
+        trail.append(new Audited.LockoutLiftedByUnlock(
+                ACTOR, SUBJECT, AuditLockCause.FAILURES, FULL_UNLOCK));
 
         AuditEvent event = events.only();
         assertThat(event.httpMethod()).isEqualTo("POST");
@@ -964,7 +1117,8 @@ class AuditTrailServiceTests {
      */
     @Test
     void theDormancyJobRecordsNoActor() {
-        trail.append(new Audited.DormancyLockout(SUBJECT));
+        trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(
+                AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE)));
         trail.append(new Audited.DormancyRoleRevocation(SUBJECT, List.of(
                 new Role("Superuser", Set.of()), new Role("Account admin", Set.of()),
                 new Role("Superuser", Set.of()))));
@@ -1008,7 +1162,8 @@ class AuditTrailServiceTests {
     void theDormancyEventsAreFailClosed() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        assertThatThrownBy(() -> trail.append(new Audited.DormancyLockout(SUBJECT)))
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(
+                AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.append(new Audited.DormancyRoleRevocation(
                         SUBJECT, List.of(new Role("Superuser", Set.of())))))
@@ -1017,7 +1172,7 @@ class AuditTrailServiceTests {
 
     @Test
     void passwordEventsNameTheCredentialPathsOrTheRefusal() {
-        trail.append(new Audited.PasswordChanged(SUBJECT));
+        trail.append(new Audited.PasswordChanged(SUBJECT, FULL_UNLOCK));
         trail.append(new Audited.PasswordChangeRefused(
                 SUBJECT, AuditPasswordChangeRefusal.TOO_SHORT));
         trail.append(new Audited.PasswordChangeRequirementRefused(
@@ -1228,9 +1383,9 @@ class AuditTrailServiceTests {
     void aFailOpenAppendRaisesAnAlertAndDoesNotPropagate() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.append(new Audited.LoginFailure(
-                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
-        trail.append(new Audited.LockoutSet(SUBJECT));
+        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD, RUN));
+        trail.append(new Audited.LockoutSet(SUBJECT, RUN_AND_LOCK));
         trail.append(new Audited.ScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
         trail.append(new Audited.UnlockRefused(
                 ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
@@ -1250,8 +1405,8 @@ class AuditTrailServiceTests {
     void anAlertNamesTheFailuresOwnTypeAndNothingElse() {
         events.failWith(new IllegalArgumentException("would name the submitted value"));
 
-        trail.append(new Audited.LoginFailure(
-                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD, RUN));
 
         assertThat(alerts.failures).containsExactly(IllegalArgumentException.class);
     }
@@ -1326,8 +1481,8 @@ class AuditTrailServiceTests {
         AuditTrail isolated = new AuditTrailService(
                 joined, pool, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
 
-        isolated.append(new Audited.LoginFailure(
-                SUBJECT, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+        isolated.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
+                AuditLoginMethod.PASSWORD, RUN));
 
         assertThat(List.of(transactions.definitions.size(), joined.appended.size(),
                         pool.appended.size()))

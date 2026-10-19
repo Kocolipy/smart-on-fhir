@@ -18,6 +18,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -29,6 +30,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Counting login attempts against the one login identity there is: a SCIM User.
@@ -496,6 +499,67 @@ class LoginAttemptServiceTests {
                 AuditRefusalReason.ACCOUNT_LOCKED.name()));
     }
 
+    // ---- the paths each refusal names: exactly what counting it moved -------------------------
+
+    /** A wrong password for a User that is not locked lengthens its run, and says so. */
+    @Test
+    void aRefusedLoginThatLengthenedTheRunNamesIt() {
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
+                .containsExactly(List.of("failedLoginAttempts"));
+    }
+
+    /** The Bootstrap Admin's run counts and never locks, so each refusal names the run alone. */
+    @Test
+    void aBootstrapAdminsRefusedLoginNamesTheRunEvenPastTheLimit() {
+        givenBootstrapAdmin("recovery-admin");
+        failTimes(3, "recovery-admin");
+        audit.reset();
+
+        attempts.recordFailure("recovery-admin", PasswordRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
+                .containsExactly(List.of("failedLoginAttempts"));
+    }
+
+    /**
+     * The refusal that imposes the Lockout moved the run and the lock, and both its rows name
+     * them: the {@code LOCKOUT_SET}, and the {@code LOGIN_FAILURE} after it.
+     */
+    @Test
+    void theRefusalThatImposesTheLockoutNamesTheRunAndTheLockOnBothRows() {
+        failTimes(2);
+        audit.reset();
+
+        attempts.recordFailure("ada", PasswordRefusalReason.BAD_CREDENTIALS);
+
+        List<String> runAndLock = List.of("failedLoginAttempts", "lockedAt", "lockCause");
+        assertThat(List.of(audit.changedPaths(AuditOperation.LOCKOUT_SET),
+                audit.changedPaths(AuditOperation.LOGIN_FAILURE)))
+                .containsExactly(List.of(runAndLock), List.of(runAndLock));
+    }
+
+    /** A locked User's attempts neither count nor deepen the lock, whatever its cause. */
+    @ParameterizedTest(name = "locked for {0}")
+    @EnumSource(LockCause.class)
+    void aRefusedLoginOfALockedUserNamesNoPath(LockCause cause) {
+        ScimIdentities.storeFailureRun(users, idOf("ada"),
+                new ScimLoginState(null, 1, NOW, cause, null, null));
+
+        attempts.recordFailure("ada", PasswordRefusalReason.ACCOUNT_LOCKED);
+
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
+    }
+
+    /** An unknown name has no User to count against, so nothing moved. */
+    @Test
+    void aRefusedLoginUnderAnUnknownNameNamesNoPath() {
+        attempts.recordFailure("nobody", PasswordRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
+    }
+
     /**
      * Nothing on this path can record a lift. There is no unrequested lift to record: the
      * only one is an administrator's Unlock, which happens in
@@ -563,6 +627,18 @@ class LoginAttemptServiceTests {
                                 AuditOperation.PASSWORD_CHANGE, "BAD_CURRENT_PASSWORD"));
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).isEmpty();
         assertThat(transaction.pending()).as("the Lockout's revocation").isEqualTo(1);
+    }
+
+    /**
+     * A wrong current password lengthens the run exactly as a refused Login does, so its
+     * {@code PASSWORD_CHANGE} refusal names the run as a {@code LOGIN_FAILURE} would.
+     */
+    @Test
+    void aWrongCurrentPasswordNamesTheRunItLengthened() {
+        attempts.recordPasswordChangeFailure(users.require("ada").id());
+
+        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE))
+                .containsExactly(List.of("failedLoginAttempts"));
     }
 
     /** An id naming nobody is ignored: nothing counted, nothing audited. */

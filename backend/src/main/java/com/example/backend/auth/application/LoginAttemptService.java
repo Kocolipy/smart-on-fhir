@@ -1,14 +1,17 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
@@ -87,9 +90,12 @@ public class LoginAttemptService {
     public PasswordRefusalReason recordFailure(String username, PasswordRefusalReason reason) {
         Optional<ScimUser> found = find(username);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
-        found.ifPresent(loginState::failureCounted);
+        Set<AuditLoginStateAttribute> moved = found
+                .map(loginState::failureCounted)
+                .map(LoginStateChange::moved)
+                .orElse(Set.of());
         audit.append(new Audited.LoginFailure(found.map(ScimUser::id).orElse(null),
-                recorded.audited(), AuditLoginMethod.PASSWORD));
+                recorded.audited(), AuditLoginMethod.PASSWORD, moved));
         return recorded;
     }
 
@@ -176,9 +182,9 @@ public class LoginAttemptService {
             return;
         }
         ScimUser user = found.get();
-        loginState.failureCounted(user);
+        LoginStateChange counted = loginState.failureCounted(user);
         audit.append(new Audited.PasswordChangeRefused(
-                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD));
+                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, counted.moved()));
     }
 
     /**

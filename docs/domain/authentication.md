@@ -126,6 +126,24 @@ logins right now, and is an Admin's. So:
   and `lastAuthenticatedAt` when a lock stood. Unlocking a User that has a
   password also sets its change-required flag.
 
+The same rule holds for every event that records a login-state transition — a
+refusal counted against the run, a Lockout, an Unlock, a required change, a
+dormancy lock: its changed paths are exactly the login-state paths that
+transition moved, no more and no fewer, as the login-state module reports them. A refused password
+Login, or a wrong current password on the self-service change, names
+`failedLoginAttempts` when the run lengthened, the Bootstrap Admin's included.
+It names no path when the run did not move: a locked User's attempts neither
+count nor deepen the lock, and an unknown name, or one with whitespace at an
+edge, has no User to count against. The failure that imposes a Lockout names
+the run and `lockedAt` and `lockCause`, on its `LOCKOUT_SET` as on its own
+refusal. Where one transition is recorded as two events, they split what it
+moved: an Unlock's `PASSWORD_CHANGE_REQUIRE` names
+`passwordChangeRequiredSince`, and its `LOCKOUT_LIFT` the rest. The credential
+is not a login-state path: a completed password change names `password`
+because the change was completed, beside `passwordChangeRequiredSince` when it
+cleared that flag. Like an accepted Login's `LOGIN_SUCCESS`, which names no
+path, it does not name the run it clears or the dormancy basis it moves.
+
 ## Recovery guard
 
 What keeps the deployment recoverable. Two rules.

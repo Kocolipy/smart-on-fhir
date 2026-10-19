@@ -420,6 +420,45 @@ class IdentityAdministrationServiceTests {
                 new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
     }
 
+    /**
+     * The Unlock's two rows split what it moved: the lift names the run, the lock and the basis,
+     * and the required change names the flag.
+     */
+    @Test
+    void anUnlocksRowsNameWhatItMovedBetweenThem() {
+        givenLocked("bob");
+
+        service.unlock(id("bob"), actor(BOOTSTRAP));
+
+        assertThat(List.of(audit.changedPaths(AuditOperation.LOCKOUT_LIFT),
+                audit.changedPaths(AuditOperation.PASSWORD_CHANGE_REQUIRE)))
+                .containsExactly(
+                        List.of(List.of("failedLoginAttempts", "lockedAt", "lockCause",
+                                "lastAuthenticatedAt")),
+                        List.of(List.of("passwordChangeRequiredSince")));
+    }
+
+    /** An Unlock of a User with no run and no lock moved nothing, and its lift says so. */
+    @Test
+    void anUnlockThatMovedNothingNamesNoPath() {
+        given("bob");
+
+        service.unlock(id("bob"), actor(BOOTSTRAP));
+
+        assertThat(audit.changedPaths(AuditOperation.LOCKOUT_LIFT)).containsExactly(List.of());
+    }
+
+    /** A forced change names the flag it set. */
+    @Test
+    void aForcedChangeNamesTheFlagItSet() {
+        given("bob");
+
+        service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
+
+        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE_REQUIRE))
+                .containsExactly(List.of("passwordChangeRequiredSince"));
+    }
+
     // Dormancy locks (ADR 0007)
 
     /**

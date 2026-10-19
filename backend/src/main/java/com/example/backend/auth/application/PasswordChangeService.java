@@ -8,12 +8,12 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -123,10 +123,12 @@ public class PasswordChangeService {
 
         // The run cleared, the change completed and the dormancy basis moved are the login-state
         // module's to decide and write; a User gone by the write is refused like a stale read.
-        Instant changedAt = loginState.passwordChanged(user, accepted.passwordHash())
-                .orElseThrow(CurrentPasswordRejectedException::new);
-        passwordAcceptance.remember(userId, accepted, changedAt);
-        audit.append(new Audited.PasswordChanged(userId));
+        LoginStateChange changed = loginState.passwordChanged(user, accepted.passwordHash());
+        if (!changed.completedPasswordChange()) {
+            throw new CurrentPasswordRejectedException();
+        }
+        passwordAcceptance.remember(userId, accepted, changed.completedAt());
+        audit.append(new Audited.PasswordChanged(userId, changed.moved()));
         sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
         LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
                 .log();

@@ -66,6 +66,18 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     /**
+     * The changed paths of every recorded event of one operation, in order, each as the stored
+     * row lists them — kept beside {@link #recorded()} for the reason {@link #loginMethods()} is.
+     */
+    public List<List<String>> changedPaths(AuditOperation operation) {
+        return events.stream()
+                .map(event -> event.toEvent(STAMP))
+                .filter(row -> row.operation() == operation)
+                .map(AuditEvent::changedPaths)
+                .toList();
+    }
+
+    /**
      * The login method of every recorded {@code LOGIN_SUCCESS} and {@code LOGIN_FAILURE}, in the
      * order they were recorded. Kept beside {@link #recorded()} rather than in {@link Recorded},
      * so a test's expected {@code Recorded} values need not change for a field it is not about.

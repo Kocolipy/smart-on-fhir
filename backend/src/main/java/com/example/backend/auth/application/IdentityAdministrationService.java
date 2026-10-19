@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditLockCause;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
@@ -11,6 +12,7 @@ import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -174,14 +176,14 @@ public class IdentityAdministrationService {
                     actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET));
             throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
         }
-        LoginStateService.Unlock unlocked = loginState.unlocked(user);
+        LoginStateChange unlocked = loginState.unlocked(user);
         audit.append(new Audited.LockoutLiftedByUnlock(actorId, user.id(),
-                auditCause(unlocked.lifted()), unlocked.attemptsCleared()));
-        if (unlocked.changeRequired()) {
-            audit.append(new Audited.PasswordChangeRequired(actorId, user.id()));
+                auditCause(unlocked.before().lockCause()), unlocked.moved()));
+        if (unlocked.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
+            audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), unlocked.moved()));
         }
         succeeded(Operation.UNLOCK, user.id());
-        return summarize(user, unlocked.state());
+        return summarize(user, unlocked.after());
     }
 
     /** The lifted lock's cause in the audit trail's own vocabulary, or none when none stood. */
@@ -241,15 +243,15 @@ public class IdentityAdministrationService {
                     new UnsafeIdentityChangeException(
                             "A User with no password has no credential to replace"));
         }
-        LoginStateService.ForcedChange forced = loginState.passwordChangeForced(user);
-        if (!forced.imposed()) {
-            return summarize(user, forced.state());
+        LoginStateChange forced = loginState.passwordChangeForced(user);
+        if (!forced.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
+            return summarize(user, forced.after());
         }
-        audit.append(new Audited.PasswordChangeRequired(actorId, user.id()));
+        audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), forced.moved()));
         sessions.revokeAllAfterCommit(
                 user.id(), SessionRevocationCause.FORCED_PASSWORD_CHANGE, actorId);
         succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
-        return summarize(user, forced.state());
+        return summarize(user, forced.after());
     }
 
     private RuntimeException refuseForcedChange(

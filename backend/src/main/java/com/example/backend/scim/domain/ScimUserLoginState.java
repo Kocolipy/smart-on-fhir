@@ -16,10 +16,12 @@ import java.util.Objects;
  * and the module answers it. Nothing on the directory side decides any of those fields itself:
  * neither the use cases, nor {@link ScimUserRepository}, nor its queries.
  *
- * <p>A create's and a replacement's state is returned rather than written, because it is stored
- * with the profile in the write's one row update ({@link ScimUserRepository#create},
- * {@link ScimUserRepository#replace}), which stores what it is given. The dormant fixture has no
- * profile write to ride on, so the module writes it itself.
+ * <p>Every event answers with what it changed, as every transition of the module does: a
+ * {@link LoginStateChange}. A create's and a replacement's {@link LoginStateChange#after} is
+ * returned rather than written, because it is stored with the profile in the write's one row
+ * update ({@link ScimUserRepository#create}, {@link ScimUserRepository#replace}), which stores
+ * what it is given. The dormant fixture has no profile write to ride on, so the module writes it
+ * itself.
  */
 public interface ScimUserLoginState {
 
@@ -58,8 +60,11 @@ public interface ScimUserLoginState {
     /**
      * The login state of a User created with {@code passwordHash} — {@code null} for a
      * credentialless User — as of {@code now}: by a connector, or as the seeded Bootstrap Admin.
+     *
+     * @return what the creation decided, from a new User holding the credential and nothing else
+     *     to the state its row write stores
      */
-    ScimLoginState created(String passwordHash, Instant now);
+    LoginStateChange created(String passwordHash, Instant now);
 
     /**
      * The login state of {@code stored} after a SCIM replacement as of {@code now} — a PUT or a
@@ -69,14 +74,19 @@ public interface ScimUserLoginState {
      * @param profile    the profile as the write leaves it
      * @param credential the credential as the write leaves it
      * @param now        the write's instant
+     * @return what the replacement decided, from the state {@code stored} holds to the one its row
+     *     write stores
      */
-    ScimLoginState afterReplacement(
+    LoginStateChange afterReplacement(
             ScimUser stored, ScimUserProfile profile, Credential credential, Instant now);
 
     /**
      * Resets the development fixture {@code fixture} to dormant as of {@code now}: its
      * credential back to {@code passwordHash}, and its dormancy basis {@code dormantFor} before
      * {@code now}.
+     *
+     * @return what the reset moved, and the instant its password change was completed at
      */
-    void dormantFixtureReset(ScimUser fixture, String passwordHash, Instant now, Duration dormantFor);
+    LoginStateChange dormantFixtureReset(
+            ScimUser fixture, String passwordHash, Instant now, Duration dormantFor);
 }

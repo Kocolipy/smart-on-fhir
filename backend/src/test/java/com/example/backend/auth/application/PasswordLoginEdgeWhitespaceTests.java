@@ -21,6 +21,7 @@ import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -114,6 +115,15 @@ class PasswordLoginEdgeWhitespaceTests {
                 refused -> assertThat(refused.reason())
                         .isEqualTo(((PasswordRefused) nobody.outcome()).reason())
                         .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS));
+    }
+
+    /** Nothing was counted, so its {@code LOGIN_FAILURE} names no changed path. */
+    @ParameterizedTest(name = "[{index}] \"{0}\"")
+    @ValueSource(strings = {"ada ", " ada", "ada\t", "ada　"})
+    void aBorderedNamesRefusalNamesNoChangedPath(String username) {
+        login.logIn(username, "wrong");
+
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
     }
 
     @ParameterizedTest(name = "[{index}] \"{0}\"")

@@ -14,6 +14,7 @@ import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditLoginMethod;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
@@ -37,6 +38,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -281,7 +283,8 @@ class AuditAppendOnlyIntegrationTests {
 
         transactions.executeWithoutResult(status -> {
             auditTrail.append(new Audited.LoginFailure(
-                    subjectId, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD));
+                    subjectId, AuditRefusalReason.BAD_CREDENTIALS, AuditLoginMethod.PASSWORD,
+                    Set.of(AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS)));
             status.setRollbackOnly();
         });
 
