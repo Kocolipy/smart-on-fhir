@@ -104,6 +104,52 @@ module.exports = {
     },
 
     {
+      name: "mb-src-layout-is-declared",
+      comment:
+        "src/ holds the four layer folders and the composition root, nothing else (AGENTS.md). Every other rule is keyed on those paths, so a file outside them answers to none; a new folder is a design change made on purpose, here and in docs/ARCHITECTURE.md together.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: [
+          "^src/(auth|components|lib|pages)/",
+          "^src/(App|main)\\.tsx$",
+          "^src/vite-env\\.d\\.ts$",
+          "\\.(test|spec)\\.[tj]sx?$",
+        ],
+      },
+      to: {},
+    },
+
+    {
+      name: "mb-src-layout-is-declared-for-importers",
+      comment:
+        "The other half of mb-src-layout-is-declared: an import may not reach a file outside the declared layout either, so an undeclared file that imports nothing is still caught when something uses it.",
+      severity: "error",
+      from: {},
+      to: {
+        path: "^src/",
+        pathNot: [
+          "^src/(auth|components|lib|pages)/",
+          "^src/(App|main)\\.tsx$",
+          "^src/index\\.css$",
+          "^src/vite-env\\.d\\.ts$",
+        ],
+      },
+    },
+
+    {
+      name: "lb-api-modules-are-data",
+      comment:
+        "A page's *-api.ts module declares its endpoints as data — path, decoder, Permission — for the gated read and write to send (AGENTS.md). It holds no markup or hooks, so it imports no React, no component and no page component.",
+      severity: "error",
+      from: { path: "^src/pages/[^/]+-api\\.ts$" },
+      to: {
+        path: "^(node_modules/(react|react-dom|react-router|react-router-dom)/|src/(components|pages)/)",
+        pathNot: "^src/pages/[^/]+-api\\.ts$",
+      },
+    },
+
+    {
       name: "no-direct-http-in-components",
       comment:
         "Components and pages request through useSessionRequest. A third-party HTTP client would bypass the session seam the same way a direct apiFetch import does, so none may be imported here.",

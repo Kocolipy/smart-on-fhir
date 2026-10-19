@@ -397,6 +397,10 @@ Types live in the file or folder that owns them. Shared helpers and shared
 hooks go in `src/lib/` — that is also where `components.json` points the shadcn
 CLI (`"hooks": "@/lib/hooks"`), so a generated hook lands in the right place
 without anyone intervening. `mb-no-top-level-catchall-dirs` enforces the ban.
+More broadly, `mb-src-layout-is-declared` and its `-for-importers` twin fail
+any file outside `auth/`, `components/`, `lib/`, `pages/` and the composition
+root, so a new folder under `src/` is added to those rules and to this document
+in the same change.
 
 ## The `@/` alias
 
