@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
+import com.example.backend.patient.application.DevPatientFixtures;
 import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.application.PatientSeedService;
 import com.example.backend.patient.application.PatientSeedService.SeedCounts;
@@ -13,7 +14,9 @@ import com.example.backend.patient.domain.Patient;
 import com.example.backend.patient.domain.PatientName;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.AfterEach;
@@ -117,6 +120,47 @@ class PatientStorageIntegrationTests {
         assertThat(twice).isEqualTo(new SeedCounts(0, 2));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM patients WHERE id IN (?, ?)",
                 Integer.class, first.id(), second.id())).isEqualTo(2);
+    }
+
+    /**
+     * Each development fixture's name, gender and birth date under a fresh id and NRIC, so the
+     * fixtures' own shapes make the SQL round-trip without touching their fixed ids.
+     */
+    private List<Patient> freshCopiesOfTheFixtures() {
+        return DevPatientFixtures.ALL.stream()
+                .map(fixture -> new Patient(freshId(), freshNric(), fixture.name(), fixture.gender(),
+                        fixture.birthDate()))
+                .toList();
+    }
+
+    @Test
+    void theFixturesSeedOnceAndEachReadsBackAsItWasSeeded() {
+        List<Patient> fixtures = freshCopiesOfTheFixtures();
+
+        SeedCounts once = seeding.seedDevFixtures(fixtures);
+        SeedCounts twice = seeding.seedDevFixtures(fixtures);
+
+        assertThat(once).isEqualTo(new SeedCounts(4, 0));
+        assertThat(twice).isEqualTo(new SeedCounts(0, 4));
+        assertThat(fixtures).allSatisfy(fixture ->
+                assertThat(reads.find(fixture.id())).contains(fixture));
+    }
+
+    @Test
+    void theFixturesGivenNamesAreStoredAsOneSpaceSeparatedColumn() {
+        List<Patient> fixtures = freshCopiesOfTheFixtures();
+
+        seeding.seedDevFixtures(fixtures);
+
+        Map<UUID, String> storedGiven = new HashMap<>();
+        Map<UUID, String> expected = new HashMap<>();
+        for (Patient fixture : fixtures) {
+            storedGiven.put(fixture.id(), jdbc.queryForObject(
+                    "SELECT name_given FROM patients WHERE id = ?", String.class, fixture.id()));
+            List<String> given = fixture.name().given();
+            expected.put(fixture.id(), given.isEmpty() ? null : String.join(" ", given));
+        }
+        assertThat(storedGiven).isEqualTo(expected);
     }
 
     @Test

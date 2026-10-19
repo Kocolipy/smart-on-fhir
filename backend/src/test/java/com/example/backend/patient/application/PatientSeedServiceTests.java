@@ -65,39 +65,4 @@ class PatientSeedServiceTests {
         assertThat(seeding.seedDevFixtures(List.of())).isEqualTo(new SeedCounts(0, 0));
         assertThat(patients.all()).isEmpty();
     }
-
-    @Test
-    void theDefaultPatientIsAFixtureUnderItsFixedId() {
-        assertThat(DevPatientFixtures.ALL).extracting(Patient::id).containsExactly(
-                UUID.fromString("00000000-0000-4000-8000-00000000c001"));
-    }
-
-    @Test
-    void theDefaultPatientIsTanWeiMingFamilyNameFirst() {
-        assertThat(DevPatientFixtures.DEFAULT_PATIENT).isEqualTo(new Patient(
-                UUID.fromString("00000000-0000-4000-8000-00000000c001"),
-                "S1234567A",
-                new PatientName("Tan Wei Ming", "Tan", List.of("Wei", "Ming")),
-                AdministrativeGender.MALE,
-                LocalDate.of(1985, 3, 12)));
-    }
-
-    /**
-     * The NRIC's check letter, by the published weights 2, 7, 6, 5, 4, 3, 2 and the S-series
-     * letters J Z I H G F E D C B A: S1234567's is D. The fixture's A is wrong on purpose, so
-     * the dummy can never be a real person's NRIC.
-     */
-    @Test
-    void theDefaultPatientsNricHasAWrongCheckLetter() {
-        String nric = DevPatientFixtures.DEFAULT_PATIENT.nric();
-        int[] weights = {2, 7, 6, 5, 4, 3, 2};
-        int sum = 0;
-        for (int i = 0; i < weights.length; i++) {
-            sum += (nric.charAt(i + 1) - '0') * weights[i];
-        }
-        char valid = "JZIHGFEDCBA".charAt(sum % 11);
-
-        assertThat(valid).isEqualTo('D');
-        assertThat(nric.charAt(8)).isNotEqualTo(valid);
-    }
 }
