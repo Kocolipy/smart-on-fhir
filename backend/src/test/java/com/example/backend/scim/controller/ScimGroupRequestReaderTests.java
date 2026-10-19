@@ -107,13 +107,82 @@ class ScimGroupRequestReaderTests {
                 "invalidValue");
         refused("[{\"op\":\"replace\",\"path\":\"externalId.value\",\"value\":\"x\"}]",
                 "invalidPath");
-        refused("[{\"op\":\"move\",\"path\":\"externalId\",\"value\":\"x\"}]",
-                "invalidValue");
     }
 
-    /** An unknown op on externalId is echoed sanitized: a control character cannot forge a log. */
+    /**
+     * An op that is not add, remove or replace is invalidSyntax whatever the path names, or with
+     * no path at all, as it is for a User; so is a blank, non-string or missing one. The op is
+     * matched case-insensitively.
+     */
     @Test
-    void an_unknown_op_on_external_id_is_echoed_without_control_characters() {
+    void an_op_that_is_not_add_remove_or_replace_is_invalid_syntax_whatever_the_path() {
+        UUID member = UUID.randomUUID();
+        for (String target : List.of(
+                ",\"path\":\"displayName\",\"value\":\"x\"",
+                ",\"path\":\"members\",\"value\":[{\"value\":\"" + member + "\"}]",
+                ",\"path\":\"members[value eq \\\"" + member + "\\\"]\"",
+                ",\"path\":\"externalId\",\"value\":\"x\"",
+                ",\"path\":\"nickName\",\"value\":\"x\"",
+                "")) {
+            refused("[{\"op\":\"move\"" + target + "}]", "invalidSyntax");
+        }
+        refused("[{\"op\":\"\",\"path\":\"displayName\",\"value\":\"x\"}]", "invalidSyntax");
+        refused("[{\"op\":7,\"path\":\"displayName\",\"value\":\"x\"}]", "invalidSyntax");
+        refused("[{\"op\":null,\"path\":\"displayName\",\"value\":\"x\"}]", "invalidSyntax");
+        refused("[{\"path\":\"displayName\",\"value\":\"x\"}]", "invalidSyntax");
+        assertThat(read("[{\"op\":\"Replace\",\"path\":\"displayName\",\"value\":\"Eng\"}]"))
+                .containsExactly(new SetDisplayName("Eng"));
+    }
+
+    /** A null op is missing, as an absent one is; an op of another type says it must be a string. */
+    @Test
+    void a_null_op_is_missing_and_a_non_string_op_must_be_a_string() {
+        assertThatThrownBy(() -> read("[{\"op\":null,\"path\":\"displayName\",\"value\":\"x\"}]"))
+                .hasMessage("A required attribute is missing: op");
+        assertThatThrownBy(() -> read("[{\"path\":\"displayName\",\"value\":\"x\"}]"))
+                .hasMessage("A required attribute is missing: op");
+        assertThatThrownBy(() -> read("[{\"op\":7,\"path\":\"displayName\",\"value\":\"x\"}]"))
+                .hasMessage("op must be a string.");
+    }
+
+    /**
+     * {@code members} without a value path: {@code add} adds, {@code replace} replaces the whole
+     * membership, {@code remove} with a value removes exactly those members, and {@code remove}
+     * with a null value or none clears the membership.
+     */
+    @Test
+    void members_are_added_replaced_removed_by_value_or_cleared() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        String members = "[{\"value\":\"" + first + "\"},{\"value\":\"" + second + "\"}]";
+        assertThat(read("[{\"op\":\"add\",\"path\":\"members\",\"value\":" + members + "}]"))
+                .containsExactly(new ScimGroupPatchOperation.AddMembers(List.of(first, second)));
+        assertThat(read("[{\"op\":\"replace\",\"path\":\"members\",\"value\":" + members + "}]"))
+                .containsExactly(
+                        new ScimGroupPatchOperation.ReplaceMembers(List.of(first, second)));
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members\",\"value\":" + members + "}]"))
+                .containsExactly(new RemoveMembers(List.of(first, second)));
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members\",\"value\":null}]"))
+                .containsExactly(new RemoveAllMembers());
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members\"}]"))
+                .containsExactly(new RemoveAllMembers());
+    }
+
+    /** An add or replace of members needs a value, and the value must name at least one member. */
+    @Test
+    void adding_or_replacing_members_needs_a_non_empty_value() {
+        for (String op : List.of("add", "replace")) {
+            refused("[{\"op\":\"" + op + "\",\"path\":\"members\"}]", "invalidSyntax");
+            refused("[{\"op\":\"" + op + "\",\"path\":\"members\",\"value\":null}]",
+                    "invalidSyntax");
+            refused("[{\"op\":\"" + op + "\",\"path\":\"members\",\"value\":[]}]",
+                    "invalidValue");
+        }
+    }
+
+    /** An unknown op is echoed sanitized: a control character cannot forge a log. */
+    @Test
+    void an_unknown_op_is_echoed_without_control_characters() {
         assertThatThrownBy(() -> read(
                 "[{\"op\":\"mo\\u0007ve\",\"path\":\"externalId\",\"value\":\"x\"}]"))
                 .isInstanceOfSatisfying(ScimErrorException.class, refusal ->

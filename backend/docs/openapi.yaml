@@ -2323,11 +2323,11 @@ paths:
 
         | Refusal | `scimType` |
         | --- | --- |
-        | not a `PatchOp`, no operations | `invalidSyntax` |
+        | not a `PatchOp`, no operations, unknown `op` | `invalidSyntax` |
         | an unimplemented path, or a members value path on anything but `remove` | `invalidPath` |
         | `id`, `meta` or `schemas` as a path; removing `displayName` | `mutability` |
         | `remove` with no path (RFC 7644 §3.5.2.2) | `noTarget` |
-        | `add`/`replace` with no path, an unknown `op`, a value of the wrong type, a member that is not a live User, more than 100 operations | `invalidValue` |
+        | `add`/`replace` with no path, a value of the wrong type, a member that is not a live User, more than 100 operations | `invalidValue` |
 
         Returns `200` with the patched resource rather than `204`, which RFC 7644
         permits either of: a membership change advances versions, and a client given

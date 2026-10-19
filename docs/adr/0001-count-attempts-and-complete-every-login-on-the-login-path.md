@@ -166,8 +166,10 @@ path.
   (`logInFromEpic`).
 - Events remain unpublished by this path, so nothing else can observe Logins by
   subscribing. Auditing is recorded here instead: `LoginAttemptService` appends
-  `LOGIN_SUCCESS`, `LoginOutcomeService` appends `LOGIN_FAILURE`, and
-  `LoginStateService` appends `LOCKOUT_SET` when a Lockout is imposed.
+  `LOGIN_SUCCESS`, and a password Login's `LOGIN_FAILURE` beside the failure run
+  it counts, reached through `LoginOutcomeService`; `LoginOutcomeService` appends
+  an Epic Login's `LOGIN_FAILURE` itself; and `LoginStateService` appends
+  `LOCKOUT_SET` when a Lockout is imposed.
 - A success is counted only once its session exists, and its record names the
   session the User goes on to use. That holds for both methods.
 - The password refusal's `WARN` does not reveal whether the account exists or its

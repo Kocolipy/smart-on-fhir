@@ -74,6 +74,8 @@ final class ScimGroupRequestReader {
     private static final Pattern MEMBER_VALUE_PATH = Pattern.compile(
             "^members\\[\\s*value\\s+eq\\s+\"([^\"]*)\"\\s*]$", Pattern.CASE_INSENSITIVE);
 
+    private enum Op { ADD, REMOVE, REPLACE }
+
     private ScimGroupRequestReader() {
     }
 
@@ -163,14 +165,14 @@ final class ScimGroupRequestReader {
      * leaves genuinely ambiguous, and guessing at it is worse than refusing.
      */
     private static ScimGroupPatchOperation readOperation(JsonNode operation) {
-        String op = requiredString(operation, "op").toLowerCase(Locale.ROOT);
+        Op op = op(operation.get("op"));
         String path = optionalString(operation, "path");
         JsonNode value = operation.get("value");
 
         if (path == null) {
             // RFC 7644 §3.5.2.2 names noTarget for a path-less remove. A path-less add or replace
             // is an attribute merge this service does not implement, which is a value refusal.
-            if ("remove".equals(op)) {
+            if (op == Op.REMOVE) {
                 throw ScimErrorException.noTarget("A remove operation requires a path.");
             }
             throw ScimErrorException.invalidValue(
@@ -180,7 +182,7 @@ final class ScimGroupRequestReader {
 
         Matcher memberValuePath = MEMBER_VALUE_PATH.matcher(path);
         if (memberValuePath.matches()) {
-            if (!"remove".equals(op)) {
+            if (op != Op.REMOVE) {
                 throw ScimErrorException.invalidPath(
                         "A members value path is supported for remove only.");
             }
@@ -201,6 +203,29 @@ final class ScimGroupRequestReader {
         };
     }
 
+    /**
+     * The operation's {@code op}, matched case-insensitively. A missing, non-string or unknown
+     * {@code op} is {@code invalidSyntax}, as it is for a User: the operation is not one a PatchOp
+     * can carry, so the message is malformed — not a value the Group schema refuses — and is
+     * refused before its path is read, whatever the path names.
+     */
+    private static Op op(JsonNode op) {
+        if (op == null || op.isNull()) {
+            throw ScimErrorException.invalidSyntax("A required attribute is missing: op");
+        }
+        if (!op.isString()) {
+            throw ScimErrorException.invalidSyntax("op must be a string.");
+        }
+        String name = op.stringValue().toLowerCase(Locale.ROOT);
+        return switch (name) {
+            case "add" -> Op.ADD;
+            case "remove" -> Op.REMOVE;
+            case "replace" -> Op.REPLACE;
+            default -> throw ScimErrorException.invalidSyntax(
+                    "Unsupported PATCH op: " + sanitized(name));
+        };
+    }
+
     /** A path with the core Group schema URN prefix removed, which RFC 7644 §3.10 allows. */
     private static String unqualified(String path) {
         return path.regionMatches(true, 0, SCHEMA_PREFIX, 0, SCHEMA_PREFIX.length())
@@ -214,13 +239,12 @@ final class ScimGroupRequestReader {
      * replaces it. {@code remove} is refused — {@code displayName} is required, so removing it would
      * leave a Group the schema forbids.
      */
-    private static ScimGroupPatchOperation readDisplayNameOperation(String op, JsonNode value) {
+    private static ScimGroupPatchOperation readDisplayNameOperation(Op op, JsonNode value) {
         return switch (op) {
-            case "add", "replace" -> new ScimGroupPatchOperation.SetDisplayName(
+            case ADD, REPLACE -> new ScimGroupPatchOperation.SetDisplayName(
                     requiredStringValue(value, "displayName"));
-            case "remove" -> throw ScimErrorException.mutability(
+            case REMOVE -> throw ScimErrorException.mutability(
                     "displayName is required and cannot be removed.");
-            default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
         };
     }
 
@@ -229,12 +253,11 @@ final class ScimGroupRequestReader {
      * {@code remove} clears it — the attribute is optional, so unlike {@code displayName} it may
      * be removed.
      */
-    private static ScimGroupPatchOperation readExternalIdOperation(String op, JsonNode value) {
+    private static ScimGroupPatchOperation readExternalIdOperation(Op op, JsonNode value) {
         return switch (op) {
-            case "add", "replace" -> new ScimGroupPatchOperation.SetExternalId(
+            case ADD, REPLACE -> new ScimGroupPatchOperation.SetExternalId(
                     requiredStringValue(value, "externalId"));
-            case "remove" -> new ScimGroupPatchOperation.RemoveExternalId();
-            default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
+            case REMOVE -> new ScimGroupPatchOperation.RemoveExternalId();
         };
     }
 
@@ -246,14 +269,13 @@ final class ScimGroupRequestReader {
      * client that cannot build a value path uses; {@code remove} with no value clears the
      * membership, as the RFC defines for a path with no filter.
      */
-    private static ScimGroupPatchOperation readMembersOperation(String op, JsonNode value) {
+    private static ScimGroupPatchOperation readMembersOperation(Op op, JsonNode value) {
         return switch (op) {
-            case "add" -> new ScimGroupPatchOperation.AddMembers(requiredMemberIds(value));
-            case "replace" -> new ScimGroupPatchOperation.ReplaceMembers(requiredMemberIds(value));
-            case "remove" -> value == null || value.isNull()
+            case ADD -> new ScimGroupPatchOperation.AddMembers(requiredMemberIds(value));
+            case REPLACE -> new ScimGroupPatchOperation.ReplaceMembers(requiredMemberIds(value));
+            case REMOVE -> value == null || value.isNull()
                     ? new ScimGroupPatchOperation.RemoveAllMembers()
                     : new ScimGroupPatchOperation.RemoveMembers(requiredMemberIds(value));
-            default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
         };
     }
 

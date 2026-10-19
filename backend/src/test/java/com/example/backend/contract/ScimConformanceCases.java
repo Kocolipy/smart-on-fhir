@@ -1055,7 +1055,7 @@ final class ScimConformanceCases {
         refused.put("the read-only meta", new String[] {
             "{\"op\":\"replace\",\"path\":\"meta\",\"value\":{}}", "mutability"});
         refused.put("an op that is not add, remove or replace", new String[] {
-            "{\"op\":\"move\",\"path\":\"displayName\",\"value\":\"x\"}", null});
+            "{\"op\":\"move\",\"path\":\"displayName\",\"value\":\"x\"}", "invalidSyntax"});
         refused.put("a value of the wrong type", new String[] {
             "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":5}", "invalidValue"});
         for (Map.Entry<String, String[]> grammar : refused.entrySet()) {
@@ -1066,12 +1066,7 @@ final class ScimConformanceCases {
                         Kind.patch(grammar.getValue()[0])), 400);
                 JsonNode error = json(result);
                 assertThat(texts(error.get("schemas"))).containsExactly(ERROR_SCHEMA);
-                if (grammar.getValue()[1] != null) {
-                    assertThat(error.get("scimType").asText()).isEqualTo(grammar.getValue()[1]);
-                } else {
-                    assertThat(error.get("scimType").asText())
-                            .isIn("invalidSyntax", "invalidValue");
-                }
+                assertThat(error.get("scimType").asText()).isEqualTo(grammar.getValue()[1]);
                 t.assertUnchanged(kind, resource);
             });
         }
