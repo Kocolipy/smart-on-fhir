@@ -1,12 +1,6 @@
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  type Clock,
-  completedYears,
-  formatCalendarDate,
-  singaporeDate,
-  systemClock,
-} from "@/lib/calendar";
+import { type Clock, completedYears, formatCalendarDate, today, systemClock } from "@/lib/time";
 
 import { DEFAULT_PATIENT_ID, PATIENT, type PatientGender, type PatientSummary } from "./home-api";
 
@@ -24,7 +18,7 @@ const GENDER_LABELS: Readonly<Record<PatientGender, string>> = {
  * shown as the text it is, never interpreted as markup.
  */
 function PatientFields({ clock, patient }: { clock: Clock; patient: PatientSummary }) {
-  const age = completedYears(patient.birthDate, singaporeDate(clock));
+  const age = completedYears(patient.birthDate, today(clock));
   const rows: [label: string, value: string][] = [
     ["Name", patient.name],
     ["NRIC", patient.nric],

@@ -26,17 +26,17 @@ const TOKEN_ID = "a1b2c3d4-0000-4000-8000-000000000001";
 
 const token = (overrides: Partial<ConnectorToken> = {}): ConnectorToken => ({
   active: true,
-  expiresAt: "2027-01-02T00:00:00Z",
+  expiresAt: "2027-01-01T20:00:00Z",
   id: TOKEN_ID,
-  issuedAt: "2026-01-02T00:00:00Z",
-  originalExpiresAt: "2027-01-02T00:00:00Z",
+  issuedAt: "2026-01-01T16:00:00Z",
+  originalExpiresAt: "2027-01-01T20:00:00Z",
   permissions: ["group:read", "group:write", "user:read", "user:write"],
   revokedAt: null,
   ...overrides,
 });
 
 const connector = (overrides: Partial<Connector> = {}): Connector => ({
-  createdAt: "2026-01-01T00:00:00Z",
+  createdAt: "2025-12-31T23:30:00Z",
   displayName: "Okta",
   id: CONNECTOR_ID,
   tokens: [],
@@ -45,8 +45,8 @@ const connector = (overrides: Partial<Connector> = {}): Connector => ({
 
 const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
   connectorId: CONNECTOR_ID,
-  expiresAt: "2027-01-02T00:00:00Z",
-  issuedAt: "2026-01-02T00:00:00Z",
+  expiresAt: "2027-01-01T20:00:00Z",
+  issuedAt: "2026-01-01T16:00:00Z",
   permissions: ["group:read", "group:write", "user:read", "user:write"],
   presentedValue: "scim_plaintext_value_shown_once",
   tokenId: TOKEN_ID,
@@ -138,7 +138,7 @@ describe("Connectors", () => {
               active: false,
               id: "r0000000-x",
               permissions: [],
-              revokedAt: "2026-02-03T00:00:00Z",
+              revokedAt: "2026-02-02T18:00:00Z",
             }),
           ],
         }),
@@ -375,7 +375,7 @@ describe("Connectors", () => {
       [LISTING]: [
         json([connector({ tokens: [token()] })]),
         json([
-          connector({ tokens: [token({ active: false, revokedAt: "2026-05-06T00:00:00Z" })] }),
+          connector({ tokens: [token({ active: false, revokedAt: "2026-05-05T22:00:00Z" })] }),
         ]),
       ],
       [`POST ${tokenAt}/revoke`]: bare(204),

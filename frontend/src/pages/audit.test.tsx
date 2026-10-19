@@ -19,7 +19,8 @@ const AUDITOR = holding(["audit:read"]);
 
 const EVENT_1 = {
   id: "e-1",
-  occurredAt: "2026-01-02T03:04:05Z",
+  // Late in the UTC day: already the next day in Singapore, where it is shown.
+  occurredAt: "2026-01-02T19:04:05Z",
   operation: "LOGIN_FAILURE",
   outcome: "FAILURE",
   actorId: null,
@@ -173,6 +174,17 @@ describe("Audit", () => {
     expect(within(rows[1]).getByText("LOGIN_FAILURE")).toBeInTheDocument();
     expect(within(rows[2]).getByText("SCIM_USER_LIST")).toBeInTheDocument();
     expect(requests()).toEqual([{ method: "GET", path: `${AUDIT_EVENTS_PATH}?page=0&size=50` }]);
+  });
+
+  it("shows when each event occurred as its date and minute in Singapore", async () => {
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
+
+    await findTable();
+    expect(
+      within(table())
+        .getAllByRole("rowheader")
+        .map((header) => header.textContent),
+    ).toEqual(["2026-01-03 03:04", "2026-01-03 18:11"]);
   });
 
   it("shows an empty-state message when no events match", async () => {
@@ -519,8 +531,29 @@ describe("Audit", () => {
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
+      // Each bound is read as Singapore time, eight hours ahead of UTC.
       expect(readPaths(requests).slice(-1)[0]).toBe(
-        `${AUDIT_EVENTS_PATH}?resourceId=00000000-0000-4000-8000-000000000002&from=${encodeURIComponent(new Date("2026-01-01T00:00").toISOString())}&to=${encodeURIComponent(new Date("2026-01-02T00:00").toISOString())}&page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?resourceId=00000000-0000-4000-8000-000000000002&from=2025-12-31T16%3A00%3A00.000Z&to=2026-01-01T16%3A00%3A00.000Z&page=0&size=50`,
+      );
+    });
+
+    it("bounds the listing at the events' shown times when they are typed into From and To", async () => {
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })),
+      );
+      const user = userEvent.setup();
+
+      await findTable();
+      const [first, second] = within(table())
+        .getAllByRole("rowheader")
+        .map((header) => header.textContent.replace(" ", "T"));
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: first } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: second } });
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+      // From is the first event's minute, so it is included; To is the second's.
+      expect(readPaths(requests).slice(-1)[0]).toBe(
+        `${AUDIT_EVENTS_PATH}?from=2026-01-02T19%3A04%3A00.000Z&to=2026-01-03T10%3A11%3A00.000Z&page=0&size=50`,
       );
     });
 

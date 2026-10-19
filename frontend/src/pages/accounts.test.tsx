@@ -31,7 +31,7 @@ const userRow = (overrides: Partial<UserRow> = {}): UserRow => ({
   active: true,
   admin: false,
   bootstrapAdmin: false,
-  createdAt: "2026-01-02T03:04:05Z",
+  createdAt: "2026-01-02T19:04:05Z",
   displayName: null,
   groups: [],
   hasPassword: true,
@@ -94,7 +94,7 @@ describe("Accounts", () => {
             { displayName: "Engineering", id: "g1" },
             { displayName: "Operators", id: "g2" },
           ],
-          lastAuthenticatedAt: "2026-03-04T05:06:07Z",
+          lastAuthenticatedAt: "2026-03-04T17:06:07Z",
         }),
         userRow({ admin: true, id: "ada-id", userName: "ada" }),
       ]),
@@ -124,8 +124,8 @@ describe("Accounts", () => {
     expect(grace.getByText("Configured")).toBeInTheDocument();
     expect(grace.getByText("Not locked")).toBeInTheDocument();
     expect(grace.getByText("No")).toBeInTheDocument();
-    expect(grace.getByText("2026-03-04 05:06")).toBeInTheDocument();
-    expect(grace.getByText("2026-01-02")).toBeInTheDocument();
+    expect(grace.getByText("2026-03-05 01:06")).toBeInTheDocument();
+    expect(grace.getByText("2026-01-03")).toBeInTheDocument();
     expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
 
     expect(row("ada").getByText("Admin")).toBeInTheDocument();

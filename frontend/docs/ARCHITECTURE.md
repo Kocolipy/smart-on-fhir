@@ -324,16 +324,42 @@ A body is never cast to its type (`as T`). It is read by a hand-written decoder
 that takes `unknown` and returns the value or throws `DecodeError`, built from
 the primitives in `lib/decode.ts`, and `apiFetch` turns a success body that does
 not decode into `failed` with no `status`. Each wire type's decoder lives beside
-the type, in the module that owns it. `lib/instant.ts` is the one way an instant
-from the backend is written on a page, and `lib/calendar.ts` the one way a
-calendar date is (`d MMM yyyy`) and the one place "today" is read: through a
-`Clock` a component is handed, `systemClock` by default, so a test states the
-day it runs on and no page writes an inline `new Date()`.
+the type, in the module that owns it. A decoder that checks a time — the
+Patient's birth date — asks `lib/time.ts` (below) whether it is one.
 
 It lives in `lib/` because `auth/` sits above it and it must not know about
 sessions. That places it under `mb-lib-is-a-leaf`, so it stays
 dependency-free — no auth types, no React. Pages reach it only through
 `useSessionRequest`, which strips the `unauthenticated` case after acting on it.
+
+### Why every time goes through `lib/time.ts`
+
+The SPA reads and shows every time in one zone, Asia/Singapore — the zone the
+backend names for an operator, for its log timestamps and its job schedules —
+whatever the viewer's machine zone or locale. Singapore is a fixed +08:00 with
+no daylight saving, so `lib/time.ts` states the offset as a constant rather than
+asking the machine's zone database, and it is the one module that knows it:
+
+- **an instant from the backend** is shown as its Singapore date
+  (`formatDate`, `YYYY-MM-DD`) or date and minute (`formatInstant`,
+  `YYYY-MM-DD HH:mm`);
+- **a time an administrator types** — the Audit page's From and To, which are
+  `datetime-local` values — is read as Singapore time (`parseTypedTime`), so
+  the time an event is shown at, typed back in, names that event's minute;
+- **a calendar date** — a day with no time and no zone, as a FHIR `date` is —
+  is valid only when the calendar has it (`isCalendarDate`, which the
+  Patient decoder asks) and is shown `d MMM yyyy` (`formatCalendarDate`);
+- **today** is Singapore's date (`today`), read through a `Clock` a component
+  is handed, `systemClock` by default, so a test states the day it runs on and
+  no page writes an inline `new Date()`.
+
+Nothing in it goes through `toLocaleString` or the machine's zone, so what is
+shown is the same on every machine and a test can assert an exact string. The
+unit suite pins its machine zone to one that is neither UTC nor Singapore
+(`vitest.config.ts`), where a page that slipped back to the machine's zone
+shows a different date. `test/arch/timeModule.test.ts` holds
+`no_time_outside_time_module`: no other source builds a `Date`, formats one
+through `Intl` or a local getter, or names a zone.
 
 ### Why `components/ui/` is fenced off
 

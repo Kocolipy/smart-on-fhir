@@ -45,24 +45,32 @@ async function applyFilters(
   await page.getByRole("button", { name: "Apply filters" }).click();
 }
 
+/**
+ * Provisions `userName`, records one refused login against it, and hands its
+ * Resource id to `body`; the User is deleted afterwards whatever `body` does.
+ */
+async function withRefusedLoginUser(userName: string, body: (id: string) => Promise<void>) {
+  const id = await provisionUser(connector.scim, userName);
+  try {
+    await settlePassword(userName);
+    const guesser = await anonymousApi();
+    try {
+      expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
+    } finally {
+      await guesser.dispose();
+    }
+    await body(id);
+  } finally {
+    await deprovisionUser(connector.scim, id);
+  }
+}
+
 test("an Admin's forced change and a refused login are found on the audit page", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  const id = await provisionUser(connector.scim, AUDITED_USER);
-  try {
-    await settlePassword(AUDITED_USER);
-
-    // A refused login, recorded against the User it named.
-    const guesser = await anonymousApi();
-    try {
-      expect((await submitLoginViaApi(guesser, AUDITED_USER, "not-the-password")).status()).toBe(
-        401,
-      );
-    } finally {
-      await guesser.dispose();
-    }
-
+  // A refused login, recorded against the User it named.
+  await withRefusedLoginUser(AUDITED_USER, async (id) => {
     // The forced change, from the Accounts page.
     await page.goto("/accounts");
     const row = rowOf(page, page.getByRole("table", { name: "Users" }), AUDITED_USER);
@@ -97,7 +105,31 @@ test("an Admin's forced change and a refused login are found on the audit page",
     // An operation the User never had performed on it matches nothing.
     await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-  } finally {
-    await deprovisionUser(connector.scim, id);
-  }
+  });
+});
+
+test.describe("in a browser whose zone is not Singapore's", () => {
+  // Fifteen to sixteen hours behind Singapore, with daylight saving: a From
+  // read in this zone instead of Singapore's lands that many hours after the
+  // event it was copied from, so the event drops out of the listing.
+  test.use({ timezoneId: "America/Los_Angeles" });
+
+  test("a From typed from a listed event's shown time still lists that event", async ({ page }) => {
+    test.setTimeout(90_000);
+    const userName = `${E2E_PREFIX}audit-zone-${runId()}`;
+    await withRefusedLoginUser(userName, async (id) => {
+      await page.goto("/audit");
+      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+      await expect(eventRows(page)).toHaveCount(1);
+      // The time an event is shown at heads its row, `YYYY-MM-DD HH:mm`.
+      const shown = await eventRows(page).first().getByRole("rowheader").innerText();
+      expect(shown).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+
+      await page.getByLabel("From").fill(shown.replace(" ", "T"));
+      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+
+      await expect(eventRows(page)).toHaveCount(1);
+      await expect(eventRows(page).first().getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
+    });
+  });
 });

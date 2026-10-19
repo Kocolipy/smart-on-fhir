@@ -12,6 +12,7 @@
 
 import type { ReadDeclaration } from "@/auth/declarations";
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
+import { parseTypedTime } from "@/lib/time";
 
 /**
  * What an audit event says happened, mirroring the backend's closed set
@@ -217,12 +218,13 @@ const queryAt = (filterSearch: string, page: number): AuditQuery => {
 /**
  * The one step from the filters as typed to a request: either a refusal the
  * page shows instead of reading, or the query for page zero. An id that is not
- * a UUID, a date bound no `Date` can hold — unparsable, or past year 275760's
- * last representable instant, which `datetime-local` still accepts — and a
- * `from` not strictly before `to` are each refused here, so the backend's own
- * `400` is never spent on them and nothing downstream can throw on them. Every
- * non-empty filter goes into the query, an id trimmed and a date as an ISO
- * instant; an empty one is left out.
+ * a UUID, a date bound that names no time — unparsable, a day or time of day
+ * the calendar lacks, or past year 275760's last representable instant, which
+ * `datetime-local` still accepts — and a `from` not strictly before `to` are
+ * each refused here, so the backend's own `400` is never spent on them and
+ * nothing downstream can throw on them. Every non-empty filter goes into the
+ * query, an id trimmed and a date bound read as Singapore time
+ * (`parseTypedTime`) and sent as an ISO instant; an empty one is left out.
  */
 export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   const params = new URLSearchParams();
@@ -238,8 +240,8 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   const bounds = { from: -Infinity, to: Infinity };
   for (const { key, label } of DATE_FIELDS) {
     if (filters[key] === "") continue;
-    const instant = new Date(filters[key]);
-    if (Number.isNaN(instant.getTime())) return refuse(`${label} date must be a valid date.`);
+    const instant = parseTypedTime(filters[key]);
+    if (instant === null) return refuse(`${label} date must be a valid date.`);
     params.set(key, instant.toISOString());
     bounds[key] = instant.getTime();
   }
