@@ -32,8 +32,8 @@ import {
  * run one after another in a single worker (`mode: "default"`: in order, and
  * a failure skips nothing after it).
  *
- * Epic Login's E2E conditional gate (frontend/AGENTS.md). It runs only in the
- * `epic` project, which `make epic-integration-test` declares by exporting the
+ * Epic Login's part of the E2E gate (frontend/AGENTS.md). It runs only in the
+ * `epic` project, which `make integration-test` declares by exporting the
  * launcher's FHIR base; that script also starts the launcher and the backend
  * with Epic Login pointed at it.
  *

@@ -226,9 +226,8 @@ stop_group() {
 
 # --- Full-stack E2E runs ----------------------------------------------------
 #
-# The lifecycle `make integration-test` and `make epic-integration-test` share:
-# compose dependencies, the backend under spring-boot:run, then Playwright,
-# which starts the Vite dev server itself. A caller runs `stack_up`, exports
+# The lifecycle `make integration-test` runs: compose dependencies, the
+# backend, then Playwright, which starts the Vite dev server itself. A caller runs `stack_up`, exports
 # whatever its backend and specs need, then `stack_e2e`. Everything started is
 # torn down on exit unless KEEP_UP=1.
 
@@ -280,13 +279,14 @@ stack_up() {
   require_port_free 5173 "the Vite dev server Playwright starts"
 }
 
-# stack_e2e <npm script>
+# stack_e2e <npm script> <backend command...>
 #
-# Starts the backend with the environment exported so far, waits for it, then
-# runs the frontend's Playwright script.
+# Starts the backend with the command given and the environment exported so
+# far, waits for it, then runs the frontend's Playwright script.
 stack_e2e() {
   local script=$1
-  bg_start stack_backend_pid backend "$BACKEND_DIR" "$MVN" -q -DskipTests spring-boot:run
+  shift
+  bg_start stack_backend_pid backend "$BACKEND_DIR" "$@"
   wait_for_http "http://localhost:$BACKEND_PORT/actuator/health" backend 180 "$stack_backend_pid"
 
   log "running 'npm run $script' (Playwright starts the Vite dev server itself)"

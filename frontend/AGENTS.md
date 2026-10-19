@@ -134,25 +134,27 @@ green _before_ touching code is what proves a later failure is yours.
 Each carries its own trigger and completion criterion; none has a binary bound
 until its trigger narrows the scope, so none belongs in the baseline.
 
-| Gate               | Command                                              | Trigger                                                   | Done when                                                                                                                                                                                                               |
-| ------------------ | ---------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote a unit test or changed an existing one          | every mutant killed, or a survivor carrying a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged — the survivor plus its reason go in the change summary |
-| **Playwright E2E** | `npm run test:e2e`                                   | routes, request handling, or the session contract changed | the suite is green against live dependencies                                                                                                                                                                            |
-| **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file, or a dependency   | zero findings — dead code sits at zero, so any it reports is one this changeset introduced                                                                                                                              |
-| **Epic Login E2E** | `make epic-integration-test` (repo root)             | any change to Epic Login, on either side                  | `test/e2e/epic-launch.spec.ts` is green against the local SMART launcher, and the script exits zero                                                                                                                     |
+| Gate               | Command                                              | Trigger                                                                                                                                                                                                           | Done when                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote a unit test or changed an existing one                                                                                                                                                                  | every mutant killed, or a survivor carrying a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged — the survivor plus its reason go in the change summary |
+| **E2E**            | `make integration-test` (repo root)                  | routes, request handling, the session contract, Epic Login on either side, `index.html`, `vite.config.ts`, a dependency that emits script or style, or the backend's CSP, response headers or SPA serving changed | the script exits zero, every Playwright project green                                                                                                                                                                   |
+| **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file, or a dependency                                                                                                                                                           | zero findings — dead code sits at zero, so any it reports is one this changeset introduced                                                                                                                              |
 
-**Epic Login E2E** drives a real SMART provider EHR launch through
-`/api/auth/epic/launch`, the launcher's authorization and our callback to
-Home (`/`), with the SMART Health IT launcher standing in for Epic. "Epic
-Login" means anything on that path: `backend/.../auth/epic/`, the Epic routes'
-security or session handling, `logInFromEpic`, the SPA's handling of the
-launch landing, and the launcher setup itself. `make epic-integration-test`
-starts SQL Server, Redis and the launcher (compose profile `epic-launcher`), runs
-the backend in the `dev` profile with a freshly generated key and the
-`APP_EPIC_*` values in `backend/docs/configuration/epic-login.md`, "Local Epic launcher", and runs
-`npm run test:e2e:epic`, the Playwright `epic` project. It is separate from the
-**Playwright E2E** gate, which neither needs nor runs it; a change to Epic Login
-that also pulls that gate's trigger runs both.
+**E2E** is one run of every Playwright project against one stack. `make
+integration-test` packages the JAR with the SPA, starts SQL Server, Redis and the
+SMART Health IT launcher standing in for Epic (compose profile `epic-launcher`),
+runs the JAR in the `dev` profile with a freshly generated key and the
+`APP_EPIC_*` values in `backend/docs/configuration/epic-login.md`, "Local Epic
+launcher", and runs `npm run test:e2e`. Two projects exist only in that run:
+
+- **`epic`** drives a real SMART provider EHR launch through
+  `/api/auth/epic/launch`, the launcher's authorization and our callback to Home
+  (`/`). "Epic Login" means anything on that path: `backend/.../auth/epic/`, the
+  Epic routes' security or session handling, `logInFromEpic`, the SPA's handling
+  of the launch landing, and the launcher setup itself.
+- **`packaged`** loads the JAR's own origin. Every other project runs through
+  `npm run dev`, which serves neither the built bundle nor the backend's CSP, so
+  an inline script or a third-party origin breaks only here.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture or Semgrep rule, suppressing a fallow finding, adding a file

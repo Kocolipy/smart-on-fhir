@@ -122,6 +122,6 @@ addendum). Then, in the launcher UI at
 - **App launch URL** `http://localhost:5173/api/auth/epic/launch`.
 
 Launching lands on Home (`/`), signed in as that User with its Groups'
-Permissions. `make epic-integration-test` runs the same launch as a Playwright
-spec, which is Epic Login's E2E gate (`frontend/AGENTS.md`); it generates its own
-key and sets all of the above itself.
+Permissions. `make integration-test` runs the same launch as a Playwright
+spec, part of the E2E gate (`frontend/AGENTS.md`); it generates its own key and
+sets all of the above itself.

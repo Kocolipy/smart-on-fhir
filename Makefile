@@ -28,8 +28,7 @@ export NPM
 export MVN
 
 .PHONY: help bootstrap infra-up infra-down infra-logs epic-launcher-up epic-launcher-down \
-        dev dev-stop verify-frontend verify-backend verify integration-test epic-integration-test \
-        package container clean
+        dev dev-stop verify-frontend verify-backend verify integration-test package container clean
 
 help: ## Show the available targets
 	@grep -hE '^[a-z][a-z-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -49,8 +48,9 @@ infra-logs: ## Tail the dependency logs
 	$(COMPOSE) logs -f
 
 # Opt-in: the launcher sits behind its own compose profile, so `infra-up` above
-# never starts it. backend/docs/configuration/epic-login.md, "Local Epic launcher", has the APP_EPIC_*
-# values that point the backend at it.
+# never starts it (`integration-test` starts its own).
+# backend/docs/configuration/epic-login.md, "Local Epic launcher", has the
+# APP_EPIC_* values that point the backend at it.
 epic-launcher-up: ## Start the local SMART launcher (stand-in for Epic) with the dependencies
 	$(COMPOSE) --profile epic-launcher up -d --wait
 	$(COMPOSE) run --rm sqlserver-init
@@ -75,11 +75,8 @@ verify-backend: ## Backend gate: backend/ baseline (scripts/verify.sh)
 
 verify: verify-frontend verify-backend ## Run both app gates, serially
 
-integration-test: ## Start dependencies + both apps, then run Playwright
+integration-test: ## Package the JAR, start it with the dependencies and the SMART launcher, then run every Playwright project
 	@scripts/integration-test.sh
-
-epic-integration-test: ## Epic Login E2E gate: launcher + dependencies + both apps, then the Epic spec
-	@scripts/epic-integration-test.sh
 
 package: ## Build the SPA and package it into the Spring Boot JAR
 	@scripts/package.sh

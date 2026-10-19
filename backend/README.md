@@ -131,5 +131,4 @@ script does not name, and so stays fast. Subsystem names are the script's
 classes, run only in the broad gate.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
-`frontend/`, and `make integration-test` and `make epic-integration-test` from
-the repository root.
+`frontend/`, and `make integration-test` from the repository root.
