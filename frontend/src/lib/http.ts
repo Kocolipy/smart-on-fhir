@@ -28,7 +28,7 @@ export type ApiRequestInit = Omit<RequestInit, "headers"> & {
  */
 export type ApiResult<T, E = never> =
   | { kind: "ok"; data: T }
-  | { kind: "unauthenticated" }
+  | { kind: "unauthenticated"; detail?: E }
   | { kind: "forbidden" }
   | { kind: "csrf-expired" }
   | { kind: "failed"; status?: number; detail?: E };
@@ -141,6 +141,14 @@ async function readDetail<E>(response: Response, decode: ApiDecoder<E>): Promise
   }
 }
 
+/** The `detail` a failure decoder reads, or no `detail` key at all for a caller that passed none. */
+async function detailOf<E>(
+  response: Response,
+  decode: ApiDecoder<E> | undefined,
+): Promise<{ detail?: E }> {
+  return decode === undefined ? {} : { detail: await readDetail(response, decode) };
+}
+
 export function apiFetch(path: string, init?: ApiRequestInit): Promise<ApiResult<void>>;
 export function apiFetch<T>(
   path: string,
@@ -165,7 +173,8 @@ export function apiFetch<T, E>(
  * `forbidden`. `csrf-expired` is left for the one case where no token could be
  * obtained at all. Successful body decoding is explicit, so no-content
  * responses remain type-safe, and so is failure body decoding: only a caller
- * passing `decodeFailure` gets a `detail`.
+ * passing `decodeFailure` gets a `detail`, on a `401` as on any other
+ * unsuccessful status but `403`.
  */
 export async function apiFetch<T, E>(
   path: string,
@@ -185,14 +194,15 @@ export async function apiFetch<T, E>(
       response = await fetch(path, withCsrf(init, csrf));
     }
 
-    if (response.status === 401) return { kind: "unauthenticated" };
+    if (response.status === 401) {
+      return { kind: "unauthenticated", ...(await detailOf(response, decodeFailure)) };
+    }
     if (response.status === 403) return { kind: "forbidden" };
     if (!response.ok) {
-      if (decodeFailure === undefined) return { kind: "failed", status: response.status };
       return {
         kind: "failed",
         status: response.status,
-        detail: await readDetail(response, decodeFailure),
+        ...(await detailOf(response, decodeFailure)),
       };
     }
     if (decode === undefined) return { kind: "ok", data: undefined };

@@ -23,6 +23,13 @@ export const json = (body: unknown, status = 200): WireAnswer => ({ body, status
 /** An answer with a status and no body: `204`, or a refusal read by status alone. */
 export const bare = (status: number): WireAnswer => ({ status });
 
+/**
+ * The password check's `401` on `POST /api/auth/change-password` — a wrong
+ * current password or a lockout — carrying the mark the backend gives it. A
+ * bare `401` there is a request that found no live session.
+ */
+export const CURRENT_PASSWORD_REFUSED: WireAnswer = json({ refused: "current-password" }, 401);
+
 /** An answer now, or one the test settles later (see {@link deferred}). */
 type Answer = WireAnswer | Promise<WireAnswer>;
 

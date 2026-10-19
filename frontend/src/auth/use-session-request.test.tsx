@@ -33,19 +33,19 @@ describe("useSessionRequest", () => {
   });
 
   it("passes a successful result through untouched", async () => {
-    const { send } = request({ "GET /api/count": json(7) });
+    const { send } = request({ "GET /api/example": json(7) });
 
-    await expect(send("/api/count", {}, decode)).resolves.toEqual({ data: 7, kind: "ok" });
+    await expect(send("/api/example", {}, decode)).resolves.toEqual({ data: 7, kind: "ok" });
     expect(state.expireSession).not.toHaveBeenCalled();
   });
 
   it("sends the path and request it is handed, and reads the answer with its decoder", async () => {
-    const { requests, send } = request({ "POST /api/count/increment": json(1) });
+    const { requests, send } = request({ "POST /api/example/change": json(1) });
 
-    const result = await send("/api/count/increment", { method: "POST" }, decode);
+    const result = await send("/api/example/change", { method: "POST" }, decode);
 
     expect({ requests: requests(), result }).toEqual({
-      requests: [{ method: "POST", path: "/api/count/increment" }],
+      requests: [{ method: "POST", path: "/api/example/change" }],
       result: { data: 1, kind: "ok" },
     });
   });
@@ -57,9 +57,9 @@ describe("useSessionRequest", () => {
   });
 
   it("ends the session itself on a 401, handing the caller a plain failure", async () => {
-    const { send } = request({ "GET /api/count": bare(401) });
+    const { send } = request({ "GET /api/example": bare(401) });
 
-    const result = await send("/api/count", {}, decode);
+    const result = await send("/api/example", {}, decode);
 
     expect(state.expireSession).toHaveBeenCalledOnce();
     expect(result).toEqual({ kind: "failed", status: 401 });
@@ -67,18 +67,18 @@ describe("useSessionRequest", () => {
 
   it.each([
     ["csrf-expired", { "GET /api/auth/csrf": bare(500) }, { method: "POST" }],
-    ["forbidden", { "GET /api/count": bare(403) }, {}],
+    ["forbidden", { "GET /api/example": bare(403) }, {}],
   ] as const)("leaves a %s result for the caller to report", async (kind, answers, init) => {
     const { send } = request(answers);
 
-    await expect(send("/api/count", init, decode)).resolves.toEqual({ kind });
+    await expect(send("/api/example", init, decode)).resolves.toEqual({ kind });
     expect(state.expireSession).not.toHaveBeenCalled();
   });
 
   it("leaves a failed result for the caller to report", async () => {
-    const { send } = request({ "GET /api/count": bare(503) });
+    const { send } = request({ "GET /api/example": bare(503) });
 
-    await expect(send("/api/count", {}, decode)).resolves.toEqual({
+    await expect(send("/api/example", {}, decode)).resolves.toEqual({
       kind: "failed",
       status: 503,
     });

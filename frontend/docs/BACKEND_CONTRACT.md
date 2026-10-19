@@ -52,6 +52,21 @@ change, when the backend side moves. What the SPA has to honour:
   session and `ProtectedRoute` sends the user to login, the redirect carrying
   the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
   looks like a random sign-out to the user.
+- **The password change marks the `401` its password check gives.** A wrong
+  current password, a lockout and an inactive account are all refused with
+  one `401` carrying the one constant body `{"refused":"current-password"}`
+  (`PasswordChangeRefusal`), which says the check answered and never why. A
+  request with no live session — expired, revoked, never signed in — is
+  refused by the filter chain before the check with the bare `401` every
+  operation gives it, so nothing is compared and no failed attempt is counted.
+  `changePassword` (`src/auth/api.ts`) reads a `401` without the mark as the
+  outcome `expired` — the ordinary `401` path above, ending the session with
+  the sign-in reason `expired` — and only a marked one sends it to probe
+  `GET /api/auth/me`: a session still standing is a wrong current password, a
+  session gone is the lockout that ended it. Probing on a bare `401` would read
+  every expired session as a lockout. `apiFetch` hands a caller that passes a
+  failure decoder the `401`'s body as `detail`, exactly as it does for any
+  other unsuccessful status but `403`.
 - **A patient read answers FHIR, and `404` there means "not there".**
   `GET /api/patient/{id}` answers `application/fhir+json; fhirVersion=5.0`
   whatever the status — an R5 `Patient`, or for every error an

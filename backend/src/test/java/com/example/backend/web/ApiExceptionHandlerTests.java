@@ -5,11 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
-import com.example.backend.counter.controller.UserCounterController;
 import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.SqlFailures;
+import com.example.backend.patient.controller.PatientController;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -85,8 +85,8 @@ class ApiExceptionHandlerTests {
         resolver.setApplicationContext(context);
         resolver.afterPropertiesSet();
         HandlerMethod handled = new HandlerMethod(
-                new UserCounterController(null),
-                UserCounterController.class.getMethod("getCount", java.security.Principal.class));
+                new PatientController(null),
+                PatientController.class.getMethod("read", java.util.UUID.class));
         MockHttpServletResponse response = new MockHttpServletResponse();
         AccessDeniedException refused = new AuthorizationDeniedException("Access Denied");
 

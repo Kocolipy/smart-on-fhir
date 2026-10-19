@@ -5,6 +5,7 @@ import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.authorization.domain.Permission;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -155,8 +156,9 @@ public class AuthController {
      *
      * <p>The User is the one the SESSION belongs to, read from the stable id its principal index
      * holds — never from the request — so there is no identifier to tamper with; a session that
-     * identifies nobody, with no index or one that is no stable id, is refused with the same bare
-     * {@code 401} as a wrong current password. On success every
+     * identifies nobody, with no index or one that is no stable id, is refused with the bare
+     * {@code 401} an anonymous request gets, before anything is compared. The password check's own
+     * refusal is a {@code 401} too, but marked: see {@link #passwordChangeRejected}. On success every
      * session of that User has been revoked after the commit, this one included; it is also
      * ended here, directly, for {@link SessionEnding.Reason#PASSWORD_CHANGED}, so the servlet
      * container's copy cannot be written back when the request completes, and the cookie is expired
@@ -170,19 +172,33 @@ public class AuthController {
             HttpServletResponse response) {
         HttpSession session = request.getSession(false);
         if (session == null) {
-            throw new CurrentPasswordRejectedException();
+            throw new UnknownSessionIdentityException();
         }
         UUID userId = HttpSessionAttributes.signedIn(session).owner()
-                .orElseThrow(CurrentPasswordRejectedException::new);
+                .orElseThrow(UnknownSessionIdentityException::new);
         passwordChanges.changePassword(userId, body.currentPassword(), body.newPassword());
 
         sessionEnding.end(SessionEnding.Reason.PASSWORD_CHANGED, request, response);
     }
 
-    /** Wrong current password, lockout, inactive: the same bare {@code 401} Login gives. */
+    /**
+     * Wrong current password, lockout, inactive: one {@code 401} for every reason, as Login gives,
+     * carrying the one constant {@link PasswordChangeRefusal}. The body says only that the password
+     * check answered — never which reason — so it tells the SPA this {@code 401} from the bare one a
+     * request without a live session gets from the filter chain, refused before anything was
+     * compared or counted. The SPA reads the bare one as an Expired session; only the marked one
+     * sends it to ask the session whether the refusal was a lockout.
+     */
     @ExceptionHandler(CurrentPasswordRejectedException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public void passwordChangeRejected() {
+    public PasswordChangeRefusal passwordChangeRejected() {
+        return PasswordChangeRefusal.CURRENT_PASSWORD;
+    }
+
+    /** A session that identifies nobody: the bare {@code 401} an anonymous request gets. */
+    @ExceptionHandler(UnknownSessionIdentityException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public void sessionIdentifiesNobody() {
     }
 
     /** The unmet rule, by name and description; never either submitted value. */
@@ -249,6 +265,18 @@ public class AuthController {
 
     /** A {@code 400} for a new password breaking a policy rule. */
     public record PasswordRuleViolation(String rule, String message) {
+    }
+
+    /**
+     * The password check's {@code 401}: always {@code {"refused":"current-password"}}, whatever the
+     * reason — a wrong current password, a lockout or an inactive account.
+     *
+     * @param refused what was refused; only ever {@code current-password}
+     */
+    public record PasswordChangeRefusal(String refused) {
+
+        static final PasswordChangeRefusal CURRENT_PASSWORD =
+                new PasswordChangeRefusal("current-password");
     }
 
     /**

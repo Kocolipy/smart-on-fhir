@@ -4,7 +4,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
 import { AUTH_REQUESTS, EVERY_PERMISSION, testUser } from "./auth/auth-context.testHelpers";
-import { bare, fakeBackend, json, type Answers } from "./lib/fake-backend.testHelpers";
+import {
+  bare,
+  CURRENT_PASSWORD_REFUSED,
+  fakeBackend,
+  json,
+  type Answers,
+} from "./lib/fake-backend.testHelpers";
 
 // `App` owns its router and `AuthProvider`, so it renders whole over the
 // backend layer alone: each test states its backend as an answer table keyed by
@@ -314,7 +320,7 @@ describe("App with the change-required flag", () => {
 
   it("keeps the session on a wrong current password and stays on the change", async () => {
     // The session survives the 401, so the check that follows it still answers.
-    renderApp({ ...CONFINED, [CHANGE]: bare(401) }, "/change-password");
+    renderApp({ ...CONFINED, [CHANGE]: CURRENT_PASSWORD_REFUSED }, "/change-password");
     const user = userEvent.setup();
 
     await user.type(await screen.findByLabelText("Current password"), "wrong-one");
@@ -326,6 +332,33 @@ describe("App with the change-required flag", () => {
       /^The current password is incorrect\.$/,
     );
     expect(window.location.pathname).toBe("/change-password");
+  });
+
+  it("returns to login saying the session ended when the change finds it already gone", async () => {
+    const [current, next] = ["provisioned-1", "self-chosen-passphrase"];
+    // Refused before the password check, so the 401 carries none of its mark.
+    const { requests } = renderApp({ ...CONFINED, [CHANGE]: bare(401) }, "/change-password");
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("Current password"), current);
+    await user.type(screen.getByLabelText("New password"), next);
+    await user.type(screen.getByLabelText("Confirm new password"), next);
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /^Your session ended\. Please sign in again\.$/,
+    );
+    // Not probed: a session check after it would read the gone session as a lockout.
+    expect(requests()).toEqual([
+      { method: "GET", path: "/api/auth/me" },
+      {
+        body: { currentPassword: current, newPassword: next },
+        method: "POST",
+        path: "/api/auth/change-password",
+      },
+    ]);
   });
 
   it("shows a policy refusal by the rule the backend names", async () => {

@@ -1,4 +1,4 @@
-package com.example.backend.counter.controller;
+package com.example.backend.patient.controller;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;

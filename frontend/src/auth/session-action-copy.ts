@@ -64,7 +64,7 @@ export function sessionCheckMessage(outcome: SessionCheckFailure): string {
  * statement of the rule, which names the rule and never the password.
  */
 export function passwordChangeMessage(
-  outcome: Exclude<PasswordChangeOutcome, { kind: "changed" | "locked" }>,
+  outcome: Exclude<PasswordChangeOutcome, { kind: "changed" | "expired" | "locked" }>,
 ): string {
   switch (outcome.kind) {
     case "policy-violation":

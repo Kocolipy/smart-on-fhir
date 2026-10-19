@@ -25,31 +25,31 @@ import { useGatedRead, type GatedRead } from "./use-gated-read";
 // The hook reads the session's Permissions, and a test withdraws one mid-read,
 // so it runs against a hand-built auth state; its reads go to the backend layer.
 
-const decodeCount = jsonDecoder((body: unknown) =>
-  readObject(body, "CountResponse").integer("count"),
+const decodeExample = jsonDecoder((body: unknown) =>
+  readObject(body, "ExampleResponse").integer("value"),
 );
 
 /** A read whose path is its one argument, so a test can move it. */
-const COUNT_AT: ReadDeclaration<number, [path: string]> = {
-  decode: decodeCount,
+const EXAMPLE_AT: ReadDeclaration<number, [path: string]> = {
+  decode: decodeExample,
   path: (path) => path,
-  permission: "counter:read",
+  permission: "patient:read",
 };
 
 /** The same read, declared to treat a `404` as nothing there rather than as a failure. */
-const COUNT_OR_ABSENT_AT: ReadDeclaration<number, [path: string], true> = {
-  ...COUNT_AT,
+const EXAMPLE_OR_ABSENT_AT: ReadDeclaration<number, [path: string], true> = {
+  ...EXAMPLE_AT,
   absentOnNotFound: true,
 };
 
 /** A read naming no argument, as most listings are declared. */
-const COUNT: ReadDeclaration<number> = {
-  decode: decodeCount,
-  path: () => "/api/count",
-  permission: "counter:read",
+const EXAMPLE: ReadDeclaration<number> = {
+  decode: decodeExample,
+  path: () => "/api/example",
+  permission: "patient:read",
 };
 
-const FAILURE = "Unable to load the counter. Please try again.";
+const FAILURE = "Unable to load the example. Please try again.";
 
 /**
  * The backend's replies, one per request in the order the hook sends them,
@@ -112,16 +112,16 @@ const inSession =
  * and `withOptions` re-render it as the session or the page would change it.
  */
 function renderRead({
-  declaration = COUNT_AT,
+  declaration = EXAMPLE_AT,
   options = {},
-  permissions = ["counter:read"],
+  permissions = ["patient:read"],
 }: {
   declaration?: ReadDeclaration<number, [path: string], boolean>;
   options?: Partial<Options>;
   permissions?: Permission[];
 } = {}) {
   let auth = authState(permissions);
-  let current: Options = { failureMessage: FAILURE, path: "/api/count", ...options };
+  let current: Options = { failureMessage: FAILURE, path: "/api/example", ...options };
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthContext.Provider value={auth}>
       <InPageStatus>{children}</InPageStatus>
@@ -163,7 +163,7 @@ const answerNewest = (given: WireAnswer) => {
   return answerAt(places[places.length - 1], given);
 };
 
-const count = (value: number) => json({ count: value });
+const example = (value: number) => json({ value });
 
 describe("useGatedRead", () => {
   beforeEach(() => {
@@ -184,7 +184,7 @@ describe("useGatedRead", () => {
   it("is loading, with nothing failed, until the read answers", () => {
     const { result } = renderRead();
 
-    expect(openPaths()).toEqual(["/api/count"]);
+    expect(openPaths()).toEqual(["/api/example"]);
     expect(shown(result)).toMatchObject({ error: null, view: { kind: "loading" } });
   });
 
@@ -195,18 +195,18 @@ describe("useGatedRead", () => {
   });
 
   it("reads a declaration that takes no arguments without being handed any", async () => {
-    const { result } = renderHook(() => useGatedRead(COUNT, { failureMessage: FAILURE }), {
-      wrapper: inSession(["counter:read"]),
+    const { result } = renderHook(() => useGatedRead(EXAMPLE, { failureMessage: FAILURE }), {
+      wrapper: inSession(["patient:read"]),
     });
 
-    expect(openPaths()).toEqual(["/api/count"]);
-    await answer(count(4));
+    expect(openPaths()).toEqual(["/api/example"]);
+    await answer(example(4));
     expect(result.current.view).toEqual({ data: 4, kind: "ready" });
   });
 
   it("shows the decoded data once the read succeeds", async () => {
     const { result } = renderRead();
-    await answer(count(7));
+    await answer(example(7));
 
     expect(shown(result)).toMatchObject({ error: null, view: { data: 7, kind: "ready" } });
   });
@@ -236,7 +236,7 @@ describe("useGatedRead", () => {
 
   it("treats a success body that does not decode as a failure, not as data", async () => {
     const { result } = renderRead();
-    await answer(json({ count: "seven" }));
+    await answer(json({ value: "seven" }));
 
     expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
   });
@@ -251,13 +251,13 @@ describe("useGatedRead", () => {
 
   it("keeps the last data as stale when a re-read is refused, and is ready again when one succeeds", async () => {
     const { result } = renderRead();
-    await answer(count(3));
+    await answer(example(3));
 
     let reloaded: Promise<void> = Promise.resolve();
     act(() => {
       reloaded = result.current.reload();
     });
-    expect(openPaths()).toEqual(["/api/count"]);
+    expect(openPaths()).toEqual(["/api/example"]);
     // A re-read is not a first load: what was read stays on screen meanwhile.
     expect(result.current.view).toEqual({ data: 3, kind: "ready" });
     await answer(bare(403));
@@ -270,7 +270,7 @@ describe("useGatedRead", () => {
     act(() => {
       reloaded = result.current.reload();
     });
-    await answer(count(4));
+    await answer(example(4));
     await act(() => reloaded);
     expect(shown(result)).toMatchObject({ error: null, view: { data: 4, kind: "ready" } });
   });
@@ -283,7 +283,7 @@ describe("useGatedRead", () => {
   });
 
   describe("when the declaration treats not found as absent", () => {
-    const renderAbsentRead = () => renderRead({ declaration: COUNT_OR_ABSENT_AT });
+    const renderAbsentRead = () => renderRead({ declaration: EXAMPLE_OR_ABSENT_AT });
 
     it("shows a read that is not found as absent, reporting nothing", async () => {
       const { result } = renderAbsentRead();
@@ -297,14 +297,14 @@ describe("useGatedRead", () => {
       await answer(bare(404));
 
       act(() => void result.current.reload());
-      await answer(count(2));
+      await answer(example(2));
 
       expect(shown(result)).toEqual({ error: null, view: { data: 2, kind: "ready" } });
     });
 
     it("is absent, keeping nothing as stale, once a re-read finds what was read gone", async () => {
       const { result } = renderAbsentRead();
-      await answer(count(3));
+      await answer(example(3));
 
       act(() => void result.current.reload());
       await answer(bare(404));
@@ -326,7 +326,7 @@ describe("useGatedRead", () => {
       const { result } = renderAbsentRead();
       act(() => void result.current.reload());
 
-      await answerNewest(count(2));
+      await answerNewest(example(2));
       await answer(bare(404)); // the mount read, answering last
 
       expect(result.current.view).toEqual({ data: 2, kind: "ready" });
@@ -336,7 +336,7 @@ describe("useGatedRead", () => {
       ["a refusal", bare(403), FORBIDDEN_MESSAGE],
       ["a plain failure", bare(500), FAILURE],
       ["an unauthenticated read", bare(401), FAILURE],
-      ["a success body that does not decode", json({ count: "seven" }), FAILURE],
+      ["a success body that does not decode", json({ value: "seven" }), FAILURE],
     ])("still fails %s", async (_, given, line) => {
       const { result } = renderAbsentRead();
       await answer(given);
@@ -346,7 +346,7 @@ describe("useGatedRead", () => {
 
     it("keeps the last data as stale when a re-read fails other than not found", async () => {
       const { result } = renderAbsentRead();
-      await answer(count(3));
+      await answer(example(3));
 
       act(() => void result.current.reload());
       await answer(bare(500));
@@ -369,8 +369,8 @@ describe("useGatedRead", () => {
       const { result } = renderRead();
       act(() => void result.current.reload());
 
-      await answerNewest(count(2));
-      await answer(count(1)); // the mount read, answering last
+      await answerNewest(example(2));
+      await answer(example(1)); // the mount read, answering last
 
       expect(result.current.view).toEqual({ data: 2, kind: "ready" });
     });
@@ -379,7 +379,7 @@ describe("useGatedRead", () => {
       const { result } = renderRead();
       act(() => void result.current.reload());
 
-      await answerNewest(count(2));
+      await answerNewest(example(2));
       await answer(bare(500)); // the mount read, answering last
 
       expect(shownLine()).toBeNull();
@@ -387,12 +387,12 @@ describe("useGatedRead", () => {
 
     it("lands only the newest of two re-reads", async () => {
       const { result } = renderRead();
-      await answer(count(1));
+      await answer(example(1));
       act(() => void result.current.reload());
       act(() => void result.current.reload());
 
-      await answerNewest(count(3));
-      await answer(count(2)); // the first re-read, answering last
+      await answerNewest(example(3));
+      await answer(example(2)); // the first re-read, answering last
 
       expect(result.current.view).toEqual({ data: 3, kind: "ready" });
     });
@@ -401,13 +401,13 @@ describe("useGatedRead", () => {
       const { result } = renderRead();
       act(() => void result.current.reload());
 
-      expect(openPaths()).toEqual(["/api/count", "/api/count"]);
+      expect(openPaths()).toEqual(["/api/example", "/api/example"]);
     });
   });
 
   it("settles a re-read's promise once its own answer is in", async () => {
     const { result } = renderRead();
-    await answer(count(1));
+    await answer(example(1));
     let settled = false;
     act(() => {
       void result.current.reload().then(() => {
@@ -417,14 +417,14 @@ describe("useGatedRead", () => {
     await act(async () => {});
     expect(settled).toBe(false);
 
-    await answer(count(2));
+    await answer(example(2));
 
     expect(settled).toBe(true);
   });
 
   it("settles, sending nothing, a re-read asked for as the Permission is withdrawn", async () => {
     const hook = renderRead();
-    await answer(count(1));
+    await answer(example(1));
     let settled = false;
     act(() => {
       void hook.result.current.reload().then(() => {
@@ -451,7 +451,7 @@ describe("useGatedRead", () => {
 
   it("replaces the data locally", async () => {
     const { result } = renderRead();
-    await answer(count(3));
+    await answer(example(3));
 
     act(() => result.current.update((current) => (current ?? 0) + 10));
 
@@ -487,7 +487,7 @@ describe("useGatedRead", () => {
 
   it("sends no re-read once the Permission is withdrawn", async () => {
     const hook = renderRead();
-    await answer(count(1));
+    await answer(example(1));
 
     hook.withPermissions([]);
     await act(() => hook.result.current.reload());
@@ -498,9 +498,9 @@ describe("useGatedRead", () => {
   it("reads afresh when the Permission is granted", async () => {
     const hook = renderRead({ permissions: [] });
 
-    hook.withPermissions(["counter:read"]);
+    hook.withPermissions(["patient:read"]);
     expect(hook.result.current.view).toEqual({ kind: "loading" });
-    await answer(count(5));
+    await answer(example(5));
 
     expect(hook.result.current.view).toEqual({ data: 5, kind: "ready" });
   });
@@ -509,7 +509,7 @@ describe("useGatedRead", () => {
     const hook = renderRead();
 
     hook.withPermissions([]);
-    await answer(count(9));
+    await answer(example(9));
 
     expect(hook.result.current.view).toEqual({ kind: "not-permitted" });
   });
@@ -522,7 +522,7 @@ describe("useGatedRead", () => {
 
     expect(shown(hook.result)).toMatchObject({ error: null, view: { kind: "loading" } });
     expect(openPaths()).toEqual(["/api/other"]);
-    await answer(count(2));
+    await answer(example(2));
     expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
   });
 
@@ -530,23 +530,23 @@ describe("useGatedRead", () => {
     const hook = renderRead();
 
     hook.withOptions({ path: "/api/other" });
-    await answer(count(1)); // the old path's
+    await answer(example(1)); // the old path's
     expect(hook.result.current.view).toEqual({ kind: "loading" });
 
-    await answer(count(2)); // the new path's
+    await answer(example(2)); // the new path's
     expect(hook.result.current.view).toEqual({ data: 2, kind: "ready" });
   });
 
   it("drops a re-read's answer once the path has moved", async () => {
     const hook = renderRead();
-    await answer(count(1));
+    await answer(example(1));
 
     let reloaded: Promise<void> = Promise.resolve();
     act(() => {
       reloaded = hook.result.current.reload();
     });
     hook.withOptions({ path: "/api/other" });
-    await answer(count(8)); // the re-read of the old path
+    await answer(example(8)); // the re-read of the old path
     await act(() => reloaded);
 
     expect(hook.result.current.view).toEqual({ kind: "loading" });
@@ -555,23 +555,23 @@ describe("useGatedRead", () => {
 
   it("re-reads the current path after the path has moved", async () => {
     const hook = renderRead();
-    await answer(count(1));
+    await answer(example(1));
     hook.withOptions({ path: "/api/other" });
-    await answer(count(2));
+    await answer(example(2));
 
     let reloaded: Promise<void> = Promise.resolve();
     act(() => {
       reloaded = hook.result.current.reload();
     });
     expect(openPaths()).toEqual(["/api/other"]);
-    await answer(count(3));
+    await answer(example(3));
     await act(() => reloaded);
     expect(hook.result.current.view).toEqual({ data: 3, kind: "ready" });
   });
 
   it("reports a refusal with the failure copy current when it lands", async () => {
     const hook = renderRead();
-    await answer(count(1));
+    await answer(example(1));
     const failureMessage = "Unable to load the tally.";
 
     hook.withOptions({ failureMessage });
@@ -587,14 +587,14 @@ describe("useGatedRead", () => {
     const { result } = renderHook(
       () => {
         const other = useStatusReporter();
-        const read = useGatedRead(COUNT, { failureMessage: FAILURE });
+        const read = useGatedRead(EXAMPLE, { failureMessage: FAILURE });
         return { other, read };
       },
-      { wrapper: inSession(["counter:read"]) },
+      { wrapper: inSession(["patient:read"]) },
     );
 
     act(() => result.current.other.report("Something else failed."));
-    await answer(count(1));
+    await answer(example(1));
 
     expect(shownLine()).toBe("Something else failed.");
   });

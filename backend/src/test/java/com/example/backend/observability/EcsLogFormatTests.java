@@ -12,7 +12,7 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.audit.domain.OperationalAlerts;
-import com.example.backend.counter.controller.FaultInjectionController;
+import com.example.backend.patient.controller.FaultInjectionController;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.config.ScimErrorDocumentRecords;
 import com.example.backend.scim.controller.ScimFaultRecords;

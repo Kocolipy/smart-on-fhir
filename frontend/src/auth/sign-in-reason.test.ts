@@ -87,6 +87,8 @@ describe("sessionEndReasonFor", () => {
     // The two outcomes after which the backend holds no session for the User.
     [{ kind: "changed" }, "password-changed"],
     [{ kind: "locked" }, "locked"],
+    // The session had ended before the request, which found none.
+    [{ kind: "expired" }, "expired"],
     // Every refusal leaves the session standing, so it records no reason.
     [{ kind: "policy-violation", message: "Too short." }, null],
     [{ kind: "current-password-rejected" }, null],

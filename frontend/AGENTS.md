@@ -59,8 +59,8 @@ Permissions, and the reasoning; this list holds the rules.
   `useGatedWrite`, reads `declaration.permission` — of the declaration that
   control sends — to decide whether to offer it, and never calls `apiFetch`
   (`mb-transport-is-behind-the-session-seam`). The one exception is
-  `change-password.tsx`, whose `401` is about the current password and must not
-  end the session. No page has a control that writes `active` or Group
+  `change-password.tsx`, whose marked `401` is about the current password and
+  must not end the session. No page has a control that writes `active` or Group
   membership. A new signed-in page is one entry in `SIGNED_IN_PAGES`
   (`src/pages/signed-in-pages.tsx`).
 - **`src/components/`** — shared non-primitive components.

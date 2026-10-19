@@ -37,7 +37,7 @@ describe("the session-action copy", () => {
     expect(logoutMessage(outcome)).toBe(copy);
   });
 
-  it.each<[Exclude<PasswordChangeOutcome, { kind: "changed" | "locked" }>, string]>([
+  it.each<[Exclude<PasswordChangeOutcome, { kind: "changed" | "expired" | "locked" }>, string]>([
     // The backend's statement of the rule, passed through as it names it.
     [
       { kind: "policy-violation", message: "The new password must not contain the user name" },

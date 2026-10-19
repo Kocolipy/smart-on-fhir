@@ -32,6 +32,7 @@ import type { SessionEndReason } from "./sign-in-reason";
 
 export {
   bare,
+  CURRENT_PASSWORD_REFUSED,
   deferred,
   json,
   UNREACHABLE,

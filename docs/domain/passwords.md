@@ -50,7 +50,11 @@ a rejected Login, so it leads to the same lockout; a new password that breaks th
 password policy or repeats a recent one is refused by naming the rule, never
 echoing either value. Success hashes the new password, clears the flag, advances
 the version, records a `PASSWORD_CHANGE` audit event with no password value, and
-revokes every session of the User, the submitter's included.
+revokes every session of the User, the submitter's included. A change sent with no
+live session is refused before the current password is compared, so it counts
+nothing toward the lockout; its refusal is the bare `401` any request without a
+session gets, where the password check's own refusal — the same for a wrong
+current password, a lockout and an inactive account — is marked as the check's.
 
 ## Password policy
 

@@ -10,7 +10,7 @@ import { useSessionTransitions } from "./session-transitions";
 // layer: a token is held before the transition, and the next unsafe request
 // fetches a fresh one only if the transition forgot it.
 
-const USER = testUser({ permissions: ["counter:read"] });
+const USER = testUser({ permissions: ["patient:read"] });
 
 let backend: FakeBackend;
 

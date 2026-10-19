@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   bare,
+  CURRENT_PASSWORD_REFUSED,
   fakeBackend,
   json,
   requestKey,
@@ -342,7 +343,7 @@ describe("IdleSignOut", () => {
       // The 401 ended the session too, so the check that follows it is refused.
       await signedIn(user(), <PasswordChangeButton />, {
         [ME]: [json(user()), bare(401)],
-        [CHANGE]: bare(401),
+        [CHANGE]: CURRENT_PASSWORD_REFUSED,
       });
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Change password" }));

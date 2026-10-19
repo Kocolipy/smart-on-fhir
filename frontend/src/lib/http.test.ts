@@ -16,9 +16,9 @@ const grant = (token: string, headerName = "X-CSRF-TOKEN") => Response.json({ he
 /** The request the token fetch itself is: a credentialed GET with nothing else on it. */
 const TOKEN_FETCH = [CSRF_PATH, { credentials: "include" }] as const;
 
-const decodeCount = async (response: Response): Promise<number> => {
-  const body = (await response.json()) as { count: number };
-  return body.count;
+const decodeExample = async (response: Response): Promise<number> => {
+  const body = (await response.json()) as { value: number };
+  return body.value;
 };
 
 describe("apiFetch", () => {
@@ -31,15 +31,15 @@ describe("apiFetch", () => {
   it("sends the session cookie and returns no-content success for a safe request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
 
-    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "ok", data: undefined });
+    await expect(apiFetch("/api/example")).resolves.toEqual({ kind: "ok", data: undefined });
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith("/api/count", { credentials: "include" });
+    expect(fetch).toHaveBeenCalledWith("/api/example", { credentials: "include" });
   });
 
   it("decodes successful response data", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: 3 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ value: 3 })));
 
-    await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({
+    await expect(apiFetch("/api/example", {}, decodeExample)).resolves.toEqual({
       kind: "ok",
       data: 3,
     });
@@ -54,13 +54,13 @@ describe("apiFetch", () => {
       .mockResolvedValueOnce(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+    await expect(apiFetch("/api/example/change", { method: "POST" })).resolves.toEqual({
       kind: "ok",
       data: undefined,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(1, ...TOKEN_FETCH);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/example/change", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "token-1" },
       method: "POST",
@@ -74,15 +74,15 @@ describe("apiFetch", () => {
       .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/api/count/increment", { method: "POST" });
-    await apiFetch("/api/count/reset", { method: "POST" });
+    await apiFetch("/api/example/change", { method: "POST" });
+    await apiFetch("/api/example/reset", { method: "POST" });
 
     expect(fetchMock.mock.calls.map(([url]) => url as string)).toEqual([
       CSRF_PATH,
-      "/api/count/increment",
-      "/api/count/reset",
+      "/api/example/change",
+      "/api/example/reset",
     ]);
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/reset", {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/example/reset", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "token-1" },
       method: "POST",
@@ -102,10 +102,10 @@ describe("apiFetch", () => {
 
     await apiFetch("/api/auth/login", { method: "POST" });
     discardCsrfToken();
-    await apiFetch("/api/count/increment", { method: "POST" });
+    await apiFetch("/api/example/change", { method: "POST" });
 
     expect(fetchMock).toHaveBeenNthCalledWith(3, ...TOKEN_FETCH);
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/example/change", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "after" },
       method: "POST",
@@ -117,7 +117,7 @@ describe("apiFetch", () => {
     async (method) => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
 
-      await apiFetch("/api/count", method === undefined ? {} : { method });
+      await apiFetch("/api/example", method === undefined ? {} : { method });
 
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).not.toHaveBeenCalledWith(CSRF_PATH, expect.anything());
@@ -158,7 +158,7 @@ describe("apiFetch", () => {
         .mockResolvedValue(new Response(null));
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      await expect(apiFetch("/api/example/change", { method: "POST" })).resolves.toEqual({
         kind: "csrf-expired",
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -177,9 +177,9 @@ describe("apiFetch", () => {
         .mockResolvedValueOnce(new Response(null)),
     );
 
-    await apiFetch("/api/count/increment", { method: "DELETE" });
+    await apiFetch("/api/example/change", { method: "DELETE" });
 
-    expect(fetch).toHaveBeenLastCalledWith("/api/count/increment", {
+    expect(fetch).toHaveBeenLastCalledWith("/api/example/change", {
       credentials: "include",
       headers: { "X-Renamed-Csrf": "token-1" },
       method: "DELETE",
@@ -214,15 +214,15 @@ describe("apiFetch", () => {
       .mockResolvedValueOnce(grant("stale"))
       .mockResolvedValueOnce(new Response(null, { status: 403 }))
       .mockResolvedValueOnce(grant("fresh"))
-      .mockResolvedValueOnce(Response.json({ count: 1 }));
+      .mockResolvedValueOnce(Response.json({ value: 1 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
+      apiFetch("/api/example/change", { method: "POST" }, decodeExample),
     ).resolves.toEqual({ kind: "ok", data: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock).toHaveBeenNthCalledWith(3, ...TOKEN_FETCH);
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/example/change", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "fresh" },
       method: "POST",
@@ -238,11 +238,11 @@ describe("apiFetch", () => {
       .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/api/count/increment", { method: "POST" });
-    await apiFetch("/api/count/reset", { method: "POST" });
+    await apiFetch("/api/example/change", { method: "POST" });
+    await apiFetch("/api/example/reset", { method: "POST" });
 
     expect(fetchMock).toHaveBeenCalledTimes(5);
-    expect(fetchMock).toHaveBeenLastCalledWith("/api/count/reset", {
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/example/reset", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "fresh" },
       method: "POST",
@@ -259,11 +259,11 @@ describe("apiFetch", () => {
       .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+    await expect(apiFetch("/api/example/change", { method: "POST" })).resolves.toEqual({
       kind: "forbidden",
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/example/change", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "fresh" },
       method: "POST",
@@ -284,7 +284,7 @@ describe("apiFetch", () => {
       .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+    await expect(apiFetch("/api/example/change", { method: "POST" })).resolves.toEqual({
       kind: "csrf-expired",
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -301,14 +301,14 @@ describe("apiFetch", () => {
       .mockResolvedValueOnce(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/api/count/increment", { method: "POST" });
-    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+    await apiFetch("/api/example/change", { method: "POST" });
+    await expect(apiFetch("/api/example/change", { method: "POST" })).resolves.toEqual({
       kind: "ok",
       data: undefined,
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(4, ...TOKEN_FETCH);
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/example/change", {
       credentials: "include",
       headers: { "X-CSRF-TOKEN": "fresh" },
       method: "POST",
@@ -322,7 +322,7 @@ describe("apiFetch", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        apiFetch("/api/admin/accounts", method === undefined ? {} : { method }),
+        apiFetch("/api/example", method === undefined ? {} : { method }),
       ).resolves.toEqual({ kind: "forbidden" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).not.toHaveBeenCalledWith(CSRF_PATH, expect.anything());
@@ -347,33 +347,33 @@ describe("apiFetch", () => {
   it("classifies other unsuccessful statuses as failed", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
 
-    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "failed", status: 503 });
+    await expect(apiFetch("/api/example")).resolves.toEqual({ kind: "failed", status: 503 });
   });
 
   it("classifies network and decoding failures as failed", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("offline")));
-    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "failed" });
+    await expect(apiFetch("/api/example")).resolves.toEqual({ kind: "failed" });
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json")));
-    await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({ kind: "failed" });
+    await expect(apiFetch("/api/example", {}, decodeExample)).resolves.toEqual({ kind: "failed" });
   });
 
   it("reads a successful response whose decoder throws as failed, with no status", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: "three" })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ value: "three" })));
     const refuse = vi.fn(() => {
-      throw new DecodeError("CountResponse.count is not an integer");
+      throw new DecodeError("ExampleResponse.value is not an integer");
     });
 
     // Strict: a `status` key would let a page read the `200` as meaningful.
-    await expect(apiFetch("/api/count", {}, refuse)).resolves.toStrictEqual({ kind: "failed" });
+    await expect(apiFetch("/api/example", {}, refuse)).resolves.toStrictEqual({ kind: "failed" });
     expect(refuse).toHaveBeenCalledTimes(1);
   });
 
   it("reads a successful response whose async decoder rejects as failed, with no status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([])));
-    const decode = jsonDecoder((body) => readObject(body, "CountResponse").integer("count"));
+    const decode = jsonDecoder((body) => readObject(body, "ExampleResponse").integer("value"));
 
-    await expect(apiFetch("/api/count", {}, decode)).resolves.toStrictEqual({ kind: "failed" });
+    await expect(apiFetch("/api/example", {}, decode)).resolves.toStrictEqual({ kind: "failed" });
   });
 
   const decodeRule = async (response: Response): Promise<string> => {
@@ -404,9 +404,9 @@ describe("apiFetch", () => {
   });
 
   it("decodes success data alongside a failure decoder", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: 4 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ value: 4 })));
 
-    await expect(apiFetch("/api/count", {}, decodeCount, decodeRule)).resolves.toEqual({
+    await expect(apiFetch("/api/example", {}, decodeExample, decodeRule)).resolves.toEqual({
       kind: "ok",
       data: 4,
     });
@@ -424,6 +424,41 @@ describe("apiFetch", () => {
     await expect(
       apiFetch("/api/auth/change-password", { method: "POST" }, undefined, decodeRule),
     ).resolves.toStrictEqual({ kind: "failed", status: 400, detail: undefined });
+  });
+
+  it("decodes a 401 body too, for a caller that asks for one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === CSRF_PATH
+            ? grant("token-1")
+            : Response.json({ rule: "ANSWERED" }, { status: 401 }),
+        ),
+      ),
+    );
+
+    await expect(
+      apiFetch("/api/example", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "unauthenticated", detail: "ANSWERED" });
+    // Without a failure decoder the body is not read, and no `detail` key appears.
+    await expect(apiFetch("/api/example", { method: "POST" })).resolves.toStrictEqual({
+      kind: "unauthenticated",
+    });
+  });
+
+  it("reads a 401 whose body does not decode as unauthenticated with no detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(grant("token-1"))
+        .mockResolvedValueOnce(new Response(null, { status: 401 })),
+    );
+
+    await expect(
+      apiFetch("/api/example", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "unauthenticated", detail: undefined });
   });
 });
 
@@ -464,7 +499,7 @@ describe("logout on an expired session", () => {
               username: "ada",
             }),
           );
-        return Promise.resolve(Response.json({ count: 0 }));
+        return Promise.resolve(Response.json({ value: 0 }));
       });
       vi.stubGlobal("fetch", fetchMock);
       const user = userEvent.setup();
@@ -519,7 +554,7 @@ describe("logout on an expired session", () => {
             username: "ada",
           }),
         );
-      return Promise.resolve(Response.json({ count: 0 }));
+      return Promise.resolve(Response.json({ value: 0 }));
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();

@@ -198,9 +198,12 @@ class PasswordChangeLifecycleIntegrationTests {
 
         assertConfined(confined);
 
-        // Wrong current password: 401, counted toward the Login lockout.
-        assertThat(changePassword(confined, "not-the-current-one", NEW_PASSWORD)
-                .getResponse().getStatus()).isEqualTo(401);
+        // Wrong current password: 401 with the password check's mark, counted toward the Login
+        // lockout.
+        MvcResult wrong = changePassword(confined, "not-the-current-one", NEW_PASSWORD);
+        assertThat(wrong.getResponse().getStatus()).isEqualTo(401);
+        assertThat(json.readTree(wrong.getResponse().getContentAsString()))
+                .isEqualTo(json.readTree("{\"refused\":\"current-password\"}"));
         assertThat(failedAttempts(userId)).isEqualTo(1);
 
         // Policy violation and reuse: 400 naming the rule, echoing neither value.
@@ -318,6 +321,28 @@ class PasswordChangeLifecycleIntegrationTests {
 
         Cookie confined = logIn("lifecycle-unlocked", NEW_PASSWORD, null, true);
         assertConfined(confined);
+    }
+
+    /**
+     * A change sent on a session that has already ended — here by the User's next login — is
+     * refused by the filter chain before the password check: the bare {@code 401} any request
+     * without a live session gets, carrying none of the check's mark, and counting nothing
+     * toward the lockout. The CSRF handshake opens a fresh, anonymous session for it, as the
+     * SPA's re-fetch does, so the request is refused for want of a signed-in one, not for its
+     * token.
+     */
+    @Test
+    void aChangeOnAnEndedSessionIsRefusedBareBeforeThePasswordCheckAndCountsNothing()
+            throws Exception {
+        String userId = provision("lifecycle-expired", CONNECTOR_PASSWORD);
+        Cookie ended = logIn("lifecycle-expired", CONNECTOR_PASSWORD, null, true);
+        logIn("lifecycle-expired", CONNECTOR_PASSWORD, null, true);
+
+        MvcResult refused = changePassword(ended, "not-the-current-one", NEW_PASSWORD);
+
+        assertThat(List.of(refused.getResponse().getStatus(),
+                        refused.getResponse().getContentAsString(), failedAttempts(userId)))
+                .isEqualTo(List.of(401, "", 0));
     }
 
     /** The change counts toward the same lockout; at the threshold both paths are blocked. */
