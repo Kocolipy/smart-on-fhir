@@ -101,10 +101,10 @@ Every layer answers in this one shape, and the backend's `web` module owns it
   (`error.code`, `error.category` `data`, `error.follow_up_action` `false`) on
   the request record instead (`RequestRefusal`), so the classification exists
   and the request still has one record. Everywhere else a refusal keeps its own
-  `WARN` refusal record, as before.
+  `WARN` refusal record.
 - **The security chain** refuses a session without `patient:read` — by the
   handler's `@PreAuthorize`, or by its backstop, which matches a read (`GET`,
-  `HEAD`) only. The `403` is logged at `WARN` through the existing
+  `HEAD`) only. The `403` is logged at `WARN` through the
   authorization-failure path (`access.denied`, reason `insufficient-permissions`,
   `error.category` `cert/auth`) and audited as an `ACCESS_DENIED`, as every
   authorization refusal is.

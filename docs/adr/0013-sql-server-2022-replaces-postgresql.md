@@ -5,19 +5,11 @@ Date: 2026-10-12
 ## Status
 
 Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 locally
-and in tests, and the deployed stack is RDS for SQL Server (#71). This ADR
-describes the running system. "Verified behaviour" closes with the switchover's
-gate.
-
-Some decisions below depended on verification spikes (V1–V6). The spikes ran on
-2026-10-12 against a SQL Server 2022 container. The table under "Open verification
-points" is the one summary of their verdicts, and "Verified behaviour" holds the
-evidence. No decision's fallback was taken; V2 added one binding rule, under
-"Storage is UTC only". A failed spike amends this ADR rather than being absorbed
-silently in code.
-
-This ADR also records a deviation from the App-Standards recommendation of PostgreSQL
-for production (Standalone User Access Control Q6, User SSO Q5).
+and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
+rested on verification spikes V1–V6 (2026-10-12), summarised under "Open
+verification points" with their evidence under "Verified behaviour". It records a
+deviation from App-Standards' recommendation of PostgreSQL for production
+(Standalone User Access Control Q6, User SSO Q5).
 
 ## Context
 
@@ -62,13 +54,8 @@ are one record.
   of `backend_audit_retention` only. The server enforces each login's privileges,
   and nothing switches identity on a connection, so nothing can leak between
   pooled uses of one.
-- **The audit append pool connects as the app login** (added 2026-10-13). Since
-  ADR 0004's 2026-10-13 addendum, fail-open audit appends commit on a second, small
-  pool of their own (`AuditAppendPoolConfig`). It connects as the **app login** —
-  the request pool's, a member of `backend_app` only — from the same secret, never
-  as the owner login. The configuration test that pins the
-  request pool's login covers this pool too, and lm-16's metrics name it beside
-  the `app` and `retention` pools.
+- **The audit append pool connects as the app login** (ADR 0004's 2026-10-13
+  addendum), from the same secret, never as the owner login.
 - **A connector token's row lock sits with the SCIM resource locks** (added
   2026-10-13). A rotation and a revocation lock the token's row before reading it
   (`ScimConnectorTokenJpaRepository.lockById`, `WITH (UPDLOCK, ROWLOCK)`, taken only
@@ -172,10 +159,8 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   Manager: the RDS master user through an RDS-managed secret, and the owner, app
   and retention logins through generated secrets. No password appears in
   CloudFormation parameters, UserData, env files or `deploy.sh` prompts, and the
-  instance role may read only the secrets its process needs. This replaces an
-  earlier draft that passed the passwords as NoEcho CloudFormation parameters,
-  which still reached an env file through UserData. Rotation is out of scope (see
-  Consequences).
+  instance role may read only the secrets its process needs. Rotation is out of
+  scope (see Consequences).
 - **ac-1 Least privilege.** Migrations run out of process: a one-shot migrate step
   (the same JAR, with no web server, Flyway enabled and the owner credentials),
   run by the deploy before the service starts, is the only holder of the owner
@@ -218,10 +203,8 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   Secrets Manager and the deploy role's administration. It encrypts storage,
   automated backups, snapshots, Performance Insights and the database secrets.
 
-ADR 0011 lists as-8, ck-4 and dp-3 as open. The resolutions above close them for
-the database once they land; ADR 0011's entries are updated with the tickets that
-land them, and as-8 and ck-4 stay open for the Epic signing key until its KMS signer
-exists.
+These close as-8, ck-4 and dp-3 for the database (ADR 0011's entries record it);
+as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
 
 ### Standards resolutions (App-Standards: User Standalone, User SSO, Structured Logging)
 
@@ -420,84 +403,28 @@ repository, so none of that code merges. The pinned versions were:
 
 ### V1: schema validation accepts the mapped types
 
-All ten entities of the backend, copied unchanged, booted a Spring context with
-`spring.jpa.hibernate.ddl-auto=validate` and no other Hibernate setting. The one
-exception was `ScimConnectorTokenEntity.permissions`, which was marked `@Transient`
-because the child table holds it. Validation accepted
+All ten entities booted with `ddl-auto=validate` and no other Hibernate setting:
 `DATETIMEOFFSET(6)` for `Instant`, `UNIQUEIDENTIFIER` for `UUID`, `BIT` for
-`boolean` and `VARBINARY` for `byte[]`.
-
-As a negative control, the same context against a copy whose
-`scim_connectors.created_at` was `DATETIME2(6)` failed with `Schema validation:
-wrong column type encountered in column [created_at] in table [scim_connectors];
-found [datetime2 (Types#TIMESTAMP)], but expecting [datetimeoffset(7)
-(Types#TIMESTAMP_UTC)]`. Validation compares the type and not the precision, so
-`(6)` passes.
-
-An entity persisted through Hibernate was stored at offset 0, although the JVM zone
-was `+08:00`. It read back equal, and the UUID's server text matched Java's (no
-byte-order swap):
-
-```text
-stored    = {id_text=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0, created_text=2026-10-12T09:30:01.123456Z, offset_minutes=0, display_name=ünïcødé 𐐷}
-read back = 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 2026-10-12T09:30:01.123456Z ünïcødé 𐐷
-byte[] {1, 2, 3, 0xFF} stored as 0x010203FF
-```
+`boolean`, `VARBINARY` for `byte[]`. A `DATETIME2(6)` column failed validation as
+the negative control. Hibernate stored an entity's instant at offset 0 with the
+JVM at `+08:00`, and the UUID's server text matched Java's (no byte-order swap).
 
 ### V2: the driver round-trips `OffsetDateTime` and `UUID`
 
-These ran over plain JDBC with `setObject` and `getObject(…, type)`:
-
-```text
-setObject(UUID) stored 0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0; getObject(UUID.class) = 0f1e2d3c-…-a5b4c3d2e1f0, equals = true
-setObject(OffsetDateTime …Z)      -> getObject(OffsetDateTime.class) = 2026-10-12T09:30:01.123456Z
-setObject(OffsetDateTime …+08:00) -> stored offset 480 minutes; reads back as …17:30:01.123456+08:00, the same instant
-setObject(…01.123456789Z)         -> stored …01.123457Z (rounded to the column's microseconds)
-WHERE u = setObject(UUID) finds a row bound as CAST(? AS UNIQUEIDENTIFIER): count = 1
-setNull(Types.NULL), and a JdbcTemplate null UUID argument -> NULL; getObject(UUID.class) on NULL = null
-getObject() without a type returns the UUID as an upper-case String
-getObject(…, Instant.class) -> SQLServerException: The conversion to class java.time.Instant is unsupported.
-```
-
-Hand-written JDBC therefore binds and reads `UUID` directly, and the string
-fallback is not needed. A neighbouring check on binding a `java.sql.Timestamp` found a zone-dependent bind. The row held
-`09:30:00Z`, and the query was `WHERE t < ?` with a cutoff one minute **earlier**,
-so it should return 0:
-
-```text
-JVM zone Asia/Singapore: setTimestamp(Timestamp.from(cutoff)) -> 1  (wrong)   setObject(OffsetDateTime UTC) -> 0
-JVM zone UTC:            setTimestamp(Timestamp.from(cutoff)) -> 0           setObject(OffsetDateTime UTC) -> 0
-Timestamp.from(2026-10-12T09:30:00Z) arrives as datetime2; as datetimeoffset = 2026-10-12T17:30:00Z
-```
-
-The driver property `datetimeParameterType=datetimeoffset` did not change the
-result. `getTimestamp(…).toInstant()` on a `DATETIMEOFFSET` returned the right
-instant in both zones. "Storage is UTC only" above records the rule that follows.
+`setObject` / `getObject(…, type)` round-trip both, so hand-written JDBC binds
+`UUID` directly. `getObject()` with no type returns a UUID as an upper-case
+string, and `getObject(…, Instant.class)` is refused by the driver. A bound
+`java.sql.Timestamp` arrives as the JVM-local wall clock in a `datetime2`, which
+SQL Server reads as UTC against a `DATETIMEOFFSET`: with the JVM in
+`Asia/Singapore` a cutoff query returned the wrong row, while a UTC
+`OffsetDateTime` was right in every zone. "Storage is UTC only" records the rule.
 
 ### V3: `READPAST` skips a held job-lock row under read-committed snapshot
 
-There were two connections, both at `READ COMMITTED` (`sys.dm_exec_sessions`
-reported level 2), on the RCSI database. Each ran `SELECT job_name FROM
-scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST) WHERE job_name = ?` inside an
-open transaction:
-
-```text
-A locks dormancy:                                [dormancy] in 47 ms
-B tries dormancy while A holds it:               [] in 3 ms
-B plain count of dormancy while A holds it:      [1] in 4 ms
-B tries audit-retention while A holds dormancy:  [audit-retention] in 3 ms
-lock held: KEY U GRANT, PAGE IU GRANT, OBJECT IX GRANT (each session)
-A committed
-B tries dormancy after A ended:                  [dormancy] in 4 ms
-A tries dormancy while B now holds it:           [] in 2 ms
-B rolled back, A tries again:                    [dormancy] in 2 ms
-missing job row:                                 [] in 3 ms; count [0] in 5 ms
-```
-
-A held row returns nothing immediately, without blocking. The row returns once the
-holder ends, whether it commits or rolls back. Another job's row is not skipped.
-`ScheduledJobLockAdapter`'s plain-count follow-up does not wait for the lock, so it
-still tells a held row from a missing one, as ADR 0005 decides.
+Two `READ COMMITTED` connections on the RCSI database: a held row returned nothing
+at once without blocking, another job's row was not skipped, the row returned once
+its holder committed or rolled back, and the plain count still told a held row
+from a missing one (ADR 0005).
 
 ### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
 
@@ -560,85 +487,38 @@ and no other comparison is moved onto them.
 
 ### V5: Hibernate reports the constraint and index name
 
-Each case went through `EntityManager`: a native insert, and an entity persist plus
-flush. Spring's JPA dialect translated it:
-
-```text
-2627 uq_scim_users_normalized_user_name (native):
-  DataIntegrityViolationException
-    <- org.hibernate.exception.ConstraintViolationException constraintName=uq_scim_users_normalized_user_name kind=UNIQUE
-    <- SQLServerException errorCode=2627 sqlState=23000 "Violation of UNIQUE KEY constraint 'uq_scim_users_normalized_user_name'. … The duplicate key value is (alice)."
-  IntegrityViolations.violates(…) = true (also with the name upper-cased)
-2627 uq_scim_groups_normalized_display_name (native):          constraintName=uq_scim_groups_normalized_display_name, violates = true
-2627 uq_scim_connector_tokens_lookup_id (entity persist+flush): constraintName=uq_scim_connector_tokens_lookup_id, violates = true
-2601 uq_scim_user_emails_one_primary (filtered unique index):
-    <- ConstraintViolationException constraintName=uq_scim_user_emails_one_primary kind=UNIQUE
-    <- SQLServerException errorCode=2601 "Cannot insert duplicate key row in object 'dbo.scim_user_emails' with unique index 'uq_scim_user_emails_one_primary'. …"
-  violates = true
-```
-
-`IntegrityViolations` works unchanged, so its case-insensitive name comparison
-needs no change, provided the T-SQL `V1` keeps the constraint names. Both messages
-quote the refused value, as lm-19 already assumes.
+Unique-key (2627) and unique-index (2601) violations, by native insert and by
+entity flush, surfaced as `ConstraintViolationException` carrying the constraint
+name, so `IntegrityViolations` works unchanged provided `V1` keeps the constraint
+names. Both messages quote the refused value, as lm-19 assumes.
 
 ### V6: test container cost at `forkCount` 2
 
-A SQL Server container idles at about 0.9 GB and stays near 1.2 GB under a
-workload of many migrated databases; a 2 GB container limit, SQL Server's
-documented minimum, held, and two containers start side by side well within the
-suite's patience. The fork count stays 2, and the local-development
-documentation states the memory the two containers need; on a small VM that is
-the case for raising the documented WSL memory rather than lowering the fork
-count.
+A container idles at about 0.9 GB and stays near 1.2 GB under load; two start side
+by side within a 2 GB limit each, so the fork count stays 2 and the documented
+memory is raised on a small VM instead.
 
 ### The switchover's gate (2026-10-16)
 
-`./scripts/verify.sh` from `backend/` went green (`GATE_EXIT=0`, Semgrep 0
-findings) with no context configuration added. The context count varies by a
-start or two between runs: the shared configuration reboots after a
-`@DirtiesContext` eviction, and which class boots it depends on where the forks
-place the two `@DirtiesContext` classes.
-
-- **End to end.** `make integration-test` and `make epic-integration-test`
-  passed against a local stack on the pinned SQL Server image, the first on a
-  freshly initialised database.
-- **Deployed stack: unverified, pending the user's own deploy.** The criterion is
-  that a stack deployed with `infra/deploy.sh` comes up, migrates, and serves SCIM
-  create, list and delete. The switchover did not run it: the user deploys and
-  verifies the AWS stack themselves. Until then nothing here shows the deployed
-  stack's behaviour, including the untested Windows build's `sp_getapplock` under
-  the `Latin1_General_100_BIN2_UTF8` server collation (Addendum (2026-10-16),
-  "Risk: untested on Windows"). `V1`'s comments were reworded in #72, which changes
-  its Flyway checksum, so a stack already deployed from `mssql-cutover` must be
-  recreated rather than updated.
+`./scripts/verify.sh` from `backend/` went green, and `make integration-test` and
+`make epic-integration-test` passed against a local stack on the pinned image. The
+deployed stack was left to the user's own deploy, so nothing here shows its
+behaviour — including the Windows build's `sp_getapplock` under the
+`Latin1_General_100_BIN2_UTF8` server collation (Addendum (2026-10-16), "Risk:
+untested on Windows").
 
 ## Addendum (2026-10-15): substring filters keep trailing spaces significant
 
-The "Observable changes" bullet on SCIM free text said that `eq`, `ne`, `co`, `sw`
-and `ew` ignore trailing spaces. The switchover's SCIM query ticket (#70) measured
-the filters on the pinned SQL Server image, and the list was wrong in both
-directions. The bullet now carries the measured list.
-
-- **Padded: `eq`, `ne`, `gt`, `ge`, `lt`, `le`.** These render as `=`, `<>`, `>`,
-  `>=`, `<` and `<=`, and SQL Server pads the shorter operand with spaces before it
-  compares. Against a stored `name.familyName` of `"Trail  "`, `eq "Trail"` and
-  `eq "trail "` match, `ne "Trail"` does not, `ge "trail "` matches, and
-  `gt "trail"` does not, because the padded values are equal.
-- **Not padded: `co`, `sw`, `ew`.** These render as `LIKE` against a bound
-  pattern. The driver sends the pattern as `nvarchar`, and a Unicode `LIKE` keeps
-  trailing spaces significant on both sides. Against the same stored value,
-  `ew "l"` does not match, while `ew "l  "` and `co "l "` do.
-
+#70 measured the free-text filters and corrected "Observable changes" in both
+directions: `eq`, `ne`, `gt`, `ge`, `lt` and `le` are padded, and `co`, `sw` and
+`ew`, a Unicode `LIKE` against a bound pattern, keep trailing spaces significant.
 `ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
-pins every one of these results through the SCIM API. The decision is unchanged:
-the padding is accepted as an observable change and not worked around, and the
-API contract and `docs/domain/scim-protocol.md` list the corrected operators.
+pins every operator. The padding is accepted, not worked around.
+
 ## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
 
 The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
-Edition. Five of its findings refine decisions above; none reverses one. The
-first and the TLS one depart from the issue's wording, and wait on the user's
-sign-off.
+Edition. Its findings refine decisions above; none reverses one.
 
 - **The owner login is a `db_owner` member, not the database's owner.** "Runtime
   model" names the owner login `db_owner`, and the local init and the tests had
@@ -662,20 +542,6 @@ sign-off.
   `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's
   password is reset, by the shared SQL, only when the calling script found that
   the login cannot sign in with its secret's.
-- **The server keeps its default collation on RDS too.** Issue #71 names
-  `Latin1_General_100_BIN2_UTF8` as the RDS *server* collation; the instance
-  states `SQL_Latin1_General_CP1_CI_AS` instead, and the database keeps
-  `Latin1_General_100_BIN2_UTF8` as "VARCHAR with database collation" decided.
-  Measured on the pinned image: under a server collated
-  `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2`, `sp_getapplock`
-  raises error 17750 from `sys.xp_userlock` and returns `0`, "granted", for a
-  lock it never took, in every database; under `Latin1_General_100_CI_AS_SC_UTF8`
-  and `Latin1_General_100_CS_AS_SC_UTF8` it takes the lock. The seed lock would
-  silently lock nothing. RDS runs the Windows build, where this was not
-  measured, so the default is kept rather than staking the seed lock on it.
-  (Superseded 2026-10-16: the seed lock no longer depends on `sp_getapplock`,
-  and the RDS server is now collated `Latin1_General_100_BIN2_UTF8`; see the
-  next addendum.)
 - **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that
   asks for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
   (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is
@@ -708,7 +574,7 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
   error; in `sqlcmd`, `sp_getapplock` also returned `0`, "granted", for a lock it
   never took. The driver's own prepared-statement calls (`sp_prepexec`, an RPC)
   are unaffected, and so is `EXEC (@string)`.
-- **The row.** `V2__scim_seed_lock_row.sql` creates `scim_seed_locks` and inserts
+- **The row.** `V1__initial_schema.sql` creates `scim_seed_locks` and inserts
   its one row, `ScimSeed`. `ScimSeedLockAdapter` takes that row with
   `SELECT … WITH (UPDLOCK, ROWLOCK)` and no `READPAST`: a second start waits for the
   first start's seeding to commit, then reads what it seeded. The migration
@@ -716,9 +582,6 @@ collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
   the seed lock was an application lock no longer holds. A missing row fails the
   start ("the migration that creates it has not run"), as a missing job-lock row
   does (ADR 0005).
-  Folded into `V1__initial_schema.sql` before the switchover reached `main`,
-  so a fresh database has one migration; the table, row and grant are
-  unchanged.
 - **Grant.** `backend_app` holds `SELECT` on the table and nothing else. An
   `UPDLOCK` read needs no more (measured), so the runtime role can lock the row
   but cannot change or delete it.
@@ -779,10 +642,6 @@ held that many Groups.
 - **Held by** `ScimLargeMembershipIntegrationTests`: 2,200 members or Groups,
   every path above, on the test container.
 
-The same day's review corrected V1's grant on `scheduled_job_locks` to `SELECT`
-alone. A locking read (`UPDLOCK`) needs only `SELECT` permission, as the seed
-lock's addendum above measured, and the application never updates a job row
-(ADR 0005, amendment of 2026-10-16). Changing V1 changes its checksum, so a database
-migrated from the earlier V1 fails Flyway's validation at the next migrate. A
-fresh database is the only supported starting state: recreate such a database
-(locally, remove the compose volume) rather than repairing the history.
+The same day's review narrowed V1's grant on `scheduled_job_locks` to `SELECT`
+alone (ADR 0005): a locking read needs no more, and the application never updates
+a job row.

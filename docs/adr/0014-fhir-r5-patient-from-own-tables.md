@@ -15,8 +15,9 @@ development fixture. Two choices had to be made before the first Patient was
 served, and both are hard to reverse once a client depends on the wire:
 
 1. **Which FHIR version.** The EHRs this application launches from are R4: Epic's
-   FHIR API is R4, and the local SMART launcher that stands in for Epic (ADR 0012,
-   "Local Epic launcher") serves `/v/r4/fhir`.
+   FHIR API is R4, and the local SMART launcher that stands in for Epic
+   (`backend/docs/configuration/epic-login.md`, "Local Epic launcher") serves
+   `/v/r4/fhir`.
 2. **Where the data comes from.** The service could proxy a FHIR server — Epic's,
    or a HAPI server of its own — or hold the Patients itself and render FHIR from
    its own rows.
@@ -84,10 +85,12 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
 - The error `OperationOutcome` is not the module's (#128). Every error under
   `/api/patient` is answered by a layer outside it — the app-wide exception
   handler, the security chain, the dispatcher — so the shape lives in `web`
-  (`FhirOperationOutcome`, with `FhirErrorDocumentFilter`), beside `ApiError`.
-  `patient` renders only the `Patient` and reaches `web` for nothing; `web`
-  knows the FHIR path, as it already knew the controller package, and no module
-  edge is added.
+  (`FhirOperationOutcome`), beside `ApiError`. `/api/patient` is one of the
+  error namespaces in `web.ErrorNamespaces`, which every refusing layer asks
+  for its document, and `ErrorDocumentFilter` is the one `sendError` adapter
+  for every namespace (2026-10-19; it replaced a FHIR-only filter). `patient`
+  renders only the `Patient` and reaches `web` for nothing, and no module edge
+  is added.
 
 ## Consequences
 
@@ -106,11 +109,3 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
   refuses HAPI in any scope that reaches the packaged JAR, so the runtime
   classpath stays FHIR-library-free (`/docs/domain/patient.md`).
 
-## Addendum (2026-10-19): the FHIR path is an error namespace
-
-`FhirErrorDocumentFilter` and its path check are gone. `/api/patient` is one of
-the application API's error namespaces in `web.ErrorNamespaces`, which every
-refusing layer asks for the document to answer with, and `ErrorDocumentFilter`
-is the one `sendError` adapter for every namespace. The `OperationOutcome` stays
-in `web`, outside `patient`, as decided above; `web` now knows the FHIR path as a
-namespace rather than beside a controller package.

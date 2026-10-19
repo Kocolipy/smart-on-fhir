@@ -21,8 +21,8 @@ The job is serialized on its own row in `scheduled_job_locks`
 (`SELECT … WITH (UPDLOCK, ROWLOCK, READPAST)`, held for the run's transaction), so two runs
 never overlap across instances and a run that finds the job already running skips.
 A zero or negative window, or a role-revocation window not longer than the lockout
-window, fails startup. Neither default appears in `application.yaml` — both belong
-to `DormancyPolicy`. The startup record states the job's cron, zone and both
+window, fails startup. Both defaults belong to `DormancyPolicy`, not
+`application.yaml`. The startup record states the job's cron, zone and both
 windows; every run logs `job-start` and `job-end` (`event.action:
 identity.dormancy`), the end carrying `dormancy.locked_count` and
 `dormancy.roles_revoked_count`, including a run that skipped or changed nobody.

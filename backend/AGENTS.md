@@ -19,8 +19,9 @@ is specific to this app. Run every command below from `backend/`.
 complete only when it exits zero. It runs the build, the tests, the ArchUnit
 rules and the Semgrep scan. **The script is the source of truth for that list** —
 the root `Makefile`'s `verify-backend` target invokes it rather than re-listing
-the steps, so the two cannot drift. Add or update a focused regression test for
-every behavior change.
+the steps. It can outlast a shell's foreground window: read its result through
+the root `AGENTS.md`'s sentinel-and-log pattern, run from `backend/`. Add or
+update a focused regression test for every behavior change.
 
 Two halves are worth knowing separately, because each has its own iteration loop:
 
@@ -35,7 +36,7 @@ Changes to Redis-backed session persistence require an integration-level check a
 
 The inner loop under the baseline gate. `README.md` ("Test layers") holds the layers and their measured times; `scripts/test-gates.sh` holds the lists.
 
-- Production authority: the Spring Boot service started by `BackendApplication` on SQL Server and Redis is the only path tests certify. Deprecated paths: none. Tests that pin a retired surface as gone (the `XSRF-TOKEN` cookie, the old disable/enable endpoints) are production coverage and stay.
+- Production authority: the Spring Boot service started by `BackendApplication` on SQL Server and Redis is the only path tests certify. Tests that pin a retired surface as gone (the `XSRF-TOKEN` cookie, the old disable/enable endpoints) are production coverage and stay.
 - Default verification: `./scripts/test-gates.sh fast` after every edit; `./scripts/test-gates.sh subsystem <package>` for the boundary you touched; `./scripts/test-gates.sh broad` before a push. The baseline gate stays the completion criterion.
 - New tests: a class joins the fast gate's explicit list only when it starts no Spring context and no container and reads no environment value; the subsystem gates select by package, so they need no edit.
 - Environment: the Surefire forks drop every `.env.example` key (`excludedEnvironmentVariables` in `pom.xml`), so a shell that sourced `.env` runs the same tests as a clean one. Add a new runtime variable there when you add it to `.env.example`. Epic is faked on loopback (`FakeEpic`); a test that reaches a real host is a defect.
@@ -47,12 +48,6 @@ The inner loop under the baseline gate. `README.md` ("Test layers") holds the la
 A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration, and differing from all of them costs a boot. **Read `docs/TESTING_GUIDE.md` ("Full-context tests") before writing or changing one**: how to join an existing configuration, and how to write for a database other classes share.
 
 Done when the gate log's context count (`grep -c 'Started .* in .* seconds'`) rises only for a configuration the behaviour genuinely needs.
-
-### Reading a gate's result
-
-The baseline gate can outlast a shell's foreground window; read its result
-through the sentinel-and-log pattern in the root `AGENTS.md` ("Reading a long
-gate's result"), substituting `./scripts/verify.sh` run from `backend/`.
 
 ### Conditional gate: mutation testing
 

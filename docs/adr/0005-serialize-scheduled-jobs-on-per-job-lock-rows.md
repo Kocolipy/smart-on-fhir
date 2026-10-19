@@ -4,154 +4,100 @@ Date: 2026-09-30
 
 ## Status
 
-Accepted.
+Accepted. Consolidated 2026-10-19 from the original decision and its amendments:
+the audit retention job joined it (2026-10-02), the scheduled-job module took
+over registration (2026-10-04) and then the run's transaction (2026-10-13),
+retention moved to batches inside the lock (2026-10-14), and the lock grant was
+narrowed to `SELECT` (2026-10-16).
 
 ## Context
 
-Every scheduled job — today the dormancy job (ADR 0007) and the audit retention job — must
-be serialized per job name so that no two runs of the same job overlap across instances,
-and two different jobs must not block each other. Spring's
-scheduler only knows about its own process, so any number of instances would each fire the
-same cron. Nothing in the codebase serialized work across instances before this.
+Every scheduled job — the dormancy job (ADR 0007) and the audit retention job —
+must be serialized per job name so that no two runs of the same job overlap
+across instances, and two different jobs must not block each other. Spring's
+scheduler only knows about its own process, so every instance fires the same
+cron.
+
+The lock holds only while three things line up: the transaction it is taken
+in, the data source its row is on, and how long that transaction lasts. Left to
+each job, they drift silently: moving a job to a transaction manager of its own
+takes the lock in autocommit and releases it at once, and one transaction per
+batch releases it after the first batch.
 
 ## Decision
 
-Each job has a row in `scheduled_job_locks`, inserted by the schema migration. A run opens its transaction, takes its own row with
-`SELECT job_name FROM scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST) WHERE job_name = ?`,
-and holds the row's update lock until the transaction ends. A second run of the same job
-reads past the held row and gets nothing back without waiting, and a run of the other job
-locks a different row. Spike V3 verified all three under read-committed snapshot (ADR 0013,
-"Verified behaviour"). An empty result means another run holds it, and the run skips rather
-than waits. The empty result is followed by a plain count, which does not wait for the lock,
-so a missing row fails the run loudly instead of reading as "someone else is running it"
-forever. Each of the two statements has a 60 s query timeout (ADR 0013, "Bounded
-timeouts"): `READPAST` never waits on a held row, but would on a lock above it, and the run
-then fails rather than holding its scheduler thread. The port is
-`ScheduledJobLock` (`scheduling.domain`), the adapter `ScheduledJobLockAdapter`
-(`scheduling.infrastructure.persistence`).
+**A lock row per job.** Each job has a row in `scheduled_job_locks`, inserted by
+the schema migration. A run takes its own row with
+`SELECT job_name FROM scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST) WHERE job_name = ?`
+and holds the update lock until its transaction ends. A second run of the same
+job reads past the held row, gets nothing back without waiting, and skips; a run
+of another job locks a different row. Spike V3 verified all three under
+read-committed snapshot (ADR 0013, "Verified behaviour"). The empty result is
+followed by a plain count, so a missing row fails the run loudly instead of
+reading as "someone else is running it" forever. Each statement has a 60 s query
+timeout (ADR 0013, "Bounded timeouts"): `READPAST` never waits on a held row, but
+would on a lock above it. The port is `ScheduledJobLock` (`scheduling.domain`),
+the adapter `ScheduledJobLockAdapter`, the one place the lock syntax is written.
 
-Inside a run, each candidate User is re-read under its resource lock (taken, with every
-other row the run may change, through the SCIM write lock module `ScimWriteLocks`) and
-decided again, so a User is never processed twice even across the window between the
-candidate query and the write.
+**One module runs a serialized job.** `ScheduledJobRunService`
+(`scheduling.application`) owns the run's transaction: a job hands it its
+`ScheduledJob` and a body, and it opens the run's own transaction on the primary
+data source (`PROPAGATION_REQUIRES_NEW`, through a `TransactionTemplate`), takes
+the lock, reports a skip when another run holds it, and otherwise runs the body
+inside that transaction, holding the lock until the body returns or throws. A
+body that throws rolls the run back. A transaction a body opens of its own — on
+another data source's transaction manager, or on the primary one with
+`REQUIRES_NEW` — commits inside the run's and releases nothing; a per-batch
+`@Transactional` with the default `REQUIRED` joins the run's transaction instead,
+and nothing commits until the run does. `ScheduledJobRunIntegrationTests` proves
+both, and `ArchitectureTest.only_the_scheduled_job_run_takes_a_job_lock` keeps
+every other caller off `ScheduledJobLock`.
+
+So the dormancy job is one transaction per run, and the audit retention job
+deletes in batches of 4,000, each committed on the retention pool as the
+retention login, inside the run's lock transaction on the main pool — a second
+instance started between two batches skips
+(`AuditRetentionSerializationIntegrationTests`).
+
+**The app login holds `SELECT` alone on the table.** SQL Server checks a locking
+read's permissions as a `SELECT`'s and the application never updates the row,
+so the app login (`backend_app`) cannot change or remove the row a job
+serializes on; its `UPDATE` is refused with error 229.
+
+**A job's identity is spelled once.** `ScheduledJob` carries the name that is its
+lock row, its metrics' `job` tag and its `batch.job.name`, and the `Operation` its
+records are classified as (`dormancy`, `audit-retention`, which V1 and the alert
+rules name). Registration lives in `ScheduledJobMetrics` (`observability`): a
+schedule config names its job in a `ScheduledJobSpec`, and `schedule` builds the
+cron task in `ServiceTimeZone.ZONE`, registers the run metrics and declared
+counters at zero, and writes the startup record. A run reports its counts once
+(`SkippableJobRun.counts()`), after its transaction committed, so a run that
+rolled back or skipped counts nothing.
+
+**A new job that must not overlap itself** needs a `ScheduledJob` member, with its
+name and `Operation`, and a migration inserting its row; its service hands its
+body to `ScheduledJobRunService.run`, and its schedule config names it in a
+`ScheduledJobSpec`.
 
 ## Consequences
 
-- The lock is released by the commit or rollback that ends the run. There is no lease to
-  expire and nothing to release by hand, and a crashed instance's lock goes with its
-  connection.
-- A run is one transaction. A failure on one User rolls the whole run back, and the next run
-  repeats it. That is the fail-closed half of ADR 0004.
-- The app login's role (`backend_app`) holds `SELECT` alone on the table (the 2026-10-16
-  amendment), so it cannot change or remove the row a job serializes on.
-- A new job that must not overlap itself needs a `ScheduledJob` member and a migration
-  inserting its row.
-
-## Amendment (2026-10-02): the audit retention job
-
-The audit retention job takes the same lock, on its own `audit-retention` row, so
-two instances on the same cron no longer both run the delete. The lock is taken on the
-main pool as the app login, which alone holds the grant, and the deletes run on the
-retention pool as the retention login, inside the lock's transaction — see the
-2026-10-13 amendment.
-
-The port and adapter moved from `auth` to a shared `scheduling` module for it: `audit`
-may depend on no business module (`ArchitectureTest.MODULE_DEPENDENCIES`),
-so it could not reach a port in `auth.domain`. The mechanism is unchanged.
-
-## Amendment (2026-10-04): the scheduled-job module registers every job
-
-Registration moved into the scheduled-job module, `ScheduledJobMetrics` (`observability`), so
-that it is in one place. A schedule config now only names its job in a
-`ScheduledJobSpec`: its name, `Operation`, cron, description, task, the fields particular to
-its startup record, and which of its run counts are also counters. `ScheduledJobMetrics.schedule`
-builds the cron task and its trigger in `ServiceTimeZone.ZONE`, registers the run metrics and
-the declared counters at zero, and writes the startup record. That record is now logged under
-the `ScheduledJobMetrics` logger rather than the config's.
-
-A run reports its counts once (`SkippableJobRun.counts()`). Each count becomes a field on the
-`job-end` record and moves the counter declared for it. Counting happens only after the run
-has returned, and so after its transaction committed, and only when it did the work. A run
-that rolled back or skipped on a held lock therefore counts nothing, which is the same
-guarantee the dormancy counters had before. The lock mechanism above is unchanged.
-
-A new scheduled job therefore needs a `ScheduledJob` lock member and its migration row, as
-before, plus one `ScheduledJobSpec`.
-
-## Amendment (2026-10-13): one module runs a serialized job
-
-The decision above holds only while three things line up: the transaction the lock
-is taken in, the data source the lock row is on, and how long that transaction
-lasts. Each job used to line them up itself, with `@Transactional` on its body,
-`tryAcquire` on the primary data source and its own skip. Two planned changes would
-have broken that silently: moving the retention job to a transaction manager of its
-own would have taken the lock in autocommit and released it at once, and one
-transaction per batch would have released it after the first batch.
-
-The scheduled-job run module, `ScheduledJobRunService` (`scheduling.application`),
-now owns that transaction. A job hands it its `ScheduledJob` and a body. The module
-opens the run's own transaction on the primary data source's transaction manager
-(`PROPAGATION_REQUIRES_NEW`, through a `TransactionTemplate` rather than an
-annotation), takes the lock in it, and reports a skip without running the body when
-another run holds it. Otherwise it runs the body inside that transaction and holds
-the lock until the body has returned or thrown. A body that throws rolls the run
-back. A transaction a body opens of its own — on another data source's
-transaction manager, or on the primary one with `PROPAGATION_REQUIRES_NEW` —
-commits inside the run's transaction and releases nothing.
-`ScheduledJobRunIntegrationTests` proves both cases, the first with a
-delete committed on the retention pool. A per-batch commit on
-the primary data source therefore needs `REQUIRES_NEW`: a per-batch
-`@Transactional` with the default `REQUIRED` propagation joins the run's
-transaction instead, and nothing commits until the run does. The lock stays on
-the primary data source because only the application login holds grants on
-`scheduled_job_locks`.
-
-A job body never takes the lock itself. `ScheduledJobRunService` is the only caller
-of `ScheduledJobLock`, and `ArchitectureTest.only_the_scheduled_job_run_takes_a_job_lock`
-enforces that. The adapter remains the one place the engine's lock syntax is written.
-Neither the dormancy job nor the retention job is `@Transactional` any more. Both
-bodies still run inside the lock's transaction: dormancy is one transaction per run,
-and retention's deletes run on the retention pool, as the retention login, in
-transactions of that pool's own transaction manager, which commit inside the run's
-lock transaction on the primary data source and release nothing.
-
-A job's identity is spelled once. `ScheduledJob` carries the name that is its lock
-row, its metrics' `job` tag and its `batch.job.name`, and also the `Operation` its
-records are classified as. The schedule configs and the services read both from it.
-The values are unchanged (`dormancy` and `audit-retention`, which the V1 migration
-and the alert rules name). `scheduling` therefore depends on `observability` for
-the `Operation` vocabulary (`ArchitectureTest.MODULE_DEPENDENCIES`).
-`observability` still depends on nothing, so `ScheduledJobSpec` keeps taking a name
-and an `Operation` rather than a `ScheduledJob`.
-
-A new job that must not overlap itself therefore needs a `ScheduledJob` member, with
-its name and `Operation`, and the migration row. Its service hands its body to
-`ScheduledJobRunService.run`, and its schedule config names it in a `ScheduledJobSpec`
-from that member.
-
-## Amendment (2026-10-14): retention commits in batches inside the lock
-
-The lock's lifetime is the 2026-10-13 amendment's: the run's transaction on the main
-pool, as the app login, spanning the whole run. The audit retention job deletes in
-batches of 4,000, each committed on the retention pool's own transaction manager; none
-of those commits releases the lock, so a second instance started between two batches
-skips (`AuditRetentionSerializationIntegrationTests`). `ScheduledJobRunIntegrationTests`
-observes the race in `sys.dm_tran_locks`: one granted update lock on the job's row, and
-none left behind by the run that skipped.
-
-## Amendment (2026-10-16): the job lock grant is `SELECT` alone
-
-SQL Server checks a locking read's permissions as a `SELECT`'s, and the application
-never updates the row, so V1 grants `SELECT` alone on `scheduled_job_locks`, as it does
-on `scim_seed_locks` (ADR 0013, which records the measurement).
-`ScheduledJobRunIntegrationTests` holds both halves: every run takes the lock as the app
-login, and that login's `UPDATE` of a job row is refused (error 229).
+- The lock is released by the commit or rollback that ends the run. There is no
+  lease to expire and nothing to release by hand, and a crashed instance's lock
+  goes with its connection.
+- A dormancy run is one transaction: a failure on one User rolls the whole run
+  back, and the next run repeats it — the fail-closed half of ADR 0004. Inside a
+  run each candidate User is re-read under its resource lock (`ScimWriteLocks`)
+  and decided again, so no User is processed twice.
+- `scheduling` depends on `observability` for the `Operation` vocabulary;
+  `observability` depends on nothing, so `ScheduledJobSpec` takes a name and an
+  `Operation` rather than a `ScheduledJob`.
 
 ## Alternatives considered
 
-**An application lock (`sp_getapplock`) per job name.** Same transaction scoping with no
-table. Not chosen: the set of serializable jobs would not be visible in the schema, and a lock
-on a name that no job declares would be granted rather than fail loudly.
+**An application lock (`sp_getapplock`) per job name.** Same transaction scoping
+with no table. Not chosen: the set of serializable jobs would not be visible in
+the schema, and a lock on a name no job declares would be granted rather than
+fail loudly.
 
-**ShedLock or a similar library.** It adds a dependency and a lease-based model. A lease
-expiring during a long run lets two runs overlap.
+**ShedLock or a similar library.** It adds a dependency and a lease-based model.
+A lease expiring during a long run lets two runs overlap.

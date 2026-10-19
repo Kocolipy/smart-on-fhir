@@ -48,26 +48,23 @@ owner. Append-only therefore survives a console session or a misused owner
 credential. `AuditAppendOnlyIntegrationTests` connects as each login and asserts
 each refusal.
 
-The pools: how each reaches the database is one module's, `DatabaseConnections`
-(`database.config`): the URL, the driver, and every driver property under
-`spring.datasource.hikari.data-source-properties` — set in
-`src/main/resources/database.yaml`: `encrypt=true`, `sslProtocol=TLSv1.2` and
-`loginTimeout=15`, and on the deployed stack the driver-scoped trust store's
-password, which arrives from the environment as
-`SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD` while
-`DATABASE_URL` names the store (`/infra/docs/database-encryption.md`, "TLS to the database") —
-reach the main, audit append
-and retention pools alike, and the migrate step's owner connection too
-(`MigrationConnection`). Set such a property there, for the service and the
-migrate step both, and never on one pool. A pool states only its name, login,
-size and connection timeout. The main pool binds every
-`spring.datasource.hikari.*` setting as before, and is named `app`; the retention
-pool holds two connections and binds its login, and only its login, from
-`app.datasource.retention.*`. Both wait at most 10 s for a
-connection, and both appear by name in the `db` health indicator
-(`dataSource`, `auditRetentionDataSource`) and in the `hikaricp_*` series
-(`pool="app"`, `pool="retention"`). The retention pool starts on first use — its
-first run, or the first health check.
+**How every connection reaches the database is one module's**,
+`DatabaseConnections` (`database.config`): the URL, the driver, and every driver
+property under `spring.datasource.hikari.data-source-properties`, set in
+`src/main/resources/database.yaml` (`encrypt=true`, `sslProtocol=TLSv1.2`,
+`loginTimeout=15`, and on the deployed stack the trust store's password, from
+`SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD` —
+`/infra/docs/database-encryption.md`, "TLS to the database"). They reach the
+main, audit append and retention pools and the migrate step's owner connection
+(`MigrationConnection`) alike: set a driver property there, never on one pool.
+A pool states only its name, login, size and connection timeout.
+
+The main pool, `app`, binds every `spring.datasource.hikari.*` setting; the
+retention pool holds two connections and binds only its login from
+`app.datasource.retention.*`, starting on first use. Both wait at most 10 s for
+a connection and appear by name in the `db` health indicator (`dataSource`,
+`auditRetentionDataSource`) and the `hikaricp_*` series (`pool="app"`,
+`pool="retention"`).
 
 A retention run takes the scheduled job's lock on the main pool, as the app
 login, and holds it for the whole run; its deletes commit in transactions of the

@@ -3,8 +3,11 @@
 Deploy the Spring Boot backend to AWS ap-southeast-1 with an ALB, EC2, **RDS for
 SQL Server 2022 Standard Edition**, and Redis.
 
-This directory is the repo-root `infra/` folder — a sibling of `backend/` and
-`frontend/`, not part of either app. All commands below are run from `infra/`.
+Run every command below from `infra/`: `deploy.sh` finds the template, the key
+and the repo from its own location, but writes `<stack>-outputs.txt` to the
+current directory, which is where `cleanup.sh` deletes it from. The local
+artefacts — `parameters.json`, `*-outputs.txt`, the `*.pem` key — are
+gitignored.
 
 ## Quick Start (5 Minutes)
 
@@ -19,19 +22,9 @@ cd infra
 ```
 
 The script prompts for VPC IDs and sizing — **never for a password**: every
-credential is generated into Secrets Manager by the stack (see
-[Database security](docs/database-credentials.md)). It checks
-the engine version and instance class with RDS, stages the template in S3,
-deploys the stack, retrieves the SSH key, waits for the instance to boot — which
-**bootstraps the database itself** — re-runs that bootstrap to prove it a no-op
-(`db-bootstrap.sh --expect-no-op`), and runs the
-[post-deploy smoke](docs/post-deploy-smoke.md) (`smoke.sh`), which fails the deploy if
-any secret value leaked: the full smoke when you answer yes to the JAR prompt and
-it deploys the application, and its leak check over the boot alone when you
-answer no.
-
-Needs, besides the AWS CLI: `jq`, `curl`, `ssh`/`scp`, `openssl` and `base64`.
-No database client: everything that talks to the database runs on the instance.
+credential is generated into Secrets Manager by the stack
+([Database credentials](docs/database-credentials.md)). "Deployment" below has
+what it does, step by step.
 
 > **Before taking traffic:** attach an AWS WAF web ACL to the ALB. The stack
 > does not create one, and the application has no rate limiter of its own. See
@@ -64,24 +57,9 @@ Internet → ALB (HTTP:80) → EC2 (8080) → RDS for SQL Server (1433) + Redis
 - An SNS topic as the stack's alarm target, and two database alarms
 - Security groups with proper isolation
 
----
-
-## Reference
-
 The rest of the stack's documentation is in `docs/`, one file per concern;
 [`docs/index.md`](docs/index.md) lists them. Read the one your change or your
-incident touches:
-
-- [Edge throttling](docs/edge-throttling.md) — **required** before taking traffic.
-- [Database engine and cost](docs/database-engine.md),
-  [credentials](docs/database-credentials.md),
-  [boot, bootstrap and migrate step](docs/database-boot.md),
-  [encryption](docs/database-encryption.md) and
-  [monitoring](docs/database-monitoring.md).
-- [Post-deploy smoke](docs/post-deploy-smoke.md) — what `smoke.sh` checks.
-- [Operational telemetry](docs/operational-telemetry.md) — the scrape and its alerts.
-- [Parameters reference](docs/parameters.md).
-- [Epic signing-key promotion](docs/epic-signing-keys.md).
+incident touches.
 
 ---
 
@@ -106,21 +84,12 @@ incident touches:
    ```
 
    Plus `jq`, `curl`, `ssh`/`scp`, `openssl` and `base64` on the machine you
-   deploy from.
+   deploy from. No database client: everything that talks to the database runs
+   on the instance.
 
-3. **Application built** — the _integrated_ JAR (SPA + backend), from the repo
-   root:
-
-   ```bash
-   make package     # == scripts/package.sh
-   ```
-
-   `./mvnw clean package` in `backend/` is a **backend-only** build: the
-   `with-frontend` profile is off by default, so that JAR serves no SPA.
-   `make package` builds `frontend/dist`, activates the profile with an explicit
-   `-Dfrontend.dist.dir`, and fails if `BOOT-INF/classes/static/index.html` is
-   missing from the artefact. `./deploy.sh` runs this for you when you answer yes
-   to the JAR-deployment prompt.
+3. **Application built** — the _integrated_ JAR, `make package` from the repo
+   root (a plain `./mvnw clean package` serves no SPA). `./deploy.sh` runs it
+   for you when you answer yes to the JAR prompt.
 
 ---
 
@@ -405,11 +374,6 @@ aws elbv2 describe-target-health \
 
 ```bash
 ./cleanup.sh
-
-# Or manually:
-aws cloudformation delete-stack \
-  --stack-name spring-backend \
-  --region ap-southeast-1
 ```
 
 ### Inspect the Stack
@@ -422,24 +386,11 @@ aws cloudformation describe-stacks --stack-name spring-backend \
   --region ap-southeast-1 --query 'Stacks[0].Outputs' --output table
 ```
 
-### An existing stack
+### A stack on the previous engine
 
-The move to SQL Server replaces the database engine, and with it the instance;
-the application holds no data that must be kept (ADR 0013). An existing stack
-on the previous engine does not update into this template: delete it
-(`cleanup.sh`) and deploy a fresh stack.
-
-An instance this template created before
-[File ownership on the instance](docs/database-credentials.md#file-ownership-on-the-instance) was tightened
-has a `springboot`-owned `/opt/backend`, `.env` and JAR. UserData runs only when
-an instance is created, so a stack update does not change them, and the smoke's
-ownership step fails on that instance. Fix it once, on the instance:
-
-```bash
-sudo chown root:root /opt/backend /opt/backend/.env /opt/backend/backend.jar
-sudo chmod 0755 /opt/backend && sudo chmod 0600 /opt/backend/.env && sudo chmod 0644 /opt/backend/backend.jar
-sudo find /opt/backend -user springboot   # must print nothing
-```
+A stack from before the move to SQL Server does not update into this template:
+delete it (`cleanup.sh`) and deploy a fresh one. The application holds no data
+that must be kept (ADR 0013).
 
 ---
 

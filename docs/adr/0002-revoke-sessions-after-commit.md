@@ -50,12 +50,6 @@ transaction bound to the calling thread, and runs the work immediately when no
 transaction is bound — with no commit to wait for and no rollback that could
 contradict it, "after the commit" and "now" are the same instant.
 
-The call stays visible in each service that ends sessions, which is the same reason
-ADR 0001 gives for recording login attempts on the login path rather than through a
-listener. A `@TransactionalEventListener(AFTER_COMMIT)` would have achieved the same
-ordering by publishing a domain event, at the price of a use case that no longer
-shows that it ends sessions.
-
 ## Consequences
 
 - A rolled-back write revokes nothing: both halves stay as they were, and the
@@ -79,7 +73,7 @@ shows that it ends sessions.
 
 ## Alternatives considered
 
-**Leave it inside the transaction, best-effort.** Rejected: it is the current
+**Leave it inside the transaction, best-effort.** Rejected: it was the
 defect, and the divergence it allows is invisible — the operator sees `Active` and
 the holder sees signed-out, with no record of the rollback.
 

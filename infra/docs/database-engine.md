@@ -27,19 +27,13 @@ tags: [rds, sql-server, cost]
   one you choose is orderable for Standard Edition, licence-included, in the
   region (`describe-orderable-db-instance-options`) before creating anything.
 
-**This is a cost change.** The smallest Standard Edition instance carries the
-instance price **and** the per-vCPU SQL Server licence, for four vCPUs at least.
-AWS's price list for ap-southeast-1, single-AZ, on demand, read on 2026-10-15:
-
-| Instance                                     | Per hour | Per month (730 h) |
-| -------------------------------------------- | -------- | ----------------- |
-| `db.t3.micro`, the previous stack            | US$0.028 | ≈ US$20           |
-| `db.t3.xlarge`, SQL Server SE, licence-incl. | US$1.109 | ≈ US$810          |
-
-— **about 40 times the previous instance**, before storage, backups,
-Performance Insights beyond its free tier, and Multi-AZ (which doubles the
-instance price). Prices change; take the current one for the class you choose
-before sign-off:
+**It is expensive.** The smallest Standard Edition instance carries the instance
+price **and** the per-vCPU SQL Server licence, for four vCPUs at least:
+`db.t3.xlarge` was US$1.109 an hour (≈ US$810 a month) in ap-southeast-1,
+single-AZ, on demand, on 2026-10-15 — about 40 times the `db.t3.micro` the
+previous engine ran on — before storage, backups, Performance Insights beyond
+its free tier, and Multi-AZ (which doubles the instance price). Take the current
+price for the class you choose before sign-off:
 
 ```bash
 aws pricing get-products --region us-east-1 --service-code AmazonRDS \
@@ -60,8 +54,7 @@ snapshot that is itself billed until you delete it.
 ## Collation and time zone
 
 - **The database is collated `Latin1_General_100_BIN2_UTF8`** — UTF-8 storage in
-  code-point order, which the schema and the SCIM sort depend on (ADR 0013,
-  "VARCHAR with database collation"). It is the **database's** collation, set by
+  code-point order, which the schema and the SCIM sort depend on (ADR 0013, "Runtime model"). It is the **database's** collation, set by
   the bootstrap's `CREATE DATABASE … COLLATE`, which every column takes, and the
   bootstrap refuses a database it finds with any other collation rather than
   altering it (an altered collation would not convert existing columns).
@@ -69,12 +62,12 @@ snapshot that is itself billed until you delete it.
   (`CharacterSetName`), as issue #71 names it, so `master` and `tempdb`
   compare names as the database does. It is fixed at creation; changing it
   replaces the instance.
-- **The seed lock no longer depends on the server collation.** On the pinned
+- **The seed lock does not depend on the server collation.** On the pinned
   Linux image (SQL Server 2022 CU27, `MSSQL_COLLATION`), a server collated
   `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load the
   internal extended procedures behind `sp_getapplock` (`sys.xp_userlock`) and a
   T-SQL `sp_executesql`: error 17750, "Could not load the DLL (server
-  internal)". The seed lock is now a row lock on `scim_seed_locks` (`V1`), and
+  internal)". The seed lock is a row lock on `scim_seed_locks` (`V1`), and
   the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0013,
   "Addendum (2026-10-16)").
 - **Untested risk: Flyway on the Windows build.** Flyway guards every

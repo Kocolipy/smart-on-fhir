@@ -32,8 +32,9 @@ exactly its Permissions — a helpdesk operator holding `user:read` and
 Every operation of the application chain declares what it needs, and whatever
 declares nothing is refused. Three kinds of operation:
 
-- **Public** — `POST /api/auth/login`, `GET /api/auth/csrf` and
-  `/actuator/health`, reachable with no session.
+- **Public** — `POST /api/auth/login`, `GET /api/auth/csrf`,
+  `/actuator/health`, and, while Epic Login is on, its JWKS and three browser
+  routes ([Epic Login](./epic-login.md)), reachable with no session.
 - **Self-service** — authenticated, no Permission: the four baseline routes
   above. They act only on the session's own User and take no User id from the
   request, so there is no caller-supplied id to check ownership against.

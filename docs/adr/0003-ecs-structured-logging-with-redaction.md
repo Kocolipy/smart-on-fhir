@@ -4,16 +4,11 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. Consolidated on 2026-10-10 from the original decision and the fifteen
-addenda dated 2026-10-01 to 2026-10-10, ADR 0012's Epic Login among them. This file states the current position. The dated
-addenda, including the rules they superseded, are in git history. Amended on
-2026-10-14 (#64) for ADR 0013's logging resolutions: SQL exception text, the
-database category mapping with the deadlock retry, connection details and the
-retention run's one line. Amended again on 2026-10-14 (B23) for the deadlock
-retry's coverage rules and the second deadlock's `503`. Amended on 2026-10-18 (#128)
-for patient data: the `403` refusal's `cert/auth` classification, the patient
-path's `4xx` classified on the request record, and the NRIC in
-`be-log-sensitive-value`.
+Accepted. This file states the current position: it was consolidated on
+2026-10-10 from the original decision and fifteen addenda, then amended for ADR
+0013's logging resolutions and the deadlock retry (2026-10-14, #64, B23), patient
+data (2026-10-18, #128), and error namespaces (2026-10-19). Superseded rules are
+in git history.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -22,14 +17,10 @@ type. The two tables under "The event vocabulary" are the written copy that
 
 ## Context
 
-The service had no logging configuration and no application log statements at all:
-whatever Boot's default pattern layout printed was the whole log stream.
+A collector has to be able to query the log, which a pattern layout — every value
+text at an offset — does not allow.
 
-First, a collector has to be able to read it. The pattern layout is a sentence,
-so every value in a record is text at an offset, and a reader either writes a
-regular expression per message or gives up on querying.
-
-Second, and the reason this is not a formatting preference: the account surface
+More importantly, the account surface
 handles values that must not be written to a log store. A `userName` is half a
 credential and, on a failed login, very often a mistyped password. A SCIM filter
 expression carries whatever attribute values the caller searched on. A password,
@@ -357,42 +348,25 @@ and the deadlock victim and the snapshot conflict share one (`40001`).
 Every other database failure is `database`. Two rows need more than a state:
 
 - **The deadlock retry** (ADR 0013's as-13). A deadlock victim's transaction is
-  rolled back whole, so a SCIM or administrative write the database chose as one is
-  run again, once, by a single interceptor at the outermost transactional boundary:
-  `DeadlockRetryAdapter`, an infrastructure advisor ordered ahead of the transaction
-  on every `@RetriedOnDeadlock` method — the SCIM User and Group create, PUT, PATCH
-  and DELETE, the Unlock, the forced password change, and the connector create and
-  delete and the token issue, rotation and revocation. The first deadlock is the
-  `deadlockRetried` `WARN`, classified as the write's own operation, with no
-  `error.code` (no status has been answered) and no follow-up; a deadlock on the
-  retry propagates, marks the request (`ExhaustedRetry`), and the request's fault
-  handler writes it as the second row's `ERROR` — once, `database`, investigate,
-  with a redacted copy attached — answered `503` with `Retry-After: 1` and no driver
-  text, ADR 0013's answer: in the SCIM error document on the SCIM chain, and as the
-  `server-error` `ApiError` on the application chain, the connector administration
-  adapter's included. A deadlock the retry did not see — on a path not retried —
-  stays the generic `500`, so `docs/openapi.yaml` lists the `503` on the retried
-  writes alone. A deadlock is `DatabaseFailureCategory.deadlock`: error `1205`
-  under `40001` in the cause chain — never the snapshot conflict (`3960`) that
-  shares the state. `app.retry.attempt` is the issue's `retry.attempt`, under the
-  `app` namespace as the JWKS refetch's is, since ECS names no such field.
+  rolled back whole, so a SCIM or administrative write the database chose is run
+  again, once, by `DeadlockRetryAdapter`, an advisor ordered ahead of the
+  transaction on every `@RetriedOnDeadlock` method (the SCIM User and Group
+  writes, Unlock, the forced password change, and connector and token
+  administration). The first deadlock is the `deadlockRetried` `WARN`, with no
+  `error.code` and no follow-up; a deadlock on the retry marks the request
+  (`ExhaustedRetry`) and is written once as the second row's `ERROR`, answered
+  `503` with `Retry-After: 1` in the namespace's error document. A deadlock on a
+  path not retried stays the generic `500`, so `docs/openapi.yaml` lists the
+  `503` on the retried writes alone. A deadlock is error `1205` under `40001`,
+  never the snapshot conflict (`3960`) that shares the state.
 
-  **Coverage and placement are rules, not conventions** (`ArchitectureTest`). Every
-  public, non-read-only `@Transactional` method carries the retry unless
-  `NOT_RETRIED_ON_DEADLOCK` names it with its reason — the login-state events, the
-  self-service password change, the SCIM reads (whose transaction
-  writes only the read's own audit row), and the startup seed and scheduled paths,
-  which the next start or run covers — and an exemption naming no such method
-  fails. A retried method opens a read-write transaction of its own, implements no
-  inherited method, and is called by an inbound web adapter alone, which opens no
-  transaction: a write joining a transaction already open would not be retried,
-  since no inner call can run the outer transaction again, so the rule keeps the
-  retry at the outermost boundary rather than leaving it to the adapter's silent
-  pass-through. And a fail-open audit event (`Audited.Refused`, ADR 0004) ends the
-  retried body that appends it: it commits on its own at once, so a retry after
-  more work could deadlock would append it twice. The rule reads the body's paths
-  from its bytecode, into its helpers and the beans it calls: after the event, no
-  path reaches a port or another bean before it throws or returns.
+  **Coverage and placement are rules** (`ArchitectureTest`). Every public,
+  non-read-only `@Transactional` method carries the retry unless
+  `NOT_RETRIED_ON_DEADLOCK` names it with its reason. A retried method opens a
+  read-write transaction of its own and is called only by an inbound web adapter,
+  since a write joining an open transaction could not be re-run. A fail-open
+  audit event (`Audited.Refused`, ADR 0004) ends the retried body that appends
+  it, since it commits at once and a retry would append it twice.
 
 - **The audit trigger's refusal** (ADR 0004's 2026-10-14 addendum). The append-only
   trigger throws its own error, `50001`, so it is `database` and can never be
@@ -405,20 +379,12 @@ Every other database failure is `database`. Two rows need more than a state:
   the start as Spring's `CannotAcquireLockException`, a `DataAccessException`, and
   so `database`.
 
-`DatabaseFailureLogIntegrationTests` drives the failures the suite can produce on
-SQL Server — the unique violation, truncation, conversion error, permission
-refusal, lock not acquired, audit-trigger refusal and refused login — and asserts
-each record's `error.code`, `error.category` and redacted `SQL Server error <n>`;
-`DatabaseFailureCategoryTests` holds every row, the deadlock, snapshot-conflict and
-TLS ones included. `ScimDeadlockRetryIntegrationTests` forces a real deadlock on a
-User PUT, retried and completed, and one on its retry too, which answers `503`, and
-retries a token rotation; `DeadlockRetryAdapterTests` holds the retry's rules and
-`DeadlockRetryRulesTests` shows each architecture rule failing on the shape it
-forbids. The contract fixtures produce every documented `503` through
-`ForcedDeadlock`: SQL Server lets no statement raise `1205`, so it makes a real
-deadlock — a trigger on the write's row updates one row of a table of its own and
-waits on another a partner connection holds, which then reads the first at a higher
-deadlock priority.
+`DatabaseFailureCategoryTests` holds every row; `DatabaseFailureLogIntegrationTests`
+drives the ones SQL Server can produce and asserts each record.
+`ScimDeadlockRetryIntegrationTests` forces real deadlocks, and the contract
+fixtures produce every documented `503` through `ForcedDeadlock` — SQL Server lets
+no statement raise `1205`, so it stages a real deadlock against a partner
+connection.
 
 **No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the
 request (`RequestFault`), and `RequestIdFilter` then writes that request's record at
@@ -471,16 +437,10 @@ comment on each saying what it would write:
 
 A level stated for the logger itself is one a broader setting cannot reach, so
 turning logging up to investigate does not turn these lines back on. The levels hold
-for the migrate step (`MigrationStep`), which reads the same configuration, as for the
-service: Flyway runs only there, in a local run and in the tests (ADR 0013, ac-1).
-`StartupLogConnectionDetailsTests` starts a deployment as a deployment does, in child
-JVMs on the main configuration: the migrate step on an empty database, as the owner
-login, then `BackendApplication` with no profile, as the app and retention logins. It
-asserts that no line from the migrate step's first to the service's shutdown names
-the JDBC URL, the host or the database. A second deployment, with the root logger at
-`DEBUG` (Tomcat's alone held at `INFO`, as its class loader cannot start at `DEBUG`),
-asserts the same of the pinned loggers, with all three pools opened — the audit append
-pool by a refused login, the retention pool by a retention run.
+for the migrate step (`MigrationStep`) as for the service (ADR 0013, ac-1).
+`StartupLogConnectionDetailsTests` runs the migrate step and the service in child
+JVMs, as a deployment does, also with the root logger at `DEBUG` and all three
+pools opened, and asserts no line names the JDBC URL, the host or the database.
 
 ### The records
 
@@ -586,17 +546,26 @@ refusal: `WARN` for a 4xx, or `ERROR` with the exception for a 5xx. It carries:
 - `scim.resource.id`, only when the route's `{id}` is a UUID.
 
 It never carries the detail or any submitted value. Refusals made before any handler
-(`ScimRequestBodyLimitFilter`, `ScimDispatcherErrorFilter`) get the same record from
-`ScimErrorDocument`, with the reason fixed by the status and no resource type. The
+(`ScimRequestBodyLimitFilter`, and the dispatcher's and firewall's `sendError`s that
+`ErrorDocumentFilter` answers) get the same record from `ScimErrorDocument`, with
+the reason fixed by the status and no resource type. The
 unmapped integrity violation keeps its own `scim.write` `ERROR`. The release gate's
 `404` while the namespace is closed is not a refusal record: the closed namespace
 should look like no namespace at all. `log-levels.yaml` turns
 `DefaultHandlerExceptionResolver` and Hibernate's JDBC error logger `OFF`, because
 both write unstructured records that quote what the caller or the driver sent.
 
-**The app-wide error handler.** `web.ApiExceptionHandler` answers for the
-application chain's controller packages, never `scim`'s. Two `ArchitectureTest`
-rules hold its `basePackages` list.
+**The app-wide error handler.** A handler's failure is answered by the advice of
+the request's **error namespace** (`web.ErrorNamespaces`), never by the handler's
+package: `NamespaceExceptionResolver` hands it to `ApiExceptionHandler` for `/api`
+(and the FHIR `OperationOutcome` under `/api/patient`) or `ScimExceptionHandler`
+for `/scim/v2`. So connector administration, in `scim` but serving `/api`, gets
+`ApiExceptionHandler`'s records and never a `scim.refusal`. The namespace is read
+from the path as Spring routes on it, decoded, so a percent-encoded prefix
+(`/%61pi/...`) is answered by that namespace's advice too. The chain's `401` and
+`403` under `/api` carry `ApiError`, written by the entry point and the
+access-denied handler rather than a `sendError`, so neither reaches Boot's error
+page, which quoted the path.
 
 - An exception nothing else answers is one `ERROR` `http.request.fault`, with
   `event.reason` set to its type. The client gets a `500` `ApiError` that says
@@ -638,16 +607,13 @@ Both ends are classified as the job's own `Operation`. The startup schedule reco
 `cron`.
 
 **Audit retention.** A run writes one line beside its `job-start`: its `job-end`,
-`record=[{type: audit_event, deleted: <n>, batches: <m>}]`. The delete is one
-statement, so a run that did the work is one batch, even when nothing had aged out.
-The delete commits in a transaction of its own, on the retention pool as the
-retention login (#66), before the run's lock transaction does, and the run reports it
-committed as it returns (`JobProgress`). So a run whose delete failed is `failed` with
-`deleted: 0, batches: 0`, and a run that failed after its delete committed — its lock
-transaction's commit failing — is `failed` with the batch and the rows it deleted.
-ADR 0013's batched deletes report each batch the same way as it commits. There is no
-line per batch, and no summary beside the end — the service writes no record of its
-own. A run skipped on a held lock is the one `skipped` line.
+`record=[{type: audit_event, deleted: <n>, batches: <m>}]`. It deletes in batches
+of at most 4,000, each committed on the retention pool as the retention login,
+inside the run's lock transaction (ADR 0005), and reports each batch committed as
+it commits (`JobProgress`). So a failed run is `failed` with the batches and rows
+it had committed — all of them when the lock transaction's own commit failed
+afterwards. There is no line per batch. A run skipped on a held lock is the one
+`skipped` line.
 `AuditRetentionRunLogTests` holds each case as the scheduler runs it.
 
 **Dormancy** (ADR 0007). `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION` are one
@@ -691,24 +657,14 @@ the Login ends. Its follow-up flag comes from ADR 0012's error-category table:
 The test can only speak for the flows it drives, and the scan speaks for call sites
 that do not exist yet. Neither alone is the property.
 
-- **Tests.** `EcsLogFormatTests` drives an accepted login, a refused login and an
-  administrative change through the real filter chain. It encodes every record with
-  the production encoder and asserts that no fixture credential or identifier
-  appears anywhere in the bytes. `JdbcErrorLogRedactionTests` does the same for a
-  driver error. `DatabaseFailureLogIntegrationTests` drives a unique violation, a
-  value too long, a conversion error and a permission refusal from the real
-  schema, and `StartupLogConnectionDetailsTests` the application's start (see "SQL
-  exception text" and "Connection details"). `EpicLoginRedactionIntegrationTests` drives the following through
-  the in-JVM fake Epic:
-  - a successful Epic Login;
-  - one refused for each audit reason;
-  - each way Epic can be unavailable past discovery;
-  - a refresh token on every path.
-
-  It asserts that neither the log stream, the audit trail nor any answer to the
-  browser holds a value of ADR 0012's D22 that the Login handled.
-  `EpicDiscoveryIntegrationTests` holds the discovery-failure paths to the same
-  rule.
+- **Tests.** Each drives a flow through the real stack, encodes every record with
+  the production encoder, and asserts no fixture credential or identifier appears
+  anywhere in the bytes: `EcsLogFormatTests` (logins and an administrative change),
+  `JdbcErrorLogRedactionTests` and `DatabaseFailureLogIntegrationTests` (driver and
+  database errors), `StartupLogConnectionDetailsTests` (start-up),
+  `EpicLoginRedactionIntegrationTests` and `EpicDiscoveryIntegrationTests` (every
+  Epic Login outcome, against ADR 0012's D22), and
+  `PatientErrorContractIntegrationTests` (patient reads).
 
 - **Scans.** `be-log-message-concatenation` refuses a value concatenated into a
   message. `be-log-sensitive-value` refuses a value whose name says it is an
@@ -716,10 +672,8 @@ that do not exist yet. Neither alone is the property.
   parameter. Its names come in two families:
   - Names matched anywhere in the argument: password, token (which covers
     `id_token`, `access_token` and `refresh_token`), hash, and similar — and a
-    Patient's `nric` (but not the tail of `enrich`), patient data being Restricted
-    and a patient being logged by its UUID alone (`docs/domain/patient.md`).
-    `PatientErrorContractIntegrationTests` is the redaction test that drives the
-    patient read.
+    Patient's `nric` (but not the tail of `enrich`), a patient being logged by its
+    UUID alone (`docs/domain/patient.md`).
   - D22's other names (`code`, `authorizationCode`, `state`, `nonce`, `launch`, the
     verifier, the assertion, `privateKey`, `pem`, `clientKey`, `clientNextKey`, and
     the two key variables), matched as a whole identifier only. Otherwise
@@ -780,35 +734,3 @@ adjust Boot's output instead.
 **Setting the JVM default zone to `Asia/Singapore`.** Rejected: it moves every
 time the service handles, not just the log's.
 
-## Addendum (2026-10-19): the request's namespace, not the handler's package, picks the error handler
-
-Error handling is now chosen by the request's **error namespace**
-(`web.ErrorNamespaces`): `/api` answers with `ApiError`, `/api/patient` with the
-FHIR `OperationOutcome`, and `/scim/v2` — contributed by the `scim` module, which
-`web` may not name — with the SCIM error document. Every refusing layer asks it:
-`ApiExceptionHandler`, the application chain's entry point and access-denied
-handler, the Epic release gate, and `ErrorDocumentFilter`, the one `sendError`
-adapter that replaces `FhirErrorDocumentFilter` and `ScimDispatcherErrorFilter`.
-
-- **"The app-wide error handler" above no longer answers by package.** Both
-  namespace advices, `ApiExceptionHandler` and `ScimExceptionHandler`, declare the
-  same scope (this application's handlers) and name their namespaces with
-  `@NamespaceAdvice`; `NamespaceExceptionResolver` hands a handler's failure to
-  the advice of the request's namespace. Connector administration, in `scim` but
-  serving `/api`, therefore gets `ApiExceptionHandler`'s records: one `WARN`
-  `http.request.refusal` for an unreadable or invalid body, one redacted `ERROR`
-  `http.request.fault` for any database fault, and never a `scim.refusal`. The
-  `ArchitectureTest` rules on `basePackages` are replaced by rules on the
-  namespaces.
-- **The chain's `401` and `403` under `/api` carry `ApiError`**, written by the
-  entry point and the access-denied handler instead of a `sendError`, so neither
-  reaches Boot's error page, which quoted the path. Their records are unchanged.
-- **Records are otherwise unchanged.** The SCIM namespace's dispatcher refusals
-  keep their `scim.refusal` record from `ScimErrorDocument`; the application
-  API's dispatcher and firewall refusals keep the request record alone. The one
-  addition: the request firewall's refusal under `/scim/v2`, which used to reach
-  Boot's error page, is now the SCIM error document with its `scim.refusal`
-  record, as every other refusal there.
-- **A namespace is read from the path as Spring routes on it**, decoded and below
-  the context path, so a percent-encoded prefix (`/%61pi/...`) that reaches a
-  handler is answered by that namespace's advice too.

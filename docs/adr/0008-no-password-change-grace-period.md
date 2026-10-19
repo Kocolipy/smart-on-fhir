@@ -4,13 +4,10 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the original design that spans the
-password-change lifecycle, which shipped the grace period, inactivity governance,
-and the change-required confinement. ADR 0007 has since replaced the inactivity job with the
-dormancy lockout; the consequences below are stated against it. Refined by the
-2026-10-09 addendum below (#23): only a password Login is confined by the
-change-required flag, so an Epic Login neither is confined nor keeps the
-dormancy clock still.
+Accepted. ADR 0007 has since replaced the inactivity job with the dormancy
+lockout; the consequences below are stated against it. Refined by the 2026-10-09
+addendum below (#23): only a password Login is confined by the change-required
+flag.
 
 ## Context
 
@@ -61,13 +58,10 @@ imposed credential, so confining it protects nothing._
 
 ### Context
 
-Until #23 a User whose change-required flag was set got a confined session from
-every Login, an Epic Login included (ADR 0012). A clinician who launched from
-Epic after an Unlock, a forced password change or a connector password write
-landed on `/change-password` and could do nothing else, although Epic, not this
-service, had checked the credential they presented. An Epic Login presents no
-password of ours (ADR 0012, D20): the imposed credential the flag marks is not
-what it used.
+Until #23 a flagged User got a confined session from every Login, an Epic Login
+included, so a clinician launching from Epic after an Unlock or a connector
+password write could do nothing but change a password Epic never used (ADR 0012,
+D20).
 
 ### Decision
 

@@ -69,10 +69,8 @@ JAR as `root:root 0644`. `smoke.sh` checks all of it (`check_file_ownership`):
 every path above and the three unit files are owned by root and not writable by
 `springboot`, and `springboot` owns nothing under `/opt/backend`.
 
-**The master secret is now readable by the instance role.** The previous stack
-kept it on the operator's machine and ran the bootstrap there, through an SSH
-tunnel; this stack runs the bootstrap in UserData, as #71 specifies, so the
-instance must read it. The role cannot tell processes apart, so code running as
+**The master secret is readable by the instance role**, because the bootstrap
+runs in UserData (#71). The role cannot tell processes apart, so code running as
 any user on the instance — the service's JVM included, if it were compromised —
 could fetch the master secret through the instance's credentials. Two things
 bound that: the service's own process is never given it (`smoke.sh` checks its
@@ -93,9 +91,8 @@ password, stops the start before the JVM runs, and systemd retries.
 **The service connects as the app and retention logins, never the owner.**
 **The application's own secrets** are held the same way, so UserData carries no
 secret at all: the Bootstrap Admin's first password (generated), and the Epic
-client id and signing keys. The Epic values still enter through `NoEcho`
+client id and signing keys. The Epic values enter through `NoEcho`
 CloudFormation parameters, which the stack writes into `EpicClientSecretArn`;
 they may contain neither `"` nor `\`. Redis has no password: the stack's
 single-node `CacheCluster` cannot carry an AUTH token (only a replication group
-can), so the old `RedisPassword` parameter, which CloudFormation rejected, is
-gone; Redis is reachable only from the instance's security group.
+can), so Redis is reachable only from the instance's security group.
