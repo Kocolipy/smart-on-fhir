@@ -302,17 +302,22 @@ response:
   token lives in the session, so it goes too: an unsafe request is first refused
   `403`, and `apiFetch`'s re-fetch — which opens a fresh, anonymous session —
   then lands the retry on the `401`. The backend session stays valid, so a spec
-  doing this cannot break one running beside it.
+  doing this cannot break one running beside it. `session.spec.ts` meets the
+  `401` with the Patient card's read as Home remounts. Not with the password
+  change: its `401` means a wrong current password or a lockout, which the SPA
+  tells apart by probing the session, so an expired session reads as a lockout
+  there.
 - **`403`, persistently** — rewrite the `X-CSRF-TOKEN` header with
   `page.route`. A stale token does not work: `apiFetch` answers a `403` by
   re-fetching the token and retrying once, so the retry would succeed. Rewriting
   on every attempt makes the backend reject both, and a `403` that survives the
-  re-fetch is reported as `forbidden`.
+  re-fetch is reported as `forbidden`. `session.spec.ts` does this to the
+  password change: the backend refuses it for its token, so no password changes.
 - **`401` from a session the backend really ended** — sign the same User in
   again elsewhere, or make the SCIM write that revokes its sessions
   (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
-  next request a read: an increment would move the counter `home.spec.ts`
-  asserts exact values of.
+  next request a read, such as the Patient card's when Home remounts, so the
+  spec changes nothing another spec reads.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
 (keep the session cookie, drop the header rewrite), confirm the test fails, then put it
@@ -321,8 +326,10 @@ back.
 ### Sharing backend state under `fullyParallel`
 
 The counter is one value on the backend and `home.spec.ts` resets it,
-so a spec running beside it must not assert a count. `session.spec.ts` only
-makes requests the backend refuses, which leaves the count untouched.
+so a spec running beside it must not assert a count. A spec that exercises the
+request machinery rather than a feature only reads, or only makes requests the
+backend refuses: `session.spec.ts` reads the Patient card and sends a password
+change refused for its token, so it changes nothing another spec reads.
 
 ### Unit-testing a module that calls the API
 

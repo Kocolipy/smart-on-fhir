@@ -223,7 +223,7 @@ permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 copy the page supplies, because only the page knows what was being attempted.
 
-Every listing read — Users, Groups, connectors, the audit trail, the Home counter and Home's patient — goes
+Every listing read — Users, Groups, connectors, the audit trail, Home's patient — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the read's
 declaration (from its API module) with the declaration's arguments and its
 failure copy, and the hook reports to the page status around it; it sends nothing without the Permission, resets
@@ -272,8 +272,8 @@ still as `failed`, and still without ending the session. Unlike
 chooses copy rather than describing the endpoint. The Patient card is its one
 user: a `403` there is "Couldn't load patient", as a `400` or a `5xx` is.
 
-Every page action — Unlock, the forced change, connector and token changes, the
-counter's buttons — goes through `auth/use-gated-write.ts`. A page names the
+Every page action — Unlock, the forced change, connector and token changes —
+goes through `auth/use-gated-write.ts`. A page names the
 write's declaration — path, method, optional JSON body, optional success
 decoder, and the Permission the backend requires, all declared by its API
 module — with the declaration's arguments, what to do on success, the copy for
