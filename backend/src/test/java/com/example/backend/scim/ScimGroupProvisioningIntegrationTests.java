@@ -639,7 +639,7 @@ class ScimGroupProvisioningIntegrationTests {
                  "Operations":[{"op":"move","path":"members","value":[{"value":"%s"}]}]}"""
                 .formatted(PATCH_OP, UUID.randomUUID()));
 
-        assertRefusal(refused, 400, "invalidValue");
+        assertRefusal(refused, 400, "invalidSyntax");
         assertThat(body(refused).get("detail").asText()).contains("move");
     }
 

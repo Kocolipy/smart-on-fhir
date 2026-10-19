@@ -24,6 +24,10 @@ export type SessionEndReason = "expired" | "inactive" | "locked" | "password-cha
  * every session of the User, so both end this one; a change that found the
  * session already gone records the Expired session it met, as any other
  * request's `401` does; every refusal keeps it.
+ *
+ * Every outcome is named, with no `default`: an outcome added to
+ * `PasswordChangeOutcome` fails to compile here until someone decides whether
+ * it ends the session.
  */
 export function sessionEndReasonFor(outcome: PasswordChangeOutcome): SessionEndReason | null {
   switch (outcome.kind) {
@@ -33,7 +37,11 @@ export function sessionEndReasonFor(outcome: PasswordChangeOutcome): SessionEndR
       return "locked";
     case "expired":
       return "expired";
-    default:
+    case "policy-violation":
+    case "current-password-rejected":
+    case "forbidden":
+    case "csrf-expired":
+    case "failed":
       return null;
   }
 }
