@@ -26,6 +26,7 @@ import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.SignedInSession;
@@ -691,13 +692,14 @@ class AuthControllerTests {
         assertThat(response.getCookie(CSRF_COOKIE)).isNull();
     }
 
+    /** No session identifies nobody: refused as an anonymous request is, before any comparison. */
     @Test
-    void aChangeWithoutASessionIsRefusedAsALoginWouldBe() {
+    void aChangeWithoutASessionIsRefusedAsAnAnonymousRequestIs() {
         assertThatThrownBy(() -> controller.changePassword(
                         new AuthController.ChangePasswordRequest("correct-password", NEW_PASSWORD),
                         new MockHttpServletRequest(),
                         new MockHttpServletResponse()))
-                .isInstanceOf(CurrentPasswordRejectedException.class);
+                .isInstanceOf(UnknownSessionIdentityException.class);
     }
 
     @Test
@@ -709,13 +711,17 @@ class AuthControllerTests {
                         new AuthController.ChangePasswordRequest("correct-password", NEW_PASSWORD),
                         request,
                         new MockHttpServletResponse()))
-                .isInstanceOf(CurrentPasswordRejectedException.class);
+                .isInstanceOf(UnknownSessionIdentityException.class);
         assertThat(session.isInvalid()).isFalse();
     }
 
-    /** Over MockMvc, because the statuses and the rule body are annotation-driven. */
+    /**
+     * Over MockMvc, because the statuses and both bodies are annotation-driven. The {@code 401}
+     * carries the password check's mark, which is how the SPA tells it from the bare {@code 401}
+     * a request with no live session gets, refused before anything was compared.
+     */
     @Test
-    void aRefusedChangeAnswers401BareAndABrokenRule400NamingOnlyTheRule() throws Exception {
+    void aRefusedChangeAnswers401MarkedAndABrokenRule400NamingOnlyTheRule() throws Exception {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
@@ -727,7 +733,7 @@ class AuthControllerTests {
                         .content("{\"currentPassword\":\"wrong-password\","
                                 + "\"newPassword\":\"" + NEW_PASSWORD + "\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(content().string(""));
+                .andExpect(content().json("{\"refused\":\"current-password\"}", true));
 
         mvc.perform(post("/api/auth/change-password")
                         .session(session)
@@ -761,6 +767,39 @@ class AuthControllerTests {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));
         assertThat(users.require("ada").login().passwordHash()).isEqualTo(hashBefore);
+    }
+
+    /**
+     * The password check's refusals are one refusal: a locked account's answer — the right current
+     * password included — is byte for byte a wrong password's, so the mark tells the session's
+     * holder only that the check answered, never why.
+     */
+    @Test
+    void aLockedAccountsChangeRefusalAnswersExactlyAsAWrongPasswordsDoes() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+                users.require("ada").id().toString());
+        String wrong = "{\"currentPassword\":\"wrong-password\",\"newPassword\":\""
+                + NEW_PASSWORD + "\"}";
+        MockHttpServletResponse wrongPassword = mvc.perform(post("/api/auth/change-password")
+                        .session(session).contentType(MediaType.APPLICATION_JSON).content(wrong))
+                .andReturn().getResponse();
+        mvc.perform(post("/api/auth/change-password")
+                .session(session).contentType(MediaType.APPLICATION_JSON).content(wrong));
+        mvc.perform(post("/api/auth/change-password")
+                .session(session).contentType(MediaType.APPLICATION_JSON).content(wrong));
+
+        MockHttpServletResponse locked = mvc.perform(post("/api/auth/change-password")
+                        .session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"correct-password\","
+                                + "\"newPassword\":\"" + NEW_PASSWORD + "\"}"))
+                .andReturn().getResponse();
+
+        assertThat(users.require("ada").login().isLocked()).as("the account is locked").isTrue();
+        assertThat(List.of(locked.getStatus(), locked.getContentAsString(), locked.getHeaderNames()))
+                .isEqualTo(List.of(401, wrongPassword.getContentAsString(),
+                        wrongPassword.getHeaderNames()));
     }
 
     @Test

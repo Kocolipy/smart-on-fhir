@@ -385,16 +385,28 @@ paths:
                   - $ref: "#/components/schemas/ApiError"
         "401":
           description: |
-            No usable session, or the change was refused: wrong current password,
-            an account locked out, or an inactive account. One bodiless answer
-            covers every reason, as for Login.
+            The password check refused the change: wrong current password, an
+            account locked out, or an inactive account. One answer covers every
+            reason, as for Login — the same constant `PasswordChangeRefusal` body,
+            which says only that the check answered, never why.
 
-            The SESSION tells them apart. A wrong current password below the
-            threshold leaves the submitting session standing; the attempt that
-            reaches the threshold locks the account and revokes every session of
-            the User, the submitting one included, so a `GET /api/auth/me` after
-            it answers `401`. The SPA reads a `401` here followed by a `401` from
-            `/me` as the lockout.
+            A request with no live session — never signed in, expired, revoked —
+            is refused by the filter chain before the check, with the bare,
+            bodiless `401` every operation gives it; nothing is compared and
+            nothing is counted toward the lockout. The body is how a caller tells
+            that `401` from this one: the SPA reads a bare `401` here as an
+            expired session.
+
+            For the marked `401`, the SESSION tells the reasons apart. A wrong
+            current password below the threshold leaves the submitting session
+            standing; the attempt that reaches the threshold locks the account and
+            revokes every session of the User, the submitting one included, so a
+            `GET /api/auth/me` after it answers `401`. The SPA reads a marked
+            `401` here followed by a `401` from `/me` as the lockout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordChangeRefusal"
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/epic/jwks.json:
@@ -3081,7 +3093,8 @@ components:
         assigns, or a failure on the server side (`5xx`). Nothing in it comes from
         the request or from the failure — no path, field, rejected value, exception
         type or message — so every failure of one kind has the same body. A refusal
-        a handler renders itself (`PasswordRuleViolation`, the bodiless `401`s,
+        a handler renders itself (`PasswordRuleViolation`, `PasswordChangeRefusal`,
+        the bodiless `401`s,
         `403`s, `404`s and `409`s) keeps its own shape, and the SCIM namespace
         answers with SCIM error documents.
       properties:
@@ -3270,6 +3283,16 @@ components:
           maxLength: 256
           pattern: ".*\\S.*"
           format: password
+    PasswordChangeRefusal:
+      type: object
+      required: [refused]
+      description: |
+        The password check's mark on a refused change's `401`: the same body for
+        a wrong current password, a lockout and an inactive account.
+      properties:
+        refused:
+          type: string
+          enum: [current-password]
     PasswordRuleViolation:
       type: object
       required: [rule, message]
