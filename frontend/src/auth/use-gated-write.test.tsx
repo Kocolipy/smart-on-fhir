@@ -25,40 +25,40 @@ import { useGatedWrite } from "./use-gated-write";
 // runs against a hand-built auth state a test states them in; the backend it
 // writes to is the backend layer's.
 
-const decodeCount = jsonDecoder((body: unknown) =>
-  readObject(body, "CountResponse").integer("count"),
+const decodeExample = jsonDecoder((body: unknown) =>
+  readObject(body, "ExampleResponse").integer("value"),
 );
 
-/** The write most tests send: a counter increment answering the new count. */
-const INCREMENT: WriteDeclaration<[], number> = {
-  decode: decodeCount,
+/** The write most tests send: a change answering the new value. */
+const CHANGE: WriteDeclaration<[], number> = {
+  decode: decodeExample,
   method: "POST",
-  path: () => "/api/count/increment",
-  permission: "counter:write",
+  path: () => "/api/example/change",
+  permission: "user:write",
 };
 
 /** A write answering no content, its path built from its argument. */
-const DELETE_CONNECTOR: WriteDeclaration<[id: string]> = {
+const DELETE_EXAMPLE: WriteDeclaration<[id: string]> = {
   method: "DELETE",
-  path: (id) => `/api/admin/connectors/${id}`,
-  permission: "counter:write",
+  path: (id) => `/api/example/${id}`,
+  permission: "user:write",
 };
 
 /** A write whose JSON body is built from its argument. */
-const CREATE_CONNECTOR: WriteDeclaration<[displayName: string], number> = {
+const CREATE_EXAMPLE: WriteDeclaration<[displayName: string], number> = {
   body: (displayName) => ({ displayName }),
-  decode: decodeCount,
+  decode: decodeExample,
   method: "POST",
-  path: () => "/api/admin/connectors",
-  permission: "counter:write",
+  path: () => "/api/example",
+  permission: "user:write",
 };
 
 /** A write sending an empty JSON object as its body. */
 const ROTATE: WriteDeclaration = {
   body: () => ({}),
   method: "POST",
-  path: () => "/api/x",
-  permission: "counter:write",
+  path: () => "/api/example/rotate",
+  permission: "user:write",
 };
 
 const expireSession = vi.fn();
@@ -78,13 +78,13 @@ function useHarness() {
   return { other, pending: write.pending, run: write.run };
 }
 
-const INCREMENTED = "POST /api/count/increment";
+const CHANGED = "POST /api/example/change";
 
 /**
  * Renders the harness under a session holding exactly `permissions`, inside a
  * page status, over a backend answering `answers`.
  */
-function renderWrite(answers: Answers = {}, permissions: Permission[] = ["counter:write"]) {
+function renderWrite(answers: Answers = {}, permissions: Permission[] = ["user:write"]) {
   const backend = fakeBackend(answers);
   const { result } = renderHook(() => useHarness(), {
     wrapper: ({ children }: { children: ReactNode }) => (
@@ -112,22 +112,22 @@ describe("useGatedWrite", () => {
 
   it("sends a write without a body as just its method, at the path built from its arguments, with no decoder", async () => {
     // No body to decode: a decoder would fail on it, and the write with it.
-    const { backend, result } = renderWrite({ "DELETE /api/admin/connectors/c-1": bare(204) });
+    const { backend, result } = renderWrite({ "DELETE /api/example/c-1": bare(204) });
     const onOk = vi.fn();
 
-    await act(() => result.current.run(DELETE_CONNECTOR, { args: ["c-1"], onOk }));
+    await act(() => result.current.run(DELETE_EXAMPLE, { args: ["c-1"], onOk }));
 
     expect({ ok: onOk.mock.calls, sent: backend.requests({ contentType: true }) }).toEqual({
       ok: [[undefined]],
-      sent: [{ contentType: null, method: "DELETE", path: "/api/admin/connectors/c-1" }],
+      sent: [{ contentType: null, method: "DELETE", path: "/api/example/c-1" }],
     });
   });
 
   it("sends the body built from its arguments as JSON, with its decoder", async () => {
-    const { backend, result } = renderWrite({ "POST /api/admin/connectors": json({ count: 1 }) });
+    const { backend, result } = renderWrite({ "POST /api/example": json({ value: 1 }) });
     const onOk = vi.fn();
 
-    await act(() => result.current.run(CREATE_CONNECTOR, { args: ["Okta"], onOk }));
+    await act(() => result.current.run(CREATE_EXAMPLE, { args: ["Okta"], onOk }));
 
     expect({ ok: onOk.mock.calls, sent: backend.requests({ contentType: true }) }).toEqual({
       ok: [[1]],
@@ -136,40 +136,42 @@ describe("useGatedWrite", () => {
           body: { displayName: "Okta" },
           contentType: "application/json",
           method: "POST",
-          path: "/api/admin/connectors",
+          path: "/api/example",
         },
       ],
     });
   });
 
   it("sends an empty JSON object as a body, not as no body", async () => {
-    const { backend, result } = renderWrite({ "POST /api/x": bare(204) });
+    const { backend, result } = renderWrite({ "POST /api/example/rotate": bare(204) });
 
     await act(() => result.current.run(ROTATE));
 
     expect({ line: shownLine(), sent: backend.requests({ contentType: true }) }).toEqual({
       line: null,
-      sent: [{ body: {}, contentType: "application/json", method: "POST", path: "/api/x" }],
+      sent: [
+        { body: {}, contentType: "application/json", method: "POST", path: "/api/example/rotate" },
+      ],
     });
   });
 
   it("is pending while the request is in flight, and not once it settles", async () => {
     const reply = deferred();
-    const { result } = renderWrite({ [INCREMENTED]: reply.answer });
+    const { result } = renderWrite({ [CHANGED]: reply.answer });
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.run(INCREMENT);
+      ran = result.current.run(CHANGE);
     });
     expect(result.current.pending).toBe(true);
 
-    await reply.settle(json({ count: 1 }));
+    await reply.settle(json({ value: 1 }));
     await act(() => ran);
     expect(result.current.pending).toBe(false);
   });
 
   it("stays pending through its `after` step", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: json({ count: 1 }) });
+    const { result } = renderWrite({ [CHANGED]: json({ value: 1 }) });
     let settleAfter!: () => void;
     const after = () =>
       new Promise<void>((resolve) => {
@@ -178,7 +180,7 @@ describe("useGatedWrite", () => {
 
     let ran: Promise<void> = Promise.resolve();
     await act(async () => {
-      ran = result.current.run(INCREMENT, { after });
+      ran = result.current.run(CHANGE, { after });
     });
     expect(result.current.pending).toBe(true);
 
@@ -190,10 +192,10 @@ describe("useGatedWrite", () => {
   });
 
   it("calls the success handler exactly once, with the decoded data", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: json({ count: 42 }) });
+    const { result } = renderWrite({ [CHANGED]: json({ value: 42 }) });
     const onOk = vi.fn();
 
-    await act(() => result.current.run(INCREMENT, { onOk }));
+    await act(() => result.current.run(CHANGE, { onOk }));
 
     expect(onOk).toHaveBeenCalledTimes(1);
     expect(onOk).toHaveBeenCalledWith(42);
@@ -201,11 +203,11 @@ describe("useGatedWrite", () => {
   });
 
   it("ends the session once on a 401, and shows the page's failure copy meanwhile", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(401) });
+    const { result } = renderWrite({ [CHANGED]: bare(401) });
     const onOk = vi.fn();
 
     await act(() =>
-      result.current.run(INCREMENT, { messages: { default: "Unable to update." }, onOk }),
+      result.current.run(CHANGE, { messages: { default: "Unable to update." }, onOk }),
     );
 
     expect(expireSession).toHaveBeenCalledOnce();
@@ -214,10 +216,10 @@ describe("useGatedWrite", () => {
   });
 
   it("sends nothing for a session lacking the declaration's Permission, and says so", async () => {
-    const { backend, result } = renderWrite({}, ["counter:read"]);
+    const { backend, result } = renderWrite({}, ["patient:read"]);
     const onOk = vi.fn();
 
-    await act(() => result.current.run(INCREMENT, { onOk }));
+    await act(() => result.current.run(CHANGE, { onOk }));
 
     expect(backend.requests({ tokenFetches: true })).toEqual([]);
     expect(onOk).not.toHaveBeenCalled();
@@ -228,16 +230,16 @@ describe("useGatedWrite", () => {
     const { result } = renderWrite({}, []);
     const after = vi.fn(() => Promise.resolve());
 
-    await act(() => result.current.run(INCREMENT, { after }));
+    await act(() => result.current.run(CHANGE, { after }));
 
     expect(after).toHaveBeenCalledOnce();
   });
 
   it("sends the write for a session holding its Permission", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: json({ count: 5 }) }, ["counter:write"]);
+    const { result } = renderWrite({ [CHANGED]: json({ value: 5 }) }, ["user:write"]);
     const onOk = vi.fn();
 
-    await act(() => result.current.run(INCREMENT, { onOk }));
+    await act(() => result.current.run(CHANGE, { onOk }));
 
     expect(onOk).toHaveBeenCalledWith(5);
   });
@@ -248,32 +250,32 @@ describe("useGatedWrite", () => {
     [409, "Refused: the request conflicts with the resource's current state."],
     [503, "Unable to complete the action. Please try again."],
   ])("maps a %i refusal to the hook's own default copy", async (status, message) => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(status) });
+    const { result } = renderWrite({ [CHANGED]: bare(status) });
 
-    await act(() => result.current.run(INCREMENT));
+    await act(() => result.current.run(CHANGE));
 
     expect(shownLine()).toBe(message);
   });
 
   it("maps forbidden and csrf-expired through the shared seam copy, not a page's own", async () => {
-    const { backend, result } = renderWrite({ [INCREMENTED]: bare(403) });
+    const { backend, result } = renderWrite({ [CHANGED]: bare(403) });
 
     const messages = { 403: "a page's 403 sentence", default: "a page's default sentence" };
 
-    await act(() => result.current.run(INCREMENT, { messages }));
+    await act(() => result.current.run(CHANGE, { messages }));
     expect(shownLine()).toBe(FORBIDDEN_MESSAGE);
 
     // Refused again, and no fresh token to be had for the retry.
     backend.answer({ "GET /api/auth/csrf": bare(500) });
-    await act(() => result.current.run(INCREMENT, { messages }));
+    await act(() => result.current.run(CHANGE, { messages }));
     expect(shownLine()).toBe(CSRF_EXPIRED_MESSAGE);
   });
 
   it("lets a page's own copy for a status win over the hook's default", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(404) });
+    const { result } = renderWrite({ [CHANGED]: bare(404) });
 
     await act(() =>
-      result.current.run(INCREMENT, {
+      result.current.run(CHANGE, {
         messages: { 404: "grace no longer exists. Reload the page for the current list." },
       }),
     );
@@ -282,38 +284,38 @@ describe("useGatedWrite", () => {
   });
 
   it("lets a page's own default win over the hook's, for a status neither names", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(503) });
+    const { result } = renderWrite({ [CHANGED]: bare(503) });
 
     await act(() =>
-      result.current.run(INCREMENT, {
-        messages: { default: "Unable to update the counter. Please try again." },
+      result.current.run(CHANGE, {
+        messages: { default: "Unable to update the example. Please try again." },
       }),
     );
 
-    expect(shownLine()).toBe("Unable to update the counter. Please try again.");
+    expect(shownLine()).toBe("Unable to update the example. Please try again.");
   });
 
   it.each([400, 404, 409])(
     "lets a page's own default win over the hook's own default for a %i refusal",
     async (status) => {
-      const { result } = renderWrite({ [INCREMENTED]: bare(status) });
+      const { result } = renderWrite({ [CHANGED]: bare(status) });
 
       await act(() =>
-        result.current.run(INCREMENT, {
-          messages: { default: "Unable to update the counter. Please try again." },
+        result.current.run(CHANGE, {
+          messages: { default: "Unable to update the example. Please try again." },
         }),
       );
 
-      expect(shownLine()).toBe("Unable to update the counter. Please try again.");
+      expect(shownLine()).toBe("Unable to update the example. Please try again.");
     },
   );
 
   it("maps an undefined status to the hook's own last resort, not a page's per-status copy", async () => {
     // No answer at all, so no status either.
-    const { result } = renderWrite({ [INCREMENTED]: UNREACHABLE });
+    const { result } = renderWrite({ [CHANGED]: UNREACHABLE });
 
     await act(() =>
-      result.current.run(INCREMENT, {
+      result.current.run(CHANGE, {
         messages: { 400: "a 400-specific sentence that must not show here" },
       }),
     );
@@ -323,33 +325,33 @@ describe("useGatedWrite", () => {
 
   it("withdraws every failure on the page status the moment a write starts", async () => {
     const reply = deferred();
-    const { result } = renderWrite({ [INCREMENTED]: reply.answer });
+    const { result } = renderWrite({ [CHANGED]: reply.answer });
     act(() => result.current.other.report("the mount read failed"));
 
     let ran: Promise<void> = Promise.resolve();
     act(() => {
-      ran = result.current.run(INCREMENT);
+      ran = result.current.run(CHANGE);
     });
 
     expect(shownLine()).toBeNull();
-    await reply.settle(json({ count: 1 }));
+    await reply.settle(json({ value: 1 }));
     await act(() => ran);
   });
 
   it("withdraws its own earlier refusal once a later write succeeds", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: [bare(409), json({ count: 1 })] });
+    const { result } = renderWrite({ [CHANGED]: [bare(409), json({ value: 1 })] });
 
-    await act(() => result.current.run(INCREMENT));
-    await act(() => result.current.run(INCREMENT));
+    await act(() => result.current.run(CHANGE));
+    await act(() => result.current.run(CHANGE));
 
     expect(shownLine()).toBeNull();
   });
 
   it("lets a failure its `after` step reports replace the write's own, as the latest", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(500) });
+    const { result } = renderWrite({ [CHANGED]: bare(500) });
 
     await act(() =>
-      result.current.run(INCREMENT, {
+      result.current.run(CHANGE, {
         after: async () => result.current.other.report("the reload failed too"),
       }),
     );
@@ -358,10 +360,10 @@ describe("useGatedWrite", () => {
   });
 
   it("lets its refusal stand when its `after` step succeeds", async () => {
-    const { result } = renderWrite({ [INCREMENTED]: bare(400) });
+    const { result } = renderWrite({ [CHANGED]: bare(400) });
 
     await act(() =>
-      result.current.run(INCREMENT, {
+      result.current.run(CHANGE, {
         after: async () => result.current.other.report(null),
       }),
     );

@@ -232,7 +232,7 @@ describe("resolveSessionRoute", () => {
         input({
           pathname: "/accounts",
           // Real Permissions, just not this route's: an Auditor and a Monitoring account.
-          permissions: ["audit:read", "ops:read", "counter:write"],
+          permissions: ["audit:read", "ops:read", "patient:read"],
           requires: ACCOUNTS,
         }),
       ),
