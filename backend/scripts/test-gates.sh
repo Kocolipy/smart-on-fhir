@@ -105,8 +105,6 @@ FAST_GATE=(
   com/example/backend/authorization/config/RoleMappingStartupTests
   com/example/backend/authorization/domain/RoleMappingTests
   com/example/backend/contract/OpenApiContractTests
-  com/example/backend/counter/controller/UserCounterControllerTests
-  com/example/backend/counter/domain/UserCounterTests
   com/example/backend/database/config/DatabaseConnectionsTests
   com/example/backend/database/config/MigrationConnectionTests
   com/example/backend/database/config/MigrationLoginNamesTests
@@ -220,12 +218,12 @@ FAST_GATE=(
 subsystem_pattern() {
   case "$1" in
     arch) echo 'arch/**' ;;
-    auth|scim|audit|authorization|contract|observability|counter|database|lifecycle|scheduling|web)
+    auth|scim|audit|authorization|contract|observability|database|lifecycle|scheduling|web)
       echo "com/example/backend/$1/**" ;;
     *) return 1 ;;
   esac
 }
-SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability counter database lifecycle scheduling web"
+SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability database lifecycle scheduling web"
 
 # No archive exists today: nothing was ever parked. If one is created, fence it
 # out of src/test so Surefire cannot collect it.

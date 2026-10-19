@@ -78,7 +78,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice(basePackages = {
     ApiExceptionHandler.AUDIT_CONTROLLERS,
     ApiExceptionHandler.AUTH_CONTROLLERS,
-    ApiExceptionHandler.COUNTER_CONTROLLERS,
     ApiExceptionHandler.EPIC_CONTROLLERS,
     ApiExceptionHandler.PATIENT_CONTROLLERS})
 @Order(Ordered.LOWEST_PRECEDENCE)
@@ -87,8 +86,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     public static final String AUDIT_CONTROLLERS = "com.example.backend.audit.controller";
 
     public static final String AUTH_CONTROLLERS = "com.example.backend.auth.controller";
-
-    public static final String COUNTER_CONTROLLERS = "com.example.backend.counter.controller";
 
     public static final String EPIC_CONTROLLERS = "com.example.backend.auth.epic.controller";
 

@@ -66,7 +66,7 @@ runtime classpath.
 
 ### The module's edges: `auth` and `observability`
 
-The `patient` module is a leaf, like `counter`, and its ArchUnit entry
+The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
 (`backend/src/test/java/arch/ArchitectureTest.java`) lets it reach `auth` and
 `observability`. Issue #127 asked for `auth` alone. The deviation is deliberate:
 

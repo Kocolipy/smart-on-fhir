@@ -32,10 +32,8 @@ info:
     `sessionCookie: [<permission>]` names the one Permission the operation
     requires, from the closed set `user:read`, `user:write`, `group:read`,
     `group:write`, `audit:read`, `connector:read`, `connector:write`,
-    `connector:token`, `ops:read`, `counter:read`, `counter:write`,
-    `patient:read`. A session's Permissions are
-    the baseline `counter:read`, `counter:write` and `patient:read`, which every
-    active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
+    `connector:token`, `ops:read`, `patient:read`. A session's Permissions are
+    the baseline `patient:read`, which every active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
     reports them. A caller lacking the declared Permission gets a bodiless
     `403` that never names it (see `PermissionRequired`). The application chain
     denies by default: a route or method this document does not declare is
@@ -155,7 +153,6 @@ servers:
     description: Local development
 tags:
   - name: Authentication
-  - name: Counter
   - name: Patient
   - name: Administration
   - name: Connectors
@@ -266,8 +263,7 @@ paths:
         to the change flow.
 
         `permissions` lists the Permissions the session was issued with, sorted
-        by name: the baseline `counter:read`, `counter:write` and `patient:read`,
-        which every active User holds, and those the role mapping confers through
+        by name: the baseline `patient:read`, which every active User holds, and those the role mapping confers through
         the User's direct Group memberships at sign-in. A User in no mapped Group
         gets only the baseline Permissions and keeps baseline access. There is no role field: what a User may
         do is its Permissions.
@@ -650,71 +646,6 @@ paths:
           description: |
             The session is confined by the change-required flag and lacks
             baseline access. No body.
-  /api/count:
-    get:
-      tags: [Counter]
-      summary: Get the authenticated user's count
-      description: |
-        Requires `counter:read`, a baseline Permission every active User holds,
-        so only a session confined by a required password change is refused.
-      operationId: getCount
-      security:
-        - sessionCookie: [counter:read]
-      responses:
-        "200":
-          description: The current count, or zero if the user has not incremented it yet.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CountResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/PermissionRequired"
-  /api/count/increment:
-    post:
-      tags: [Counter]
-      summary: Increment the authenticated user's count
-      operationId: incrementCount
-      security:
-        - sessionCookie: [counter:write]
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          description: The incremented count.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CountResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: |
-            The CSRF token is missing or stale (see `CsrfTokenRejected`), or the
-            caller does not hold `counter:write` (see `PermissionRequired`).
-  /api/count/reset:
-    post:
-      tags: [Counter]
-      summary: Reset the authenticated user's count
-      operationId: resetCount
-      security:
-        - sessionCookie: [counter:write]
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          description: The reset count, which is zero.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CountResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: |
-            The CSRF token is missing or stale (see `CsrfTokenRejected`), or the
-            caller does not hold `counter:write` (see `PermissionRequired`).
   /api/patient/{id}:
     get:
       tags: [Patient]
@@ -3150,8 +3081,6 @@ components:
               - connector:read
               - connector:token
               - connector:write
-              - counter:read
-              - counter:write
               - group:read
               - group:write
               - ops:read
@@ -3160,8 +3089,7 @@ components:
               - user:write
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
-            are the baseline `counter:read`, `counter:write` and `patient:read`, which
-            every active User holds, together with the union of the Roles of every mapped Group the User was a
+            are the baseline `patient:read`, which every active User holds, together with the union of the Roles of every mapped Group the User was a
             direct member of when it signed in (the role mapping, see the
             backend/docs/configuration/role-mapping.md), so a change of membership is seen
             at the next sign-in. Only the baseline Permissions for a User in no mapped Group, and
@@ -3476,8 +3404,6 @@ components:
               - connector:read
               - connector:token
               - connector:write
-              - counter:read
-              - counter:write
               - group:read
               - group:write
               - ops:read
@@ -3608,14 +3534,6 @@ components:
               diagnostics:
                 type: string
                 description: A fixed sentence per `code`; never anything the request carried.
-    CountResponse:
-      type: object
-      required: [count]
-      properties:
-        count:
-          type: integer
-          format: int64
-          minimum: 0
     HealthResponse:
       type: object
       required: [status]

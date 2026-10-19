@@ -324,7 +324,7 @@ post /api/auth/change-password \
 post /api/auth/login '{"username":"admin","password":"A_NEW_PASSWORD"}'
 
 # Test authenticated endpoint
-curl $ALB_URL/api/count -b cookies.txt
+curl $ALB_URL/api/auth/me -b cookies.txt
 ```
 
 ---

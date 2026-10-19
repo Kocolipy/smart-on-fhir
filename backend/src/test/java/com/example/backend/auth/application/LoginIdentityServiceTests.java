@@ -413,7 +413,8 @@ class LoginIdentityServiceTests {
 
     /**
      * The stable id behind a userName, for a caller holding only the name Spring Security carries
-     * — the counter feature. A Login does not need it: its principal carries the id.
+     * that keys data of its own by the User. A Login does not need it: its principal carries the
+     * id.
      */
     @Test
     void resolvesTheStableIdBehindAUserName() {
@@ -596,8 +597,8 @@ class LoginIdentityServiceTests {
         groups.given(ScimIdentities.group("Unmapped", ada));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
-                        "patient:read", "user:read", "user:write");
+                .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read",
+                        "user:write");
     }
 
     /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
@@ -608,8 +609,7 @@ class LoginIdentityServiceTests {
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
-                        "patient:read", "user:read");
+                .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read");
     }
 
     /**
@@ -686,11 +686,11 @@ class LoginIdentityServiceTests {
      * Permissions, sorted by name as Spring Security's {@code User} keeps them.
      */
     private static final String[] BASELINE =
-            {"ROLE_USER", "counter:read", "counter:write", "patient:read"};
+            {"ROLE_USER", "patient:read"};
 
     /** The baseline beside the Helpdesk Role's {@code user:read} and {@code user:write}, sorted. */
     private static final String[] HELPDESK_AUTHORITIES =
-            {"ROLE_USER", "counter:read", "counter:write", "patient:read", "user:read", "user:write"};
+            {"ROLE_USER", "patient:read", "user:read", "user:write"};
 
     private List<String> authoritiesOf(String userName) {
         return authoritiesOf(service.loadUserByUsername(userName));

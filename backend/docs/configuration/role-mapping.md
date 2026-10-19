@@ -32,11 +32,10 @@ app:
 The Permission names are a closed set defined in code, in
 `authorization/domain/Permission.java`.
 
-`counter:read`, `counter:write` and `patient:read` are also **baseline
-Permissions**: every active User holds them at sign-in whatever its Groups, so
-no Role needs to list them for its members to use the counter or read a patient.
-A session confined by a required password change does not hold them. The
-Superuser Role must still list them, as it must list every Permission.
+`patient:read` is also a **baseline Permission**: every active User holds it at
+sign-in whatever its Groups, so no Role needs to list it for its members to read
+a patient. A session confined by a required password change does not hold it.
+The Superuser Role must still list it, as it must list every Permission.
 
 Startup fails, naming every problem in one message, on: an unknown Permission; a Role defined
 twice or without a name; an entry with no Group id, mapping a Group id twice, or

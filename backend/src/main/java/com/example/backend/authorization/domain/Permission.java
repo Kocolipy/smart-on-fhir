@@ -28,8 +28,6 @@ public enum Permission {
     CONNECTOR_WRITE("connector:write"),
     CONNECTOR_TOKEN("connector:token"),
     OPS_READ("ops:read"),
-    COUNTER_READ("counter:read"),
-    COUNTER_WRITE("counter:write"),
     PATIENT_READ("patient:read");
 
     /** Sorted by the spelling a caller sees, which is the order {@code /api/auth/me} reports. */

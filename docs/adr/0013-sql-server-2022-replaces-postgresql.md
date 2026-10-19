@@ -91,9 +91,8 @@ are one record.
   trip per locked row — a rename of a Group with two hundred members takes two
   hundred and one — accepted because a batched statement would be correct only on an
   engine that locks in sort order, and ordered chunks reintroduce the engine's order
-  inside each chunk. `UserCounterJpaRepository.findByUserIdForUpdate` needs no
-  order — one row by key under `PESSIMISTIC_WRITE`, which Hibernate renders as
-  `WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`.
+  inside each chunk. A lock of one row by key needs no order: under
+  `PESSIMISTIC_WRITE` Hibernate renders it as `WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`.
 - **Database creation options are set by whatever creates the database** (the
   deployed bootstrap, the local init, the test container), never by Flyway:
   `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run inside a migration

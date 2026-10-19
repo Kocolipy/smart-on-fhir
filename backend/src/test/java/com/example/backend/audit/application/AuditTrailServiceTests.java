@@ -806,7 +806,7 @@ class AuditTrailServiceTests {
     void anAuthorizationRefusalFailsOpenWithAnAlert() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.append(new Audited.AccessDenied(ACTOR, new AuditRequest("GET", "/api/count", null)));
+        trail.append(new Audited.AccessDenied(ACTOR, new AuditRequest("GET", "/api/admin/accounts", null)));
 
         assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
     }
@@ -1369,7 +1369,7 @@ class AuditTrailServiceTests {
             return new Role("Superuser", Set.of());
         }
         if (type == AuditRequest.class) {
-            return new AuditRequest("GET", "/api/count", "req-sample");
+            return new AuditRequest("GET", "/api/admin/accounts", "req-sample");
         }
         if (type == AuditFilterShape.class) {
             return new AuditFilterShape.Presence(AuditFilterShape.Attribute.USER_NAME, false);

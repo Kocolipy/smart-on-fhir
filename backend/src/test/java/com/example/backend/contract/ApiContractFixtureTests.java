@@ -196,7 +196,6 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         List<Fixture> all = new ArrayList<>();
         authentication(all);
         self(all);
-        counter(all);
         patient(all);
         administration(all);
         connectors(all);
@@ -329,29 +328,6 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.get("/api/self"), 401);
             String confined = t.provision(true);
             t.expect(t.get("/api/self").cookie(t.logIn(confined, CONNECTOR_PASSWORD)), 403);
-        });
-    }
-
-    // ---- /api/count ------------------------------------------------------------------------
-
-    private static void counter(List<Fixture> all) {
-        add(all, "count: GET, increment and reset, with their refusals", t -> {
-            // counter:read and counter:write are baseline: every active User holds them, the
-            // Superuser and a User in no mapped Group alike. Only a confined session lacks them.
-            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-            Cookie user = t.settle(t.provision(true));
-            Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
-            t.expect(t.get("/api/count").cookie(admin), 200);
-            t.expect(t.get("/api/count").cookie(user), 200);
-            t.expect(t.get("/api/count").cookie(confined), 403);
-            t.expect(t.get("/api/count"), 401);
-            for (String path : List.of("/api/count/increment", "/api/count/reset")) {
-                t.expect(t.csrf(t.post(path)).cookie(admin), 200);
-                t.expect(t.csrf(t.post(path)).cookie(user), 200);
-                t.expect(t.csrf(t.post(path)).cookie(confined), 403);
-                t.expect(t.post(path).cookie(admin), 403);
-                t.expect(t.csrf(t.post(path)), 401);
-            }
         });
     }
 

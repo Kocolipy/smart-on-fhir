@@ -181,11 +181,11 @@ class ApplicationChainRefusalTests {
     @Test
     void a_missing_or_invalid_csrf_token_is_403_recorded_as_csrf() throws Exception {
         ILoggingEvent missing = onlyRecord(() -> deniedHandler().handle(
-                request("POST", "/api/count/increment"), response,
+                request("POST", "/api/auth/change-password"), response,
                 new MissingCsrfTokenException("x")));
         MockHttpServletResponse second = new MockHttpServletResponse();
         ILoggingEvent invalid = onlyRecord(() -> deniedHandler().handle(
-                request("POST", "/api/count/increment"), second,
+                request("POST", "/api/auth/change-password"), second,
                 new InvalidCsrfTokenException(
                         new DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "expected"), "actual")));
 

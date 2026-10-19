@@ -160,7 +160,7 @@ class SecurityConfigTests {
      */
     @Test
     void unsafeRequestWithoutACsrfTokenIsForbidden() throws Exception {
-        mvc.perform(post("/api/count/reset"))
+        mvc.perform(post("/api/admin/connectors"))
                 .andExpect(status().isForbidden());
     }
 
@@ -178,7 +178,7 @@ class SecurityConfigTests {
                 .andReturn();
         String[] token = issued.getResponse().getContentAsString().split(":", 2);
 
-        mvc.perform(post("/api/count/reset").session(session).header(token[0], token[1]))
+        mvc.perform(post("/api/admin/connectors").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -195,7 +195,7 @@ class SecurityConfigTests {
                 HttpSessionCsrfTokenRepository.class.getName().concat(".CSRF_TOKEN"));
         assertThat(stored).as("the token the probe left in the session").isNotNull();
 
-        mvc.perform(post("/api/count/reset").session(session)
+        mvc.perform(post("/api/admin/connectors").session(session)
                         .header(stored.getHeaderName(), stored.getToken()))
                 .andExpect(status().isForbidden());
     }
@@ -278,7 +278,7 @@ class SecurityConfigTests {
 
     /**
      * Whether a path is reserved for the server is decided inside the context path: deployed
-     * under {@code /app}, {@code /app/api/count} is still an API path and stays behind
+     * under {@code /app}, {@code /app/api/undeclared} is still an API path and stays behind
      * authentication, while {@code /app/} is still the frontend and stays public. Judged on the
      * raw URI instead, the first would read as a frontend route and be let through. An API path
      * that no earlier rule names is used on purpose, so the frontend allowance is what decides
@@ -286,7 +286,7 @@ class SecurityConfigTests {
      */
     @Test
     void theFrontendAllowanceIsJudgedInsideTheContextPath() throws Exception {
-        mvc.perform(get("/app/api/count").contextPath("/app"))
+        mvc.perform(get("/app/api/undeclared").contextPath("/app"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/app/").contextPath("/app"))
                 .andExpect(status().isOk());

@@ -352,10 +352,6 @@ public class SecurityConfig {
                                         "/api/admin/connectors/*/tokens/*/rotate",
                                         "/api/admin/connectors/*/tokens/*/revoke")
                                 .hasAuthority(Permission.CONNECTOR_TOKEN.value())
-                        .requestMatchers(read("/api/count"))
-                                .hasAuthority(Permission.COUNTER_READ.value())
-                        .requestMatchers(HttpMethod.POST, "/api/count/increment", "/api/count/reset")
-                                .hasAuthority(Permission.COUNTER_WRITE.value())
                         .requestMatchers(read("/api/patient/*"))
                                 .hasAuthority(Permission.PATIENT_READ.value())
                         // Not a backstop: no operation serves any other method on a patient, and

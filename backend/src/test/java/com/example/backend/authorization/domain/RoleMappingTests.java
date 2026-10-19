@@ -45,7 +45,7 @@ class RoleMappingTests {
         assertThat(Arrays.stream(Permission.values()).map(Permission::value)).containsExactly(
                 "user:read", "user:write", "group:read", "group:write", "audit:read",
                 "connector:read", "connector:write", "connector:token", "ops:read",
-                "counter:read", "counter:write", "patient:read");
+                "patient:read");
     }
 
     @Test

@@ -23,7 +23,7 @@ login variables has a default** — this repository is public — so a missing o
 fails startup. The test JVMs drop all of them (`pom.xml`).
 
 - **`backend_app`** holds full DML on the tables whose lifecycle the application
-  owns (the `scim_*` directory tables and `user_counters`) and narrower grants
+  owns (the `scim_*` directory tables) and narrower grants
   where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`,
   `audit_events` and `patients` (V2; the insert is the development patient
   seeder's, and nothing changes or removes a patient), no `UPDATE` on
@@ -33,7 +33,8 @@ fails startup. The test JVMs drop all of them (`pom.xml`).
   the row a job or seeding serializes on. An `UPDATE` or `DELETE` of a recorded event from
   application code is refused by the server. The migrations' `GRANT` statements
   are the exact list; a later migration that adds a table the application writes
-  must grant `backend_app` on it. A refusal is SQL Server error 229.
+  must grant `backend_app` on it, and one that drops a table drops its grants
+  with it (V3), so it needs no `REVOKE`. A refusal is SQL Server error 229.
 - **`backend_audit_retention`** holds `SELECT`/`DELETE` on `audit_events` and
   nothing else — no `UPDATE`. Only the audit retention adapter reaches the
   retention pool.

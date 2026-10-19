@@ -134,7 +134,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
             throws Exception {
         HttpClient user = login("test-user", "test-password");
 
-        JsonNode refusal = theOneRefusal(user, request("/api/count/increment")
+        JsonNode refusal = theOneRefusal(user, request("/api/auth/change-password")
                 .POST(HttpRequest.BodyPublishers.noBody()), 403);
 
         assertThat(refusal.at("/event/reason").asText()).isEqualTo("csrf");

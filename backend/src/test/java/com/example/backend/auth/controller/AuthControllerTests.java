@@ -848,11 +848,11 @@ class AuthControllerTests {
         AuthController.UserResponse admin = controller.currentUser(
                 new TestingAuthenticationToken(
                         "grace", null, "ROLE_ADMIN", "ROLE_USER", "patient:read", "ops:read",
-                        "counter:read"),
+                        "audit:read"),
                 session());
 
         assertThat(ordinary.permissions()).containsExactly("audit:read", "user:read", "user:write");
-        assertThat(admin.permissions()).containsExactly("counter:read", "ops:read", "patient:read");
+        assertThat(admin.permissions()).containsExactly("audit:read", "ops:read", "patient:read");
     }
 
     @Test

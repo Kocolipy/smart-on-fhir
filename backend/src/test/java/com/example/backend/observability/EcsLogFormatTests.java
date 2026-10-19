@@ -838,7 +838,7 @@ class EcsLogFormatTests {
         MockHttpSession user = loggedInSession("test-user", "test-password");
         logs.reset();
 
-        mvc.perform(post("/api/count/increment").session(user)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/auth/change-password").session(user)).andExpect(status().isForbidden());
 
         JsonNode record = onlyRecordWithMessage("Request refused: access denied");
         assertThat(record.at("/event/reason").asText()).isEqualTo("csrf");

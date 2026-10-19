@@ -250,7 +250,7 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(logInStatus("lifecycle-connector-admin", CONNECTOR_PASSWORD)).isEqualTo(401);
         Cookie fresh = logIn("lifecycle-connector-admin", NEW_PASSWORD, "ADMIN", false);
         assertThat(status(get("/api/admin/accounts"), fresh)).isEqualTo(200);
-        assertThat(status(get("/api/count"), fresh)).isEqualTo(200);
+        assertThat(status(get("/api/self"), fresh)).isEqualTo(200);
     }
 
     // ---- 2. Admin-forced change, and Unlock ------------------------------------------------
@@ -636,8 +636,8 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(status(post("/api/admin/accounts/{id}/unlock", idOf(BOOTSTRAP_ADMIN)), session))
                 .isEqualTo(403);
         assertThat(status(get("/api/admin/connectors"), session)).isEqualTo(403);
-        assertThat(status(get("/api/count"), session)).isEqualTo(403);
-        assertThat(status(post("/api/count/increment"), session)).isEqualTo(403);
+        assertThat(status(get("/api/self"), session)).isEqualTo(403);
+        assertThat(status(get("/api/patient/{id}", UUID.randomUUID()), session)).isEqualTo(403);
         assertThat(status(get("/actuator/prometheus"), session)).isEqualTo(403);
     }
 

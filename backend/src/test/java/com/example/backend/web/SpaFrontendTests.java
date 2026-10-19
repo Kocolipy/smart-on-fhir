@@ -65,7 +65,7 @@ class SpaFrontendTests {
      * a regression on the exact match is a security hole, not a 404.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"/api", "/api/count"})
+    @ValueSource(strings = {"/api", "/api/self"})
     void keepsApiRoutesProtected(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isUnauthorized());

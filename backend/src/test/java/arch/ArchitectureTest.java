@@ -331,10 +331,6 @@ public class ArchitectureTest {
             Map.entry("com.example.backend.auth.application.PasswordChangeService#changePassword",
                     "the signed-in User's own password change: self-service, not a SCIM or"
                             + " administrative write; the User submits it again"),
-            Map.entry("com.example.backend.counter.application.UserCounterService#increment",
-                    "a User's own counter: self-service, not a SCIM or administrative write"),
-            Map.entry("com.example.backend.counter.application.UserCounterService#reset",
-                    "a User's own counter: self-service, not a SCIM or administrative write"),
             // The SCIM reads: their transaction writes only the read's own fail-closed audit row
             // (SCIM_*_QUERIED), so they are as-13's read-only paths, which the next request covers.
             Map.entry("com.example.backend.scim.application.ScimUserService#query",
@@ -712,10 +708,8 @@ public class ArchitectureTest {
             // 0013, "Bounded timeouts"), as the scheduled-job lock's is.
             Map.entry("scim", Set.of("audit", "authorization", "database", "observability", "web")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
-            // counter and lifecycle are leaves, which no entry names: removing one must not break
-            // another module.
-            Map.entry("counter", Set.of("auth")),
-            // patient is a leaf too. It may reach auth, and nothing else that holds state: not
+            // patient and lifecycle are leaves, which no entry names: removing one must not break
+            // another module. patient may reach auth, and nothing else that holds state: not
             // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches
             // observability for one thing: its seeder's INFO record is built with LogEvent, as
             // every record is (be-log-record-outside-log-event; ADR 0014, "The module's edges").

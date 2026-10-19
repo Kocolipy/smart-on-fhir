@@ -56,7 +56,7 @@ test.describe("baseline User API", () => {
   test("holds only the baseline Permissions and no role", async ({ page }) => {
     const me = (await (await page.request.get("/api/auth/me")).json()) as Record<string, unknown>;
 
-    expect(me.permissions).toEqual(["counter:read", "counter:write", "patient:read"]);
+    expect(me.permissions).toEqual(["patient:read"]);
     expect(me).not.toHaveProperty("role");
   });
 
@@ -90,9 +90,8 @@ test.describe("baseline User API", () => {
     }
   });
 
-  test("keeps its self-service and reads its counter", async ({ page }) => {
+  test("keeps its self-service", async ({ page }) => {
     expect((await page.request.get("/api/self")).status()).toBe(200);
-    expect((await page.request.get("/api/count")).status()).toBe(200);
   });
 
   /**
