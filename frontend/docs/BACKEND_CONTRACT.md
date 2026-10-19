@@ -91,8 +91,8 @@ change, when the backend side moves. What the SPA has to honour:
   reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
   place that can drift, and a direct `apiFetch` call puts the session-ending
   rule back in the feature. Playwright's `page.request` bypasses both: copy
-  `resetCounterViaApi()` in `test/e2e/auth.helpers.ts` for an API call from a
-  spec.
+  `postAdminAction()` in `test/e2e/auth.helpers.ts`, which fetches the
+  session's CSRF token and echoes it, for an API call from a spec.
 - **Sessions expire after 15 minutes** of inactivity, the single default in
   every environment. The SPA never hardcodes that figure: `GET /api/auth/me`
   and the login response carry `idleTimeoutSeconds`, read off the session

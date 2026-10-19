@@ -198,7 +198,11 @@ reach the idle timeout. The pager names a total only once a read of
 the current query has stated one, and never fewer pages than the one shown, so
 a page still loading or one that failed reads "Page 3", not "Page 3 of 1".
 
-`pages/patient-card.tsx` is Home's Patient card, above the counter's. It reads
+`pages/home.tsx` is Home: the Patient card, and beneath it the Pages card,
+which holds nothing but a link to each page the session may open (see
+"Routing" below). The Patient card's read is Home's only request.
+
+`pages/patient-card.tsx` is Home's Patient card, above the Pages card. It reads
 the default patient, `GET /api/patient/{DEFAULT_PATIENT_ID}`, through the
 `PATIENT` declaration in `pages/home-api.ts` (`patient:read`, opting in to
 `absent`), whose decoder reads the R5 `Patient` (typed by `@types/fhir`'s
@@ -468,14 +472,14 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table, deliberately flat:
 
-| Path               | Element                                                                                          | Notes                                                                                                                                                                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                                                                              |
-| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The Patient card by `patient:read`, the counter by `counter:read` / `counter:write` (baseline, held by every User), a link to each entry with a `homeLink` exactly when its guard would open it |
-| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                                                                            |
-| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                                                                            |
-| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                                                                                   |
-| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                                                                                         |
+| Path               | Element                                                                                          | Notes                                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`           | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to Home, `/`                                                                                                                                                                                  |
+| `/`                | `<ProtectedRoute><Home /></ProtectedRoute>`                                                      | Home, for every authenticated User; a Guest goes to `/login`. The Patient card by `patient:read` (baseline, held by every User), then the Pages card: a link to each entry with a `homeLink` exactly when its guard would open it |
+| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                                                                                                |
+| `/audit`           | `<ProtectedRoute requiredPermissions={[AUDIT_EVENTS.permission]}><Audit /></ProtectedRoute>`     | `audit:read` alone                                                                                                                                                                                                                |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                                                                                       |
+| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to `/`: Home for a User, `/login` for a Guest                                                                                                                                                             |
 
 **Permission-based guards.** The SPA decides navigation, page guards and in-page
 actions from the `permissions` `GET /api/auth/me` and the login response report
@@ -483,7 +487,7 @@ actions from the `permissions` `GET /api/auth/me` and the login response report
 backend's `Permission` enum defines, and a session reporting a name outside it
 fails decoding. Each API module declares the Permission every endpoint it
 owns requires (Users `user:read`, Groups `group:read`, connectors
-`connector:read`, the audit trail `audit:read`, the counter `counter:read`,
+`connector:read`, the audit trail `audit:read`,
 Home's patient `patient:read`, a baseline Permission every User holds),
 `accounts-api.ts` derives `ADMINISTRATION_PERMISSIONS` from its three listings,
 and `src/auth/permissions.ts` holds the `holds` / `holdsAny` / `mayOpen`
@@ -492,7 +496,7 @@ declarations in `signed-in-pages.tsx`, which `requirementOf` reads as "any one
 of these", and a page hides each action
 it lacks the Permission for (Unlock and the forced change `user:write`, connector
 create and delete `connector:write`, token issue, rotate and revoke
-`connector:token`, the counter's buttons `counter:write`). A view the session
+`connector:token`). A view the session
 cannot see is not requested either, so it never turns into a `403` on screen. A
 deep link to a page the session holds no Permission for is redirected to
 Home, `/`, exactly as any page it may not see.

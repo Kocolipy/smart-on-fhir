@@ -329,11 +329,10 @@ back.
 
 ### Sharing backend state under `fullyParallel`
 
-The counter is one value on the backend and `home.spec.ts` resets it,
-so a spec running beside it must not assert a count. The reset sits in the one
-test that writes the counter, never in a `beforeEach`: the hook runs for every
-test in the file, and under `fullyParallel` a sibling's reset lands between the
-counter test's increments. A spec that exercises the request machinery rather
+A spec that resets shared backend state does it in the one test that writes
+that state, never in a `beforeEach`: the hook runs for every test in the file,
+and under `fullyParallel` a sibling's reset lands between the writing test's
+own steps. A spec that exercises the request machinery rather
 than a feature only reads, or only makes requests the backend refuses:
 `session.spec.ts` sends two password changes, one refused for want of a live
 session and one for its token, so it changes nothing another spec reads.
@@ -412,9 +411,10 @@ session, answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
   suite for one part of a page — the Connectors panel — routes that part alone
   under the same layout with `renderInLayout(routes, path, session, answers)`,
   which `renderSignedIn` is built on. A suite's own wrapper takes the wire
-  answers before the session, so `renderAccounts(answers, session)`,
-  `renderHome(answers, session)` and `renderShell(path, answers, session)` read
-  alike.
+  answers before the session, so `renderAccounts(answers, session)` and
+  `renderShell(path, answers, session)` read alike. A suite whose answers never
+  vary fixes them inside its wrapper and takes the session alone, as Home's
+  `renderHolding(permissions)` does.
 - **A suite that brings its own router or provider** uses the backend layer
   directly. `src/App.test.tsx` renders the whole app, which owns its router and
   `AuthProvider`, over an answer table per test. `auth-context.test.tsx` mounts
@@ -435,7 +435,10 @@ session, answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
 All of them sign in as the same User, `testUser(overrides?)` in
 `src/auth/auth-context.testHelpers.ts`: `ada`, unflagged, with a 15-minute idle
 limit. A suite that needs a `UserResponse` body — the login's — answers with
-it too, rather than writing the User out again. A hook that reports to the page
+it too, rather than writing the User out again. Likewise every suite that
+answers Home's patient read takes the default patient and its request key,
+`TAN_WEI_MING` and `DEFAULT_PATIENT_READ`, from
+`src/pages/patient.testHelpers.ts`. A hook that reports to the page
 status runs inside the real one, `InPageStatus` in
 `src/auth/page-status.testHelpers.tsx`, and the suite reads the line back with
 `shownLine()`.
@@ -474,12 +477,11 @@ timing hacks:
   changes — see `server.watch.ignored` in `vite.config.ts`. Symptom: the failure
   screenshot shows the app back on its first screen, fully loaded, nothing in
   flight.
-- **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Reset" })`,
+- **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Sign out" })`,
   `getByLabel("Current password")`. `getByTestId` is fine for a value with no
-  accessible name of its own, as `home.spec.ts` uses for the counter.
+  accessible name of its own.
 - **Restore anything a spec mutates, or own it.** A spec either resets the
-  shared state it changes (`home.spec.ts` resets the counter, in the test that
-  writes it) or acts only
+  shared state it changes, in the test that writes it, or acts only
   on fixtures it provisioned and deletes in a `finally` (see "Calling the API
   from a spec").
 
