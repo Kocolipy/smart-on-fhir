@@ -71,13 +71,17 @@ class SpaFrontendTests {
                 .andExpect(status().isUnauthorized());
     }
 
-    /** Unmatched routes belong to the client-side router. */
+    /**
+     * Unmatched routes belong to the client-side router, and a deep link is a page
+     * that exists: the shell answers it 200, not the 404 that routed it here.
+     */
     @Test
     void forwardsMissingClientSideRoutesToFrontendEntryPoint() {
         ModelAndView resolved = resolve("/dashboard", HttpStatus.NOT_FOUND);
 
         assertThat(resolved).isNotNull();
         assertThat(resolved.getViewName()).isEqualTo("forward:/index.html");
+        assertThat(resolved.getStatus()).isEqualTo(HttpStatus.OK);
     }
 
     /** A missing file stays a 404 rather than returning the HTML shell. */

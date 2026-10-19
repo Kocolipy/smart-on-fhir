@@ -20,6 +20,7 @@ public class SpaErrorViewResolver implements ErrorViewResolver {
         if (status != HttpStatus.NOT_FOUND || path == null || !SpaRoutes.servesSpaShell(path)) {
             return null;
         }
-        return new ModelAndView("forward:/index.html");
+        // OK, or the shell keeps the 404 that routed the request here (/docs/domain/request-paths.md).
+        return new ModelAndView("forward:/index.html", HttpStatus.OK);
     }
 }
