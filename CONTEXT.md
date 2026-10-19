@@ -24,6 +24,13 @@ A request whose last path segment contains a dot; when missing, it stays a 404
 rather than becoming the SPA shell.
 _Avoid_: frontend route
 
+**Error namespace**:
+A reserved server path whose every refusal has one error body, whichever layer
+refuses: `/api` answers with `ApiError`, `/api/patient` with a FHIR
+`OperationOutcome`, `/scim/v2` with the SCIM error document. The most specific
+namespace covering a request's path decides.
+_Avoid_: error shape by package, error path
+
 ### Sessions
 
 Rules: [sessions](docs/domain/sessions.md).

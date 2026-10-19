@@ -7,6 +7,7 @@ import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicProviderMetadata;
 import com.example.backend.auth.epic.EpicRetryPause;
+import com.example.backend.web.ErrorNamespaces;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -82,8 +83,8 @@ public class EpicSecurityConfig {
     /** Epic Login off: the release gate alone. */
     @Bean
     @Conditional(EpicLogin.WhenOff.class)
-    public EpicLogin epicLoginOff() {
-        return new EpicLoginOff();
+    public EpicLogin epicLoginOff(ErrorNamespaces errorNamespaces) {
+        return new EpicLoginOff(errorNamespaces);
     }
 
     /**

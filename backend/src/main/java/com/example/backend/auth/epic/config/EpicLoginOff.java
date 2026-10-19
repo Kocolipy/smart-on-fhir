@@ -1,6 +1,7 @@
 package com.example.backend.auth.epic.config;
 
 import com.example.backend.auth.epic.EpicLogin;
+import com.example.backend.web.ErrorNamespaces;
 import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
@@ -15,9 +16,17 @@ import org.springframework.security.web.context.request.async.WebAsyncManagerInt
  */
 public final class EpicLoginOff implements EpicLogin {
 
+    private final ErrorNamespaces errorNamespaces;
+
+    /** {@code errorNamespaces} chooses the document the gate's {@code 404} is written in. */
+    public EpicLoginOff(ErrorNamespaces errorNamespaces) {
+        this.errorNamespaces = errorNamespaces;
+    }
+
     @Override
     public void applyTo(HttpSecurity http) {
-        http.addFilterBefore(new EpicReleaseGateFilter(), WebAsyncManagerIntegrationFilter.class);
+        http.addFilterBefore(new EpicReleaseGateFilter(errorNamespaces),
+                WebAsyncManagerIntegrationFilter.class);
     }
 
     /** Off, and nothing more: there are no signing keys to name. */

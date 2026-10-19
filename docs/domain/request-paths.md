@@ -28,3 +28,18 @@ with a 200. A dot in an earlier segment (`/v1.0/settings`) does not make a path
 one. Whether a path may be served without authentication (true of file requests)
 and whether a missing path becomes the shell (false of them) are two different
 questions; "frontend route" blurred them.
+
+**Error namespace** — a reserved server path whose every refusal is answered with
+one error body, whichever layer refuses: the request firewall, the security
+chain, a release gate, the dispatcher, or the advice answering a handler's
+failure. `/api` answers with `ApiError`, `/api/patient` with a FHIR
+`OperationOutcome`, and `/scim/v2` with the SCIM error document; where namespaces
+nest the most specific one covering the path decides, so `/api/patient/x` is
+FHIR and `/api/self` is `ApiError`. The request's path decides, never the
+handler's module or package: connector administration lives in the `scim` module
+but serves `/api`, so its refusals are `ApiError`s. `web.ErrorNamespaces` is the
+only place the selection lives; a module serving a namespace of its own
+contributes it there. `/actuator` and the SPA's paths are in no namespace and keep
+the servlet container's handling. The SCIM bearer challenges (`401`, and `403`
+`insufficient_scope`) stay bodiless by design.
+

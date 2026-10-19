@@ -325,14 +325,14 @@ class PasswordChangeLifecycleIntegrationTests {
 
     /**
      * A change sent on a session that has already ended — here by the User's next login — is
-     * refused by the filter chain before the password check: the bare {@code 401} any request
+     * refused by the filter chain before the password check: the generic {@code 401} any request
      * without a live session gets, carrying none of the check's mark, and counting nothing
      * toward the lockout. The CSRF handshake opens a fresh, anonymous session for it, as the
      * SPA's re-fetch does, so the request is refused for want of a signed-in one, not for its
      * token.
      */
     @Test
-    void aChangeOnAnEndedSessionIsRefusedBareBeforeThePasswordCheckAndCountsNothing()
+    void aChangeOnAnEndedSessionIsRefusedUnmarkedBeforeThePasswordCheckAndCountsNothing()
             throws Exception {
         String userId = provision("lifecycle-expired", CONNECTOR_PASSWORD);
         Cookie ended = logIn("lifecycle-expired", CONNECTOR_PASSWORD, null, true);
@@ -342,7 +342,10 @@ class PasswordChangeLifecycleIntegrationTests {
 
         assertThat(List.of(refused.getResponse().getStatus(),
                         refused.getResponse().getContentAsString(), failedAttempts(userId)))
-                .isEqualTo(List.of(401, "", 0));
+                .isEqualTo(List.of(401,
+                        "{\"status\":401,\"code\":\"request-refused\","
+                                + "\"detail\":\"The request was refused.\"}",
+                        0));
     }
 
     /** The change counts toward the same lockout; at the threshold both paths are blocked. */

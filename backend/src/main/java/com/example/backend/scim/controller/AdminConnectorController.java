@@ -255,9 +255,9 @@ public class AdminConnectorController {
     }
 
     /**
-     * A token carrying a Permission the caller does not hold. {@code 403}, bodiless like every
-     * refusal on this chain: the caller may mint tokens, but not this one. Already audited, with
-     * the Permissions requested, by the service.
+     * A token carrying a Permission the caller does not hold. {@code 403}, with no body: the caller
+     * may mint tokens, but not this one. Already audited, with the Permissions requested, by the
+     * service.
      */
     @ExceptionHandler(ConnectorTokenEscalationException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)

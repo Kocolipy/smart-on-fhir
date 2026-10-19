@@ -34,14 +34,24 @@ info:
     `group:write`, `audit:read`, `connector:read`, `connector:write`,
     `connector:token`, `ops:read`, `patient:read`. A session's Permissions are
     the baseline `patient:read`, which every active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
-    reports them. A caller lacking the declared Permission gets a bodiless
-    `403` that never names it (see `PermissionRequired`). The application chain
+    reports them. A caller lacking the declared Permission gets a `403` that
+    never names it (see `PermissionRequired`). The application chain
     denies by default: a route or method this document does not declare is
     refused `403`, and a session never reaches `/scim/v2`. A session confined by
     a required password change reaches only `GET /api/auth/me`,
     `POST /api/auth/change-password` and `DELETE /api/auth/logout`.
     `AuthorizationContractTests` proves every declaration here against the
     running application.
+
+    **Every application API refusal is an `ApiError`, whichever layer makes
+    it** — the filter chain's `401` and `403`, the request firewall's `400`, the
+    dispatcher's own `405` and `415`, or the app-wide handler — except under
+    `/api/patient`, whose every refusal is a FHIR `OperationOutcome`. A refusal an
+    operation renders itself says so on the operation (`PasswordRuleViolation`,
+    `PasswordChangeRefusal`, and the bodiless `401` of a refused login and the
+    bodiless refusals an operation describes). The refusals that can happen in
+    front of any application operation, or where none exists, are listed once
+    under `x-namespace-responses`.
 
     **The SCIM namespace is behind a release gate that is ON by default.** Setting
     `APP_SCIM_ENABLED=false` closes it, and while it is
@@ -148,6 +158,17 @@ x-namespace-responses:
   /api/patient:
     "405":
       $ref: "#/components/responses/FhirMethodNotSupported"
+  /api:
+    "400":
+      $ref: "#/components/responses/ApiRequestRejected"
+    "401":
+      $ref: "#/components/responses/Unauthorized"
+    "403":
+      $ref: "#/components/responses/ApiNoSuchOperation"
+    "405":
+      $ref: "#/components/responses/ApiMethodNotAllowed"
+    "415":
+      $ref: "#/components/responses/ApiUnsupportedMediaType"
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -316,12 +337,17 @@ paths:
           description: |
             No live session — it expired, was revoked, or never existed. Still a
             browser being signed out, so it carries the same `Clear-Site-Data`.
+            The body is the generic `request-refused` `ApiError` (`Unauthorized`).
           headers:
             Clear-Site-Data:
               description: Always `"cache","cookies","storage"`.
               schema:
                 type: string
                 const: '"cache","cookies","storage"'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/change-password:
@@ -387,11 +413,11 @@ paths:
             which says only that the check answered, never why.
 
             A request with no live session — never signed in, expired, revoked —
-            is refused by the filter chain before the check, with the bare,
-            bodiless `401` every operation gives it; nothing is compared and
-            nothing is counted toward the lockout. The body is how a caller tells
-            that `401` from this one: the SPA reads a bare `401` here as an
-            expired session.
+            is refused by the filter chain before the check, with the `401` every
+            operation gives it (`Unauthorized`, the generic `ApiError`); nothing is
+            compared and nothing is counted toward the lockout. The body is how a
+            caller tells that `401` from this one: the SPA reads a `401` here
+            without the `PasswordChangeRefusal` mark as an expired session.
 
             For the marked `401`, the SESSION tells the reasons apart. A wrong
             current password below the threshold leaves the submitting session
@@ -402,7 +428,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PasswordChangeRefusal"
+                oneOf:
+                  - $ref: "#/components/schemas/PasswordChangeRefusal"
+                  - $ref: "#/components/schemas/ApiError"
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/epic/jwks.json:
@@ -640,12 +668,20 @@ paths:
                 $ref: "#/components/schemas/SelfRecord"
         "401":
           description: |
-            No authenticated session, or a session that names no live User. No
-            body.
+            No authenticated session, or a session that names no live User. The
+            body is the generic `request-refused` `ApiError` either way.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "403":
           description: |
             The session is confined by the change-required flag and lacks
-            baseline access. No body.
+            baseline access. The body is the generic `request-refused` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/patient/{id}:
     get:
       tags: [Patient]
@@ -812,11 +848,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller does not hold `user:write` (see `PermissionRequired`), or
-            the target is the caller's own account, whatever Permissions it holds:
-            recovering from a self-inflicted lockout takes a second administrator.
-            The caller's own account is the one whose stable id its session holds,
-            whatever `userName` either carries now.
+            The caller does not hold `user:write` (see `PermissionRequired`, whose
+            `ApiError` body it carries), or the target is the caller's own account,
+            whatever Permissions it holds: recovering from a self-inflicted lockout
+            takes a second administrator, and the operation refuses it with no
+            body. The caller's own account is the one whose stable id its session
+            holds, whatever `userName` either carries now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":
@@ -847,12 +888,17 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller does not hold `user:write` (see `PermissionRequired`); or
-            the target is the caller's own account, whatever Permissions it holds
-            — the Bootstrap Admin's included; or the target is the Bootstrap Admin,
-            whose password change nobody may force. The caller's own account is the
-            one whose stable id its session holds, whatever `userName` either
-            carries now.
+            The caller does not hold `user:write` (see `PermissionRequired`, whose
+            `ApiError` body it carries); or the target is the caller's own account,
+            whatever Permissions it holds — the Bootstrap Admin's included; or the
+            target is the Bootstrap Admin, whose password change nobody may force.
+            The operation refuses those two with no body. The caller's own account
+            is the one whose stable id its session holds, whatever `userName`
+            either carries now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":
@@ -980,7 +1026,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConnectorSummary"
         "400":
-          description: The display name is missing or longer than 200 characters.
+          description: |
+            The body is missing or malformed, or the display name is missing, blank
+            or longer than 200 characters: the generic `invalid-request`
+            `ApiError`, which names neither the field nor the value. Logged once,
+            at `WARN`, as the application API's refusal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2482,9 +2536,9 @@ paths:
               schema:
                 type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/ActuatorUnauthorized"
         "403":
-          $ref: "#/components/responses/PermissionRequired"
+          $ref: "#/components/responses/ActuatorPermissionRequired"
   /actuator/info:
     get:
       tags: [Health]
@@ -2508,9 +2562,9 @@ paths:
               schema:
                 type: object
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/ActuatorUnauthorized"
         "403":
-          $ref: "#/components/responses/PermissionRequired"
+          $ref: "#/components/responses/ActuatorPermissionRequired"
 security:
   - sessionCookie: []
 components:
@@ -2685,7 +2739,67 @@ components:
         format: uuid
   responses:
     Unauthorized:
-      description: A valid authenticated session is required.
+      description: |
+        A valid authenticated session is required. Refused by the filter chain
+        before any operation runs, with the generic `request-refused` `ApiError`
+        — the same bytes whatever the request carried. Logged at `WARN` with the
+        reason `no-session` or `session-expired`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ActuatorUnauthorized:
+      description: |
+        A valid authenticated session is required. `/actuator` is outside the
+        application API's namespace, so the refusal carries no `ApiError`: the
+        filter chain answers with the status alone, as the servlet container
+        renders it.
+    ActuatorPermissionRequired:
+      description: |
+        The session does not hold `ops:read`. Refused, recorded and audited as
+        `PermissionRequired` describes, but outside the application API's
+        namespace, so with no `ApiError`: the status alone, as the servlet
+        container renders it.
+    ApiRequestRejected:
+      description: |
+        The request firewall refused the request before any filter or operation
+        ran — a path carrying an encoded line break, for instance. The generic
+        `invalid-request` `ApiError`, quoting nothing of the path.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ApiNoSuchOperation:
+      description: |
+        A signed-in session asked for a route this document does not declare,
+        which the filter chain refuses by default, as it does any declared route
+        a session's Permissions do not reach. The generic `request-refused`
+        `ApiError`, quoting nothing of the path. Without a session the same
+        request is the `401` `Unauthorized` describes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ApiMethodNotAllowed:
+      description: |
+        A method no operation on a declared path serves, sent where the filter
+        chain lets it through — on a public path, such as a `GET` of the login.
+        Refused by the dispatcher before any operation runs, with the `Allow`
+        header it writes and the generic `request-refused` `ApiError`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ApiUnsupportedMediaType:
+      description: |
+        A body of a type the declared operation does not read — anything but
+        `application/json` where it takes JSON. Refused by the dispatcher before
+        any operation runs, with the generic `request-refused` `ApiError`, which
+        names neither the type nor anything the body carried.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     FhirMethodNotSupported:
       description: |
         A method no patient operation serves — `POST`, `PUT`, `PATCH` or
@@ -2703,6 +2817,11 @@ components:
         session — including one fetched before the session was rotated by login,
         or one whose session has since ended. This is decided before
         authentication, so it is returned even on the public login operation.
+        The body is the generic `request-refused` `ApiError`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     AdminAccount:
       description: The account as it stands after the change.
       content:
@@ -2770,18 +2889,27 @@ components:
         confined by the change-required flag holds no Permission, so it receives
         this on every endpoint but the change flow, a Superuser's included.
 
-        Bodiless, and generic on purpose: it never names the missing Permission,
-        a Role or the rule that refused. The refusal is audited
-        (`ACCESS_DENIED`) and logged at `WARN` with the caller, the operation and
-        the reason `insufficient-permissions`.
+        The body is the generic `request-refused` `ApiError`, generic on purpose:
+        it never names the missing Permission, a Role or the rule that refused.
+        The refusal is audited (`ACCESS_DENIED`) and logged at `WARN` with the
+        caller, the operation and the reason `insufficient-permissions`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     TokenPermissionRequired:
       description: |
         Either the caller does not hold `connector:token` — the generic refusal
-        `PermissionRequired` describes — or it does, and the token would carry a
-        Permission the caller does not hold itself: no administrator can mint a
-        credential more powerful than itself. Bodiless in both cases. The second is
-        audited as a `FAILURE` of the issue or rotation with `errorCode`
+        `PermissionRequired` describes, with its `ApiError` body — or it does, and
+        the token would carry a Permission the caller does not hold itself: no
+        administrator can mint a credential more powerful than itself. The second
+        is refused by the operation itself, with no body, and audited as a
+        `FAILURE` of the issue or rotation with `errorCode`
         `PERMISSION_ESCALATION` and the Permissions requested.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     ScimBadRequest:
       description: |
         The request was not acceptable SCIM: an unparseable or non-object body, a
@@ -3019,15 +3147,17 @@ components:
       required: [status, code, detail]
       additionalProperties: false
       description: |
-        The application API's error body, written by its app-wide handler for a
-        request it could not read or validate (`400`), another refusal Spring MVC
-        assigns, or a failure on the server side (`5xx`). Nothing in it comes from
-        the request or from the failure — no path, field, rejected value, exception
-        type or message — so every failure of one kind has the same body. A refusal
-        a handler renders itself (`PasswordRuleViolation`, `PasswordChangeRefusal`,
-        the bodiless `401`s,
-        `403`s, `404`s and `409`s) keeps its own shape, and the SCIM namespace
-        answers with SCIM error documents.
+        The application API's error body, whichever layer refuses: its app-wide
+        handler for a request it could not read or validate (`400`), another
+        refusal Spring MVC assigns, or a failure on the server side (`5xx`); the
+        filter chain for a missing session (`401`) or Permission (`403`); the
+        request firewall and the dispatcher for their own refusals. Nothing in it
+        comes from the request or from the failure — no path, field, rejected
+        value, exception type or message — so every failure of one kind has the
+        same body. A refusal an operation renders itself (`PasswordRuleViolation`,
+        `PasswordChangeRefusal`, and the bodiless refusals an operation
+        describes) keeps its own shape; `/api/patient` answers with a FHIR
+        `OperationOutcome`, and the SCIM namespace with SCIM error documents.
       properties:
         status:
           type: integer

@@ -11,7 +11,7 @@ import com.example.backend.ForcedDeadlock;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.web.FhirErrorDocumentFilter;
+import com.example.backend.web.ErrorDocumentFilter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
@@ -113,7 +113,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     private RequestIdFilter requestIdFilter;
 
     @Autowired
-    private FhirErrorDocumentFilter fhirErrorDocumentFilter;
+    private ErrorDocumentFilter errorDocumentFilter;
 
     @Autowired
     private DatabaseLogins logins;
@@ -135,7 +135,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, fhirErrorDocumentFilter,
+                .addFilters(requestIdFilter, errorDocumentFilter,
                         springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
         UUID connector = connectors.create("api-contract", null).id();
@@ -202,6 +202,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         deadlockedWrites(all);
         audit(all);
         actuator(all);
+        namespace(all);
         return all.stream().map(fixture -> Arguments.of(Named.of(fixture.name(), fixture)));
     }
 
@@ -531,6 +532,29 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                     400);
             t.expect(t.get("/api/admin/audit-events").cookie(user), 403);
             t.expect(t.get("/api/admin/audit-events"), 401);
+        });
+    }
+
+    // ---- /api, before any operation ----------------------------------------------------
+
+    /**
+     * The refusals the application API's namespace documents once: made by the request firewall,
+     * the filter chain or the dispatcher before any operation is selected, each in the
+     * {@code ApiError} the namespace answers with.
+     */
+    private static void namespace(List<Fixture> all) {
+        add(all, "the /api namespace: 400, 401, 403, 405 and 415 before any operation", t -> {
+            String undeclared = "/api/undeclared-route";
+            t.expect(t.get(undeclared), 401);
+            t.expect(t.get(undeclared).cookie(t.settle(t.provision(true))), 403);
+            // The login is public to every method, so a GET passes the chain and the dispatcher
+            // refuses it.
+            t.expect(t.get("/api/auth/login"), 405);
+            t.expect(t.csrf(t.post("/api/admin/connectors")).cookie(t.logIn(ADMIN, ADMIN_PASSWORD))
+                    .contentType(MediaType.TEXT_PLAIN).content("displayName=x"), 415);
+            // An encoded line break in the path, which the request firewall refuses.
+            t.expect(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                    java.net.URI.create("/api/admin/accounts%0D%0Aforged")), 400);
         });
     }
 

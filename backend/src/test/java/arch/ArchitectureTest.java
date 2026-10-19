@@ -1,6 +1,11 @@
 package arch;
 
+import com.example.backend.scim.config.ScimSecurityConfig;
 import com.example.backend.web.ApiExceptionHandler;
+import com.example.backend.web.ErrorDocumentFilter;
+import com.example.backend.web.ErrorNamespace;
+import com.example.backend.web.ErrorNamespaces;
+import com.example.backend.web.NamespaceAdvice;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -16,14 +21,19 @@ import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -701,11 +711,11 @@ public class ArchitectureTest {
             Map.entry("audit", Set.of("authorization", "database", "observability", "scheduling")),
             // auth reaches the directory through scim.domain ports; nothing in scim mentions auth
             // (backend/AGENTS.md).
-            // scim reaches web for one thing: the connector administration adapter is on the
-            // application chain, so its deadlocked writes' 503 is the application API's ApiError,
-            // answered by that API's own fault handler (ADR 0013's as-13). It reaches database for
-            // TimedJdbc: the seed lock's row-lock wait is bounded as every lock statement is (ADR
-            // 0013, "Bounded timeouts"), as the scheduled-job lock's is.
+            // scim reaches web for the error namespaces: it contributes the SCIM namespace's
+            // error document to the one selection every refusing layer asks, installs the one
+            // sendError adapter in its chain, and marks its advice as that namespace's. It
+            // reaches database for TimedJdbc: the seed lock's row-lock wait is bounded as every
+            // lock statement is (ADR 0013, "Bounded timeouts"), as the scheduled-job lock's is.
             Map.entry("scim", Set.of("audit", "authorization", "database", "observability", "web")),
             Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
             // patient and lifecycle are leaves, which no entry names: removing one must not break
@@ -788,32 +798,184 @@ public class ArchitectureTest {
             .because("ADR 0012: every outbound call goes through epicRestClient, which carries the"
                     + " timeouts, logging and metrics");
 
+    // Error namespaces
+
     /**
-     * The app-wide error handler names the controller packages it answers for, rather than
-     * applying everywhere, so that it never answers for the SCIM namespace. The cost is that a
-     * new controller package would be silently uncovered; this is what makes it loud.
+     * Every namespace this service serves, as the running service holds them: the application
+     * API's two and the SCIM module's contribution.
+     */
+    private static final ErrorNamespaces ERROR_NAMESPACES =
+            new ErrorNamespaces(List.of(new ScimSecurityConfig().scimErrorNamespace()));
+
+    /**
+     * Every route a controller maps is in an error namespace, so a handler's failure gets its
+     * namespace's document, from its namespace's advice, whichever module the handler lives in.
+     * The request's path decides, not the handler's package: connector administration, in
+     * {@code scim} but serving {@code /api}, is answered as the application API, which a rule
+     * below pins by name.
      */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule every_application_controller_is_covered_by_the_api_exception_handler =
+    static final ArchRule every_controller_route_is_in_an_error_namespace =
         classes()
             .that().areAnnotatedWith(RestController.class)
-            .and().resideOutsideOfPackage("com.example.backend.scim..")
-            .should().resideInAnyPackage(apiExceptionHandlerPackages())
-            .because("an application controller's unexpected failures must be logged and answered"
-                    + " by ApiExceptionHandler; add the package to its basePackages");
+            .and().areNotAnnotatedWith(RestControllerAdvice.class)
+            .should(new ArchCondition<JavaClass>("map only routes in an error namespace") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    for (String route : routes(type.reflect())) {
+                        if (ERROR_NAMESPACES.of(route).isEmpty()) {
+                            events.add(SimpleConditionEvent.violated(type, type.getName()
+                                    + " maps " + route + ", which is in no error namespace"));
+                        }
+                    }
+                }
+            })
+            .because("a handler's failure is answered in the document of the namespace its route is"
+                    + " in, by that namespace's advice (NamespaceExceptionResolver)");
 
+    /**
+     * Every error namespace is answered by exactly one advice, and every advice's names are
+     * namespaces.
+     */
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule the_api_exception_handler_never_covers_the_scim_namespace =
+    static final ArchRule every_error_namespace_is_answered_by_exactly_one_advice =
         classes()
-            .that().areAnnotatedWith(RestController.class)
-            .and().resideInAnyPackage(apiExceptionHandlerPackages())
-            .should().resideOutsideOfPackage("com.example.backend.scim..")
-            .allowEmptyShould(true)
-            .because("SCIM handlers' errors are SCIM error documents, rendered by"
-                    + " ScimExceptionHandler; a generic body there is one no connector can parse");
+            .that().areAnnotatedWith(NamespaceAdvice.class)
+            .should(new ArchCondition<JavaClass>("together answer every error namespace once") {
+                private final Map<String, List<String>> answering = new HashMap<>();
 
-    private static String[] apiExceptionHandlerPackages() {
-        return ApiExceptionHandler.class.getAnnotation(RestControllerAdvice.class).basePackages();
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    for (String path : type.reflect().getAnnotation(NamespaceAdvice.class).value()) {
+                        if (ERROR_NAMESPACES.all().stream()
+                                .noneMatch(namespace -> namespace.path().equals(path))) {
+                            events.add(SimpleConditionEvent.violated(type, type.getName()
+                                    + " answers " + path + ", which is no error namespace"));
+                        }
+                        answering.computeIfAbsent(path, any -> new ArrayList<>())
+                                .add(type.getName());
+                    }
+                }
+
+                @Override
+                public void finish(ConditionEvents events) {
+                    for (ErrorNamespace namespace : ERROR_NAMESPACES.all()) {
+                        List<String> advices = answering.getOrDefault(namespace.path(), List.of());
+                        if (advices.size() != 1) {
+                            events.add(SimpleConditionEvent.violated(namespace, "the error"
+                                    + " namespace " + namespace.path() + " is answered by "
+                                    + advices + ", not exactly one advice"));
+                        }
+                    }
+                }
+            })
+            .because("NamespaceExceptionResolver hands a handler's failure to the one advice of the"
+                    + " request's namespace");
+
+    /**
+     * Connector administration is answered like every other {@code /api} operation — by the
+     * application API's advice, in {@code ApiError} — though it lives in the {@code scim} module
+     * beside the SCIM namespace's advice.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule connector_administration_is_answered_as_the_application_api =
+        classes()
+            .that().haveFullyQualifiedName(
+                    "com.example.backend.scim.controller.AdminConnectorController")
+            .should(new ArchCondition<JavaClass>("serve only the application API's namespace,"
+                    + " answered by ApiExceptionHandler") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    for (String route : routes(type.reflect())) {
+                        if (ERROR_NAMESPACES.of(route).orElse(null) != ErrorNamespaces.API) {
+                            events.add(SimpleConditionEvent.violated(type, route
+                                    + " is not in the application API's namespace"));
+                        }
+                    }
+                    if (!Set.of(ApiExceptionHandler.class.getAnnotation(NamespaceAdvice.class)
+                            .value()).contains(ErrorNamespaces.API_PATH)) {
+                        events.add(SimpleConditionEvent.violated(type,
+                                "ApiExceptionHandler does not answer " + ErrorNamespaces.API_PATH));
+                    }
+                }
+            })
+            .because("connector administration serves /api, so its refusals and faults are the"
+                    + " application API's, never SCIM's");
+
+    /**
+     * A namespace advice declares the one scope every namespace advice shares — this application's
+     * handlers — and no narrower one: a package, a handler class or an annotation would decide by
+     * the handler, which is what the namespace decides instead.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule namespace_advices_are_not_scoped_by_the_handler =
+        classes()
+            .that().areAnnotatedWith(NamespaceAdvice.class)
+            .should(new ArchCondition<JavaClass>("declare exactly the application's handlers as"
+                    + " their scope") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    RestControllerAdvice advice =
+                            type.reflect().getAnnotation(RestControllerAdvice.class);
+                    boolean shared = advice != null
+                            && List.of(advice.basePackages())
+                                    .equals(List.of(NamespaceAdvice.APPLICATION_HANDLERS))
+                            && advice.value().length == 0
+                            && advice.basePackageClasses().length == 0
+                            && advice.assignableTypes().length == 0
+                            && advice.annotations().length == 0;
+                    if (!shared) {
+                        events.add(SimpleConditionEvent.violated(type, type.getName()
+                                + " is a namespace advice scoped other than to "
+                                + NamespaceAdvice.APPLICATION_HANDLERS));
+                    }
+                }
+            })
+            .because("the request's namespace, not the handler's package or class, picks the advice");
+
+    /** The one sendError adapter: nothing else rewrites a response's errors. */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule one_send_error_adapter =
+        classes()
+            .that().areAssignableTo(HttpServletResponseWrapper.class)
+            .should().beNestedClasses()
+            .andShould(new ArchCondition<JavaClass>("be ErrorDocumentFilter's") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    if (!type.getEnclosingClass()
+                            .map(enclosing -> enclosing.isEquivalentTo(ErrorDocumentFilter.class))
+                            .orElse(false)) {
+                        events.add(SimpleConditionEvent.violated(type, type.getName()
+                                + " wraps a response outside ErrorDocumentFilter"));
+                    }
+                }
+            })
+            .allowEmptyShould(true)
+            .because("every namespace's sendError is rendered by ErrorDocumentFilter, asking"
+                    + " ErrorNamespaces for the document");
+
+    /** Every route {@code controller} maps: its base paths joined to each handler's own. */
+    private static List<String> routes(Class<?> controller) {
+        RequestMapping base =
+                AnnotatedElementUtils.findMergedAnnotation(controller, RequestMapping.class);
+        List<String> prefixes = base == null || base.path().length == 0
+                ? List.of("")
+                : List.of(base.path());
+        List<String> routes = new ArrayList<>();
+        for (java.lang.reflect.Method method : controller.getDeclaredMethods()) {
+            RequestMapping mapping =
+                    AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
+            if (mapping == null) {
+                continue;
+            }
+            List<String> paths = mapping.path().length == 0 ? List.of("") : List.of(mapping.path());
+            for (String prefix : prefixes) {
+                for (String path : paths) {
+                    routes.add(prefix + path);
+                }
+            }
+        }
+        return routes;
     }
 
     // Dependency Injection

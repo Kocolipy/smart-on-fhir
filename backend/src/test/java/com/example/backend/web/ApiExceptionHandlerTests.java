@@ -51,7 +51,7 @@ class ApiExceptionHandlerTests {
     /** A value a caller submitted; it must reach neither a record nor a body. */
     private static final String SUBMITTED = "submitted-marker-7f3a";
 
-    private final ApiExceptionHandler handler = new ApiExceptionHandler();
+    private final ApiExceptionHandler handler = new ApiExceptionHandler(new ErrorNamespaces(List.of()));
 
     private final MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/x");
 
@@ -71,17 +71,18 @@ class ApiExceptionHandlerTests {
 
     /**
      * A handler's own Permission declaration refusing the caller is NOT this advice's to answer:
-     * run through Spring MVC's real exception resolution, against a handler in a package the
-     * advice covers, the refusal is left unresolved — no response written, no fault record — so
+     * run through the service's real exception resolution, against a handler in a namespace the
+     * advice answers, the refusal is left unresolved — no response written, no fault record — so
      * it propagates to the security chain, which answers it {@code 403} and records it as the
      * refusal it is. Answered here, the catch-all would have made it a {@code 500}.
      */
     @Test
     void aMethodSecurityRefusalIsLeftForTheSecurityChainToAnswer() throws Exception {
+        ErrorNamespaces namespaces = new ErrorNamespaces(List.of());
         StaticApplicationContext context = new StaticApplicationContext();
-        context.registerSingleton("apiExceptionHandler", ApiExceptionHandler.class);
+        context.registerBean(ApiExceptionHandler.class, () -> new ApiExceptionHandler(namespaces));
         context.refresh();
-        ExceptionHandlerExceptionResolver resolver = new ExceptionHandlerExceptionResolver();
+        ExceptionHandlerExceptionResolver resolver = new NamespaceExceptionResolver(namespaces);
         resolver.setApplicationContext(context);
         resolver.afterPropertiesSet();
         HandlerMethod handled = new HandlerMethod(
@@ -355,19 +356,6 @@ class ApiExceptionHandlerTests {
                 .isEqualTo("ResponseStatusException");
     }
 
-    /**
-     * The connector administration adapter's way in, which hands over no request: the
-     * application API's own fault body, never a FHIR one.
-     */
-    @Test
-    void aFaultHandedOverWithoutItsRequestIsAnsweredWithTheApiError() {
-        ResponseEntity<Object> response = ApiExceptionHandler.answerUnexpected(
-                new IllegalStateException("internal detail " + SUBMITTED));
-
-        assertThat(response.getBody()).isEqualTo(new ApiError(500, ApiError.SERVER_ERROR,
-                "The request could not be completed because of a server-side failure."));
-    }
-
     /** A request that is not a servlet one has no path to be under the FHIR path by. */
     @Test
     void aRefusalOffAServletRequestIsAnsweredWithTheApiError() throws Exception {
@@ -430,6 +418,24 @@ class ApiExceptionHandlerTests {
     }
 
     /** Handles {@code failure} for a read under the FHIR path, which is then in scope. */
+    /**
+     * The FHIR namespace's fault is the outcome for its status, as FHIR JSON — the namespace the
+     * request is in chooses the body, not the handler that failed.
+     */
+    @Test
+    void aFaultUnderTheFhirNamespaceIsTheOutcomeAsFhirJson() {
+        MockHttpServletRequest fhir = new MockHttpServletRequest("GET", "/api/patient/x");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(fhir));
+
+        ResponseEntity<Object> response =
+                handler.handleUnexpected(new IllegalStateException("internal " + SUBMITTED), fhir);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getHeaders().getContentType())
+                .isEqualTo(FhirOperationOutcome.FHIR_JSON_R5);
+        assertThat(response.getBody()).isEqualTo(FhirOperationOutcome.of(500));
+    }
+
     private MockHttpServletRequest handleUnderTheFhirPath(Exception failure) throws Exception {
         MockHttpServletRequest fhir = new MockHttpServletRequest("GET", "/api/patient/x");
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(fhir));

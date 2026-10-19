@@ -105,3 +105,12 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
   served JSON against base R5 in **test scope only**, and the build's Enforcer
   refuses HAPI in any scope that reaches the packaged JAR, so the runtime
   classpath stays FHIR-library-free (`/docs/domain/patient.md`).
+
+## Addendum (2026-10-19): the FHIR path is an error namespace
+
+`FhirErrorDocumentFilter` and its path check are gone. `/api/patient` is one of
+the application API's error namespaces in `web.ErrorNamespaces`, which every
+refusing layer asks for the document to answer with, and `ErrorDocumentFilter`
+is the one `sendError` adapter for every namespace. The `OperationOutcome` stays
+in `web`, outside `patient`, as decided above; `web` now knows the FHIR path as a
+namespace rather than beside a controller package.

@@ -14,9 +14,13 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RequestActor;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.observability.RouteTemplates;
+import com.example.backend.web.ApiError;
+import com.example.backend.web.ErrorNamespaces;
+import com.example.backend.web.FhirOperationOutcome;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.access.AccessDeniedException;
@@ -24,10 +28,11 @@ import org.springframework.security.authentication.InsufficientAuthenticationExc
 import org.springframework.security.web.csrf.InvalidCsrfTokenException;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
 import org.springframework.security.web.csrf.MissingCsrfTokenException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The application chain's two refusal answers, each driven directly: what the caller receives,
- * and the records it leaves.
+ * The application chain's two refusal answers, each driven directly: what the caller receives —
+ * the request's namespace's error document — and the records it leaves.
  */
 class ApplicationChainRefusalTests {
 
@@ -38,6 +43,10 @@ class ApplicationChainRefusalTests {
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private final MockHttpServletResponse response = new MockHttpServletResponse();
+
+    private final ErrorNamespaces namespaces = new ErrorNamespaces(List.of());
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     // ---- 401 ---------------------------------------------------------------------------------
 
@@ -52,6 +61,34 @@ class ApplicationChainRefusalTests {
                 .isNull();
         assertThat(record.getLevel()).isEqualTo(Level.WARN);
         assertThat(CapturedLog.fields(record)).containsEntry(LogEvent.REASON, "no-session");
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(JSON.readTree(response.getContentAsString()))
+                .isEqualTo(JSON.valueToTree(ApiError.of(HttpStatus.UNAUTHORIZED)));
+        assertThat(response.getErrorMessage()).as("written, not sent to the error page").isNull();
+    }
+
+    /**
+     * Each refusal is answered in the request's namespace's document: under the FHIR namespace an
+     * {@code OperationOutcome}, and on a path in no namespace the container's own error.
+     */
+    @Test
+    void each_refusal_is_answered_in_the_requests_namespaces_document() throws Exception {
+        MockHttpServletResponse fhir401 = new MockHttpServletResponse();
+        entryPoint().commence(request("GET", "/api/patient/x"), fhir401,
+                new InsufficientAuthenticationException("anonymous"));
+        MockHttpServletResponse fhir403 = new MockHttpServletResponse();
+        deniedHandler().handle(request("GET", "/api/patient/x"), fhir403,
+                new AccessDeniedException("x"));
+        MockHttpServletResponse elsewhere = new MockHttpServletResponse();
+        entryPoint().commence(request("GET", "/accounts"), elsewhere,
+                new InsufficientAuthenticationException("anonymous"));
+
+        assertThat(JSON.readTree(fhir401.getContentAsString()))
+                .isEqualTo(JSON.valueToTree(FhirOperationOutcome.of(401)));
+        assertThat(JSON.readTree(fhir403.getContentAsString()))
+                .isEqualTo(JSON.valueToTree(FhirOperationOutcome.of(403)));
+        assertThat(elsewhere.getStatus()).isEqualTo(401);
+        assertThat(elsewhere.getContentAsByteArray()).isEmpty();
     }
 
     /** A session id naming no live session: the idle timeout, or a revocation. */
@@ -153,6 +190,9 @@ class ApplicationChainRefusalTests {
                 new AccessDeniedException("Access Denied: requires user:read")));
 
         assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(JSON.readTree(response.getContentAsString()))
+                .isEqualTo(JSON.valueToTree(ApiError.of(HttpStatus.FORBIDDEN)));
         assertThat(record.getLevel()).isEqualTo(Level.WARN);
         assertThat(CapturedLog.fields(record))
                 .containsEntry(LogEvent.REASON, "insufficient-permissions");
@@ -191,6 +231,8 @@ class ApplicationChainRefusalTests {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(second.getStatus()).isEqualTo(403);
+        assertThat(JSON.readTree(second.getContentAsString()))
+                .isEqualTo(JSON.valueToTree(ApiError.of(HttpStatus.FORBIDDEN)));
         assertThat(CapturedLog.fields(missing)).containsEntry(LogEvent.REASON, "csrf");
         assertThat(CapturedLog.fields(invalid)).containsEntry(LogEvent.REASON, "csrf");
         assertThat(invalid.getFormattedMessage() + CapturedLog.fields(invalid))
@@ -200,11 +242,11 @@ class ApplicationChainRefusalTests {
     }
 
     private SessionAuthenticationEntryPoint entryPoint() {
-        return new SessionAuthenticationEntryPoint(refusals);
+        return new SessionAuthenticationEntryPoint(refusals, namespaces);
     }
 
     private RefusalLoggingAccessDeniedHandler deniedHandler() {
-        return new RefusalLoggingAccessDeniedHandler(refusals, audit, routes);
+        return new RefusalLoggingAccessDeniedHandler(refusals, audit, routes, namespaces);
     }
 
     private static ILoggingEvent onlyRecord(Action action) throws Exception {

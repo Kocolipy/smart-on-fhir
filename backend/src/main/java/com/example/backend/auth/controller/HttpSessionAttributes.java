@@ -33,7 +33,7 @@ public record HttpSessionAttributes(HttpSession session) implements SignedInSess
      * index the Login wrote and the client cannot — for a handler that must name its caller.
      * Never the {@code userName} the principal carries, which a directory rename can hand to
      * another User between signing in and acting. {@link SessionIdentityAdvice} answers the
-     * refusal with the bare {@code 401} an anonymous request gets.
+     * refusal with the {@code 401} an anonymous request gets, generic body and all.
      *
      * @throws UnknownSessionIdentityException if there is no session, or it names no stable id
      */

@@ -748,11 +748,12 @@ class AuthControllerTests {
     }
 
     /**
-     * A principal index that is not a stable id identifies nobody: the same bare {@code 401} a
-     * session with no index gets, never a {@code 500}, and no credential moves.
+     * A principal index that is not a stable id identifies nobody: the same generic {@code 401} a
+     * session with no index gets — no password check's mark — never a {@code 500}, and no
+     * credential moves.
      */
     @Test
-    void aChangeFromASessionWithAMalformedPrincipalIndexAnswers401Bare() throws Exception {
+    void aChangeFromASessionWithAMalformedPrincipalIndexAnswersTheGeneric401() throws Exception {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
@@ -761,11 +762,16 @@ class AuthControllerTests {
 
         mvc.perform(post("/api/auth/change-password")
                         .session(session)
+                        // JSON whatever the caller accepts, as every 401 on the API is.
+                        .accept(MediaType.TEXT_HTML)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"correct-password\","
                                 + "\"newPassword\":\"" + NEW_PASSWORD + "\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(content().string(""));
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json(
+                        "{\"status\":401,\"code\":\"request-refused\","
+                                + "\"detail\":\"The request was refused.\"}", true));
         assertThat(users.require("ada").login().passwordHash()).isEqualTo(hashBefore);
     }
 

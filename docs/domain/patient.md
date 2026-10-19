@@ -112,10 +112,14 @@ Every layer answers in this one shape, and the backend's `web` module owns it
   chain lets one through for a session holding baseline access so that the answer
   says what is true — the resource takes no write — rather than `403`.
 
-The firewall's, the chain's and the dispatcher's refusals are `sendError`s, which
-a servlet container would answer with its error page: not FHIR, and quoting the
-request's path, so the id. `FhirErrorDocumentFilter`, a container filter under
-`/api/patient`, writes the outcome in its place.
+Every layer asks `web.ErrorNamespaces` which document the request's namespace
+answers with, and `/api/patient` is the FHIR namespace: the chain's entry point
+and access-denied handler write the outcome themselves, and the firewall's and
+the dispatcher's refusals, which are `sendError`s a servlet container would
+answer with its error page — not FHIR, and quoting the request's path, so the id
+— are written as the outcome by `ErrorDocumentFilter`, the one `sendError`
+adapter every namespace shares. A new FHIR resource served beneath
+`/api/patient` is answered as FHIR by every layer with no further change.
 
 ## Logging
 

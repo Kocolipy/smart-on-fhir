@@ -2,6 +2,8 @@ package com.example.backend.auth.epic.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.web.ErrorNamespaces;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -23,7 +25,7 @@ class EpicReleaseGateFilterTests {
     void aClosedGatePassesEveryOtherPathThrough(String path) throws Exception {
         MockFilterChain chain = new MockFilterChain();
 
-        new EpicReleaseGateFilter()
+        new EpicReleaseGateFilter(new ErrorNamespaces(List.of()))
                 .doFilter(new MockHttpServletRequest("GET", path),
                         new MockHttpServletResponse(), chain);
 
@@ -35,7 +37,7 @@ class EpicReleaseGateFilterTests {
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        new EpicReleaseGateFilter()
+        new EpicReleaseGateFilter(new ErrorNamespaces(List.of()))
                 .doFilter(new MockHttpServletRequest("GET", "/api/auth/epic/launch"), response, chain);
 
         assertThat(chain.getRequest()).as("nothing behind the gate ran").isNull();
@@ -43,18 +45,19 @@ class EpicReleaseGateFilterTests {
     }
 
     /**
-     * The answer is the application API's generic refusal as JSON — never empty, and never
-     * anything the single-page shell could be mistaken for.
+     * The answer is the application API's generic refusal as JSON, its namespace's document, with
+     * the media type a handler's {@code ApiError} carries — never empty, and never anything the
+     * single-page shell could be mistaken for.
      */
     @Test
     void aClosedGateAnswersWithTheApiRefusalBody() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        new EpicReleaseGateFilter()
+        new EpicReleaseGateFilter(new ErrorNamespaces(List.of()))
                 .doFilter(new MockHttpServletRequest("GET", "/api/auth/epic/launch"), response,
                         new MockFilterChain());
 
-        assertThat(response.getContentType()).isEqualTo("application/json;charset=UTF-8");
+        assertThat(response.getContentType()).isEqualTo("application/json");
         assertThat(response.getContentAsString()).isEqualTo(
                 "{\"status\":404,\"code\":\"request-refused\",\"detail\":\"The request was refused.\"}");
     }

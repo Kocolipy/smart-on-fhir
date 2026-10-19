@@ -6,6 +6,7 @@ import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RequestFault;
+import com.example.backend.web.ErrorNamespace;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,13 +14,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Writes a SCIM error document from inside the namespace's filter chain, where no controller advice
- * runs, and gives the refusal its one log record.
+ * The SCIM namespace's {@link ErrorNamespace}: writes a SCIM error document where no controller
+ * advice runs, and gives the refusal its one log record.
  *
  * <p>The advice in {@code scim.controller} renders every refusal a handler raises. These are the
  * refusals that happen before or instead of a handler — a body over the size bound, a path no
  * endpoint serves, a method or content type an endpoint does not accept — and a SCIM client is owed
- * the same document shape for them, not the servlet container's error page or an empty body.
+ * the same document shape for them, not the servlet container's error page or an empty body. The
+ * size bound's refusal is written here by its own filter; the dispatcher's arrive as a
+ * {@code sendError}, which the application's one {@code sendError} adapter hands to
+ * {@link #refuse}, as it hands every namespace's to its own document.
  *
  * <p>Only a literal written by this class reaches {@code detail}: a refusal at this layer happens
  * before anything a caller sent has been understood, so there is nothing safe to quote, and the
@@ -33,13 +37,23 @@ import org.slf4j.LoggerFactory;
  * {@link #reason(int)}'s fixed set, chosen by the status alone; nothing the caller sent reaches it.
  * The record carries no resource type: at this layer no handler was matched, so no route names one.
  */
-final class ScimErrorDocument {
+final class ScimErrorDocument implements ErrorNamespace {
+
+    /** The namespace: the SCIM chain's, exactly this path and everything beneath it. */
+    static final String PATH = "/scim/v2";
 
     private static final String MEDIA_TYPE = "application/scim+json";
 
     private static final Logger log = LoggerFactory.getLogger(ScimErrorDocument.class);
 
-    private ScimErrorDocument() {
+    @Override
+    public String path() {
+        return PATH;
+    }
+
+    @Override
+    public void refuse(HttpServletResponse response, int status) throws IOException {
+        write(response, status);
     }
 
     /**

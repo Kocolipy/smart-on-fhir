@@ -9,6 +9,7 @@ import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.domain.PasswordNormalization;
+import com.example.backend.web.ErrorNamespaces;
 import com.example.backend.web.SpaRoutes;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -246,14 +247,17 @@ public class SecurityConfig {
             AccessRefusalLog accessRefusalLog,
             AuditTrail auditTrail,
             RouteTemplates routeTemplates,
+            ErrorNamespaces errorNamespaces,
             EpicLogin epicLogin) {
-        // Both refusals record themselves before answering. The access-denied handler is the
-        // chain's one handler, and the CSRF filter answers through the same one, so a missing
-        // token and a missing Permission are each recorded once, under their own reason — and
-        // only the latter, an authorization decision, is audited.
-        AuthenticationEntryPoint unauthorized = new SessionAuthenticationEntryPoint(accessRefusalLog);
+        // Both refusals record themselves before answering, in the request's namespace's error
+        // document. The access-denied handler is the chain's one handler, and the CSRF filter
+        // answers through the same one, so a missing token and a missing Permission are each
+        // recorded once, under their own reason — and only the latter, an authorization
+        // decision, is audited.
+        AuthenticationEntryPoint unauthorized =
+                new SessionAuthenticationEntryPoint(accessRefusalLog, errorNamespaces);
         AccessDeniedHandler forbidden = new RefusalLoggingAccessDeniedHandler(
-                accessRefusalLog, auditTrail, routeTemplates);
+                accessRefusalLog, auditTrail, routeTemplates, errorNamespaces);
         // Epic Login (ADR 0012), whichever state APP_EPIC_ENABLED puts it in, and everything it
         // adds to this chain. Off, its release gate is ordered first, as the SCIM one is in its
         // chain, so every request under /api/auth/epic is answered 404 before any session, CSRF

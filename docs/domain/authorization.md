@@ -60,7 +60,8 @@ contract test proves every declaration against the running application.
 
 **Authorization refusal** — the `403` a signed-in caller gets when the operation
 does not admit it: a Permission it lacks, a route nothing declares, or a confined
-session. Generic on purpose: the response is bodiless, and the refusal is audited
+session. Generic on purpose: the response carries the generic `request-refused`
+`ApiError` (an `OperationOutcome` under `/api/patient`), and the refusal is audited
 (`ACCESS_DENIED`) and logged at `WARN` with the caller, the operation (method and
 route template) and one reason (`INSUFFICIENT_PERMISSIONS` /
 `insufficient-permissions`), never naming the Permission, a Role or the rule. The

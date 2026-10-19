@@ -47,7 +47,9 @@ change, when the backend side moves. What the SPA has to honour:
   well-formed `{ headerName, token }`. Both preserve the auth state:
   pages show `FORBIDDEN_MESSAGE` ("You don't have permission to do this.") or
   `CSRF_EXPIRED_MESSAGE`, read from `useSessionRequest`, and neither ever ends
-  the session. A `401` returns
+  the session. The filter chain's `401` and `403` both carry the generic
+  `ApiError` body (`code` `request-refused`), the same bytes for every cause;
+  the SPA reads neither and classifies by the status alone. A `401` returns
   `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
   session and `ProtectedRoute` sends the user to login, the redirect carrying
   the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
@@ -57,13 +59,14 @@ change, when the backend side moves. What the SPA has to honour:
   one `401` carrying the one constant body `{"refused":"current-password"}`
   (`PasswordChangeRefusal`), which says the check answered and never why. A
   request with no live session — expired, revoked, never signed in — is
-  refused by the filter chain before the check with the bare `401` every
-  operation gives it, so nothing is compared and no failed attempt is counted.
+  refused by the filter chain before the check with the `401` every operation
+  gives it — the generic `ApiError`, which carries no mark — so nothing is
+  compared and no failed attempt is counted.
   `changePassword` (`src/auth/api.ts`) reads a `401` without the mark as the
   outcome `expired` — the ordinary `401` path above, ending the session with
   the sign-in reason `expired` — and only a marked one sends it to probe
   `GET /api/auth/me`: a session still standing is a wrong current password, a
-  session gone is the lockout that ended it. Probing on a bare `401` would read
+  session gone is the lockout that ended it. Probing on an unmarked `401` would read
   every expired session as a lockout. `apiFetch` hands a caller that passes a
   failure decoder the `401`'s body as `detail`, exactly as it does for any
   other unsuccessful status but `403`.

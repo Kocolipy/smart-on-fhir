@@ -15,6 +15,7 @@ import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.application.PatientSeedService;
 import com.example.backend.patient.domain.Patient;
 import com.example.backend.web.ApiExceptionHandler;
+import com.example.backend.web.ErrorNamespaces;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -75,7 +76,7 @@ class PatientR5ConformanceTests {
         mvc = MockMvcBuilders
                 .standaloneSetup(new PatientController(new PatientReadService(patients)))
                 // A failure is answered by the app-wide handler, as in the running service.
-                .setControllerAdvice(new ApiExceptionHandler())
+                .setControllerAdvice(new ApiExceptionHandler(new ErrorNamespaces(List.of())))
                 .build();
     }
 

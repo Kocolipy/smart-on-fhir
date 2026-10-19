@@ -8,6 +8,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.application.ScimLogFields;
+import com.example.backend.web.ErrorDocumentFilter;
+import com.example.backend.web.ErrorNamespaces;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -20,13 +22,21 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A refusal the dispatcher sends with {@code sendError} inside the SCIM namespace becomes a SCIM
- * error document, keeps the headers set before it, and never quotes the dispatcher's message.
+ * error document, keeps the headers set before it, and never quotes the dispatcher's message —
+ * through the one {@code sendError} adapter, with the SCIM namespace contributed as this module's
+ * configuration contributes it.
  */
-class ScimDispatcherErrorFilterTests {
+class ScimErrorNamespaceTests {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    private final ScimDispatcherErrorFilter filter = new ScimDispatcherErrorFilter();
+    private final ErrorDocumentFilter filter = new ErrorDocumentFilter(
+            new ErrorNamespaces(List.of(new ScimSecurityConfig().scimErrorNamespace())));
+
+    /** A request in the SCIM namespace. */
+    private static MockHttpServletRequest scimRequest() {
+        return new MockHttpServletRequest("POST", "/scim/v2/Users");
+    }
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
@@ -42,7 +52,7 @@ class ScimDispatcherErrorFilterTests {
         // A container's own default, so the document's UTF-8 is shown to be set, not inherited.
         response.setDefaultCharacterEncoding("ISO-8859-1");
 
-        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+        filter.doFilter(scimRequest(), response, (req, res) -> {
             ((HttpServletResponse) res).setHeader("Allow", "GET, POST");
             ((HttpServletResponse) res).sendError(status, "Request method 'X<script>' is bad");
         });
@@ -80,7 +90,7 @@ class ScimDispatcherErrorFilterTests {
     void a_sent_error_is_one_scim_refusal_record(
             int status, String reason, String level, String type) throws Exception {
         try (CapturedLog captured = CapturedLog.attach()) {
-            filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(),
+            filter.doFilter(scimRequest(), new MockHttpServletResponse(),
                     (req, res) -> ((HttpServletResponse) res)
                             .sendError(status, "Request method 'X<script>' is bad"));
 
@@ -105,7 +115,7 @@ class ScimDispatcherErrorFilterTests {
     @Test
     void a_response_that_sends_no_error_writes_no_record() throws Exception {
         try (CapturedLog captured = CapturedLog.attach()) {
-            filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(),
+            filter.doFilter(scimRequest(), new MockHttpServletResponse(),
                     (req, res) -> ((HttpServletResponse) res).setStatus(401));
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal"))
@@ -117,7 +127,7 @@ class ScimDispatcherErrorFilterTests {
     void the_messageless_send_error_is_rendered_too() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(new MockHttpServletRequest(), response,
+        filter.doFilter(scimRequest(), response,
                 (req, res) -> ((HttpServletResponse) res).sendError(405));
 
         assertThat(response.getStatus()).isEqualTo(405);
@@ -130,7 +140,7 @@ class ScimDispatcherErrorFilterTests {
         MockHttpServletResponse response = new MockHttpServletResponse();
         response.setBufferSize(1024);
 
-        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+        filter.doFilter(scimRequest(), response, (req, res) -> {
             res.getWriter().write("partial");
             ((HttpServletResponse) res).sendError(404);
         });
@@ -143,7 +153,7 @@ class ScimDispatcherErrorFilterTests {
             throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+        filter.doFilter(scimRequest(), response, (req, res) -> {
             res.flushBuffer();
             assertThatThrownBy(() -> ((HttpServletResponse) res).sendError(404))
                     .isInstanceOf(IllegalStateException.class);
@@ -156,7 +166,7 @@ class ScimDispatcherErrorFilterTests {
     void a_response_that_sends_no_error_is_left_alone() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+        filter.doFilter(scimRequest(), response, (req, res) -> {
             ((HttpServletResponse) res).setStatus(401);
             ((HttpServletResponse) res).setHeader("WWW-Authenticate", "Bearer");
         });
