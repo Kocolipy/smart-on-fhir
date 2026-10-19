@@ -210,6 +210,7 @@ FAST_GATE=(
   com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapterTests
   com/example/backend/scim/infrastructure/persistence/entity/CompositeKeyContractTests
   com/example/backend/web/ApiExceptionHandlerTests
+  com/example/backend/web/FhirErrorDocumentFilterTests
   com/example/backend/web/ReadRequestsTests
   com/example/backend/web/SpaRoutesScimNamespaceTests
   com/example/backend/web/SpaRoutesTests

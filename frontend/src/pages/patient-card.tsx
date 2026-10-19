@@ -68,13 +68,15 @@ function PatientReading({ clock, view }: { clock: Clock; view: ReadView<PatientS
  * `patient:read`, until a SMART launch supplies the patient in context.
  *
  * A `404` is "No patient in context", which is not an error; any other
- * failure goes to the page's one error line. Age is derived from the birth
+ * failure — a `403` too, since the card reads only once `patient:read` is
+ * held — goes to the page's one error line as "Couldn't load patient". Age is derived from the birth
  * date as completed years on today's date in Singapore, read from `clock`.
  */
 export function PatientCard({ clock = systemClock }: { clock?: Clock }) {
   const { view } = useGatedRead(PATIENT, {
     args: [DEFAULT_PATIENT_ID],
     failureMessage: "Couldn't load patient",
+    forbiddenAsFailure: true,
   });
   return (
     <Card className="w-full">

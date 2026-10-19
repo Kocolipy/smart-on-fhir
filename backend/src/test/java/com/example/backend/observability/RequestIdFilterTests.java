@@ -208,7 +208,7 @@ class RequestIdFilterTests {
                 .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
     }
 
-    /** Below {@code 500} the request record classifies no error: a refusal has its own record. */
+    /** Below {@code 500}, unclassified by its handler, the request record classifies no error. */
     @ParameterizedTest
     @ValueSource(ints = {200, 400, 404, 499})
     void aRecordBelowFiveHundredCarriesNoErrorClassification(int status) throws Exception {
@@ -244,6 +244,55 @@ class RequestIdFilterTests {
                 .containsEntry(LogEvent.OUTCOME, "failure")
                 .doesNotContainKeys(LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY,
                         LogEvent.ERROR_FOLLOW_UP_ACTION);
+    }
+
+    /**
+     * A refusal its handler classified rather than recorded — the FHIR path's {@code 400} and
+     * {@code 404} — is classified on the request record itself, which stays its only record: the
+     * caller's error, needing no follow-up, at {@code WARN}.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {400, 404})
+    void aRefusalTheHandlerClassifiedIsClassifiedOnTheRequestRecord(int status) throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/patient/x"),
+                (request, response) -> {
+                    matched("/api/patient/{id}", status).handle(request, response);
+                    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+                    try {
+                        RequestRefusal.classified(LogEvent.ErrorCategory.DATA);
+                    } finally {
+                        RequestContextHolder.resetRequestAttributes();
+                    }
+                });
+
+        ILoggingEvent record = onlyRequestRecord();
+        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, status)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "data")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false);
+    }
+
+    /** Only the mark itself classifies: an attribute of another type under its name does not. */
+    @Test
+    void aRefusalMarkOfTheWrongTypeIsIgnored() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/patient/x");
+        request.setAttribute(RequestRefusal.CATEGORY_ATTRIBUTE, "data");
+
+        idSeenDuringChain(request, matched("/api/patient/{id}", 404));
+
+        assertThat(CapturedLog.fields(onlyRequestRecord()))
+                .doesNotContainKeys(LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY);
+    }
+
+    /** Off any request — a scheduled job's thread — classifying is a no-op, not a failure. */
+    @Test
+    void classifyingWithNoRequestInScopeDoesNothing() {
+        RequestContextHolder.resetRequestAttributes();
+
+        RequestRefusal.classified(LogEvent.ErrorCategory.DATA);
+
+        assertThat(RequestContextHolder.getRequestAttributes()).isNull();
     }
 
     @Test

@@ -10,7 +10,10 @@ addenda, including the rules they superseded, are in git history. Amended on
 2026-10-14 (#64) for ADR 0013's logging resolutions: SQL exception text, the
 database category mapping with the deadlock retry, connection details and the
 retention run's one line. Amended again on 2026-10-14 (B23) for the deadlock
-retry's coverage rules and the second deadlock's `503`.
+retry's coverage rules and the second deadlock's `503`. Amended on 2026-10-18 (#128)
+for patient data: the `403` refusal's `cert/auth` classification, the patient
+path's `4xx` classified on the request record, and the NRIC in
+`be-log-sensitive-value`.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -318,6 +321,7 @@ A record with neither an exception nor a classification gets no `error` object.
 | SCIM unmapped integrity violation                  | `500`        | `database`                                             | redacted copy                             |
 | audit append failed                                | `500`        | `database`                                             | none, `app.error.cause_omitted`           |
 | request record, 5xx no handler recorded            | the status   | `application`                                          | none                                      |
+| request record, FHIR-path 4xx the handler answered | the status   | `data`                                                 | none                                      |
 | app-wide handler, unexpected exception             | the status   | the mapping for a database failure, else `application` | whole; redacted for a data-access failure |
 | Epic call with no answer                           | `502`        | `network`                                              | redacted copy                             |
 
@@ -523,7 +527,10 @@ exchange, recorded on the request dispatch and only the first time. It carries:
   `bearer-missing`, `bearer-invalid`, `insufficient-permissions` or `csrf`;
 - the method and the route template the request would have matched
   (`RouteTemplates`, which asks the handler mapping without dispatching);
-- the caller from the context.
+- the caller from the context;
+- for a `403` only, the caller's-error classification: `error.code` `403`,
+  `error.category` `cert/auth`, `error.follow_up_action` `false` (#128). A `401`
+  carries none.
 
 No reason names a role, matcher, Permission or authority. No part of a presented
 token, not even a prefix or the lookup id, reaches a record.
@@ -597,7 +604,10 @@ rules hold its `basePackages` list.
 - A `4xx` that Spring MVC maps (validation, an unreadable body, an unbindable
   parameter) is one `WARN` `http.request.refusal`, classified `data` with no
   follow-up. Its `event.reason` is the exception's type, never its message, which
-  quotes the rejected value.
+  quotes the rejected value. Under `/api/patient` (#128) the handler writes no such
+  record: a read of a patient adds none to the request's own, so the handler
+  marks the request (`RequestRefusal`) and `RequestIdFilter` writes the
+  `data` classification, with no follow-up, on the request record instead.
 - The body is `ApiError`: `status`, `code` (`invalid-request`, `request-refused`,
   `server-error`) and a fixed `detail`, with no member taken from the request.
 
@@ -705,7 +715,11 @@ that do not exist yet. Neither alone is the property.
   identifier or a secret being passed to a logging call, including as a `{}`
   parameter. Its names come in two families:
   - Names matched anywhere in the argument: password, token (which covers
-    `id_token`, `access_token` and `refresh_token`), hash, and similar.
+    `id_token`, `access_token` and `refresh_token`), hash, and similar — and a
+    Patient's `nric` (but not the tail of `enrich`), patient data being Restricted
+    and a patient being logged by its UUID alone (`docs/domain/patient.md`).
+    `PatientErrorContractIntegrationTests` is the redaction test that drives the
+    patient read.
   - D22's other names (`code`, `authorizationCode`, `state`, `nonce`, `launch`, the
     verifier, the assertion, `privateKey`, `pem`, `clientKey`, `clientNextKey`, and
     the two key variables), matched as a whole identifier only. Otherwise

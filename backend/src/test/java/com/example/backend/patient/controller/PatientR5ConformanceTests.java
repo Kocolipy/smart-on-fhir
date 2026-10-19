@@ -14,6 +14,7 @@ import com.example.backend.patient.application.DevPatientFixtures;
 import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.application.PatientSeedService;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.web.ApiExceptionHandler;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -73,6 +74,8 @@ class PatientR5ConformanceTests {
         new PatientSeedService(patients).seedDevFixtures(DevPatientFixtures.ALL);
         mvc = MockMvcBuilders
                 .standaloneSetup(new PatientController(new PatientReadService(patients)))
+                // A failure is answered by the app-wide handler, as in the running service.
+                .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }
 
@@ -113,7 +116,15 @@ class PatientR5ConformanceTests {
         assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
     }
 
-    /** The two passes above mean something only if the validator fails what is not base R5. */
+    @Test
+    void theInvalidIdAnswerIsAValidBaseR5OperationOutcome() throws Exception {
+        MockHttpServletResponse response = read("not-a-uuid");
+
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
+    }
+
+    /** The passes above mean something only if the validator fails what is not base R5. */
     @Test
     void theValidatorFailsAPatientThatIsNotBaseR5() {
         assertThat(errors("""

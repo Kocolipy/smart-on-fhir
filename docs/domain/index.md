@@ -31,4 +31,4 @@ bodies, and the ADRs in `/docs/adr/` record the decisions.
 
 # Clinical data
 
-- [Patients](patient.md) - The FHIR R5 Patient's element rules, the NRIC system, the authoritative name text, derived age, the default patient, the four dev fixtures and their seeding, and how R5 conformance is proven.
+- [Patients](patient.md) - The FHIR R5 Patient's element rules, the NRIC system, the authoritative name text, derived age, its Restricted classification, the error contract, the logging rules, the deliberate absence of read auditing, the default patient, the four dev fixtures and their seeding, and how R5 conformance is proven.

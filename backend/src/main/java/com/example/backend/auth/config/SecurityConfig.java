@@ -358,6 +358,14 @@ public class SecurityConfig {
                                 .hasAuthority(Permission.COUNTER_WRITE.value())
                         .requestMatchers(read("/api/patient/*"))
                                 .hasAuthority(Permission.PATIENT_READ.value())
+                        // Not a backstop: no operation serves any other method on a patient, and
+                        // the rule above matches a read only. It lets one through, for a session
+                        // holding baseline access as /error is, so the dispatcher answers it 405 —
+                        // the resource takes no write, as FHIR's not-supported says — rather than
+                        // the final rule 403, a refusal of the caller. A carve-out from deny-by-
+                        // default (ADR 0010, addendum of 2026-10-18): a patient write, when one
+                        // exists, must put its own Permission rule ahead of this one.
+                        .requestMatchers("/api/patient/*").hasRole(USER_ROLE)
                         // Operational telemetry (the Prometheus scrape) and every other
                         // actuator endpoint but health, on whichever port actuator is served.
                         // A scrape describes the whole service's traffic, so it needs ops:read.

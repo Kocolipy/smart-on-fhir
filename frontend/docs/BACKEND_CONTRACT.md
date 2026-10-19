@@ -54,13 +54,17 @@ change, when the backend side moves. What the SPA has to honour:
   looks like a random sign-out to the user.
 - **A patient read answers FHIR, and `404` there means "not there".**
   `GET /api/patient/{id}` answers `application/fhir+json; fhirVersion=5.0`
-  — an R5 `Patient`, or for an id no patient is held under a `404` with a
-  `not-found` `OperationOutcome` — and the SPA sends no `Accept` header that
-  would refuse it. Its declaration (`PATIENT`, `src/pages/home-api.ts`) opts in
-  to `absentOnNotFound`, so that `404` is the Patient card's "No patient in
-  context" and reports nothing to the page status; any other failure is
-  "Couldn't load patient". Its `401` and `403` are the application API's own,
-  as everywhere.
+  whatever the status — an R5 `Patient`, or for every error an
+  `OperationOutcome` with one issue and fixed diagnostics (`400` `invalid`,
+  `401` `login`, `403` `forbidden`, `404` `not-found`, `405` `not-supported`,
+  `5xx` `exception`; `/docs/domain/patient.md`, "Errors") — and the SPA sends
+  no `Accept` header that would refuse it. The SPA reads none of an outcome:
+  the status alone classifies it, so the `401` / `403` split holds here as
+  everywhere. Its declaration (`PATIENT`, `src/pages/home-api.ts`) opts in to
+  `absentOnNotFound`, so that `404` is the Patient card's "No patient in
+  context" and reports nothing to the page status; every other failure — a
+  `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx` — is the
+  card's failed state, "Couldn't load patient".
 - **A request body is JSON, and says so.** The backend reads a request body
   through its JSON converter only, so a body sent without
   `Content-Type: application/json` is refused `415` before any handler runs.

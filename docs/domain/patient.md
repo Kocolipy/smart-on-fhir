@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Patients
-description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the default patient, the four development fixtures and their seeding, and how R5 conformance is proven.
+description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the data classification, the error contract, the logging rules, the deliberate absence of read auditing, the default patient, the four development fixtures and their seeding, and how R5 conformance is proven.
 tags: [patient, fhir]
 ---
 
@@ -58,11 +58,95 @@ these:
   `other` or `unknown`. The table's `CHECK` holds the column to those four codes.
 - **`birthDate`** — required, to the day.
 
-An id no Patient is held under answers `404` with an `OperationOutcome` holding one
-issue — `severity: error`, `code: not-found` — whose `diagnostics` are generic and
-say nothing about the id. Both answers are `application/fhir+json;
-fhirVersion=5.0`. The SPA reads the `404` as "No patient in context", an ordinary
-answer rather than a failure.
+The path follows the repo's convention: an unversioned `/api` base, held in code.
+
+## Data classification
+
+Patient data is **Restricted, Sensitive Normal**: the NRIC, the name and the date
+of birth, and the resource or its JSON as a whole. It is shown to a signed-in
+user holding `patient:read` and goes nowhere else — not into a log, an error body
+or an audit row.
+
+## Errors
+
+**Every answer is `application/fhir+json; fhirVersion=5.0`**, success or error.
+Every error body is an `OperationOutcome` with exactly one issue, `severity:
+error`, whose `code` is chosen by the status alone and whose `diagnostics` are a
+fixed sentence per code:
+
+| Case                               | Status | `code`          | `diagnostics`                       |
+| ---------------------------------- | ------ | --------------- | ----------------------------------- |
+| Malformed (non-UUID) id            | `400`  | `invalid`       | The request is not valid.           |
+| No session                         | `401`  | `login`         | A signed-in session is required.    |
+| Session lacks `patient:read`       | `403`  | `forbidden`     | The request is not permitted.       |
+| Unknown UUID                       | `404`  | `not-found`     | The resource was not found.         |
+| `POST`, `PUT`, `PATCH` or `DELETE` | `405`  | `not-supported` | The request is not supported.       |
+| Unexpected failure                 | `5xx`  | `exception`     | The request could not be completed. |
+
+An outcome never contains an exception message, SQL, a stack trace or the
+submitted id — markup or a line break in the id included. The SPA reads the `404`
+as "No patient in context", an ordinary answer rather than a failure; every other
+error is the Patient card's failed state.
+
+Every layer answers in this one shape, and the backend's `web` module owns it
+(`FhirOperationOutcome`), so the `patient` module keeps its two edges (ADR 0014):
+
+- **The app-wide exception handler** answers a handler's failure — the malformed
+  id, the unknown one (the controller raises `NoSuchPatientException`, carrying no
+  message and no id) and a fault — and maps it to an `error.category`: `data`
+  for the `400` and the `404`, and `application` (or the database mapping, for a
+  database failure) for a `5xx`, in its one `ERROR` fault record. The `400` and
+  the `404` get no record of the handler's own: under `/api/patient` the handler
+  writes no `http.request.refusal` record and puts its classification
+  (`error.code`, `error.category` `data`, `error.follow_up_action` `false`) on
+  the request record instead (`RequestRefusal`), so the classification exists
+  and the request still has one record. Everywhere else a refusal keeps its own
+  `WARN` refusal record, as before.
+- **The security chain** refuses a session without `patient:read` — by the
+  handler's `@PreAuthorize`, or by its backstop, which matches a read (`GET`,
+  `HEAD`) only. The `403` is logged at `WARN` through the existing
+  authorization-failure path (`access.denied`, reason `insufficient-permissions`,
+  `error.category` `cert/auth`) and audited as an `ACCESS_DENIED`, as every
+  authorization refusal is.
+- **The dispatcher** answers a write method `405` before any handler runs. The
+  chain lets one through for a session holding baseline access so that the answer
+  says what is true — the resource takes no write — rather than `403`.
+
+The firewall's, the chain's and the dispatcher's refusals are `sendError`s, which
+a servlet container would answer with its error page: not FHIR, and quoting the
+request's path, so the id. `FhirErrorDocumentFilter`, a container filter under
+`/api/patient`, writes the outcome in its place.
+
+## Logging
+
+- **A patient is identified in a log only by its UUID.** The NRIC, the name and
+  the `birthDate` are never logged, and neither is the resource or its JSON.
+- **`Patient.toString()` prints the id alone.** A Java record's generated
+  `toString` prints every field, so a Patient printed into a message or an
+  exception would carry all three.
+- **A read adds no record of its own.** A success, a `400` and a `404` each
+  have the request record alone, which names the route template, never the raw
+  `{id}`; the `400`'s and the `404`'s carries their `data` classification. A
+  `403` adds the authorization refusal's `WARN` record and a `5xx` the fault's
+  `ERROR` record, neither naming the id.
+- **The NRIC's name is masked at the logging boundary**, as defence in depth: the
+  Semgrep rule `be-log-sensitive-value` refuses any value named `nric` (ADR 0003,
+  "Redaction gates").
+
+`PatientErrorContractIntegrationTests` captures the stream of a successful read, a
+`400` and a `404` and asserts that none of the patient's NRIC, name or date of
+birth, and none of the ids asked for, appear in it.
+
+## Patient reads are not audited
+
+A read of a patient writes **no audit row**. This is deliberate for now: every
+Patient is a development fixture with a dummy NRIC, and the audit trail records
+security-relevant changes and refusals, not reads. A refused read is still audited,
+as `ACCESS_DENIED`.
+
+**Follow-up, before any real patient data arrives:** decide whether — and how —
+patient reads are audited (who read which patient, when), since access to real
+Restricted data must be accountable.
 
 ## Age is derived
 
@@ -131,7 +215,8 @@ The service writes its FHIR JSON by hand (ADR 0014), so a test holds it against
 the specification: `PatientR5ConformanceTests` seeds the four fixtures, reads each
 through `GET /api/patient/{id}`, and validates the response body exactly as
 written with **HAPI FHIR's R5 validator** against base R5 `Patient`. It does the
-same for the `404` body against base R5 `OperationOutcome`. Any validation message
+same for the `404` and `400` bodies against base R5 `OperationOutcome`, answered
+by the app-wide exception handler as in the running service. Any validation message
 of severity error or fatal fails the test; a warning, such as a best-practice
 rule, does not. The same class checks that the
 validator rejects a Patient that is not base R5, so a pass means something.

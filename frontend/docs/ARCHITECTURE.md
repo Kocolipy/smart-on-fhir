@@ -264,6 +264,14 @@ opts in has no `absent` case to handle. Opt in only where a `404` means
 since the listing was read — it is a failure the page has copy for, and stays
 one.
 
+A page whose read is sent only once its Permission is held may also pass
+`forbiddenAsFailure: true` beside its `failureMessage`: a `403` is then
+reported with the page's failure copy rather than the seam's refusal copy,
+still as `failed`, and still without ending the session. Unlike
+`absentOnNotFound` it is the page's option, not the declaration's, because it
+chooses copy rather than describing the endpoint. The Patient card is its one
+user: a `403` there is "Couldn't load patient", as a `400` or a `5xx` is.
+
 Every page action — Unlock, the forced change, connector and token changes, the
 counter's buttons — goes through `auth/use-gated-write.ts`. A page names the
 write's declaration — path, method, optional JSON body, optional success

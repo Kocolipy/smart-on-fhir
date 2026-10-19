@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -51,7 +52,8 @@ import org.springframework.web.servlet.HandlerMapping;
  * {@code INFO} below {@code 400}, {@code WARN} for a {@code 4xx} and {@code ERROR} for a
  * {@code 5xx} — a {@code 5xx} carrying the {@code error.*} classification, or at
  * {@code WARN} when the handler that answered it already wrote its {@code ERROR}
- * ({@link RequestFault}).
+ * ({@link RequestFault}); a {@code 4xx} carrying it only when its handler classified the
+ * refusal here instead of writing a record of its own ({@link RequestRefusal}).
  *
  * <p>It names who made the request: {@code user.id} for a session-authenticated caller and
  * {@code scim.connector.id} for a SCIM bearer call, put back in scope from
@@ -155,12 +157,18 @@ public class RequestIdFilter extends OncePerRequestFilter {
      * <p>A {@code 5xx} is the request's {@code ERROR}, classified as an {@code application}
      * error needing follow-up — unless a handler already wrote the fault's {@code ERROR}
      * record ({@link RequestFault}), when this one is {@code WARN} so the one failure is not
-     * reported twice.
+     * reported twice. A refusal whose handler classified it rather than recording it
+     * ({@link RequestRefusal}) carries that classification, needing no follow-up.
      */
     private static void record(HttpServletRequest request, int status, long started) {
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        LogEvent.requestEnd(log, status, RequestFault.isRecorded(request), durationMs)
-                .addKeyValue(LogEvent.HTTP_METHOD, method(request))
+        LoggingEventBuilder record =
+                LogEvent.requestEnd(log, status, RequestFault.isRecorded(request), durationMs);
+        LogEvent.ErrorCategory refusal = RequestRefusal.of(request);
+        if (refusal != null) {
+            LogEvent.withError(record, status, refusal, false);
+        }
+        record.addKeyValue(LogEvent.HTTP_METHOD, method(request))
                 .addKeyValue(LogEvent.HTTP_ROUTE, route(request))
                 .log();
     }

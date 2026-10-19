@@ -164,3 +164,38 @@ class PlantedTimestampBinds {
         java.time.OffsetDateTime at = row.getObject("occurred_at", java.time.OffsetDateTime.class);
     }
 }
+
+class PlantedPatientValues {
+
+    private static final Logger log = LoggerFactory.getLogger(PlantedPatientValues.class);
+
+    void nricNamedValuesReachARecord(Patient patient, String nric, String patientNric) {
+        // ruleid: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue("patient.nric", patient.nric())
+                .log();
+        // ruleid: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue(LogEvent.REASON, nric)
+                .log();
+        // ruleid: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue(LogEvent.REASON, patientNric)
+                .log();
+        // ruleid: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue(LogEvent.REASON, NRIC_VALUE)
+                .log();
+    }
+
+    void theIdAndAnEnrichedValueDoNot(Patient patient, String enrichment) {
+        // ok: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue("patient.id", patient.id())
+                .log();
+        // ok: be-log-sensitive-value
+        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+                .addKeyValue(LogEvent.REASON, enrichment)
+                .log();
+    }
+}
