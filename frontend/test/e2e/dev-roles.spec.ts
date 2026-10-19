@@ -52,10 +52,9 @@ const EXPECTED: Record<
 async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
-  // Every fixture Role's User holds the baseline counter Permissions: the counter
-  // is shown and offered to each. Its value is not asserted — it is per User.
-  await expect(page.getByTestId("count")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Increment" })).toBeVisible();
+  // Every fixture Role's User holds the baseline patient:read: the Patient card
+  // shows each the default patient.
+  await expect(page.getByText("Tan Wei Ming")).toBeVisible();
   await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(
     linksToAccounts ? 1 : 0,
   );

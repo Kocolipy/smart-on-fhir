@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { csrfHeaderFor, postAdminAction, submitLoginViaApi } from "./auth.helpers";
+import { cardTitled } from "./card.helpers";
 import {
   anonymousApi,
   BACKEND_URL,
@@ -16,23 +17,22 @@ import {
 } from "./scim.helpers";
 
 // The seeded `user`: a baseline User, in no mapped Group, so holding only the
-// baseline Permissions every User holds — the counter's. What it sees and what
-// it is refused are both asserted.
+// baseline Permissions every User holds. What it sees and what it is refused
+// are both asserted.
 
 test.describe("baseline User pages", () => {
-  test("lands on Home with the counter and self-service, and no administration", async ({
+  test("lands on Home with the patient and self-service, and no administration", async ({
     page,
   }) => {
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
     await expect(page).toHaveURL("/");
-    await expect(page.getByTestId("count")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Increment" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reset" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Change password" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
+    // The Pages card links the one page a baseline User may open.
+    const pages = cardTitled(page, "Pages");
+    await expect(pages.getByRole("link")).toHaveText(["Change password"]);
+    await expect(page.getByRole("button")).toHaveText(["Sign out"]);
   });
 
   test("is routed away from the accounts page by a deep link", async ({ page }) => {
