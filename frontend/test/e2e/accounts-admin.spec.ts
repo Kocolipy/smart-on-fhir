@@ -312,6 +312,66 @@ test("an Unlock leaves a deactivated User deactivated, until the directory react
 });
 
 /**
+ * A lifetime chosen on the page is the one the token is issued with, and one
+ * past the 365-day maximum is held back by the browser before any request.
+ */
+test("issues a token for the lifetime typed, and holds back one past the maximum", async ({
+  page,
+}) => {
+  const name = `${E2E_PREFIX}lifetime-${RUN}`;
+  const issues: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/tokens"))
+      issues.push(request.url());
+  });
+  try {
+    await openAccounts(page);
+    await page.getByLabel("New connector name").fill(name);
+    await page.getByRole("button", { name: "Create connector" }).click();
+    const section = page.getByRole("region", { name: `Connector ${name}` });
+    await section
+      .getByRole("group", { name: `Permissions for ${name}` })
+      .getByRole("checkbox", { name: /^user:read / })
+      .check();
+    const lifetime = section.getByLabel(`Lifetime in days for ${name}`);
+    const issue = section.getByRole("button", { name: `Issue token for ${name}` });
+
+    await lifetime.fill("366");
+    await issue.click();
+    expect(await lifetime.evaluate((input: HTMLInputElement) => input.validity.rangeOverflow)).toBe(
+      true,
+    );
+    await expect(page.getByLabel("New token value")).toHaveCount(0);
+    expect(issues).toEqual([]);
+
+    await lifetime.fill("7");
+    const issued = page.waitForResponse(
+      (response) => response.request().method() === "POST" && response.url().endsWith("/tokens"),
+    );
+    await issue.click();
+    const response = await issued;
+    expect(response.status()).toBe(201);
+    const { expiresAt, issuedAt } = (await response.json()) as {
+      expiresAt: string;
+      issuedAt: string;
+    };
+    expect(Date.parse(expiresAt) - Date.parse(issuedAt)).toBe(7 * 24 * 60 * 60 * 1000);
+
+    // Shown as its date in Singapore, on the disclosure and in the token's row.
+    const singaporeDate = singaporeDateOf(expiresAt);
+    await expect(page.getByText(`user:read · expires ${singaporeDate}`)).toBeVisible();
+    await expect(section.getByRole("cell", { name: singaporeDate, exact: true })).toHaveCount(1);
+  } finally {
+    await deleteOwnConnectors(page);
+  }
+});
+
+/** The calendar date, `YYYY-MM-DD`, an ISO instant falls on in Singapore. */
+function singaporeDateOf(instant: string) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore" }).format(new Date(instant));
+}
+
+/**
  * Deletes this test's own Users and connectors, if the happy path did not get
  * to. Only its own, by this run's suffix: a prefix sweep here could delete a
  * parallel spec's fixtures. A crashed run's leftovers are swept by

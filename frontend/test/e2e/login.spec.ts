@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-import { SESSION_COOKIE, captureSessionCookie, login, submitLogin } from "./auth.helpers";
+import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
+  SESSION_COOKIE,
+  captureSessionCookie,
+  login,
+  submitLogin,
+} from "./auth.helpers";
 
 // The signed-out half of the session contract: who is turned away, what they are
 // told, and that signing out really ends the session rather than only clearing
@@ -8,11 +15,11 @@ import { SESSION_COOKIE, captureSessionCookie, login, submitLogin } from "./auth
 // because sign-in is its subject rather than its setup, so the per-test `login()`
 // the E2E guide warns about is deliberate here.
 //
-// Two of these sign in as the seeded Admin, and the backend keeps one session
+// Three of these sign in as the seeded Admin, and the backend keeps one session
 // per User: an accepted login ends every other session that User holds. That
 // is why the `guest` project runs after `admin` (playwright.config.ts), and why
-// this file runs in order in one worker — under `fullyParallel` the two sign-ins
-// would each revoke the other's session mid-test.
+// this file runs in order in one worker — under `fullyParallel` the sign-ins
+// would each revoke another's session mid-test.
 //
 // Flakiness rules for anything added here live in docs/TESTING_GUIDE.md.
 test.describe.configure({ mode: "default" });
@@ -48,18 +55,28 @@ test.describe("sessions, signed out", () => {
     });
   }
 
-  test("sends a guest asking for the protected page to the login page", async ({ page }) => {
-    await page.goto("/");
+  for (const path of ["/", "/accounts", "/audit", "/change-password"]) {
+    test(`sends a guest asking for ${path} to the login page`, async ({ page }) => {
+      await page.goto(path);
 
+      await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+      await expect(page).toHaveURL(/\/login$/);
+    });
+  }
+
+  // The redirect carries the page asked for as its return destination, in
+  // router state, so the form is filled where the redirect left it: `login()`
+  // starts from a fresh visit to `/login`, which carries none.
+  test("returns a guest to the page it asked for once signed in", async ({ page }) => {
+    await page.goto("/audit");
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/login$/);
-  });
 
-  test("sends a guest asking for the accounts page to the login page", async ({ page }) => {
-    await page.goto("/accounts");
+    await page.getByLabel("Username").fill(ADMIN_USERNAME);
+    await page.getByLabel("Password").fill(ADMIN_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/audit$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Audit");
   });
 
   test("redirects an unknown path to the login page", async ({ page }) => {

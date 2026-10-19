@@ -25,6 +25,24 @@ test.describe("Home", () => {
     ]);
   });
 
+  // Each page Home links names its way back, and following it lands on Home again.
+  for (const [link, title, back] of [
+    ["Manage accounts", "Accounts", "Back to home"],
+    ["View audit log", "Audit", "Back to home"],
+    ["Change password", "Change password", "Back"],
+  ] as const) {
+    test(`returns from ${title} to Home through its "${back}" link`, async ({ page }) => {
+      await page.goto("/");
+      await cardTitled(page, "Pages").getByRole("link", { name: link }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+
+      await page.getByRole("link", { name: back, exact: true }).click();
+
+      await expect(page).toHaveURL("/");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Home");
+    });
+  }
+
   test("offers no control but Sign out", async ({ page }) => {
     await page.goto("/");
     // Settled: the Patient card's read, Home's only one, has landed.

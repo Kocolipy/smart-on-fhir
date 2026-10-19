@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { ROUTE_READY } from "./route.helpers";
+
 /**
  * Every authenticated route loads with an empty console, as an Admin and as a
  * User. The smoke suite checks the login page; these are the pages that decode
@@ -11,23 +13,8 @@ import { expect, test, type Page } from "@playwright/test";
  * session alone, so `user.json` still replays a live session here.
  */
 
-/** What each route shows once its data has loaded, so nothing is checked mid-fetch. */
-const READY: Record<string, (page: Page) => Promise<void>> = {
-  "/": async (page) => {
-    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
-  },
-  "/accounts": async (page) => {
-    await expect(page.getByRole("table", { name: "Users" }).getByRole("row").nth(1)).toBeVisible();
-    await expect(page.getByRole("table", { name: "Groups" }).getByRole("row").nth(1)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create connector" })).toBeVisible();
-  },
-  "/change-password": async (page) => {
-    await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();
-  },
-};
-
 const IDENTITIES = [
-  { role: "admin", routes: ["/", "/accounts", "/change-password"] },
+  { role: "admin", routes: ["/", "/accounts", "/audit", "/change-password"] },
   {
     role: "user",
     routes: ["/", "/change-password"],
@@ -65,7 +52,7 @@ for (const identity of IDENTITIES) {
         // than redirecting; no alert means neither a refused load nor the
         // error boundary's fallback.
         await expect(target).toHaveURL(route);
-        await READY[route]!(target);
+        await ROUTE_READY[route]!(target);
         await expect(target.getByRole("alert")).toHaveCount(0);
       }
       expect(errors).toEqual([]);

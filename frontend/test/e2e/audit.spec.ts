@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { ADMIN_USERNAME, submitLoginViaApi, userIdOf } from "./auth.helpers";
+import { ADMIN_USERNAME, postAdminAction, submitLoginViaApi, userIdOf } from "./auth.helpers";
 import {
   anonymousApi,
   deprovisionUser,
@@ -35,12 +35,16 @@ const eventRows = (page: Page) =>
     .getByRole("row")
     .filter({ has: page.getByRole("cell") });
 
+/** The page size the Audit page asks for (`audit-api.ts`). */
+const PAGE_SIZE = 50;
+
 async function applyFilters(
   page: Page,
-  filters: { operation?: string; outcome?: string; resourceId?: string },
+  filters: { actorId?: string; operation?: string; outcome?: string; resourceId?: string },
 ) {
   await page.getByLabel("Operation").selectOption(filters.operation ?? "");
   await page.getByLabel("Outcome").selectOption(filters.outcome ?? "");
+  await page.getByLabel("Actor id").fill(filters.actorId ?? "");
   await page.getByLabel("Resource id").fill(filters.resourceId ?? "");
   await page.getByRole("button", { name: "Apply filters" }).click();
 }
@@ -106,6 +110,89 @@ test("an Admin's forced change and a refused login are found on the audit page",
     await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
   });
+});
+
+/**
+ * The listing past its first page. An Unlock of a User serving no lockout
+ * changes nothing but is still recorded, so one more Unlock than a page holds,
+ * all of this spec's own User, makes a second page whatever else the trail
+ * holds — and costs no password hash, unlike a refused login.
+ */
+test("pages through the trail, refreshes it, and narrows it by actor and by date range", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const userName = `${E2E_PREFIX}audit-paged-${runId()}`;
+  const id = await provisionUser(connector.scim, userName);
+  const unlock = async () =>
+    expect((await postAdminAction(page, id, "unlock")).status(), "unlocking").toBe(200);
+  try {
+    for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
+    const adminId = await userIdOf(page, ADMIN_USERNAME);
+    const position = page.getByText(/^Page \d+/);
+    const previous = page.getByRole("button", { name: "Previous" });
+    const next = page.getByRole("button", { name: "Next" });
+
+    await page.goto("/audit");
+    await applyFilters(page, { actorId: adminId, operation: "LOCKOUT_LIFT", resourceId: id });
+    await expect(position).toHaveText("Page 1 of 2");
+    await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    await expect(previous).toBeDisabled();
+
+    await next.click();
+    await expect(position).toHaveText("Page 2 of 2");
+    await expect(eventRows(page)).toHaveCount(1);
+    await expect(next).toBeDisabled();
+    // The oldest, which page one did not show.
+    await expect(eventRows(page).first().getByRole("cell").nth(2)).toHaveText(adminId);
+
+    // A Refresh re-reads the page shown: one more Unlock pushes one more row onto it.
+    await unlock();
+    await expect(eventRows(page)).toHaveCount(1);
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(eventRows(page)).toHaveCount(2);
+
+    await previous.click();
+    await expect(position).toHaveText("Page 1 of 2");
+    await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+
+    // Another actor took none of these actions.
+    await applyFilters(page, {
+      actorId: crypto.randomUUID(),
+      operation: "LOCKOUT_LIFT",
+      resourceId: id,
+    });
+    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
+
+    // A To far in the future keeps every one; a To before any of them keeps none.
+    await page.getByLabel("To", { exact: true }).fill("2099-01-01T00:00");
+    await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await expect(position).toHaveText("Page 1 of 2");
+    await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
+    await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
+
+    // A From after the To is refused on the page; the listing stays as it was.
+    await page.getByLabel("From").fill("2001-01-01T00:00");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByRole("alert")).toHaveText("The from date must be before the to date.");
+    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
+
+    // A To past the last instant a Date holds is refused on the page too. The
+    // browser's picker never offers one, so the field is typed into as text,
+    // as the Audit page's own unit tests do.
+    const to = page.getByLabel("To", { exact: true });
+    await to.evaluate((input: HTMLInputElement) => {
+      input.type = "text";
+    });
+    await to.fill("275760-12-31T23:59");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByRole("alert")).toHaveText("To date must be a valid date.");
+    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
+  } finally {
+    await deprovisionUser(connector.scim, id);
+  }
 });
 
 test.describe("in a browser whose zone is not Singapore's", () => {

@@ -178,7 +178,7 @@ previous one in `dependencies`:
   restart re-arms.
 
 `login.spec.ts` also opts out of `fullyParallel` with
-`test.describe.configure({ mode: "default" })`, since its two sign-ins would
+`test.describe.configure({ mode: "default" })`, since its sign-ins would
 otherwise revoke each other. A new spec that must sign in for real should do it
 as a User it provisions (see `change-password.spec.ts`), not as a seeded one.
 Running one project alone still runs every project ahead of it in the chain.
