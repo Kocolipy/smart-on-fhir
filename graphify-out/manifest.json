@@ -2154,9 +2154,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1792319801.0515637,
-    "seen": 1792400005.0548527,
-    "ast_hash": "c43d65faf61fca6677a57fdb5ec8317c",
+    "mtime": 1792401430.5864606,
+    "seen": 1792402217.1705644,
+    "ast_hash": "067f3e79ee3276bf1e826ef8a33381b4",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -2172,21 +2172,21 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1792319801.0515637,
-    "seen": 1792400005.0548542,
-    "ast_hash": "f3f1438ea730761a185c9c05a51b88f4",
+    "mtime": 1792401402.6490054,
+    "seen": 1792402217.1706,
+    "ast_hash": "944b85ba70db12fa5716919cd5db45e6",
     "semantic_hash": ""
   },
   "backend/AGENTS.md": {
-    "mtime": 1792319801.0515637,
-    "seen": 1792400005.0548549,
-    "ast_hash": "b82f96e0bfd332b9bb866fba76a06f4f",
+    "mtime": 1792401460.3787632,
+    "seen": 1792402217.1706011,
+    "ast_hash": "6b32768eda257febfe32a4a8e34f013a",
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1792392345.3901913,
-    "seen": 1792400005.0548553,
-    "ast_hash": "4d508dc9883019edfe2c466678242b7f",
+    "mtime": 1792401495.9009135,
+    "seen": 1792402217.1706026,
+    "ast_hash": "a29c3e33b52975635f849f7bbae1fd3c",
     "semantic_hash": ""
   },
   "backend/compose.yaml": {
@@ -2250,27 +2250,27 @@
     "semantic_hash": ""
   },
   "docs/adr/0002-revoke-sessions-after-commit.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.054873,
-    "ast_hash": "831ed0db2f15878653350de38edda665",
+    "mtime": 1792401940.8639197,
+    "seen": 1792402217.1711473,
+    "ast_hash": "ffea81a8a172c32a8e0769f5d5b1a3bf",
     "semantic_hash": ""
   },
   "docs/adr/0003-ecs-structured-logging-with-redaction.md": {
-    "mtime": 1792398065.116495,
-    "seen": 1792400005.0548737,
-    "ast_hash": "4313926c1eaf5195561aa03a323502db",
+    "mtime": 1792402080.0780172,
+    "seen": 1792402217.1711483,
+    "ast_hash": "1067a851abdb4268ee57cdc62b13c65d",
     "semantic_hash": ""
   },
   "docs/adr/0004-audit-append-failure-semantics.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.0548744,
-    "ast_hash": "bb190cb1a0c385647143562f192094d3",
+    "mtime": 1792402031.077312,
+    "seen": 1792402217.171149,
+    "ast_hash": "1f260acc578a01b42b8a69f28fad1b00",
     "semantic_hash": ""
   },
   "docs/adr/0005-serialize-scheduled-jobs-on-per-job-lock-rows.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.054875,
-    "ast_hash": "04c0e8a33479fec7d5fdf5886ce3d065",
+    "mtime": 1792401971.8896024,
+    "seen": 1792402217.1711495,
+    "ast_hash": "adf8315ed377688e6c60e56b3795f292",
     "semantic_hash": ""
   },
   "docs/agents/domain.md": {
@@ -2286,27 +2286,27 @@
     "semantic_hash": ""
   },
   "frontend/AGENTS.md": {
-    "mtime": 1792381485.8563368,
-    "seen": 1792400005.0548902,
-    "ast_hash": "68ceed7914cffe3326b63447eedbf6b1",
+    "mtime": 1792401712.6319513,
+    "seen": 1792402217.1714466,
+    "ast_hash": "49898aab3bf8e6a300053d8dc1543ced",
     "semantic_hash": ""
   },
   "frontend/README.md": {
-    "mtime": 1792383555.983932,
-    "seen": 1792400005.054891,
-    "ast_hash": "92ad3ad25550eebf38467b297081fc1e",
+    "mtime": 1792401611.0560734,
+    "seen": 1792402217.1714473,
+    "ast_hash": "d5903f0c1faa7c32e0aed3056aef49d1",
     "semantic_hash": ""
   },
   "frontend/docs/ARCHITECTURE.md": {
-    "mtime": 1792399357.067752,
-    "seen": 1792400005.0548916,
-    "ast_hash": "7b3d7384ca0f6f846bc6ab2a27ed25b1",
+    "mtime": 1792401705.357127,
+    "seen": 1792402217.171448,
+    "ast_hash": "a5a25f28fa85b4fe73b4205403e133de",
     "semantic_hash": ""
   },
   "frontend/docs/TESTING_GUIDE.md": {
-    "mtime": 1792383555.987932,
-    "seen": 1792400005.0548928,
-    "ast_hash": "a5d1ae38e5757edf897c071a1e4591f1",
+    "mtime": 1792401737.6200008,
+    "seen": 1792402217.17145,
+    "ast_hash": "59a3e26b7cc43e480f050d6cef3f989e",
     "semantic_hash": ""
   },
   "frontend/index.html": {
@@ -2322,9 +2322,9 @@
     "semantic_hash": ""
   },
   "infra/README.md": {
-    "mtime": 1792392345.4694705,
-    "seen": 1792400005.0548947,
-    "ast_hash": "7ab4167f13b1f2b9151996fd453286d4",
+    "mtime": 1792401796.6518304,
+    "seen": 1792402217.1714911,
+    "ast_hash": "ef0b88da2a7f0d957b7dac7442f0eed9",
     "semantic_hash": ""
   },
   "infra/infrastructure.yaml": {
@@ -2670,9 +2670,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0008-no-password-change-grace-period.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.0548763,
-    "ast_hash": "6bbfe611cb9e384cc740815a83cdfc96",
+    "mtime": 1792401940.8641617,
+    "seen": 1792402217.1711905,
+    "ast_hash": "9da4b135e2e5285e0026c108e4ee0583",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/ScimAttributeLimits.java": {
@@ -5412,9 +5412,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.0548725,
-    "ast_hash": "175a22ab06087efda5ee917b28c56050",
+    "mtime": 1792401999.2686172,
+    "seen": 1792402217.171146,
+    "ast_hash": "149d6e0663763316f6527dac260ccb71",
     "semantic_hash": ""
   },
   "docs/adr/0007-lockout-lifted-only-by-admin-unlock.md": {
@@ -5424,21 +5424,21 @@
     "semantic_hash": ""
   },
   "docs/adr/0011-accepted-policy-deviations.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.0548785,
-    "ast_hash": "8d8c66a69bdd601c6c4ffb74084641fa",
+    "mtime": 1792401971.889393,
+    "seen": 1792402217.1712291,
+    "ast_hash": "deeb06e489208498f69e8a0a383fb224",
     "semantic_hash": ""
   },
   "docs/adr/0012-epic-login.md": {
-    "mtime": 1792319801.071564,
-    "seen": 1792400005.0548792,
-    "ast_hash": "15f65b0358b48ea2327126e1de3de660",
+    "mtime": 1792402114.3181067,
+    "seen": 1792402217.1712298,
+    "ast_hash": "dc194d667be1a90faeed831fdc0452d2",
     "semantic_hash": ""
   },
   "docs/adr/0013-sql-server-2022-replaces-postgresql.md": {
-    "mtime": 1792392345.4014692,
-    "seen": 1792400005.0548797,
-    "ast_hash": "9aa1f18617de90e49c9219cd69f4c488",
+    "mtime": 1792402159.2855694,
+    "seen": 1792402217.1712308,
+    "ast_hash": "62d1be5e9b7a63a028b7fa0ded85eba8",
     "semantic_hash": ""
   },
   "docs/domain/administration.md": {
@@ -5454,9 +5454,9 @@
     "semantic_hash": ""
   },
   "docs/domain/authorization.md": {
-    "mtime": 1792398065.116686,
-    "seen": 1792400005.0548835,
-    "ast_hash": "01778b83e51ae6f2b65c6dedb44e64d9",
+    "mtime": 1792401866.1129184,
+    "seen": 1792402217.1713128,
+    "ast_hash": "02d40a4c1a193725e1dec8ab09a80f33",
     "semantic_hash": ""
   },
   "docs/domain/connectors.md": {
@@ -5484,9 +5484,9 @@
     "semantic_hash": ""
   },
   "docs/domain/index.md": {
-    "mtime": 1792370265.8033361,
-    "seen": 1792400005.0548866,
-    "ast_hash": "73934d96d874dd7f3778d08377eef7bc",
+    "mtime": 1792401866.113007,
+    "seen": 1792402217.1713896,
+    "ast_hash": "866ccce128402397084388e6ce700e89",
     "semantic_hash": ""
   },
   "docs/domain/request-paths.md": {
@@ -5514,27 +5514,27 @@
     "semantic_hash": ""
   },
   "backend/docs/TESTING_GUIDE.md": {
-    "mtime": 1792319801.0515637,
-    "seen": 1792400005.0548573,
-    "ast_hash": "0c9a5d865eb0c15efeb180753626fe99",
+    "mtime": 1792401511.2709465,
+    "seen": 1792402217.1706605,
+    "ast_hash": "9f854f8ec6f37b43a65b4ae919f27f27",
     "semantic_hash": ""
   },
   "backend/docs/configuration/audit.md": {
-    "mtime": 1792319801.0515637,
-    "seen": 1792400005.0548587,
-    "ast_hash": "9b663c5f6fb65c5115945651fd8eee35",
+    "mtime": 1792401553.7485905,
+    "seen": 1792402217.1706893,
+    "ast_hash": "8f1af44a65ec4380d92b710fc3e62199",
     "semantic_hash": ""
   },
   "backend/docs/configuration/database.md": {
-    "mtime": 1792392345.3901913,
-    "seen": 1792400005.0548596,
-    "ast_hash": "a3990ff8f6ca5052221faef3f4955493",
+    "mtime": 1792401553.7489257,
+    "seen": 1792402217.1706903,
+    "ast_hash": "6f187c9906b61d36659331b6f8c0d04d",
     "semantic_hash": ""
   },
   "backend/docs/configuration/dormancy.md": {
-    "mtime": 1792319801.053613,
-    "seen": 1792400005.05486,
-    "ast_hash": "ce8b12bc6c9c22fc6817027f0ea0527d",
+    "mtime": 1792401553.7488124,
+    "seen": 1792402217.1706913,
+    "ast_hash": "7d163781057c7f8b03a1d8ff8c84fd15",
     "semantic_hash": ""
   },
   "backend/docs/configuration/epic-login.md": {
@@ -5562,9 +5562,9 @@
     "semantic_hash": ""
   },
   "backend/docs/configuration/scim.md": {
-    "mtime": 1792319801.053613,
-    "seen": 1792400005.0548627,
-    "ast_hash": "b451a5ee0ed5e12a5e9ee9acfda5db9b",
+    "mtime": 1792401553.7486732,
+    "seen": 1792402217.170807,
+    "ast_hash": "596eda0b74e5b1c83ce9ff545d967eae",
     "semantic_hash": ""
   },
   "backend/docs/configuration/sessions.md": {
@@ -5580,9 +5580,9 @@
     "semantic_hash": ""
   },
   "frontend/docs/BACKEND_CONTRACT.md": {
-    "mtime": 1792398065.1170962,
-    "seen": 1792400005.054892,
-    "ast_hash": "272d575ebd64a38a73ccf413622c81a2",
+    "mtime": 1792401631.7678676,
+    "seen": 1792402217.1714492,
+    "ast_hash": "3b608028c1e3d154d05d4829c0afa117",
     "semantic_hash": ""
   },
   "infra/docs/database-boot.md": {
@@ -5592,9 +5592,9 @@
     "semantic_hash": ""
   },
   "infra/docs/database-credentials.md": {
-    "mtime": 1792319801.1334214,
-    "seen": 1792400005.0548956,
-    "ast_hash": "08dade09dd4c4902afce3fe43c087ab9",
+    "mtime": 1792401824.378831,
+    "seen": 1792402217.1715114,
+    "ast_hash": "4598370adffb66a2102d11cc52efc740",
     "semantic_hash": ""
   },
   "infra/docs/database-encryption.md": {
@@ -5604,9 +5604,9 @@
     "semantic_hash": ""
   },
   "infra/docs/database-engine.md": {
-    "mtime": 1792319801.1334214,
-    "seen": 1792400005.0548968,
-    "ast_hash": "cf955e123957a01de6c6624fa91a2f6d",
+    "mtime": 1792402166.5157988,
+    "seen": 1792402217.1715312,
+    "ast_hash": "d3d9e9ae5fd91b931ccad24352f7f89f",
     "semantic_hash": ""
   },
   "infra/docs/database-monitoring.md": {
@@ -5916,15 +5916,15 @@
     "semantic_hash": ""
   },
   "docs/adr/0014-fhir-r5-patient-from-own-tables.md": {
-    "mtime": 1792398065.1165838,
-    "seen": 1792400005.0548801,
-    "ast_hash": "d6e778aa001006da9fbcc1db0cfafb71",
+    "mtime": 1792401920.165023,
+    "seen": 1792402217.1712315,
+    "ast_hash": "6faba0a35bebbb3b66718d849aa329ab",
     "semantic_hash": ""
   },
   "docs/domain/patient.md": {
-    "mtime": 1792398065.1169102,
-    "seen": 1792400005.0548875,
-    "ast_hash": "517d23fbc15ab2ca8fd134cb9a0c1280",
+    "mtime": 1792401891.3890898,
+    "seen": 1792402217.1713908,
+    "ast_hash": "4f449fc46ecbb395e5c7dd3642970ad8",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/patient/application/DevPatientFixturesTests.java": {
