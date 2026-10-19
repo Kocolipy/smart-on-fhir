@@ -1,58 +1,8 @@
 import type { Patient } from "fhir/r5";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import {
-  COUNTER,
-  DEFAULT_PATIENT_ID,
-  INCREMENT_COUNTER,
-  PATIENT,
-  type PatientGender,
-  RESET_COUNTER,
-} from "./home-api";
-
-describe("COUNTER", () => {
-  it("reads the count at /api/count, under counter:read", () => {
-    expect({ path: COUNTER.path(), permission: COUNTER.permission }).toEqual({
-      path: "/api/count",
-      permission: "counter:read",
-    });
-  });
-});
-
-describe.each([
-  ["INCREMENT_COUNTER", INCREMENT_COUNTER, "/api/count/increment"],
-  ["RESET_COUNTER", RESET_COUNTER, "/api/count/reset"],
-] as const)("%s", (_, write, path) => {
-  it("posts, with no body, to its own path under counter:write", () => {
-    expect({
-      body: write.body,
-      method: write.method,
-      path: write.path(),
-      permission: write.permission,
-    }).toEqual({ body: undefined, method: "POST", path, permission: "counter:write" });
-  });
-});
-
-describe.each([
-  ["COUNTER", COUNTER.decode],
-  ["INCREMENT_COUNTER", INCREMENT_COUNTER.decode],
-  ["RESET_COUNTER", RESET_COUNTER.decode],
-] as const)("%s's answer", (_, decode) => {
-  it("is read down to the count the backend's body carries", async () => {
-    await expect(decode(Response.json({ count: 7 }))).resolves.toBe(7);
-  });
-
-  it.each([
-    ["a missing count", {}, "CountResponse.count is not an integer"],
-    ["a string count", { count: "7" }, "CountResponse.count is not an integer"],
-    ["a fractional count", { count: 1.5 }, "CountResponse.count is not an integer"],
-    ["a non-object body", [7], "CountResponse is not an object"],
-  ])("is refused with %s", async (_, body, message) => {
-    await expect(decode(Response.json(body))).rejects.toThrow(
-      expect.objectContaining({ message, name: "DecodeError" }),
-    );
-  });
-});
+import { DEFAULT_PATIENT_ID, PATIENT, type PatientGender } from "./home-api";
+import { TAN_WEI_MING } from "./patient.testHelpers";
 
 describe("PATIENT", () => {
   it("reads a patient at /api/patient/{id}, under patient:read, a 404 being absent", () => {
@@ -75,16 +25,6 @@ describe("PATIENT", () => {
     expect(DEFAULT_PATIENT_ID).toBe("00000000-0000-4000-8000-00000000c001");
   });
 });
-
-/** The R5 `Patient` the backend serves, shaped as the issue's example is. */
-const TAN_WEI_MING = {
-  birthDate: "1985-03-12",
-  gender: "male",
-  id: "00000000-0000-4000-8000-00000000c001",
-  identifier: [{ system: "https://fhir.synapxe.sg/NamingSystem/nric", value: "S1234567A" }],
-  name: [{ family: "Tan", given: ["Wei", "Ming"], text: "Tan Wei Ming", use: "official" }],
-  resourceType: "Patient",
-} satisfies Patient;
 
 describe("PATIENT's answer", () => {
   it("is read down to the name text, NRIC, gender and date of birth", async () => {

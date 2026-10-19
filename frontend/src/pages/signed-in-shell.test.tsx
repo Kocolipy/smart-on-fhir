@@ -220,16 +220,32 @@ describe("SignedInShell's error line", () => {
   });
 
   it("keeps a write the user left behind off the next page's line", async () => {
-    const increment = deferred();
-    await renderSignedIn("/", holding(["counter:read", "counter:write"]), {
-      "GET /api/count": json({ count: 0 }),
-      "POST /api/count/increment": increment.answer,
+    const unlock = deferred();
+    await renderSignedIn("/accounts", holding(["user:read", "user:write"]), {
+      "POST /api/admin/accounts/00000000-0000-4000-8000-000000000001/unlock": unlock.answer,
+      [USERS]: json([
+        {
+          active: true,
+          admin: false,
+          bootstrapAdmin: false,
+          createdAt: "2026-01-02T19:04:05Z",
+          displayName: null,
+          groups: [],
+          hasPassword: true,
+          id: "00000000-0000-4000-8000-000000000001",
+          lastAuthenticatedAt: null,
+          lockCause: "FAILURES",
+          locked: true,
+          passwordChangeRequired: false,
+          userName: "grace",
+        },
+      ]),
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Increment" }));
-    await user.click(screen.getByRole("link", { name: "Change password" }));
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+    await user.click(screen.getByRole("link", { name: "Back to home" }));
 
-    await increment.settle(bare(500));
+    await unlock.settle(bare(500));
 
     expect(lines()).toEqual([]);
   });

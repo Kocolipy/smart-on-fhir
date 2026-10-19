@@ -1,24 +1,13 @@
 import { screen } from "@testing-library/react";
-import type { OperationOutcome, Patient } from "fhir/r5";
+import type { OperationOutcome } from "fhir/r5";
 import { describe, expect, it } from "vitest";
 
 import { bare, deferred, holding, json, type WireAnswer } from "@/auth/session-adapter.testHelpers";
 import type { Clock } from "@/lib/time";
 
 import { PatientCard } from "./patient-card";
+import { DEFAULT_PATIENT_READ, TAN_WEI_MING } from "./patient.testHelpers";
 import { renderInLayout } from "./signed-in-shell.testHelpers";
-
-const DEFAULT_PATIENT_READ = "GET /api/patient/00000000-0000-4000-8000-00000000c001";
-
-/** The default patient, as the backend serves it. */
-const TAN_WEI_MING = {
-  birthDate: "1985-03-12",
-  gender: "male",
-  id: "00000000-0000-4000-8000-00000000c001",
-  identifier: [{ system: "https://fhir.synapxe.sg/NamingSystem/nric", value: "S1234567A" }],
-  name: [{ family: "Tan", given: ["Wei", "Ming"], text: "Tan Wei Ming", use: "official" }],
-  resourceType: "Patient",
-} satisfies Patient;
 
 /** An error answer as the backend sends it: one issue, its diagnostics fixed per code. */
 const outcome = (code: OperationOutcome["issue"][number]["code"]) =>

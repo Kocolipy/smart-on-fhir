@@ -1,15 +1,15 @@
 /**
- * The endpoints the Home page reads and drives — the patient it shows and the
- * counter — `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page.
+ * The endpoint the Home page reads — the patient it shows —
+ * `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page.
  *
- * Nothing here requests anything: the page sends each declaration through
- * `useGatedRead` or `useGatedWrite` (both behind `useSessionRequest`), so a
- * `401` still ends the session in one place. This file says what a response
- * looks like and declares each endpoint — its path, its decoder and the
- * Permission it requires — once.
+ * Nothing here requests anything: the Patient card sends the declaration
+ * through `useGatedRead` (behind `useSessionRequest`), so a `401` still ends
+ * the session in one place. This file says what a response looks like and
+ * declares the endpoint — its path, its decoder and the Permission it
+ * requires — once.
  */
 
-import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
+import type { ReadDeclaration } from "@/auth/declarations";
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 import { isCalendarDate } from "@/lib/time";
 
@@ -89,32 +89,4 @@ export const PATIENT: ReadDeclaration<PatientSummary, [id: string], true> = {
   decode: decodePatient,
   path: (id) => `/api/patient/${encodeURIComponent(id)}`,
   permission: "patient:read",
-};
-
-/** Every counter endpoint's `CountResponse`, read down to its one field. */
-const decodeCount = jsonDecoder((body: unknown): number =>
-  readObject(body, "CountResponse").integer("count"),
-);
-
-/** The current count, `GET /api/count`. */
-export const COUNTER: ReadDeclaration<number> = {
-  decode: decodeCount,
-  path: () => "/api/count",
-  permission: "counter:read",
-};
-
-/** Adds one; answers the new count. */
-export const INCREMENT_COUNTER: WriteDeclaration<[], number> = {
-  decode: decodeCount,
-  method: "POST",
-  path: () => "/api/count/increment",
-  permission: "counter:write",
-};
-
-/** Returns the count to zero; answers the new count. */
-export const RESET_COUNTER: WriteDeclaration<[], number> = {
-  decode: decodeCount,
-  method: "POST",
-  path: () => "/api/count/reset",
-  permission: "counter:write",
 };
