@@ -141,6 +141,53 @@ async function toResponse(answer: Answer): Promise<Response> {
 const parseBody = (body: RequestInit["body"]): unknown =>
   typeof body === "string" ? JSON.parse(body) : undefined;
 
+/** The suite's answers as the backend reads them, and the requests none of them answered. */
+interface AnswerBook {
+  /** The answer to one request, or the contract refusal it earned instead. */
+  answerFor: (request: string, refusal: WireAnswer | undefined) => Answer;
+  /** Replaces the answers to the keys named, each starting again from its first turn. */
+  replace: (more: Answers) => void;
+  unanswered: readonly string[];
+}
+
+function answerBook(initial: Answers): AnswerBook {
+  let answers: Answers = { ...initial };
+  const turns = new Map<string, number>();
+  const unanswered: string[] = [];
+
+  const keyFor = (request: string): string | undefined => {
+    if (request in answers) return request;
+    return Object.keys(answers)
+      .filter((key) => key.endsWith("*") && request.startsWith(key.slice(0, -1)))
+      .sort((a, b) => b.length - a.length)[0];
+  };
+
+  const next = (key: string): Answer => {
+    const given = answers[key];
+    if (!Array.isArray(given)) return given as Answer;
+    const turn = turns.get(key) ?? 0;
+    turns.set(key, turn + 1);
+    return given[Math.min(turn, given.length - 1)] as Answer;
+  };
+
+  return {
+    answerFor: (request, refusal) => {
+      // The token endpoint answers only to its own key, never to a prefix one.
+      if (request === CSRF_TOKEN_REQUEST) return request in answers ? next(request) : TOKEN_GRANT;
+      if (refusal !== undefined) return refusal;
+      const key = keyFor(request);
+      if (key !== undefined) return next(key);
+      unanswered.push(request);
+      return bare(501);
+    },
+    replace: (more) => {
+      answers = { ...answers, ...more };
+      for (const key of Object.keys(more)) turns.delete(key);
+    },
+    unanswered,
+  };
+}
+
 export interface FakeBackend {
   /** Replaces the answers to the keys named, each starting again from its first turn. */
   answer: (more: Answers) => void;
@@ -177,35 +224,8 @@ export interface FakeBackend {
  * never stated.
  */
 export function fakeBackend(initial: Answers = {}): FakeBackend {
-  let answers: Answers = { ...initial };
-  const turns = new Map<string, number>();
+  const book = answerBook(initial);
   const sent: { contentType: string | null; request: SentRequest }[] = [];
-  const unanswered: string[] = [];
-
-  const keyFor = (request: string): string | undefined => {
-    if (request in answers) return request;
-    return Object.keys(answers)
-      .filter((key) => key.endsWith("*") && request.startsWith(key.slice(0, -1)))
-      .sort((a, b) => b.length - a.length)[0];
-  };
-
-  const next = (key: string): Answer => {
-    const given = answers[key];
-    if (!Array.isArray(given)) return given as Answer;
-    const turn = turns.get(key) ?? 0;
-    turns.set(key, turn + 1);
-    return given[Math.min(turn, given.length - 1)] as Answer;
-  };
-
-  const answerFor = (request: string, refusal: WireAnswer | undefined): Answer => {
-    // The token endpoint answers only to its own key, never to a prefix one.
-    if (request === CSRF_TOKEN_REQUEST) return request in answers ? next(request) : TOKEN_GRANT;
-    if (refusal !== undefined) return refusal;
-    const key = keyFor(request);
-    if (key !== undefined) return next(key);
-    unanswered.push(request);
-    return bare(501);
-  };
 
   const respond = (path: string, init?: RequestInit): Promise<Response> => {
     const method = (init?.method ?? "GET").toUpperCase();
@@ -216,15 +236,15 @@ export function fakeBackend(initial: Answers = {}): FakeBackend {
       contentType: new Headers(init?.headers).get("Content-Type"),
       request: body === undefined ? { method, path } : { body, method, path },
     });
-    return toResponse(answerFor(requestKey({ method, path }), refusal));
+    return toResponse(book.answerFor(requestKey({ method, path }), refusal));
   };
 
   discardCsrfToken();
   vi.stubGlobal("fetch", vi.fn(respond));
   onTestFinished(() => {
     vi.unstubAllGlobals();
-    if (unanswered.length > 0) {
-      throw new Error(`No answer was given for: ${unanswered.join(", ")}`);
+    if (book.unanswered.length > 0) {
+      throw new Error(`No answer was given for: ${book.unanswered.join(", ")}`);
     }
   });
 
@@ -234,10 +254,7 @@ export function fakeBackend(initial: Answers = {}): FakeBackend {
   };
 
   return {
-    answer: (more) => {
-      answers = { ...answers, ...more };
-      for (const key of Object.keys(more)) turns.delete(key);
-    },
+    answer: book.replace,
     holdToken,
     requests: (shown = {}) =>
       sent
