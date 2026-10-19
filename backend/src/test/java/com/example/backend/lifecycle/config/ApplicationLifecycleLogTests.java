@@ -19,6 +19,7 @@ import com.example.backend.scim.domain.DormancyPolicy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import com.example.backend.web.ErrorNamespaces;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -107,7 +108,7 @@ class ApplicationLifecycleLogTests {
     /** Epic Login off: the switch, and no key id, since none was read. */
     @Test
     void epicLoginOffIsRecordedAsOffWithNoKeyIds() {
-        listener(true, new EpicLoginOff()).started(ready(context));
+        listener(true, new EpicLoginOff(new ErrorNamespaces(List.of()))).started(ready(context));
 
         assertThat(CapturedLog.fields(onlyRecord("application-startup")))
                 .containsEntry("app.epic.enabled", false)
@@ -218,7 +219,7 @@ class ApplicationLifecycleLogTests {
     }
 
     private ApplicationLifecycleLog listener(boolean scimOpen) {
-        return listener(scimOpen, new EpicLoginOff());
+        return listener(scimOpen, new EpicLoginOff(new ErrorNamespaces(List.of())));
     }
 
     private ApplicationLifecycleLog listener(boolean scimOpen, EpicLogin epicLogin) {

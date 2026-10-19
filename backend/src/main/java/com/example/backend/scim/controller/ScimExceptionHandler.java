@@ -16,6 +16,7 @@ import com.example.backend.scim.application.ScimLogFields;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimRequestRefusedException;
 import com.example.backend.web.ApiExceptionHandler;
+import com.example.backend.web.NamespaceAdvice;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +27,8 @@ import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
@@ -35,20 +38,20 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
-import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
- * Renders every refusal this slice's handlers produce as the one SCIM error document.
+ * Renders every refusal the SCIM namespace's handlers produce as the one SCIM error document.
  *
- * <p>Scoped to this package by {@code basePackages}, deliberately. The application
- * chain's errors keep their existing shape — a SCIM error body on a browser request
- * would be a change to the SPA's contract — so this advice must not be global. What
- * that scoping costs is that a refusal raised BEFORE a handler is selected (an
- * unsupported method on a mapped path, an unsupported content type, a path nothing
- * serves) is not rendered here; {@code ScimDispatcherErrorFilter} in the namespace's
- * security chain renders those as the same document, and {@code ScimRequestBodyLimitFilter}
- * refuses a body declaring more than the size bound before any of this runs.
+ * <p>The advice of the {@value ScimSchemas#BASE_PATH} namespace ({@link NamespaceAdvice}): it
+ * answers a failure of a handler serving a request there, and never one under {@code /api} — the
+ * application API's errors keep their own shape, and connector administration, though it lives in
+ * this package, serves {@code /api} and is answered by {@link ApiExceptionHandler}. A refusal
+ * raised BEFORE a handler is selected (an unsupported method on a mapped path, an unsupported
+ * content type, a path nothing serves) is not rendered here; the dispatcher's {@code sendError}
+ * is rendered as the same document by the one {@code sendError} adapter, and
+ * {@code ScimRequestBodyLimitFilter} refuses a body declaring more than the size bound before any
+ * of this runs.
  *
  * <p>It is also where a refused write is audited — once, at the edge of the request, whichever
  * module raised the refusal. What each kind of refusal answers and is audited as is
@@ -61,7 +64,9 @@ import org.springframework.web.servlet.HandlerMapping;
  * examples have it, and so {@code scimType} can be omitted entirely — rather than
  * rendered as null — where the RFC defines none for the condition.
  */
-@RestControllerAdvice(basePackages = "com.example.backend.scim.controller")
+@RestControllerAdvice(basePackages = NamespaceAdvice.APPLICATION_HANDLERS)
+@NamespaceAdvice(ScimSchemas.BASE_PATH)
+@Order(Ordered.LOWEST_PRECEDENCE)
 class ScimExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ScimExceptionHandler.class);
@@ -143,17 +148,12 @@ class ScimExceptionHandler {
      *
      * <p>The fault's one record is the {@code database} {@code ERROR}, needing investigation, that
      * {@link com.example.backend.observability.DatabaseFailureCategory} makes of it, with a
-     * redacted copy attached: the driver's message quotes the statement. The connector
-     * administration adapter is in this package but on the application chain, so its deadlocked
-     * writes are answered in that chain's shape, by the application API's own fault handler.
+     * redacted copy attached: the driver's message quotes the statement.
      */
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
-    ResponseEntity<?> handle(RuntimeException failure, HandlerMethod handler) {
+    ResponseEntity<Map<String, Object>> handle(RuntimeException failure) {
         if (!ExhaustedRetry.answers(failure)) {
             throw failure;
-        }
-        if (AdminConnectorController.class.isAssignableFrom(handler.getBeanType())) {
-            return ApiExceptionHandler.answerUnexpected(failure);
         }
         ScimErrorException unavailable = ScimErrorException.serviceUnavailable(
                 "The write conflicted with a concurrent write and was not applied; send it again.");

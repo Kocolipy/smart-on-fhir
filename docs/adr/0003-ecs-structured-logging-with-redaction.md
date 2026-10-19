@@ -779,3 +779,36 @@ adjust Boot's output instead.
 
 **Setting the JVM default zone to `Asia/Singapore`.** Rejected: it moves every
 time the service handles, not just the log's.
+
+## Addendum (2026-10-19): the request's namespace, not the handler's package, picks the error handler
+
+Error handling is now chosen by the request's **error namespace**
+(`web.ErrorNamespaces`): `/api` answers with `ApiError`, `/api/patient` with the
+FHIR `OperationOutcome`, and `/scim/v2` — contributed by the `scim` module, which
+`web` may not name — with the SCIM error document. Every refusing layer asks it:
+`ApiExceptionHandler`, the application chain's entry point and access-denied
+handler, the Epic release gate, and `ErrorDocumentFilter`, the one `sendError`
+adapter that replaces `FhirErrorDocumentFilter` and `ScimDispatcherErrorFilter`.
+
+- **"The app-wide error handler" above no longer answers by package.** Both
+  namespace advices, `ApiExceptionHandler` and `ScimExceptionHandler`, declare the
+  same scope (this application's handlers) and name their namespaces with
+  `@NamespaceAdvice`; `NamespaceExceptionResolver` hands a handler's failure to
+  the advice of the request's namespace. Connector administration, in `scim` but
+  serving `/api`, therefore gets `ApiExceptionHandler`'s records: one `WARN`
+  `http.request.refusal` for an unreadable or invalid body, one redacted `ERROR`
+  `http.request.fault` for any database fault, and never a `scim.refusal`. The
+  `ArchitectureTest` rules on `basePackages` are replaced by rules on the
+  namespaces.
+- **The chain's `401` and `403` under `/api` carry `ApiError`**, written by the
+  entry point and the access-denied handler instead of a `sendError`, so neither
+  reaches Boot's error page, which quoted the path. Their records are unchanged.
+- **Records are otherwise unchanged.** The SCIM namespace's dispatcher refusals
+  keep their `scim.refusal` record from `ScimErrorDocument`; the application
+  API's dispatcher and firewall refusals keep the request record alone. The one
+  addition: the request firewall's refusal under `/scim/v2`, which used to reach
+  Boot's error page, is now the SCIM error document with its `scim.refusal`
+  record, as every other refusal there.
+- **A namespace is read from the path as Spring routes on it**, decoded and below
+  the context path, so a percent-encoded prefix (`/%61pi/...`) that reaches a
+  handler is answered by that namespace's advice too.

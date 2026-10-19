@@ -4,6 +4,8 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
+import com.example.backend.web.ErrorDocumentFilter;
+import com.example.backend.web.ErrorNamespace;
 import java.security.SecureRandom;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -44,7 +46,7 @@ public class ScimSecurityConfig {
     public static final int SCIM_CHAIN_ORDER = 1;
 
     /** The namespace this chain owns, exact path and everything beneath it. */
-    private static final String SCIM_NAMESPACE = "/scim/v2/**";
+    private static final String SCIM_NAMESPACE = ScimErrorDocument.PATH + "/**";
 
     /**
      * The one source of random material for connector tokens.
@@ -57,6 +59,16 @@ public class ScimSecurityConfig {
     @Bean
     public SecureRandom connectorTokenRandom() {
         return new SecureRandom();
+    }
+
+    /**
+     * The SCIM namespace's error document, contributed to the one selection every refusing layer
+     * asks ({@code ErrorNamespaces}): the {@code sendError} adapter renders the dispatcher's
+     * refusals in the namespace with it.
+     */
+    @Bean
+    public ErrorNamespace scimErrorNamespace() {
+        return new ScimErrorDocument();
     }
 
     /**
@@ -102,7 +114,8 @@ public class ScimSecurityConfig {
             ScimReleaseGate releaseGate,
             AccessRefusalLog accessRefusalLog,
             AuditTrail audit,
-            RouteTemplates routeTemplates) {
+            RouteTemplates routeTemplates,
+            ErrorDocumentFilter errorDocuments) {
         AuthenticationEntryPoint challenge = new ScimBearerEntryPoint(accessRefusalLog);
         // One answer to a token lacking a Permission, whichever layer refused it: the bearer
         // filter's backstop and the chain's access-denied handler share this instance.
@@ -149,11 +162,14 @@ public class ScimSecurityConfig {
                 // Next, ahead of authentication and of the header writer: an oversized body is
                 // refused on its declared length before anything reads it, and the
                 // dispatcher's own refusals (404, 405, 406, 415) are rendered as SCIM error
-                // documents. Ahead of HeaderWriterFilter so its response wrapper sits inside
-                // ours and still writes the security headers when the dispatcher sends an
-                // error. ScimSecurityChainOrderTests pins both positions.
+                // documents by the one sendError adapter every namespace shares. The container
+                // runs the same instance ahead of both chains, and it runs once per request; here
+                // it keeps this chain complete on its own. Ahead of HeaderWriterFilter so its
+                // response wrapper sits inside the adapter's and still writes the security
+                // headers when the dispatcher sends an error. ScimSecurityChainOrderTests pins
+                // both positions.
                 .addFilterBefore(new ScimRequestBodyLimitFilter(), HeaderWriterFilter.class)
-                .addFilterBefore(new ScimDispatcherErrorFilter(), HeaderWriterFilter.class)
+                .addFilterBefore(errorDocuments, HeaderWriterFilter.class)
                 .addFilterBefore(
                         new ScimBearerAuthenticationFilter(
                                 connectors, accessRefusalLog, insufficientPermissions),

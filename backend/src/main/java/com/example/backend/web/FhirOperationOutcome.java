@@ -1,17 +1,16 @@
 package com.example.backend.web;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.MediaType;
 
 /**
- * The application API's error body under its FHIR path: a FHIR R5 {@code OperationOutcome} with
- * one issue, as FHIR JSON of version 5.0 (ADR 0014). Every failure answered under
- * {@value #FHIR_PATH} has this shape whichever layer answers it — {@link ApiExceptionHandler} for
- * a handler's, {@link FhirErrorDocumentFilter} for the firewall's, the security chain's and the
- * dispatcher's own.
+ * The application API's error body in its FHIR namespace ({@link ErrorNamespaces#FHIR}): a FHIR
+ * R5 {@code OperationOutcome} with one issue, as FHIR JSON of version 5.0 (ADR 0014). Every
+ * failure answered under {@value ErrorNamespaces#FHIR_PATH} has this shape whichever layer answers
+ * it — {@link ApiExceptionHandler} for a handler's, the security chain for its own, and
+ * {@link ErrorDocumentFilter} for the firewall's and the dispatcher's.
  *
  * <p>Like {@link ApiError}, nothing in it comes from the request or the exception: the issue's
  * {@code code} is chosen by the status alone and its {@code diagnostics} are a fixed sentence per
@@ -21,9 +20,6 @@ import org.springframework.http.MediaType;
  * @param issue        the one issue
  */
 public record FhirOperationOutcome(String resourceType, List<Issue> issue) {
-
-    /** Where the API serves FHIR: the patient module's resources. */
-    public static final String FHIR_PATH = "/api/patient";
 
     /**
      * FHIR's JSON media type, naming the FHIR version the body conforms to. The patient module's
@@ -36,12 +32,6 @@ public record FhirOperationOutcome(String resourceType, List<Issue> issue) {
     /** The outcome for a failure answered with {@code status}. */
     public static FhirOperationOutcome of(int status) {
         return new FhirOperationOutcome("OperationOutcome", List.of(Issue.of(status)));
-    }
-
-    /** Whether {@code request}'s path is under {@value #FHIR_PATH}, so its errors are outcomes. */
-    public static boolean coversPath(HttpServletRequest request) {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
-        return path.equals(FHIR_PATH) || path.startsWith(FHIR_PATH + "/");
     }
 
     /**

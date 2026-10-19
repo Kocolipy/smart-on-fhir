@@ -7,6 +7,7 @@ import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.web.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -17,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.csrf.CsrfToken;
@@ -184,10 +186,10 @@ public class AuthController {
     /**
      * Wrong current password, lockout, inactive: one {@code 401} for every reason, as Login gives,
      * carrying the one constant {@link PasswordChangeRefusal}. The body says only that the password
-     * check answered — never which reason — so it tells the SPA this {@code 401} from the bare one a
-     * request without a live session gets from the filter chain, refused before anything was
-     * compared or counted. The SPA reads the bare one as an Expired session; only the marked one
-     * sends it to ask the session whether the refusal was a lockout.
+     * check answered — never which reason — so it tells the SPA this {@code 401} from the generic
+     * {@code ApiError} one a request without a live session gets from the filter chain, refused
+     * before anything was compared or counted. The SPA reads an unmarked one as an Expired session;
+     * only the marked one sends it to ask the session whether the refusal was a lockout.
      */
     @ExceptionHandler(CurrentPasswordRejectedException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
@@ -195,10 +197,15 @@ public class AuthController {
         return PasswordChangeRefusal.CURRENT_PASSWORD;
     }
 
-    /** A session that identifies nobody: the bare {@code 401} an anonymous request gets. */
+    /**
+     * A session that identifies nobody: the {@code 401} an anonymous request gets, with the same
+     * generic {@link ApiError}.
+     */
     @ExceptionHandler(UnknownSessionIdentityException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public void sessionIdentifiesNobody() {
+    public ResponseEntity<ApiError> sessionIdentifiesNobody() {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiError.of(HttpStatus.UNAUTHORIZED));
     }
 
     /** The unmet rule, by name and description; never either submitted value. */

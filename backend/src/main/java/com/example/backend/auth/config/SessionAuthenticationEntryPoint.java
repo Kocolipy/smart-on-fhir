@@ -3,6 +3,7 @@ package com.example.backend.auth.config;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.EndedSession;
+import com.example.backend.web.ErrorNamespaces;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -11,9 +12,10 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 
 /**
- * The application chain's answer to a request that needs a session and has none: a bare
- * {@code 401}, and one refusal record saying whether the caller never had a session or
- * brought one that has ended.
+ * The application chain's answer to a request that needs a session and has none: a {@code 401}
+ * in the request's namespace's error document ({@link ErrorNamespaces}) — the generic
+ * {@code request-refused} {@code ApiError} under {@code /api} — and one refusal record saying
+ * whether the caller never had a session or brought one that has ended.
  *
  * <p>Nothing else distinguishes the two to the caller — the SPA treats both as "sign in
  * again" — but an operator reading the stream does: a run of {@code session-expired} is
@@ -36,8 +38,11 @@ public class SessionAuthenticationEntryPoint implements AuthenticationEntryPoint
 
     private final AccessRefusalLog refusals;
 
-    public SessionAuthenticationEntryPoint(AccessRefusalLog refusals) {
+    private final ErrorNamespaces namespaces;
+
+    public SessionAuthenticationEntryPoint(AccessRefusalLog refusals, ErrorNamespaces namespaces) {
         this.refusals = refusals;
+        this.namespaces = namespaces;
     }
 
     @Override
@@ -53,7 +58,7 @@ public class SessionAuthenticationEntryPoint implements AuthenticationEntryPoint
             response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
         }
         refusals.record(request, ended(request) ? Refusal.SESSION_EXPIRED : Refusal.NO_SESSION);
-        response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        namespaces.refuse(request, response, HttpServletResponse.SC_UNAUTHORIZED);
     }
 
     /**

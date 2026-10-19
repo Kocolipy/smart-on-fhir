@@ -8,18 +8,18 @@ import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.RequestActor;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.observability.RouteTemplates;
-import jakarta.servlet.ServletException;
+import com.example.backend.web.ErrorNamespaces;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
-import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.csrf.CsrfException;
 
 /**
- * The application chain's {@code 403}: Spring Security's own answer, after one refusal
- * record.
+ * The application chain's {@code 403}, in the request's namespace's error document
+ * ({@link ErrorNamespaces}) — the generic {@code request-refused} {@code ApiError} under
+ * {@code /api} — after one refusal record.
  *
  * <p>Two refusals reach here and are recorded apart, because they mean different things: an
  * authorization decision turning an authenticated caller away — a Permission it does not hold,
@@ -44,20 +44,21 @@ public class RefusalLoggingAccessDeniedHandler implements AccessDeniedHandler {
 
     private final RouteTemplates routes;
 
-    private final AccessDeniedHandler answer = new AccessDeniedHandlerImpl();
+    private final ErrorNamespaces namespaces;
 
-    public RefusalLoggingAccessDeniedHandler(
-            AccessRefusalLog refusals, AuditTrail audit, RouteTemplates routes) {
+    public RefusalLoggingAccessDeniedHandler(AccessRefusalLog refusals, AuditTrail audit,
+            RouteTemplates routes, ErrorNamespaces namespaces) {
         this.refusals = refusals;
         this.audit = audit;
         this.routes = routes;
+        this.namespaces = namespaces;
     }
 
     @Override
     public void handle(
             HttpServletRequest request,
             HttpServletResponse response,
-            AccessDeniedException refused) throws IOException, ServletException {
+            AccessDeniedException refused) throws IOException {
         if (refused instanceof CsrfException) {
             refusals.record(request, Refusal.CSRF);
         } else if (refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)) {
@@ -68,6 +69,6 @@ public class RefusalLoggingAccessDeniedHandler implements AccessDeniedHandler {
                     new AuditRequest(RequestIdFilter.method(request), routes.of(request),
                             RequestIdFilter.requestId(request))));
         }
-        answer.handle(request, response, refused);
+        namespaces.refuse(request, response, HttpServletResponse.SC_FORBIDDEN);
     }
 }

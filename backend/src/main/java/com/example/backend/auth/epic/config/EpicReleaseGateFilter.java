@@ -1,19 +1,15 @@
 package com.example.backend.auth.epic.config;
 
 import com.example.backend.auth.epic.EpicRoutes;
-import com.example.backend.web.ApiError;
+import com.example.backend.web.ErrorNamespaces;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Makes the Epic Login routes unreachable while {@code APP_EPIC_ENABLED} is off, mirroring the
@@ -28,18 +24,22 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Every other request passes straight through. While the switch is on there is no gate at
  * all: {@link EpicLoginOn} adds none, so nothing here asks whether Epic Login is on.
  *
- * <p>The body is the application API's generic refusal, {@link ApiError#of} for a {@code 404},
- * serialized here because no controller and no error page runs while the gate is closed — and
- * so the answer cannot be mistaken for the single-page application's HTML shell.
+ * <p>The body is the namespace's error document for a {@code 404} ({@link ErrorNamespaces}) — the
+ * application API's generic {@code ApiError} — written here because no controller and no error
+ * page runs while the gate is closed, and so the answer cannot be mistaken for the single-page
+ * application's HTML shell.
  */
 final class EpicReleaseGateFilter extends OncePerRequestFilter {
-
-    private static final String GATE_CLOSED_BODY =
-            JsonMapper.builder().build().writeValueAsString(ApiError.of(HttpStatus.NOT_FOUND));
 
     /** The namespace this gate owns: the exact path and everything beneath it. */
     private static final RequestMatcher NAMESPACE =
             PathPatternRequestMatcher.withDefaults().matcher(EpicRoutes.NAMESPACE + "/**");
+
+    private final ErrorNamespaces errorNamespaces;
+
+    EpicReleaseGateFilter(ErrorNamespaces errorNamespaces) {
+        this.errorNamespaces = errorNamespaces;
+    }
 
     @Override
     protected void doFilterInternal(
@@ -49,9 +49,6 @@ final class EpicReleaseGateFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.getWriter().write(GATE_CLOSED_BODY);
+        errorNamespaces.refuse(request, response, HttpServletResponse.SC_NOT_FOUND);
     }
 }

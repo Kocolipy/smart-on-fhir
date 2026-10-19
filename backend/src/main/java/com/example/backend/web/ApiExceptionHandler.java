@@ -53,7 +53,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       once.
  * </ul>
  *
- * <p>Under the FHIR path ({@link FhirOperationOutcome#FHIR_PATH}) the body is a
+ * <p>In the FHIR namespace ({@link ErrorNamespaces#FHIR}) the body is a
  * {@link FhirOperationOutcome} instead, as FHIR JSON, with the same fixed content chosen by the
  * status alone. A fault there has the same record. The caller's error has none of its own: a
  * read of a patient adds no record to the request's, so it is classified as {@code data} on the
@@ -62,56 +62,41 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *
  * <h2>Scope</h2>
  *
- * <p>The application chain's controller packages, named in {@code basePackages}; never the
- * SCIM namespace's, whose own advice renders every refusal as a SCIM error document. Naming the
- * packages rather than leaving this advice global is what keeps the two apart: a global advice
- * would also answer a SCIM handler's unmapped exception, in a body no SCIM client can parse.
- * {@code ArchitectureTest.every_application_controller_is_covered_by_the_api_exception_handler}
- * fails a new controller package this list does not name.
+ * <p>The advice of both of the application API's namespaces, {@code /api} and
+ * {@code /api/patient}: it answers a failure of any handler serving a request under them,
+ * whichever module the handler lives in — connector administration, in {@code scim}, included —
+ * and never one under another namespace, which {@link NamespaceExceptionResolver} hands to that
+ * namespace's own advice. Its declared scope is this application's handlers, the scope every
+ * namespace advice shares, so that a framework handler (the actuator's) is never answered here.
  *
  * <p>A controller's own {@code @ExceptionHandler} still answers first — Spring consults the
  * controller before any advice — so every refusal a controller already renders is unchanged.
  * A refusal made before a handler is chosen (no route, a method or content type no route
- * accepts) has no controller to scope by and keeps the container's handling — under the FHIR
- * path, {@link FhirErrorDocumentFilter}'s.
+ * accepts) is not answered here but by the dispatcher's {@code sendError}, which
+ * {@link ErrorDocumentFilter} renders in the namespace's document.
  */
-@RestControllerAdvice(basePackages = {
-    ApiExceptionHandler.AUDIT_CONTROLLERS,
-    ApiExceptionHandler.AUTH_CONTROLLERS,
-    ApiExceptionHandler.EPIC_CONTROLLERS,
-    ApiExceptionHandler.PATIENT_CONTROLLERS})
+@RestControllerAdvice(basePackages = NamespaceAdvice.APPLICATION_HANDLERS)
+@NamespaceAdvice({ErrorNamespaces.API_PATH, ErrorNamespaces.FHIR_PATH})
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
-    public static final String AUDIT_CONTROLLERS = "com.example.backend.audit.controller";
-
-    public static final String AUTH_CONTROLLERS = "com.example.backend.auth.controller";
-
-    public static final String EPIC_CONTROLLERS = "com.example.backend.auth.epic.controller";
-
-    public static final String PATIENT_CONTROLLERS = "com.example.backend.patient.controller";
-
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
-    /** Any exception no controller and no Spring MVC mapping answers: a fault. */
-    @ExceptionHandler(Exception.class)
-    ResponseEntity<Object> handleUnexpected(Exception fault, HttpServletRequest request) {
-        return answerUnexpected(fault, Body.of(request));
+    private final ErrorNamespaces namespaces;
+
+    public ApiExceptionHandler(ErrorNamespaces namespaces) {
+        this.namespaces = namespaces;
     }
 
     /**
-     * A fault's one record and its answer: the generic {@code 500} — or, for a retried write the
-     * database chose as the deadlock's victim again on its retry, {@code 503} with
-     * {@code Retry-After: 1} (ADR 0013's as-13; {@link ExhaustedRetry}), the same record under that
-     * status. Public for the connector administration adapter: it is on the application chain but
-     * in the {@code scim} module, whose advice answers for its package, and its deadlocked writes
-     * are answered in this chain's shape.
+     * Any exception no controller and no Spring MVC mapping answers: a fault. Its one record and
+     * its answer are the generic {@code 500} — or, for a retried write the database chose as the
+     * deadlock's victim again on its retry, {@code 503} with {@code Retry-After: 1} (ADR 0013's
+     * as-13; {@link ExhaustedRetry}), the same record under that status.
      */
-    public static ResponseEntity<Object> answerUnexpected(Exception fault) {
-        return answerUnexpected(fault, Body.API_ERROR);
-    }
-
-    private static ResponseEntity<Object> answerUnexpected(Exception fault, Body body) {
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<Object> handleUnexpected(Exception fault, HttpServletRequest request) {
+        Body body = body(request);
         if (ExhaustedRetry.answers(fault)) {
             return fault(fault, HttpStatus.SERVICE_UNAVAILABLE, ExhaustedRetry.retryAfter(), body);
         }
@@ -145,7 +130,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode statusCode,
             WebRequest request) {
         Body shape = request instanceof ServletWebRequest servlet
-                ? Body.of(servlet.getRequest())
+                ? body(servlet.getRequest())
                 : Body.API_ERROR;
         if (statusCode.is5xxServerError()) {
             return fault(failure, statusCode, HttpHeaders.EMPTY, shape);
@@ -216,13 +201,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return answer.contentType(MediaType.APPLICATION_JSON).body(ApiError.of(statusCode));
     }
 
-    /** Which error body a request is answered with: the FHIR path's, or everywhere else's. */
+    /** Which of this advice's two namespaces' bodies {@code request} is answered with. */
+    private Body body(HttpServletRequest request) {
+        return namespaces.of(request).orElse(ErrorNamespaces.API) == ErrorNamespaces.FHIR
+                ? Body.FHIR_OUTCOME
+                : Body.API_ERROR;
+    }
+
+    /** Which error body a request is answered with: the FHIR namespace's, or the API's. */
     private enum Body {
         API_ERROR,
-        FHIR_OUTCOME;
-
-        static Body of(HttpServletRequest request) {
-            return FhirOperationOutcome.coversPath(request) ? FHIR_OUTCOME : API_ERROR;
-        }
+        FHIR_OUTCOME
     }
 }

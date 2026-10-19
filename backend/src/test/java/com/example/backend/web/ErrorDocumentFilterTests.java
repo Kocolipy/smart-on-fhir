@@ -1,15 +1,18 @@
 package com.example.backend.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -18,17 +21,33 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * What a client receives when something inside the filter refuses a request with
- * {@code sendError}, as the firewall, the security chain and the dispatcher do: under the FHIR
- * path, an {@code OperationOutcome} chosen by the status alone; anywhere else, the refusal as it
- * was sent.
+ * {@code sendError}, as the firewall and the dispatcher do: under the FHIR namespace, an
+ * {@code OperationOutcome} chosen by the status alone; under the rest of the application API, an
+ * {@link ApiError} chosen the same way; in a namespace another module contributes, that
+ * namespace's document; in none, the refusal as it was sent.
  */
-class FhirErrorDocumentFilterTests {
+class ErrorDocumentFilterTests {
 
     private static final String FHIR_JSON_R5 = "application/fhir+json;fhirVersion=5.0";
 
     private final JsonMapper json = JsonMapper.builder().build();
 
-    private final FhirErrorDocumentFilter filter = new FhirErrorDocumentFilter();
+    /** A namespace another module contributes, whose document names the status it was given. */
+    private final ErrorNamespace contributed = new ErrorNamespace() {
+        @Override
+        public String path() {
+            return "/elsewhere/v1";
+        }
+
+        @Override
+        public void refuse(HttpServletResponse response, int status) throws IOException {
+            response.setStatus(status);
+            response.getWriter().write("contributed " + status);
+        }
+    };
+
+    private final ErrorDocumentFilter filter =
+            new ErrorDocumentFilter(new ErrorNamespaces(List.of(contributed)));
 
     /** A servlet that sets {@code Allow}, then refuses with {@code status} and a quoting message. */
     private static HttpServlet refusing(int status) {
@@ -150,29 +169,52 @@ class FhirErrorDocumentFilterTests {
                 .isEqualTo(outcome("not-found", "The resource was not found."));
     }
 
+    /**
+     * Under the rest of the application API, the {@link ApiError} for the status, as
+     * {@code application/json} with no charset — the bytes a handler's answer serializes — and
+     * nothing of the message, which quotes the request.
+     */
     @ParameterizedTest
-    @ValueSource(strings = {"/api/patient", "/api/patient/x"})
-    void theFhirPathIsThePatientBaseAndEverythingUnderIt(String path) {
-        assertThat(FhirOperationOutcome.coversPath(new MockHttpServletRequest("GET", path))).isTrue();
-    }
+    @ValueSource(ints = {400, 401, 403, 404, 405, 406, 415, 422, 500, 503})
+    void aRefusalUnderTheApiIsTheApiErrorForItsStatus(int status) throws Exception {
+        MockHttpServletResponse response = refused("/api/admin/accounts", status);
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/api/patients", "/api/self", "/", "/api"})
-    void noOtherPathIsTheFhirPath(String path) {
-        assertThat(FhirOperationOutcome.coversPath(new MockHttpServletRequest("GET", path))).isFalse();
+        assertThat(response.getStatus()).isEqualTo(status);
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(json.readTree(response.getContentAsString()))
+                .isEqualTo(json.valueToTree(ApiError.of(HttpStatusCode.valueOf(status))));
+        assertThat(response.getContentAsString()).doesNotContain("S1234567A", "POST");
+        assertThat(response.getErrorMessage()).isNull();
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getHeader("Allow")).isEqualTo("GET,HEAD");
     }
 
     @Test
-    void theFhirPathIsReadBelowTheContextPath() {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/app/api/patient/x");
-        request.setContextPath("/app");
+    void aRefusalInAContributedNamespaceIsThatNamespacesDocument() throws Exception {
+        MockHttpServletResponse response = refused("/elsewhere/v1/Things", 405);
 
-        assertThat(FhirOperationOutcome.coversPath(request)).isTrue();
+        assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.getContentAsString()).isEqualTo("contributed 405");
+        assertThat(response.getErrorMessage()).isNull();
+        assertThat(response.isCommitted()).isTrue();
     }
 
     @Test
-    void aRefusalAnywhereElseIsLeftAsItWasSent() throws Exception {
-        MockHttpServletResponse response = refused("/api/self", 405);
+    void anErrorAfterTheResponseIsCommittedIsRefusedAsTheServletApiRequires() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/self");
+
+        filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+            res.flushBuffer();
+            assertThatThrownBy(() -> ((HttpServletResponse) res).sendError(404))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> ((HttpServletResponse) res).sendError(404, "x"))
+                    .isInstanceOf(IllegalStateException.class);
+        });
+    }
+
+    @Test
+    void aRefusalInNoNamespaceIsLeftAsItWasSent() throws Exception {
+        MockHttpServletResponse response = refused("/assets/app.js", 405);
 
         assertThat(response.getErrorMessage())
                 .isEqualTo("Request method 'POST' is not supported: S1234567A");

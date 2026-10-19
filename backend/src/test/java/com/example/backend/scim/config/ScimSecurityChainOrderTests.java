@@ -2,6 +2,7 @@ package com.example.backend.scim.config;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.web.ErrorDocumentFilter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -150,7 +151,7 @@ class ScimSecurityChainOrderTests {
         int bearer = filters.indexOf(ScimBearerAuthenticationFilter.class);
         int authorization = filters.indexOf(AuthorizationFilter.class);
         int bodyLimit = filters.indexOf(ScimRequestBodyLimitFilter.class);
-        int dispatcherErrors = filters.indexOf(ScimDispatcherErrorFilter.class);
+        int dispatcherErrors = filters.indexOf(ErrorDocumentFilter.class);
         int headerWriter = filters.indexOf(HeaderWriterFilter.class);
         softly.assertThat(bodyLimit)
                 .as("the body bound must be installed after the gate and before authentication, "
@@ -158,7 +159,7 @@ class ScimSecurityChainOrderTests {
                 .isGreaterThan(filters.indexOf(ScimReleaseGateFilter.class))
                 .isLessThan(bearer);
         softly.assertThat(dispatcherErrors)
-                .as("the dispatcher-error renderer must wrap the header writer, or a sent error "
+                .as("the one sendError adapter must wrap the header writer, or a sent error "
                         + "would lose the security headers")
                 .isNotNegative()
                 .isLessThan(headerWriter);

@@ -33,6 +33,13 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class SelfControllerTests {
 
+    /**
+     * The one body every {@code 401} on {@code /api} carries, whether the chain refuses the
+     * request or the handler finds its session names nobody.
+     */
+    private static final String UNAUTHORIZED =
+            "{\"status\":401,\"code\":\"request-refused\",\"detail\":\"The request was refused.\"}";
+
     private static final Instant ADA_LOGIN = Instant.parse("2026-04-01T10:00:00Z");
     private static final Instant BOB_LOCKED_AT = Instant.parse("2026-04-02T10:00:00Z");
 
@@ -144,7 +151,7 @@ class SelfControllerTests {
         MockHttpServletResponse response = mvc.perform(get("/api/self")).andReturn().getResponse();
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEmpty();
+        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
     }
 
     /** A session with no stable id — one never signed in to — identifies nobody. */
@@ -156,7 +163,7 @@ class SelfControllerTests {
         MockHttpServletResponse response = perform(get("/api/self"), anonymous);
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEmpty();
+        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
     }
 
     /** A principal index that is not a string is not an id either. */
@@ -168,7 +175,7 @@ class SelfControllerTests {
         assertThat(perform(get("/api/self"), odd).getStatus()).isEqualTo(401);
     }
 
-    /** A principal index that is not a stable id names nobody: a bare 401, never a 500. */
+    /** A principal index that is not a stable id names nobody: the generic 401, never a 500. */
     @Test
     void aMalformedPrincipalIndexIsUnauthorized() throws Exception {
         MockHttpSession malformed = new MockHttpSession();
@@ -178,7 +185,22 @@ class SelfControllerTests {
         MockHttpServletResponse response = perform(get("/api/self"), malformed);
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEmpty();
+        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
+    }
+
+    /**
+     * The handler's 401 is JSON whatever the caller would accept, as every 401 on the API is:
+     * a browser's navigation asking for HTML gets it too, not a {@code 406}.
+     */
+    @Test
+    void aSessionNamingNobodyIsAJsonUnauthorizedWhateverItAccepts() throws Exception {
+        MockHttpServletResponse response = perform(
+                get("/api/self").accept(org.springframework.http.MediaType.TEXT_HTML),
+                sessionOf(UUID.randomUUID()));
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
     }
 
     /** A session that outlived its User names nobody. */
@@ -187,7 +209,8 @@ class SelfControllerTests {
         MockHttpServletResponse response = perform(get("/api/self"), sessionOf(UUID.randomUUID()));
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEmpty();
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
     }
 
     private MockHttpServletResponse perform(MockHttpServletRequestBuilder request,

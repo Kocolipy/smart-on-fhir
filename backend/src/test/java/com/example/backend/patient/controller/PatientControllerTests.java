@@ -11,6 +11,7 @@ import com.example.backend.patient.domain.Patient;
 import com.example.backend.patient.domain.PatientName;
 import com.example.backend.patient.domain.PatientStore;
 import com.example.backend.web.ApiExceptionHandler;
+import com.example.backend.web.ErrorNamespaces;
 import com.example.backend.web.FhirOperationOutcome;
 import java.time.LocalDate;
 import java.util.List;
@@ -83,7 +84,7 @@ class PatientControllerTests {
     private static MockMvc serving(PatientStore store) {
         return MockMvcBuilders
                 .standaloneSetup(new PatientController(new PatientReadService(store)))
-                .setControllerAdvice(new ApiExceptionHandler())
+                .setControllerAdvice(new ApiExceptionHandler(new ErrorNamespaces(List.of())))
                 .build();
     }
 
@@ -214,7 +215,7 @@ class PatientControllerTests {
     @Test
     void theControllersBaseIsTheFhirPathItsErrorsAreAnsweredUnder() {
         assertThat(PatientController.class.getAnnotation(RequestMapping.class).value())
-                .containsExactly(FhirOperationOutcome.FHIR_PATH);
+                .containsExactly(ErrorNamespaces.FHIR_PATH);
     }
 
     /**
