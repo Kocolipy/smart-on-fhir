@@ -47,9 +47,9 @@ table. Startup seeds the **Bootstrap Admin** (`APP_BOOTSTRAP_USERNAME` /
 `APP_BOOTSTRAP_PASSWORD`, development default `admin` / `P@ssw0rd`, never for
 production) and the **Admin group**. With the development fixtures on, there is
 also a User per development Role, all with `APP_DEV_FIXTURES_PASSWORD`
-([Role mapping](docs/configuration/role-mapping.md)). Lockout, session windows
-and their defaults are in `/docs/domain/authentication.md` and
-`/docs/domain/sessions.md`.
+([Role mapping](docs/configuration/role-mapping.md)). Lockout (the threshold is
+`APP_LOCKOUT_MAX_ATTEMPTS`), session windows and their defaults are in
+`/docs/domain/authentication.md` and `/docs/domain/sessions.md`.
 
 Every unsafe request needs the session's CSRF token in the `X-CSRF-TOKEN`
 header. It is fetched, never read from a cookie: `GET /api/auth/csrf` returns it
@@ -131,5 +131,4 @@ script does not name, and so stays fast. Subsystem names are the script's
 classes, run only in the broad gate.
 
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
-`frontend/`, and `make integration-test` and `make epic-integration-test` from
-the repository root.
+`frontend/`, and `make integration-test` from the repository root.

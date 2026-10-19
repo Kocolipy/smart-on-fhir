@@ -1,5 +1,49 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/**
+ * The projects only `make integration-test` declares (frontend/AGENTS.md), each
+ * when that run's environment names what it needs, so a bare `npm run
+ * test:e2e` against a backend started some other way never sees them. Both
+ * replay the Admin session `setup` saves, as the `admin` project does, so they
+ * run beside it and ahead of `guest`, whose sign-in as the seeded Admin ends
+ * that session (#64).
+ */
+const adminSessionExtras = [
+  // Epic Login. It replays the Admin session only to issue its SCIM token: the
+  // one sign-in it makes is of a User it provisions itself, so it ends no
+  // session another project replays.
+  ...(process.env.E2E_EPIC_FHIR_BASE
+    ? [
+        {
+          name: "epic",
+          testMatch: /epic-launch\.spec\.ts/,
+          dependencies: ["setup"],
+          use: {
+            ...devices["Desktop Chrome"],
+            storageState: "test/e2e/.auth/admin.json",
+          },
+        },
+      ]
+    : []),
+  // The packaged SPA, named by the origin of the packaged JAR, which serves the
+  // built SPA under the backend's CSP. The Admin session's cookie is scoped to
+  // the host, not the port, so it replays there too; it signs no one in.
+  ...(process.env.E2E_PACKAGED_BASE_URL
+    ? [
+        {
+          name: "packaged",
+          testMatch: /packaged-csp\.spec\.ts/,
+          dependencies: ["setup"],
+          use: {
+            ...devices["Desktop Chrome"],
+            baseURL: process.env.E2E_PACKAGED_BASE_URL,
+            storageState: "test/e2e/.auth/admin.json",
+          },
+        },
+      ]
+    : []),
+];
+
 export default defineConfig({
   testDir: "./test/e2e",
   fullyParallel: true,
@@ -29,11 +73,12 @@ export default defineConfig({
     {
       name: "guest",
       testMatch: /(?:smoke|login|dev-roles)\.spec\.ts/,
-      // Last, after `admin`. The backend keeps one session per User and a
+      // After `admin`, and after every other project replaying `admin.json`
+      // (`adminSessionExtras`). The backend keeps one session per User and a
       // successful login ends every other one (#64), so `login.spec.ts` signing
       // in as the seeded Admin revokes the session `admin.json` replays. Run
       // beside the `admin` project, that turned its specs into 401s.
-      dependencies: ["admin"],
+      dependencies: ["admin", ...adminSessionExtras.map(({ name }) => name)],
       use: {
         ...devices["Desktop Chrome"],
         storageState: { cookies: [], origins: [] },
@@ -87,25 +132,7 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
-    // Epic Login's E2E conditional gate (frontend/AGENTS.md), run by
-    // `make epic-integration-test`. Declared only when that gate's environment
-    // names the local SMART launcher, so `npm run test:e2e` — which runs without
-    // the launcher or Epic Login — never sees it. It needs only the Admin session
-    // `setup` saves, to issue its SCIM token: the one sign-in it makes is of a
-    // User it provisions itself, so it ends no session another project replays.
-    ...(process.env.E2E_EPIC_FHIR_BASE
-      ? [
-          {
-            name: "epic",
-            testMatch: /epic-launch\.spec\.ts/,
-            dependencies: ["setup"],
-            use: {
-              ...devices["Desktop Chrome"],
-              storageState: "test/e2e/.auth/admin.json",
-            },
-          },
-        ]
-      : []),
+    ...adminSessionExtras,
   ],
 
   webServer: {

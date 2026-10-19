@@ -2,20 +2,20 @@
 
 ## Running the suites
 
-| Command                 | What it runs                                          | Typical use                           |
-| ----------------------- | ----------------------------------------------------- | ------------------------------------- |
-| `npm test`              | vitest, single pass, everything but `test/e2e`        | after every change                    |
-| `npm run test:watch`    | vitest in watch mode                                  | while writing a test                  |
-| `npm test <path>`       | one file                                              | narrowing a failure                   |
-| `npm test -- -t "name"` | one test by name                                      | narrowing further                     |
-| `npm run typecheck`     | `tsc -b` over all three projects                      | after every change                    |
-| `npm run test:arch`     | dependency-cruiser + `test/arch`                      | after every change                    |
-| `npm run test:coverage` | vitest with v8 coverage                               | checking a gap, not a gate            |
-| `npm run test:e2e`      | Playwright against `npm run dev`                      | once an implementation is complete    |
-| `npm run test:security` | Semgrep, local ruleset                                | once an implementation is complete    |
-| `npx fallow audit`      | dead code / complexity / duplication in the changeset | once an implementation is complete    |
-| `npm run test:mutation` | Stryker over the whole repo                           | deliberately, outside the loop        |
-| scoped Stryker          | Stryker over the source one test covers               | after writing or changing a unit test |
+| Command                 | What it runs                                           | Typical use                           |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------- |
+| `npm test`              | vitest, single pass, everything but `test/e2e`         | after every change                    |
+| `npm run test:watch`    | vitest in watch mode                                   | while writing a test                  |
+| `npm test <path>`       | one file                                               | narrowing a failure                   |
+| `npm test -- -t "name"` | one test by name                                       | narrowing further                     |
+| `npm run typecheck`     | `tsc -b` over all three projects                       | after every change                    |
+| `npm run test:arch`     | dependency-cruiser + `test/arch`                       | after every change                    |
+| `npm run test:coverage` | vitest with v8 coverage                                | checking a gap, not a gate            |
+| `npm run test:e2e`      | Playwright against `npm run dev`, and the packaged JAR | once an implementation is complete    |
+| `npm run test:security` | Semgrep, local ruleset                                 | once an implementation is complete    |
+| `npx fallow audit`      | dead code / complexity / duplication in the changeset  | once an implementation is complete    |
+| `npm run test:mutation` | Stryker over the whole repo                            | deliberately, outside the loop        |
+| scoped Stryker          | Stryker over the source one test covers                | after writing or changing a unit test |
 
 The baseline gate, the conditional gates and their triggers are in AGENTS.md
 under "Testing".
@@ -169,7 +169,8 @@ another project's sign-in holds. So the projects run as one chain, `setup` →
 `user` → `admin` → `guest` → `connector-tokens` → `dormancy`, each declaring the
 previous one in `dependencies`:
 
-- `guest` follows `admin` because `login.spec.ts` signs in as the seeded Admin,
+- `guest` follows `admin` (and the `epic` and `packaged` projects below, when
+  declared) because `login.spec.ts` signs in as the seeded Admin,
   and beside the `admin` project it turned that project's specs into 401s.
 - `connector-tokens` follows `guest` because `token-permissions.spec.ts` signs
   in as the same development Role Users `dev-roles.spec.ts` does.
@@ -178,21 +179,29 @@ previous one in `dependencies`:
   restart re-arms.
 
 `login.spec.ts` also opts out of `fullyParallel` with
-`test.describe.configure({ mode: "default" })`, since its two sign-ins would
+`test.describe.configure({ mode: "default" })`, since its sign-ins would
 otherwise revoke each other. A new spec that must sign in for real should do it
 as a User it provisions (see `change-password.spec.ts`), not as a seeded one.
 Running one project alone still runs every project ahead of it in the chain.
 `playwright.config.ts` carries the reason beside each `dependencies` line;
 update both together.
 
-The `epic` project sits outside that chain. It holds `epic-launch.spec.ts`, Epic
-Login's E2E gate, and is declared only when `E2E_EPIC_FHIR_BASE` is set, which
-`make epic-integration-test` does after starting the SMART launcher and a backend
-pointed at it; `npm run test:e2e` never declares it, so the main suite never
-needs the launcher. It depends on `setup` alone: it replays the Admin session
-only to issue a SCIM token, and the one sign-in it makes — the Epic launch — is
-of a User it provisions itself. The routing arch test still reads its
-`testMatch`, so the spec counts as routed either way.
+Two projects sit outside that chain, declared only by the environment `make
+integration-test` sets up, so a bare `npm run test:e2e` against a backend
+started some other way runs without them. Each depends on `setup` and replays
+the Admin session, so it runs beside `admin`, and `guest` lists each declared
+one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admin
+would end the session they replay. The routing arch test reads their
+`testMatch` either way:
+
+- **`epic`** holds `epic-launch.spec.ts` and is declared when
+  `E2E_EPIC_FHIR_BASE` names the SMART launcher. It replays the Admin session
+  only to issue a SCIM token; the one sign-in it makes, the Epic launch, is of a
+  User it provisions itself.
+- **`packaged`** holds `packaged-csp.spec.ts` and is declared when
+  `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's
+  origin, so its specs load the built bundle under the backend's CSP rather
+  than Vite's dev server; it signs no one in.
 
 ### Routing a new spec
 

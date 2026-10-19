@@ -588,9 +588,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/controller/ScimGroupRequestReader.java": {
-    "mtime": 1791261902.6527762,
-    "seen": 1792400005.0543985,
-    "ast_hash": "b57cd75052a3202f5bba23a5bd6443d2",
+    "mtime": 1792412690.9797974,
+    "seen": 1792412738.7603967,
+    "ast_hash": "e1b36433e357a58a42da1ee72c3700e8",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/controller/ScimQueryRequest.java": {
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/web/SpaErrorViewResolver.java": {
-    "mtime": 1791261902.6682484,
-    "seen": 1792400005.0544934,
-    "ast_hash": "1e0baf11bff73204e6c79174493be976",
+    "mtime": 1792412691.1313512,
+    "seen": 1792412738.7654433,
+    "ast_hash": "e1c500d755e9a64737177095fcf8bafe",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/web/SpaRoutes.java": {
@@ -1506,9 +1506,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimGroupProvisioningIntegrationTests.java": {
-    "mtime": 1792136222.5943825,
-    "seen": 1792400005.0546544,
-    "ast_hash": "fd9f7f877595d6aae4603dbecc59f3c9",
+    "mtime": 1792412690.9814024,
+    "seen": 1792412738.7731843,
+    "ast_hash": "e95f8df6dcafe343c984707d0dd1e93f",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimIdentities.java": {
@@ -1776,9 +1776,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/web/SpaFrontendTests.java": {
-    "mtime": 1792392345.4014692,
-    "seen": 1792400005.0547469,
-    "ast_hash": "86acb31f8fd3086f52e6c4203758e6b4",
+    "mtime": 1792412691.1315992,
+    "seen": 1792412738.7764554,
+    "ast_hash": "de4cbda7e3e44207a89e406861c1d64d",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/web/SpaRoutesScimNamespaceTests.java": {
@@ -1806,15 +1806,15 @@
     "semantic_hash": ""
   },
   "frontend/package.json": {
-    "mtime": 1792329550.470905,
-    "seen": 1792400005.05475,
-    "ast_hash": "4da530b69af15a070e4d31443d03c7ce",
+    "mtime": 1792412691.1326485,
+    "seen": 1792412738.7765558,
+    "ast_hash": "be6e9834726075a8ef1cd28d4d419057",
     "semantic_hash": ""
   },
   "frontend/playwright.config.ts": {
-    "mtime": 1792319801.075564,
-    "seen": 1792400005.0547504,
-    "ast_hash": "5afd4ce869a39e33b79d4826ec5c0774",
+    "mtime": 1792412691.1326485,
+    "seen": 1792412738.7765565,
+    "ast_hash": "d45693db80478d7db44629681485c03d",
     "semantic_hash": ""
   },
   "frontend/prettier.config.mjs": {
@@ -1986,9 +1986,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/accounts-admin.spec.ts": {
-    "mtime": 1791334549.7123687,
-    "seen": 1792400005.0548217,
-    "ast_hash": "8904db952610854b99ae1102dc60fd53",
+    "mtime": 1792412691.1328576,
+    "seen": 1792412738.7783742,
+    "ast_hash": "755ec4f6bfe62212b8e44027d5e37534",
     "semantic_hash": ""
   },
   "frontend/test/e2e/auth.helpers.ts": {
@@ -2004,9 +2004,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/login.spec.ts": {
-    "mtime": 1792319801.075564,
-    "seen": 1792400005.054831,
-    "ast_hash": "6777b93ae5c4743645354e6bae5ebcc2",
+    "mtime": 1792412691.133696,
+    "seen": 1792412738.7785509,
+    "ast_hash": "18af0bfc429eb6b02e9c75d597b9c9ef",
     "semantic_hash": ""
   },
   "frontend/test/e2e/roles-admin.spec.ts": {
@@ -2106,15 +2106,15 @@
     "semantic_hash": ""
   },
   "scripts/integration-test.sh": {
-    "mtime": 1792136222.6462529,
-    "seen": 1792400005.0548472,
-    "ast_hash": "ef233c567a5d5e77f6ffaef519e0d318",
+    "mtime": 1792412691.189438,
+    "seen": 1792412738.7790055,
+    "ast_hash": "77c5f9c2961dd6f5f4c38ee894137dec",
     "semantic_hash": ""
   },
   "scripts/lib.sh": {
-    "mtime": 1792319801.1334214,
-    "seen": 1792400005.0548477,
-    "ast_hash": "d98ce3533e2c673a510cfbe648db0bd2",
+    "mtime": 1792412691.189795,
+    "seen": 1792412738.7790062,
+    "ast_hash": "b01b300bff916afaa4617610ec80d7c0",
     "semantic_hash": ""
   },
   "scripts/package.sh": {
@@ -2184,9 +2184,9 @@
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1792401495.9009135,
-    "seen": 1792402217.1706026,
-    "ast_hash": "a29c3e33b52975635f849f7bbae1fd3c",
+    "mtime": 1792412691.1307485,
+    "seen": 1792412738.7792397,
+    "ast_hash": "a289d8b5c1e242923beb31a1fd750be7",
     "semantic_hash": ""
   },
   "backend/compose.yaml": {
@@ -2196,9 +2196,9 @@
     "semantic_hash": ""
   },
   "backend/docs/openapi.yaml": {
-    "mtime": 1792398065.108309,
-    "seen": 1792400005.054865,
-    "ast_hash": "356e85e0bcaae60c74abaefd448aaf3a",
+    "mtime": 1792412690.978716,
+    "seen": 1792412738.7795463,
+    "ast_hash": "428b315cdaf4443af53741580edd8927",
     "semantic_hash": ""
   },
   "backend/ops/prometheus/alerts.yaml": {
@@ -2286,15 +2286,15 @@
     "semantic_hash": ""
   },
   "frontend/AGENTS.md": {
-    "mtime": 1792401712.6319513,
-    "seen": 1792402217.1714466,
-    "ast_hash": "49898aab3bf8e6a300053d8dc1543ced",
+    "mtime": 1792412691.1319366,
+    "seen": 1792412738.7803934,
+    "ast_hash": "c069f87386516165296dceaa0319120b",
     "semantic_hash": ""
   },
   "frontend/README.md": {
-    "mtime": 1792401611.0560734,
-    "seen": 1792402217.1714473,
-    "ast_hash": "d5903f0c1faa7c32e0aed3056aef49d1",
+    "mtime": 1792412691.1321962,
+    "seen": 1792412738.7803946,
+    "ast_hash": "ac2e663a2459e8243baa56b2df6e35fc",
     "semantic_hash": ""
   },
   "frontend/docs/ARCHITECTURE.md": {
@@ -2304,9 +2304,9 @@
     "semantic_hash": ""
   },
   "frontend/docs/TESTING_GUIDE.md": {
-    "mtime": 1792401737.6200008,
-    "seen": 1792402217.17145,
-    "ast_hash": "59a3e26b7cc43e480f050d6cef3f989e",
+    "mtime": 1792412691.132422,
+    "seen": 1792412738.7804341,
+    "ast_hash": "b2900b1c9e8e646ef10fa6d98d127dd1",
     "semantic_hash": ""
   },
   "frontend/index.html": {
@@ -2646,9 +2646,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/controller/ScimGroupRequestReaderTests.java": {
-    "mtime": 1791261902.6955013,
-    "seen": 1792400005.0546803,
-    "ast_hash": "7465bdcddb1fa843ae556bfe15eaf250",
+    "mtime": 1792412690.9815283,
+    "seen": 1792412738.7744899,
+    "ast_hash": "79d6d29527bd7a380054964848d92dfe",
     "semantic_hash": ""
   },
   "backend/docs/api-contract-check.md": {
@@ -2922,9 +2922,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/console-errors.spec.ts": {
-    "mtime": 1792383555.9919322,
-    "seen": 1792400005.0548258,
-    "ast_hash": "9eb4fde1a69c9ba2094d2b0965137400",
+    "mtime": 1792412691.1330237,
+    "seen": 1792412738.778461,
+    "ast_hash": "3d18e4cbda0b07b84034fa47f7df2ef2",
     "semantic_hash": ""
   },
   "frontend/test/e2e/login-lockout.spec.ts": {
@@ -3042,9 +3042,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/contract/ScimConformanceCases.java": {
-    "mtime": 1792319801.0675638,
-    "seen": 1792400005.0545967,
-    "ast_hash": "5b78090c9349f5a07a946c0424682c98",
+    "mtime": 1792412690.980648,
+    "seen": 1792412738.7705534,
+    "ast_hash": "dd8445495cd2fa5abf19d1f838748c7d",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/LockoutDefaultThresholdIntegrationTests.java": {
@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/dev-roles.spec.ts": {
-    "mtime": 1792392345.4014692,
-    "seen": 1792400005.0548265,
-    "ast_hash": "91261e8ccc61cbb905e6e92d940b33c7",
+    "mtime": 1792412691.1331956,
+    "seen": 1792412738.7784617,
+    "ast_hash": "a395f5eafb18a82f3c53527176c8317c",
     "semantic_hash": ""
   },
   "backend/src/main/resources/authorization.yaml": {
@@ -3846,9 +3846,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/audit.spec.ts": {
-    "mtime": 1792381485.8643367,
-    "seen": 1792400005.0548224,
-    "ast_hash": "ac697f070612c8dfd23e2ca03d2e0a50",
+    "mtime": 1792412691.1329575,
+    "seen": 1792412738.7783754,
+    "ast_hash": "b06a8268f4174f22013d92c04651368c",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/audit/domain/AuditLoginMethod.java": {
@@ -3954,15 +3954,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/epic-launch.spec.ts": {
-    "mtime": 1792319801.075564,
-    "seen": 1792400005.0548277,
-    "ast_hash": "46648dfe98a89488f408ae7cc7ca8557",
-    "semantic_hash": ""
-  },
-  "scripts/epic-integration-test.sh": {
-    "mtime": 1792319801.1334214,
-    "seen": 1792400005.0548468,
-    "ast_hash": "f2aee1d9e87a5289290c351e957b8320",
+    "mtime": 1792412691.133381,
+    "seen": 1792412738.7784836,
+    "ast_hash": "e1b9e277d490f53296d00ba99ebe1bec",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/domain/EpicLoginFailureReason.java": {
@@ -4440,9 +4434,9 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/sign-in-reason.ts": {
-    "mtime": 1792381485.8603368,
-    "seen": 1792400005.0547702,
-    "ast_hash": "bef92005b10d184445c55966f19ec161",
+    "mtime": 1792412690.9826274,
+    "seen": 1792412738.7771347,
+    "ast_hash": "4905fbbef24b46500e00b288769e02a1",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/controller/HttpSessionAttributes.java": {
@@ -5412,9 +5406,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md": {
-    "mtime": 1792401999.2686172,
-    "seen": 1792402217.171146,
-    "ast_hash": "149d6e0663763316f6527dac260ccb71",
+    "mtime": 1792412690.9819906,
+    "seen": 1792412738.7798226,
+    "ast_hash": "e35ee8351fcff09908e01932fac3febc",
     "semantic_hash": ""
   },
   "docs/adr/0007-lockout-lifted-only-by-admin-unlock.md": {
@@ -5538,9 +5532,9 @@
     "semantic_hash": ""
   },
   "backend/docs/configuration/epic-login.md": {
-    "mtime": 1792319801.053613,
-    "seen": 1792400005.0548606,
-    "ast_hash": "edaf98e4ef20c9e0c4f9ec2212ebe368",
+    "mtime": 1792412691.131097,
+    "seen": 1792412738.7794018,
+    "ast_hash": "9ce2376590e381af42f393167e1d41b6",
     "semantic_hash": ""
   },
   "backend/docs/configuration/index.md": {
@@ -5676,9 +5670,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/home.spec.ts": {
-    "mtime": 1792392345.4014692,
-    "seen": 1792400005.0548284,
-    "ast_hash": "ed18707a7f80a2db72ef9e6a7a802a2d",
+    "mtime": 1792412691.1335356,
+    "seen": 1792412738.7784848,
+    "ast_hash": "a3db6b636615a677fcf341c81c5adb20",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/EpicLoginOnContext.java": {
@@ -6069,6 +6063,18 @@
     "mtime": 1792398065.1161494,
     "seen": 1792400005.0547454,
     "ast_hash": "b42902ad4355b9b7a3a735356ed26585",
+    "semantic_hash": ""
+  },
+  "frontend/test/e2e/packaged-csp.spec.ts": {
+    "mtime": 1792412691.1950724,
+    "seen": 1792412738.7785516,
+    "ast_hash": "41bd97ab716fd4972cc6b24808ab4f5c",
+    "semantic_hash": ""
+  },
+  "frontend/test/e2e/route.helpers.ts": {
+    "mtime": 1792412691.1951444,
+    "seen": 1792412738.778593,
+    "ast_hash": "5d6fccb85a30904e0a0070e68cbb78a3",
     "semantic_hash": ""
   }
 }

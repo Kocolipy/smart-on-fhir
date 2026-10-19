@@ -23,6 +23,7 @@ const GUARDED_READS = {
   "/api/admin/audit-events": "audit:read",
   "/api/admin/connectors": "connector:read",
   "/api/admin/groups": "group:read",
+  "/api/admin/roles": "group:read",
 } as const;
 
 /** What the Accounts page shows a Role, or `null` when its deep link routes away. */

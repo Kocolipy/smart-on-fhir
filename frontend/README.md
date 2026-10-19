@@ -80,15 +80,16 @@ Playwright `setup` project makes that change on first run, moving `admin` to
 this is one-way for that database. The specs read these variables; the SPA
 reads none:
 
-| Variable                      | Default                          | Used for                                                                                                                               |
-| ----------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `E2E_ADMIN_PASSWORD`          | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                               |
-| `APP_LOCKOUT_MAX_ATTEMPTS`    | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)                |
-| `APP_DEV_FIXTURES_PASSWORD`   | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                          |
-| `E2E_BACKEND_URL`             | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                                  |
-| `E2E_EPIC_FHIR_BASE`          | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make epic-integration-test` sets it)       |
-| `E2E_EPIC_JWKS_URL`           | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make epic-integration-test` sets it)                                                   |
-| `E2E_EPIC_LAUNCHER_CONTAINER` | none — required by the Epic spec | the launcher's Docker container, paused for one callback to make its token endpoint unreachable (`make epic-integration-test` sets it) |
+| Variable                      | Default                          | Used for                                                                                                                          |
+| ----------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_ADMIN_PASSWORD`          | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                          |
+| `APP_LOCKOUT_MAX_ATTEMPTS`    | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)           |
+| `APP_DEV_FIXTURES_PASSWORD`   | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                     |
+| `E2E_BACKEND_URL`             | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                             |
+| `E2E_EPIC_FHIR_BASE`          | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make integration-test` sets it)       |
+| `E2E_EPIC_JWKS_URL`           | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make integration-test` sets it)                                                   |
+| `E2E_EPIC_LAUNCHER_CONTAINER` | none — required by the Epic spec | the launcher's Docker container, paused for one callback to make its token endpoint unreachable (`make integration-test` sets it) |
+| `E2E_PACKAGED_BASE_URL`       | none (unset)                     | the packaged JAR's origin; declares the `packaged` project (`make integration-test` sets it)                                      |
 
 The specs sign in as the backend's development fixtures (one User per
 development Role, plus `user` and `dormant`; `backend/docs/configuration/role-mapping.md`)
