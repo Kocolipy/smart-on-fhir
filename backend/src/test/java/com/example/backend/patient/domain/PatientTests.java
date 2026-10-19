@@ -11,7 +11,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** What a Patient must have: every element but the name's family and given parts. */
+/**
+ * What a Patient must have — every element but the name's family and given parts — and what it
+ * prints as: its id, and none of the Restricted fields a record's generated {@code toString}
+ * would print.
+ */
 class PatientTests {
 
     private static final UUID ID = UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11");
@@ -75,6 +79,21 @@ class PatientTests {
         given.clear();
 
         assertThat(name.given()).containsExactly("Wei", "Ming");
+    }
+
+    @Test
+    void aPatientKeepsTheNricItWasGiven() {
+        assertThat(new Patient(ID, "S1234567A", NAME, AdministrativeGender.MALE, BORN).nric())
+                .isEqualTo("S1234567A");
+    }
+
+    @Test
+    void aPatientPrintsAsItsIdAlone() {
+        Patient tan = new Patient(ID, "S1234567A",
+                new PatientName("Tan Wei Ming", "Tan", List.of("Wei", "Ming")),
+                AdministrativeGender.MALE, BORN);
+
+        assertThat(tan.toString()).isEqualTo("Patient[id=0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11]");
     }
 
     @ParameterizedTest

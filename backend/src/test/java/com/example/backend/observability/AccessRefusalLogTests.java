@@ -160,6 +160,28 @@ class AccessRefusalLogTests {
                         refusal.status() == 401 ? "access.unauthenticated" : "access.denied");
     }
 
+    /** A 403 is the caller's authorization error: classified cert/auth, needing no follow-up. */
+    @ParameterizedTest
+    @EnumSource(value = Refusal.class, names = {"INSUFFICIENT_PERMISSIONS", "CSRF"})
+    void a_forbidden_refusal_is_classified_as_a_cert_auth_error(Refusal refusal) {
+        ILoggingEvent record = onlyRecord(request("GET", "/api/things"), refusal);
+
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 403)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Refusal.class, names = {"NO_SESSION", "SESSION_EXPIRED", "BEARER_MISSING",
+        "BEARER_INVALID"})
+    void an_unauthenticated_refusal_carries_no_error_classification(Refusal refusal) {
+        ILoggingEvent record = onlyRecord(request("GET", "/api/things"), refusal);
+
+        assertThat(CapturedLog.fields(record)).doesNotContainKeys(
+                LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY, LogEvent.ERROR_FOLLOW_UP_ACTION);
+    }
+
     @Test
     void the_reasons_and_statuses_are_the_tickets() {
         assertThat(List.of(Refusal.values()))

@@ -9,6 +9,8 @@ import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.RequestFault;
+import com.example.backend.observability.RequestRefusal;
+import jakarta.servlet.http.HttpServletRequest;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -50,6 +53,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       once.
  * </ul>
  *
+ * <p>Under the FHIR path ({@link FhirOperationOutcome#FHIR_PATH}) the body is a
+ * {@link FhirOperationOutcome} instead, as FHIR JSON, with the same fixed content chosen by the
+ * status alone. A fault there has the same record. The caller's error has none of its own: a
+ * read of a patient adds no record to the request's, so it is classified as {@code data} on the
+ * request record itself ({@link RequestRefusal}) — the one record a {@code 400} or {@code 404}
+ * there has (/docs/domain/patient.md, "Logging").
+ *
  * <h2>Scope</h2>
  *
  * <p>The application chain's controller packages, named in {@code basePackages}; never the
@@ -62,7 +72,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * <p>A controller's own {@code @ExceptionHandler} still answers first — Spring consults the
  * controller before any advice — so every refusal a controller already renders is unchanged.
  * A refusal made before a handler is chosen (no route, a method or content type no route
- * accepts) has no controller to scope by and keeps the container's handling.
+ * accepts) has no controller to scope by and keeps the container's handling — under the FHIR
+ * path, {@link FhirErrorDocumentFilter}'s.
  */
 @RestControllerAdvice(basePackages = {
     ApiExceptionHandler.AUDIT_CONTROLLERS,
@@ -87,8 +98,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     /** Any exception no controller and no Spring MVC mapping answers: a fault. */
     @ExceptionHandler(Exception.class)
-    ResponseEntity<Object> handleUnexpected(Exception fault) {
-        return answerUnexpected(fault);
+    ResponseEntity<Object> handleUnexpected(Exception fault, HttpServletRequest request) {
+        return answerUnexpected(fault, Body.of(request));
     }
 
     /**
@@ -100,10 +111,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * are answered in this chain's shape.
      */
     public static ResponseEntity<Object> answerUnexpected(Exception fault) {
+        return answerUnexpected(fault, Body.API_ERROR);
+    }
+
+    private static ResponseEntity<Object> answerUnexpected(Exception fault, Body body) {
         if (ExhaustedRetry.answers(fault)) {
-            return fault(fault, HttpStatus.SERVICE_UNAVAILABLE, ExhaustedRetry.retryAfter());
+            return fault(fault, HttpStatus.SERVICE_UNAVAILABLE, ExhaustedRetry.retryAfter(), body);
         }
-        return fault(fault, HttpStatus.INTERNAL_SERVER_ERROR);
+        return fault(fault, HttpStatus.INTERNAL_SERVER_ERROR, HttpHeaders.EMPTY, body);
     }
 
     /**
@@ -122,7 +137,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * Every exception {@link ResponseEntityExceptionHandler} maps comes through here, with the
      * status it maps it to. Its own body — a problem document whose detail may quote the
-     * request — is discarded for {@link ApiError}.
+     * request — is discarded for {@link ApiError}, or under the FHIR path for a
+     * {@link FhirOperationOutcome}.
      */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
@@ -131,19 +147,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers,
             HttpStatusCode statusCode,
             WebRequest request) {
+        Body shape = request instanceof ServletWebRequest servlet
+                ? Body.of(servlet.getRequest())
+                : Body.API_ERROR;
         if (statusCode.is5xxServerError()) {
-            return fault(failure, statusCode);
+            return fault(failure, statusCode, HttpHeaders.EMPTY, shape);
         }
-        refusal(failure, statusCode);
-        return respond(ApiError.of(statusCode), headers);
-    }
-
-    private static ResponseEntity<Object> fault(Exception fault, HttpStatusCode statusCode) {
-        return fault(fault, statusCode, HttpHeaders.EMPTY);
+        if (shape == Body.FHIR_OUTCOME) {
+            // A read of a patient adds no record to the request's own: its refusal is classified
+            // there instead (/docs/domain/patient.md, "Logging").
+            RequestRefusal.classified(ErrorCategory.DATA);
+        } else {
+            refusal(failure, statusCode);
+        }
+        return respond(statusCode, headers, shape);
     }
 
     private static ResponseEntity<Object> fault(
-            Exception fault, HttpStatusCode statusCode, HttpHeaders headers) {
+            Exception fault, HttpStatusCode statusCode, HttpHeaders headers, Body body) {
         int status = statusCode.value();
         LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status,
                         DatabaseFailureCategory.of(fault),
@@ -153,7 +174,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
                 .log();
         RequestFault.recorded();
-        return respond(ApiError.of(statusCode), headers);
+        return respond(statusCode, headers, body);
     }
 
     private static void refusal(Exception refused, HttpStatusCode statusCode) {
@@ -188,10 +209,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 : fault;
     }
 
-    private static ResponseEntity<Object> respond(ApiError body, HttpHeaders headers) {
-        return ResponseEntity.status(body.status())
-                .headers(headers)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body);
+    private static ResponseEntity<Object> respond(
+            HttpStatusCode statusCode, HttpHeaders headers, Body body) {
+        ResponseEntity.BodyBuilder answer = ResponseEntity.status(statusCode).headers(headers);
+        if (body == Body.FHIR_OUTCOME) {
+            return answer.contentType(FhirOperationOutcome.FHIR_JSON_R5)
+                    .body(FhirOperationOutcome.of(statusCode.value()));
+        }
+        return answer.contentType(MediaType.APPLICATION_JSON).body(ApiError.of(statusCode));
+    }
+
+    /** Which error body a request is answered with: the FHIR path's, or everywhere else's. */
+    private enum Body {
+        API_ERROR,
+        FHIR_OUTCOME;
+
+        static Body of(HttpServletRequest request) {
+            return FhirOperationOutcome.coversPath(request) ? FHIR_OUTCOME : API_ERROR;
+        }
     }
 }

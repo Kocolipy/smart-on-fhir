@@ -80,15 +80,16 @@ function authState(permissions: Permission[]): AuthContextState {
 
 interface Options {
   failureMessage: string;
+  forbiddenAsFailure?: boolean;
   path: string;
 }
 
 /** The read as a page holds it, reporting into the page status around it. */
 function useRead(
   declaration: ReadDeclaration<number, [path: string], boolean>,
-  { failureMessage, path }: Options,
+  { failureMessage, forbiddenAsFailure, path }: Options,
 ) {
-  return useGatedRead(declaration, { args: [path], failureMessage });
+  return useGatedRead(declaration, { args: [path], failureMessage, forbiddenAsFailure });
 }
 
 /** What the page shows for the read: the line the page status draws, and the read's view. */
@@ -215,6 +216,14 @@ describe("useGatedRead", () => {
     await answer(bare(403));
 
     expect(shown(result)).toMatchObject({ error: FORBIDDEN_MESSAGE, view: { kind: "failed" } });
+    expect(expireSession).not.toHaveBeenCalled();
+  });
+
+  it("shows the page's failure copy for a refusal when the page reads one as a failure", async () => {
+    const { result } = renderRead({ options: { forbiddenAsFailure: true } });
+    await answer(bare(403));
+
+    expect(shown(result)).toMatchObject({ error: FAILURE, view: { kind: "failed" } });
     expect(expireSession).not.toHaveBeenCalled();
   });
 

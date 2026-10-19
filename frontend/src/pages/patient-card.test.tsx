@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import type { Patient } from "fhir/r5";
+import type { OperationOutcome, Patient } from "fhir/r5";
 import { describe, expect, it } from "vitest";
 
 import { bare, deferred, holding, json, type WireAnswer } from "@/auth/session-adapter.testHelpers";
@@ -19,6 +19,13 @@ const TAN_WEI_MING = {
   name: [{ family: "Tan", given: ["Wei", "Ming"], text: "Tan Wei Ming", use: "official" }],
   resourceType: "Patient",
 } satisfies Patient;
+
+/** An error answer as the backend sends it: one issue, its diagnostics fixed per code. */
+const outcome = (code: OperationOutcome["issue"][number]["code"]) =>
+  ({
+    issue: [{ code, diagnostics: "A fixed sentence.", severity: "error" }],
+    resourceType: "OperationOutcome",
+  }) satisfies OperationOutcome;
 
 /** A clock stopped at `instant`. */
 const at =
@@ -100,6 +107,29 @@ describe("PatientCard", () => {
     expect(screen.queryAllByRole("definition")).toEqual([]);
     expect(screen.queryByText("No patient in context")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /retry|try again/i })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [400, "invalid"],
+    [403, "forbidden"],
+    [500, "exception"],
+    [503, "exception"],
+  ] as const)(
+    "shows its failed state for a %i OperationOutcome, never the absent one",
+    async (status, code) => {
+      await renderCard(json(outcome(code), status));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
+      expect(screen.queryAllByRole("definition")).toEqual([]);
+      expect(screen.queryByText("No patient in context")).not.toBeInTheDocument();
+    },
+  );
+
+  it("says no patient is in context for the 404's OperationOutcome, and reports nothing", async () => {
+    await renderCard(json(outcome("not-found"), 404));
+
+    expect(await screen.findByText("No patient in context")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("reports a body that is not a Patient as a failure", async () => {

@@ -110,3 +110,22 @@ whatever its Groups, because reading a patient is the application's basic
 capability rather than an administrative one. A confined session does not hold
 it, and the Superuser Role is granted it in the mapping, since startup still
 requires that Role to hold every Permission.
+
+## Addendum (2026-10-18): writes on a patient pass the chain to be answered `405`
+
+The application chain stays deny-by-default, with one carve-out beside the
+self-service and public routes: after the `patient:read` backstop, which matches
+`GET` only, a rule admits **any other method** on `/api/patient/*` to a session
+holding baseline access (`ROLE_USER`). No operation serves such a method, so the
+dispatcher answers it `405` with FHIR's `not-supported` outcome — the resource
+takes no write — rather than the final rule's `403`, which would tell the caller
+it was refused when in fact nothing exists to refuse it. Nothing becomes
+reachable: there is no handler behind the rule, and a confined session is still
+refused `403`. The `/error` rule is the precedent for admitting a baseline
+session to a path that serves no operation of its own.
+
+The carve-out is safe only while the patient module has no write. **A future
+patient write must put its own Permission rule ahead of this one** (and declare
+it with method security, as every protected handler does); left behind it, the
+write would be guarded by `ROLE_USER` alone at the chain, with method security
+its only Permission check.

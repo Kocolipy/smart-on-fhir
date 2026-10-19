@@ -81,6 +81,13 @@ The `patient` module is a leaf, like `counter`, and its ArchUnit entry
 - The edge carries only that one record. Nothing in `patient` reaches any other
   module that holds state: not `scim`, so the directory's seeding and the patient
   fixtures' stay apart.
+- The error `OperationOutcome` is not the module's (#128). Every error under
+  `/api/patient` is answered by a layer outside it — the app-wide exception
+  handler, the security chain, the dispatcher — so the shape lives in `web`
+  (`FhirOperationOutcome`, with `FhirErrorDocumentFilter`), beside `ApiError`.
+  `patient` renders only the `Patient` and reaches `web` for nothing; `web`
+  knows the FHIR path, as it already knew the controller package, and no module
+  edge is added.
 
 ## Consequences
 

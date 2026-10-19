@@ -116,7 +116,7 @@ class ApiExceptionHandlerTests {
     void anUnexpectedExceptionIsOneClassifiedErrorWithTheExceptionAttachedWhole() {
         IllegalStateException failure = new IllegalStateException("internal detail " + SUBMITTED);
 
-        ResponseEntity<Object> response = handler.handleUnexpected(failure);
+        ResponseEntity<Object> response = handler.handleUnexpected(failure, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
@@ -155,7 +155,7 @@ class ApiExceptionHandlerTests {
                 "duplicate key (user_name)=(" + SUBMITTED + ")",
                 new java.sql.SQLException("Key (user_name)=(" + SUBMITTED + ") already exists"));
 
-        handler.handleUnexpected(violation);
+        handler.handleUnexpected(violation, request);
 
         ILoggingEvent record = onlyRecord();
         assertThat(record.getThrowableProxy().getClassName()).isEqualTo(RedactedFaultException.class.getName());
@@ -177,7 +177,7 @@ class ApiExceptionHandlerTests {
     @Test
     void aDataAccessFailureIsCategorisedAsADatabaseErrorUnderTheAnsweredStatus() {
         handler.handleUnexpected(new DataIntegrityViolationException("refused",
-                SqlFailures.VALUE_TOO_LONG.raised()));
+                SqlFailures.VALUE_TOO_LONG.raised()), request);
 
         assertThat(CapturedLog.fields(onlyRecord()))
                 .containsEntry(LogEvent.ERROR_CODE, 500)
@@ -188,7 +188,7 @@ class ApiExceptionHandlerTests {
     @Test
     void aPermissionRefusalIsCategorisedAsCertAuth() {
         handler.handleUnexpected(new DataIntegrityViolationException("refused",
-                SqlFailures.PERMISSION_DENIED.raised()));
+                SqlFailures.PERMISSION_DENIED.raised()), request);
 
         assertThat(CapturedLog.fields(onlyRecord()))
                 .containsEntry(LogEvent.ERROR_CATEGORY, "cert/auth");
@@ -204,7 +204,7 @@ class ApiExceptionHandlerTests {
         ExhaustedRetry.recorded();
         CannotAcquireLockException deadlock = deadlock();
 
-        ResponseEntity<Object> response = handler.handleUnexpected(deadlock);
+        ResponseEntity<Object> response = handler.handleUnexpected(deadlock, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
@@ -226,7 +226,7 @@ class ApiExceptionHandlerTests {
     /** A deadlock nothing retried is not as-13's second one: the generic 500, no Retry-After. */
     @Test
     void aDeadlockNoRetryMetIsTheGeneric500() {
-        ResponseEntity<Object> response = handler.handleUnexpected(deadlock());
+        ResponseEntity<Object> response = handler.handleUnexpected(deadlock(), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getHeaders().containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
@@ -239,7 +239,7 @@ class ApiExceptionHandlerTests {
         ExhaustedRetry.recorded();
 
         ResponseEntity<Object> response = handler.handleUnexpected(
-                new DataIntegrityViolationException("refused", SqlFailures.VALUE_TOO_LONG.raised()));
+                new DataIntegrityViolationException("refused", SqlFailures.VALUE_TOO_LONG.raised()), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getHeaders().containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
@@ -355,6 +355,62 @@ class ApiExceptionHandlerTests {
                 .isEqualTo("ResponseStatusException");
     }
 
+    /**
+     * The connector administration adapter's way in, which hands over no request: the
+     * application API's own fault body, never a FHIR one.
+     */
+    @Test
+    void aFaultHandedOverWithoutItsRequestIsAnsweredWithTheApiError() {
+        ResponseEntity<Object> response = ApiExceptionHandler.answerUnexpected(
+                new IllegalStateException("internal detail " + SUBMITTED));
+
+        assertThat(response.getBody()).isEqualTo(new ApiError(500, ApiError.SERVER_ERROR,
+                "The request could not be completed because of a server-side failure."));
+    }
+
+    /** A request that is not a servlet one has no path to be under the FHIR path by. */
+    @Test
+    void aRefusalOffAServletRequestIsAnsweredWithTheApiError() throws Exception {
+        ResponseEntity<Object> response = handler.handleException(
+                new HttpRequestMethodNotSupportedException("PATCH", List.of("GET")),
+                org.mockito.Mockito.mock(org.springframework.web.context.request.WebRequest.class));
+
+        assertThat(response.getBody()).isEqualTo(
+                new ApiError(405, ApiError.REQUEST_REFUSED, "The request was refused."));
+    }
+
+    /**
+     * Under the FHIR path a refusal — a malformed id, an unknown one — writes no record of its
+     * own: the request record is a read's only record (/docs/domain/patient.md, "Logging").
+     */
+    @Test
+    void aRefusalUnderTheFhirPathWritesNoRecordOfItsOwn() throws Exception {
+        handleUnderTheFhirPath(new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        assertThat(logs.withAction(Level.TRACE, LogEvent.KIND, "event")).isEmpty();
+    }
+
+    /** ...and is classified instead, as the caller's error, on that request record. */
+    @Test
+    void aRefusalUnderTheFhirPathIsClassifiedAsTheCallersErrorOnTheRequestRecord()
+            throws Exception {
+        MockHttpServletRequest fhir = handleUnderTheFhirPath(
+                new ResponseStatusException(HttpStatus.BAD_REQUEST));
+
+        assertThat(fhir.getAttribute(
+                "com.example.backend.observability.RequestRefusal.category"))
+                .isEqualTo(LogEvent.ErrorCategory.DATA);
+    }
+
+    /** Elsewhere a refusal keeps its own record, and leaves the request record unclassified. */
+    @Test
+    void aRefusalOffTheFhirPathIsNotClassifiedOnTheRequestRecord() throws Exception {
+        handle(new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        assertThat(request.getAttribute(
+                "com.example.backend.observability.RequestRefusal.category")).isNull();
+    }
+
     @Test
     void theErrorCodesAreStable() {
         assertThat(ApiError.INVALID_REQUEST).isEqualTo("invalid-request");
@@ -371,6 +427,14 @@ class ApiExceptionHandlerTests {
     private ResponseEntity<Object> handle(Exception failure) throws Exception {
         return handler.handleException(
                 failure, new ServletWebRequest(request, new MockHttpServletResponse()));
+    }
+
+    /** Handles {@code failure} for a read under the FHIR path, which is then in scope. */
+    private MockHttpServletRequest handleUnderTheFhirPath(Exception failure) throws Exception {
+        MockHttpServletRequest fhir = new MockHttpServletRequest("GET", "/api/patient/x");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(fhir));
+        handler.handleException(failure, new ServletWebRequest(fhir, new MockHttpServletResponse()));
+        return fhir;
     }
 
     private static CannotAcquireLockException deadlock() {

@@ -226,7 +226,10 @@ rules:
       #
       # The first matches anywhere in the argument, so `newPassword` and `token.value()` are
       # caught along with the bare names. It already covers Epic Login's `id_token` and
-      # `access_token`, both being tokens.
+      # `access_token`, both being tokens. It also holds a Patient's NRIC (`nric`,
+      # `patient.nric()`, `NRIC_SYSTEM`), patient data being Restricted and a patient being
+      # logged by its id alone (/docs/domain/patient.md) — except as the tail of `enrich`,
+      # which says nothing about a patient.
       #
       # The second is the rest of Epic Login's never-logged values (ADR 0012, D22): the
       # authorization `code`, `state`, `nonce`, `launch`, the PKCE verifier, the client
@@ -241,7 +244,7 @@ rules:
       # these values to a logging call at all.
       - metavariable-regex:
           metavariable: $VALUE
-          regex: "(?is)(.*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie|filter).*|(.*[^a-z0-9_$-])?(code|auth(orization)?_?code|state|nonce|launch|(pkce_?|code_?)?verifier|(client_?)?assertion|private_?key|pem|client[_-]?(next[_-]?)?key|app_epic_client_(next_)?key)([^a-z0-9_$-]|$))"
+          regex: "(?is)(.*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie|filter|(?<!e)nric).*|(.*[^a-z0-9_$-])?(code|auth(orization)?_?code|state|nonce|launch|(pkce_?|code_?)?verifier|(client_?)?assertion|private_?key|pem|client[_-]?(next[_-]?)?key|app_epic_client_(next_)?key)([^a-z0-9_$-]|$))"
 
   - id: be-mdc-direct-access
     languages: [java]

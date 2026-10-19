@@ -11,6 +11,7 @@ import com.example.backend.ForcedDeadlock;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.web.FhirErrorDocumentFilter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
@@ -88,7 +89,10 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             "GET /api/auth/epic/jwks.json 404",
             "GET /api/auth/epic/launch 404",
             "GET /api/auth/epic/authorize 404",
-            "GET /api/auth/epic/callback 404");
+            "GET /api/auth/epic/callback 404",
+            // Needs the patient read to fail on this side; this context's SQL Server serves it.
+            // The fault's outcome is PatientControllerTests', against a store whose reads fail.
+            "GET /api/patient/{id} 500");
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
 
@@ -107,6 +111,9 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
 
     @Autowired
     private RequestIdFilter requestIdFilter;
+
+    @Autowired
+    private FhirErrorDocumentFilter fhirErrorDocumentFilter;
 
     @Autowired
     private DatabaseLogins logins;
@@ -128,8 +135,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSessionRepositoryFilter,
-                        springSecurityFilterChain)
+                .addFilters(requestIdFilter, fhirErrorDocumentFilter,
+                        springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
         UUID connector = connectors.create("api-contract", null).id();
         writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
@@ -366,8 +373,11 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 t.expect(t.get("/api/patient/" + id).cookie(admin), 200);
                 t.expect(t.get("/api/patient/" + id).cookie(user), 200);
                 t.expect(t.get("/api/patient/" + UUID.randomUUID()).cookie(user), 404);
+                t.expect(t.get("/api/patient/not-a-uuid").cookie(user), 400);
                 t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
                 t.expect(t.get("/api/patient/" + id), 401);
+                // No operation takes a write: the dispatcher answers it, in the namespace's shape.
+                t.expect(t.csrf(t.post("/api/patient/" + id)).cookie(user), 405);
             } finally {
                 // The app login holds no DELETE on patients; the owner removes the row.
                 t.logins.owner().jdbc().update("DELETE FROM patients WHERE id = ?", id);

@@ -31,6 +31,12 @@ import { refusalMessage, useSessionRequest, type SessionResult } from "./use-ses
 export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> & {
   /** The copy for a plain `failed` result, which only the page can describe. */
   failureMessage: string;
+  /**
+   * Reports a refusal (`403`) with `failureMessage` rather than the seam's
+   * refusal copy: for a read whose Permission the gate already found held, a
+   * page may show a refusal as the read failing — the Patient card does.
+   */
+  forbiddenAsFailure?: boolean;
 };
 
 /**
@@ -178,7 +184,7 @@ export function useGatedRead<T, A extends readonly unknown[], N extends boolean 
   { absentOnNotFound, decode, path: pathOf, permission }: ReadDeclaration<T, A, N>,
   options: GatedReadOptions<A>,
 ): GatedRead<T, N> {
-  const { failureMessage } = options;
+  const { failureMessage, forbiddenAsFailure = false } = options;
   // An endpoint with a fixed path takes no arguments, and is handed none.
   const path = pathOf(...((options.args ?? []) as A));
   const { user } = useAuth();
@@ -206,9 +212,13 @@ export function useGatedRead<T, A extends readonly unknown[], N extends boolean 
           }
       }
       setState((current) => ({ data: current.data, outcome: "failed" }));
-      report(refusalMessage(result, failureMessage));
+      report(
+        forbiddenAsFailure && result.kind === "forbidden"
+          ? failureMessage
+          : refusalMessage(result, failureMessage),
+      );
     },
-    [absentOnNotFound, failureMessage, report, setState],
+    [absentOnNotFound, failureMessage, forbiddenAsFailure, report, setState],
   );
 
   const reload = useOpenRead(allowed, read, land, report);

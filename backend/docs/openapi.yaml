@@ -147,6 +147,9 @@ x-namespace-responses:
       $ref: "#/components/responses/ScimNotAcceptable"
     "413":
       $ref: "#/components/responses/ScimPayloadTooLarge"
+  /api/patient:
+    "405":
+      $ref: "#/components/responses/FhirMethodNotSupported"
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -712,8 +715,21 @@ paths:
 
         Requires `patient:read`, a baseline Permission every active User holds,
         so only a session confined by a required password change is refused.
-        Both documented answers are FHIR JSON, `application/fhir+json;
-        fhirVersion=5.0`; the refusals below are the application API's own.
+
+        **Every answer is FHIR JSON**, `application/fhir+json; fhirVersion=5.0`:
+        the `Patient`, or for every refusal and fault — whichever layer makes it —
+        an `OperationOutcome` with one issue, `severity: error`, whose `code` is
+        chosen by the status alone and whose `diagnostics` are a fixed sentence
+        per code. An outcome never carries the submitted id, an exception
+        message, SQL or a stack trace. `POST`, `PUT`, `PATCH` and `DELETE` on a
+        patient are not operations: they are answered `405` (`not-supported`,
+        under `x-namespace-responses`) without reaching the read. Patient data is
+        Restricted, Sensitive Normal. A success, a `400` and a `404` add no log
+        record beyond the request record, which names the route template and
+        never the id; for the `400` and the `404` it carries the global
+        handler's classification, `error.category` `data`. A `403` has the
+        authorization refusal's record (`cert/auth`) and a `5xx` the fault's
+        (`application`), as everywhere (`docs/domain/patient.md`, "Logging").
       operationId: getPatient
       security:
         - sessionCookie: [patient:read]
@@ -732,16 +748,49 @@ paths:
             application/fhir+json:
               schema:
                 $ref: "#/components/schemas/FhirPatient"
+        "400":
+          description: |
+            `id` is not a UUID — markup, an encoded line break, anything else:
+            `code: invalid`, `diagnostics` "The request is not valid.". A line
+            break is refused by the request firewall before the dispatcher, in the
+            same outcome.
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: |
+            A valid authenticated session is required, as everywhere: `code:
+            login`, `diagnostics` "A signed-in session is required.".
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
         "403":
-          $ref: "#/components/responses/PermissionRequired"
+          description: |
+            The session does not hold `patient:read` — in practice, one confined
+            by a required password change: `code: forbidden`, `diagnostics` "The
+            request is not permitted.". Refused by the handler's declaration or the
+            chain's backstop, and as `PermissionRequired` describes otherwise:
+            audited (`ACCESS_DENIED`) and logged at `WARN` with the reason
+            `insufficient-permissions`, never naming the Permission.
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
         "404":
           description: |
-            No patient is held under `id`: an `OperationOutcome` with one issue,
-            `severity: error` and `code: not-found`, whose `diagnostics` are
-            generic. An ordinary answer, not a fault — the SPA shows it as "No
-            patient in context".
+            No patient is held under `id`: `code: not-found`, `diagnostics` "The
+            resource was not found.". An ordinary answer, not a fault — the SPA
+            shows it as "No patient in context".
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
+        "500":
+          description: |
+            A fault on this side: `code: exception`, `diagnostics` "The request
+            could not be completed.", and nothing about the fault.
           content:
             application/fhir+json:
               schema:
@@ -2694,6 +2743,17 @@ components:
   responses:
     Unauthorized:
       description: A valid authenticated session is required.
+    FhirMethodNotSupported:
+      description: |
+        A method no patient operation serves — `POST`, `PUT`, `PATCH` or
+        `DELETE` — sent by a signed-in session with its CSRF token. Refused by
+        the dispatcher before any handler runs, with the `Allow` header it
+        writes: `code: not-supported`, `diagnostics` "The request is not
+        supported.".
+      content:
+        application/fhir+json:
+          schema:
+            $ref: "#/components/schemas/FhirOperationOutcome"
     CsrfTokenRejected:
       description: |
         The CSRF token is missing, or is not the token of the caller's own HTTP
@@ -3513,9 +3573,18 @@ components:
                 enum: [error]
               code:
                 type: string
-                enum: [not-found]
+                enum:
+                  [
+                    invalid,
+                    login,
+                    forbidden,
+                    not-found,
+                    not-supported,
+                    exception,
+                  ]
               diagnostics:
                 type: string
+                description: A fixed sentence per `code`; never anything the request carried.
     CountResponse:
       type: object
       required: [count]

@@ -1,12 +1,15 @@
 package com.example.backend.observability;
 
 import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 
 /**
  * The one record a request refused for want of authentication ({@code 401}) or of
@@ -19,6 +22,10 @@ import org.slf4j.LoggerFactory;
  * is a map of the authorization rules for whoever reads the log stream. It never carries a
  * credential either, nor any part of one: the reasons are fixed strings, so nothing a caller
  * sent can reach the record through them.
+ *
+ * <p>A {@code 403} carries the {@code Log_Schema.md} §Error classification of a caller's error —
+ * {@code error.code} {@code 403}, {@code error.category} {@code cert/auth}, no follow-up — at
+ * {@code WARN}; a {@code 401} carries none.
  *
  * <h2>Once per request</h2>
  *
@@ -60,8 +67,14 @@ public class AccessRefusalLog {
         // The published method — one of a fixed set — computed first: it is what the request
         // record names it as, so the two records of one exchange agree.
         String method = RequestIdFilter.method(request);
-        LogEvent.refused(log, refusal.operation(), Category.PROCESS, Type.ACCESS, Type.DENIED)
-                .addKeyValue(LogEvent.REASON, refusal.reason())
+        LoggingEventBuilder record =
+                LogEvent.refused(log, refusal.operation(), Category.PROCESS, Type.ACCESS, Type.DENIED);
+        // A 403 is the caller's authorization error, classified as such; a 401 says only that no
+        // one was there to authorize.
+        if (refusal.status() == HttpServletResponse.SC_FORBIDDEN) {
+            LogEvent.withError(record, refusal.status(), ErrorCategory.CERT_AUTH, false);
+        }
+        record.addKeyValue(LogEvent.REASON, refusal.reason())
                 .addKeyValue(LogEvent.HTTP_METHOD, method)
                 .addKeyValue(LogEvent.HTTP_ROUTE, routes.of(request))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status())
