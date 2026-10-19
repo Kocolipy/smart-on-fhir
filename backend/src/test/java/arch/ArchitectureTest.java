@@ -253,6 +253,16 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Domain must remain infrastructure-agnostic");
 
+    // The onion rule above cannot see this either: web is a layer-less root holding the HTTP error
+    // plumbing, adapter-grade code the application layer has no business reaching.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule inner_layers_never_reach_the_web_root =
+        noClasses()
+            .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
+            .should().dependOnClassesThat().resideInAPackage("com.example.backend.web..")
+            .because("Dependencies point inward: the web package is the API's error and SPA plumbing,"
+                    + " which the application and domain layers must not depend on");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_framework_imports =
         noClasses()
@@ -261,6 +271,18 @@ public class ArchitectureTest {
                     "org.springframework..", "jakarta.persistence..", "jakarta.servlet..", "org.hibernate..")
             .allowEmptyShould(true)
             .because("The domain is plain Java, so it can be tested and reasoned about without a framework");
+
+    // The rule above reads direct dependencies only, and the domain reaches the layer-less
+    // observability root (LogEvent), where framework-bound classes sit beside plain ones.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_domain_framework_dependencies_transitively =
+        noClasses()
+            .that().resideInAPackage("..domain..")
+            .should().transitivelyDependOnClassesThat().resideInAnyPackage(
+                    "org.springframework..", "jakarta.persistence..", "jakarta.servlet..", "org.hibernate..")
+            .allowEmptyShould(true)
+            .because("The domain is plain Java all the way down: a shared type it uses must not carry"
+                    + " a framework in with it");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_spring_annotations_in_domain =
@@ -778,6 +800,38 @@ public class ArchitectureTest {
             .because("the inter-module graph is declared in one place, and an edge nobody declared"
                     + " is a design change to make on purpose");
 
+    /** The modules every business module may build on, and which therefore know none of them. */
+    private static final Set<String> SHARED_MODULES =
+            Set.of("audit", "authorization", "database", "observability", "scheduling", "web");
+
+    // MODULE_DEPENDENCIES already implies this; stated as its own rule so that an edit to the map
+    // cannot turn a shared module into a business module's dependant unremarked.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_shared_depends_on_feature =
+        classes()
+            .that().resideInAPackage(ROOT_PACKAGE + ".*..")
+            .and(new DescribedPredicate<JavaClass>("are in a shared module") {
+                @Override
+                public boolean test(JavaClass type) {
+                    return moduleOf(type).filter(SHARED_MODULES::contains).isPresent();
+                }
+            })
+            .should(new ArchCondition<JavaClass>("depend on no business module") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
+                        moduleOf(dependency.getTargetClass())
+                                .filter(target -> !SHARED_MODULES.contains(target))
+                                .ifPresent(target -> events.add(SimpleConditionEvent.violated(
+                                        dependency,
+                                        dependency.getDescription() + " (shared module depends on"
+                                                + " business module '" + target + "')")));
+                    }
+                }
+            })
+            .because("dependencies flow business -> shared, never back, or a shared module stops"
+                    + " being reusable by the modules that build on it");
+
     /**
      * Outbound HTTP lives in the Epic adapter.
      *
@@ -1011,8 +1065,9 @@ public class ArchitectureTest {
             .that().haveSimpleNameEndingWith("Util")
             .or().haveSimpleNameEndingWith("Utils")
             .should().haveOnlyPrivateConstructors()
+            .andShould().haveModifier(com.tngtech.archunit.core.domain.JavaModifier.FINAL)
             .allowEmptyShould(true)
-            .because("Utility classes must not be instantiable");
+            .because("Utility classes must not be instantiable or extended");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_test_imports_in_production =
