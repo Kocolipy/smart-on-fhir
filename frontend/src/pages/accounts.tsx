@@ -6,7 +6,7 @@ import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatInstant } from "@/lib/instant";
+import { formatDate, formatInstant } from "@/lib/time";
 
 import {
   GROUPS,

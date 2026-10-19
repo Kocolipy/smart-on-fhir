@@ -4,7 +4,7 @@ import { useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatInstant } from "@/lib/instant";
+import { formatInstant } from "@/lib/time";
 
 import {
   AUDIT_EVENTS,

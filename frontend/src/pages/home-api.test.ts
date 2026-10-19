@@ -153,6 +153,16 @@ describe("PATIENT's answer", () => {
       "Patient.birthDate is not a date",
     ],
     [
+      "a birth date in a month past December",
+      { ...TAN_WEI_MING, birthDate: "1985-13-12" },
+      "Patient.birthDate is not a date",
+    ],
+    [
+      "a birth date on 29 February in a common year",
+      { ...TAN_WEI_MING, birthDate: "2023-02-29" },
+      "Patient.birthDate is not a date",
+    ],
+    [
       "an identifier that is not an object",
       { ...TAN_WEI_MING, identifier: ["S1234567A"] },
       "Identifier is not an object",

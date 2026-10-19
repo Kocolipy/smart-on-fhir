@@ -3,7 +3,7 @@ import type { OperationOutcome, Patient } from "fhir/r5";
 import { describe, expect, it } from "vitest";
 
 import { bare, deferred, holding, json, type WireAnswer } from "@/auth/session-adapter.testHelpers";
-import type { Clock } from "@/lib/calendar";
+import type { Clock } from "@/lib/time";
 
 import { PatientCard } from "./patient-card";
 import { renderInLayout } from "./signed-in-shell.testHelpers";
@@ -134,6 +134,13 @@ describe("PatientCard", () => {
 
   it("reports a body that is not a Patient as a failure", async () => {
     await renderCard(json({ ...TAN_WEI_MING, resourceType: "Practitioner" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
+    expect(screen.queryAllByRole("definition")).toEqual([]);
+  });
+
+  it("shows its failed state for a birth date that is not a real calendar date", async () => {
+    await renderCard(json({ ...TAN_WEI_MING, birthDate: "1985-13-45" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
     expect(screen.queryAllByRole("definition")).toEqual([]);

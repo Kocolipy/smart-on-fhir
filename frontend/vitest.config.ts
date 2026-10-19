@@ -2,9 +2,13 @@ import { fileURLToPath } from "node:url";
 import { configDefaults, coverageConfigDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 
-// Pinned so a date-formatting assertion means the same thing on a developer's
-// machine as it does in CI.
-process.env.TZ = "UTC";
+// Pinned so a time assertion means the same thing on a developer's machine as
+// in CI, and pinned to a zone that is neither UTC nor Asia/Singapore: the SPA
+// reads and shows every time in Singapore whatever the machine's zone
+// (`src/lib/time.ts`), and only a machine zone hours away (fifteen to sixteen
+// here, as it keeps daylight saving) lets a test see code that slipped back to
+// the machine's.
+process.env.TZ = "America/Los_Angeles";
 
 export default defineConfig({
   // Deliberately not @tailwindcss/vite: unit tests stub CSS imports, so

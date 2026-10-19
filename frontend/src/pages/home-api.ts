@@ -11,6 +11,7 @@
 
 import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
+import { isCalendarDate } from "@/lib/time";
 
 /**
  * The default patient's id, which Home shows until a SMART launch supplies
@@ -33,9 +34,6 @@ const NRIC_SYSTEM = "https://fhir.synapxe.sg/NamingSystem/nric";
 const GENDERS = ["male", "female", "other", "unknown"] as const;
 
 export type PatientGender = (typeof GENDERS)[number];
-
-/** A FHIR `date` to the day, the precision the backend serves a birth date at. */
-const DAY_PRECISION_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * The part of an R5 `Patient` Home shows, read off the wire (its suite reads
@@ -72,7 +70,8 @@ const decodePatient = jsonDecoder((body: unknown): PatientSummary => {
     throw new DecodeError("Patient.resourceType is not Patient");
   }
   const birthDate = patient.string("birthDate");
-  if (!DAY_PRECISION_DATE.test(birthDate)) throw new DecodeError("Patient.birthDate is not a date");
+  // A FHIR `date` to the day, the precision the backend serves a birth date at.
+  if (!isCalendarDate(birthDate)) throw new DecodeError("Patient.birthDate is not a date");
   return {
     birthDate,
     gender: patient.oneOf("gender", GENDERS),

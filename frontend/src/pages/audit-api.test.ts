@@ -294,19 +294,24 @@ describe("parseAuditFilters", () => {
     );
   });
 
-  it("parses from/to datetime-local values into ISO instants", () => {
+  it("reads from/to datetime-local values as Singapore time, sent as ISO instants", () => {
     const path = outcome({
       ...EMPTY_AUDIT_FILTERS,
       from: "2026-01-01T00:00",
       to: "2026-01-02T00:00",
     });
     const params = new URLSearchParams(path.slice(AUDIT_EVENTS_PATH.length + 1));
-    // A datetime-local value is wall-clock time in the browser's zone, so the
-    // expected instant is that same moment built from its parts here.
+    // Whatever the browser's zone, eight hours ahead of UTC.
     expect([params.get("from"), params.get("to")]).toEqual([
-      new Date(2026, 0, 1).toISOString(),
-      new Date(2026, 0, 2).toISOString(),
+      "2025-12-31T16:00:00.000Z",
+      "2026-01-01T16:00:00.000Z",
     ]);
+  });
+
+  it("refuses a date bound that names a day the calendar lacks", () => {
+    expect(outcome({ ...EMPTY_AUDIT_FILTERS, from: "2026-02-30T00:00" })).toBe(
+      "From date must be a valid date.",
+    );
   });
 
   it.each([
