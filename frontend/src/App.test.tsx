@@ -11,6 +11,7 @@ import {
   json,
   type Answers,
 } from "./lib/fake-backend.testHelpers";
+import { DEFAULT_PATIENT_READ, TAN_WEI_MING } from "./pages/patient.testHelpers";
 
 // `App` owns its router and `AuthProvider`, so it renders whole over the
 // backend layer alone: each test states its backend as an answer table keyed by
@@ -102,9 +103,9 @@ describe("App", () => {
 
   it("returns to login when Home discovers an expired session", async () => {
     renderApp({
-      // counter:read, so Home reads the counter and meets the 401.
-      [ME]: json(testUser({ permissions: ["counter:read"] })),
-      "GET /api/count": bare(401),
+      // patient:read, so Home's Patient card reads the patient and meets the 401.
+      [ME]: json(testUser({ permissions: ["patient:read"] })),
+      [DEFAULT_PATIENT_READ]: bare(401),
     });
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
@@ -140,13 +141,13 @@ describe("App", () => {
     ]);
   });
 
-  it("reads the counter on Home once signed in", async () => {
+  it("shows the default patient on Home once signed in", async () => {
     renderApp({
-      [ME]: json(testUser({ permissions: ["counter:read", "counter:write"] })),
-      "GET /api/count": json({ count: 3 }),
+      [ME]: json(testUser({ permissions: ["patient:read"] })),
+      [DEFAULT_PATIENT_READ]: json(TAN_WEI_MING),
     });
 
-    expect(await screen.findByTestId("count")).toHaveTextContent(/^Clicked 3 times$/);
+    expect(await screen.findByText("Tan Wei Ming")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });
 

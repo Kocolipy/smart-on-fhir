@@ -202,20 +202,6 @@ export async function captureSessionCookie(context: BrowserContext) {
 }
 
 /**
- * Reset the counter through the API, obeying the backend's CSRF contract.
- *
- * `page.request` shares the browser context's cookie jar but adds no header of
- * its own, so the token has to be fetched and echoed exactly as the SPA does —
- * otherwise this returns `403` rather than resetting anything.
- */
-export async function resetCounterViaApi(page: Page) {
-  const response = await page.request.post("/api/count/reset", {
-    headers: await csrfHeaderFor(page.request),
-  });
-  expect(response.ok()).toBe(true);
-}
-
-/**
  * POST credentials to the login endpoint, obeying the CSRF contract, and return
  * the response.
  *

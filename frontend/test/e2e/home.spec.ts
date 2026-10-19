@@ -1,38 +1,44 @@
 import { expect, test } from "@playwright/test";
 
-import { resetCounterViaApi } from "./auth.helpers";
+import { cardTitled } from "./card.helpers";
 
-test.describe("authentication and counter", () => {
-  test("opens Home with the saved session and manages the counter", async ({ page }) => {
-    // Reset here, in the one test that writes the counter, and not in a
-    // `beforeEach`: under `fullyParallel` a sibling's reset would land between
-    // this test's increments.
-    await resetCounterViaApi(page);
+test.describe("Home", () => {
+  test("opens Home with the saved session, the Patient card above the Pages card", async ({
+    page,
+  }) => {
     await page.goto("/");
 
     await expect(page).toHaveURL("/");
     await expect(page.getByText("Signed in as admin")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3 })).toHaveText(["Patient", "Pages"]);
+  });
 
-    const count = page.getByTestId("count");
-    const increment = page.getByRole("button", { name: "Increment" });
-    const reset = page.getByRole("button", { name: "Reset" });
+  // The Superuser opens every page, so the Pages card links each of them.
+  test("links the Superuser to every page from the Pages card", async ({ page }) => {
+    await page.goto("/");
 
-    await expect(count).toHaveText("Clicked 0 times");
-    await expect(reset).toBeDisabled();
-    // The Patient card above the counter grows when its own read lands, moving
-    // the buttons; a click aimed before that lands where they were. So the
-    // page is settled first.
+    const card = cardTitled(page, "Pages");
+    await expect(card.getByRole("link")).toHaveText([
+      "Manage accounts",
+      "View audit log",
+      "Change password",
+    ]);
+  });
+
+  test("asks for no counter and offers no counter control", async ({ page }) => {
+    const counterRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/api/count")) {
+        counterRequests.push(request.url());
+      }
+    });
+
+    await page.goto("/");
+    // Settled: the Patient card's read, Home's only one, has landed.
     await expect(page.getByText("Tan Wei Ming")).toBeVisible();
 
-    await increment.click();
-    await expect(count).toHaveText("Clicked 1 time");
-
-    await increment.click();
-    await expect(count).toHaveText("Clicked 2 times");
-
-    await reset.click();
-    await expect(count).toHaveText("Clicked 0 times");
-    await expect(reset).toBeDisabled();
+    await expect(page.getByRole("button")).toHaveText(["Sign out"]);
+    expect(counterRequests).toEqual([]);
   });
 
   // The development fixtures seed the default patient (backend
@@ -40,7 +46,7 @@ test.describe("authentication and counter", () => {
   test("shows the default patient on Home", async ({ page }) => {
     await page.goto("/");
 
-    const card = page.getByRole("heading", { name: "Patient" }).locator("../..");
+    const card = cardTitled(page, "Patient");
     await expect(card.getByRole("definition")).toHaveText([
       "Tan Wei Ming",
       "S1234567A",

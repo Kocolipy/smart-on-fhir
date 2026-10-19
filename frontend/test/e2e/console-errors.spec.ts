@@ -14,7 +14,7 @@ import { expect, test, type Page } from "@playwright/test";
 /** What each route shows once its data has loaded, so nothing is checked mid-fetch. */
 const READY: Record<string, (page: Page) => Promise<void>> = {
   "/": async (page) => {
-    await expect(page.getByTestId("count")).toHaveText(/^Clicked \d+ times?$/);
+    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
   },
   "/accounts": async (page) => {
     await expect(page.getByRole("table", { name: "Users" }).getByRole("row").nth(1)).toBeVisible();

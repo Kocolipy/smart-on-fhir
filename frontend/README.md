@@ -4,7 +4,8 @@ React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
 up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
-login page, a Home page with a counter for authenticated accounts, a self-service
+login page, a Home page for authenticated accounts showing the default patient
+and a link to each page the account may open, a self-service
 change-password page, and an administrator-only accounts page that shows the
 directory's Users and Groups read-only, unlocks a User or forces its password
 change, and manages SCIM connectors and their tokens, and a read-only audit
@@ -123,8 +124,8 @@ code they cover.
 
 E2E runs in Playwright projects split by identity: `setup` signs in the fixture
 `user` and the Bootstrap Admin once and saves separate storage states, `user` verifies what a
-baseline User (only the counter's baseline Permissions) sees and is refused,
-`admin` drives the counter/session suites plus the Superuser's account
+baseline User (only the baseline Permissions) sees and is refused,
+`admin` drives the Home/session suites plus the Superuser's account
 administration page and its endpoints, `guest` runs signed-out and smoke
 coverage and signs in each development Role's User, and `connector-tokens` and
 `dormancy` sign in as fixture Users for the token-Permission and dormancy
