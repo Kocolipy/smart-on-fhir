@@ -35,7 +35,7 @@ reach for scoped Stryker, which "Testing" below specifies as a conditional gate.
 
 The folders under `src/` plus the composition root, with one dependency
 direction through them: `main` → `App` → `pages` → `auth` → `components/ui` →
-`lib`. `docs/ARCHITECTURE.md` holds the per-file map, each page's endpoints and
+`lib`. `docs/ARCHITECTURE.md` holds the per-file map and
 Permissions, and the reasoning; this list holds the rules.
 
 - **`src/components/ui/`** — the shadcn primitives, a **placeholder** for the
@@ -45,7 +45,7 @@ Permissions, and the reasoning; this list holds the rules.
   (`http.ts`) owns credentials, CSRF recovery, status classification and typed
   decoding. A response body is never cast (`as T`): it is read by a hand-written
   decoder built from `decode.ts`'s primitives, which lives beside the wire type
-  it decodes. Shared hooks live here too (`@/lib/hooks`).
+  it decodes. A shared hook goes here too.
 - **`src/auth/`** — the session and Permission-based authorization. The auth
   state changes, and the CSRF token is forgotten, only through
   `session-transitions.ts`. Every page listing and action goes through the gated
@@ -131,9 +131,8 @@ green _before_ touching code is what proves a later failure is yours.
 
 ### Conditional gates
 
-Each carries its own trigger and its own completion criterion, and none of them
-belongs in the baseline — a gate that runs on every change needs a binary bound,
-and these do not have one until their trigger narrows the scope.
+Each carries its own trigger and completion criterion; none has a binary bound
+until its trigger narrows the scope, so none belongs in the baseline.
 
 | Gate               | Command                                              | Trigger                                                   | Done when                                                                                                                                                                                                               |
 | ------------------ | ---------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -157,14 +156,9 @@ that also pulls that gate's trigger runs both.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture or Semgrep rule, suppressing a fallow finding, adding a file
-nothing imports, or writing or debugging an E2E spec. It has the per-command run
-table, the vitest setup and colocation rules, how every suite above the transport
-fakes the backend only through the test adapter — its backend layer
-(`fakeBackend`, faking only `fetch`) or, for a page, its render layer
-(`renderAsSession`) — rather than mocking `apiFetch` or the auth context, the completion criterion a unit
-test has to meet, why the arch suite reads sources through `node:fs` rather than
-`import.meta.glob`, the Stryker `--mutate` trap, how a new Playwright spec gets
-routed, the flakiness rules, and how to add a Semgrep rule and prove it fires.
+nothing imports, or writing or debugging an E2E spec. Above the transport, every
+suite fakes the backend only through the test adapter (`fakeBackend`, or
+`renderAsSession` for a page), never by mocking `apiFetch` or the auth context.
 
 ## Fallow
 

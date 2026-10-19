@@ -22,10 +22,8 @@ under "Testing".
 
 ## Unit tests
 
-Vitest with happy-dom and Testing Library. Globals are on, so `describe` / `it`
-/ `expect` need no import (they are imported explicitly anyway in the files
-here, which costs nothing and survives a config change). `test/setup.ts` pulls
-in `@testing-library/jest-dom`.
+Vitest with happy-dom and Testing Library; `test/setup.ts` pulls in
+`@testing-library/jest-dom`.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside
 `home.tsx` — and type-checked through `tsconfig.test.json`, which is the only
@@ -39,16 +37,15 @@ inside the `cq-no-devdep-in-prod` dependency rule.
 
 **A unit test — new or changed — is not finished until scoped Stryker confirms
 it kills mutants in the code it covers.** A weakened assertion still passes, and
-still counts as covered; Stryker is the only gate that notices. That is how the
-trap below was found. The command is under Mutation testing.
+still counts as covered; Stryker is the only gate that notices (see Mutation
+testing).
 
 ### Assert exactly, not loosely
 
-`toHaveTextContent` is a **substring** match. `toHaveTextContent("Clicked 1 time")`
-passes on the buggy `"Clicked 1 times"` — so the assertion written to pin down
-a pluralisation is exactly the one that does not. Anchor it:
-`toHaveTextContent(/^Clicked 1 time$/)`. `src/pages/home.test.tsx` carries the
-comment; Stryker is what found it (the `count === 1` mutant survived).
+`toHaveTextContent` is a **substring** match, so it passes on copy with extra
+text around the expected line — a stray suffix, a second notice. Anchor it
+(`toHaveTextContent(/^No widgets exist\.$/)`, `listing-body.test.tsx`) or
+compare `textContent` with `toBe`, as `login.test.tsx` does.
 
 Playwright's `toHaveText` is exact by default, so E2E does not have this trap.
 
@@ -446,13 +443,9 @@ status runs inside the real one, `InPageStatus` in
 The real declarations, `apiFetch` and the decoders all run under every one of
 these suites, so a body that drifted from its type shows up as the page's
 failure copy, and a page-wide rule — the single error line — is tested with
-every panel present. The page suites replaced mocking `apiFetch` with data
-already decoded and mocking the Connectors panel out of the Accounts page. That
-pattern is what let the Accounts page ship two error lines (fixed in #82): the
-panel that drew the second line was never rendered in the page's own suite.
-Since then the layout owns the line and nothing below it can make a second
-(`auth/page-status.ts`), and the page suites render inside the layout, so its
-Sign out shares the line they assert on.
+every panel present. Mocking a panel out of its page is how the Accounts page
+once shipped two error lines (#82): the panel drawing the second was never
+rendered in the page's own suite.
 
 ### Flakiness — the rules that keep these tests green
 

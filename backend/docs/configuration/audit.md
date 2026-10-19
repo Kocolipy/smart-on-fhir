@@ -16,17 +16,14 @@ tags: [audit, retention, configuration]
 
 The **floor is 90 days**, and it is enforced rather than advised: a configured
 period below it fails startup with the value in the message, instead of quietly
-keeping less history than an investigation needs. `90d` itself is allowed. Neither
-value appears in `application.yaml` — both defaults belong to
-`AuditRetentionPolicy`, so an unset variable reaches the rule as unset and "the
-default is one year" is a fact about the rule rather than about a config file.
+keeping less history than an investigation needs. `90d` itself is allowed. Both
+defaults belong to `AuditRetentionPolicy`, not `application.yaml`.
 
 The job logs its schedule at startup, and each run logs one summary line, its
 `job-end` (`app.event.action: audit.retention`): `event.outcome`,
 `batch.job.status` (`completed` or `failed`), what it deleted as
 `record=[{type: audit_event, deleted: <n>, batches: <m>}]`, and
-`event.duration_ms`. A run that deleted nothing reports too — "nothing had aged
-out" and "the job has not run for a month" are different facts.
+`event.duration_ms`. A run that deleted nothing reports too.
 
 A run deletes in batches of at most 4,000 events (`DELETE TOP (4000)`), each in a
 transaction of its own on the retention pool with a 60 s query timeout, until a

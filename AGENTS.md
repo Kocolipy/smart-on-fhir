@@ -68,10 +68,7 @@ this file only routes you to it.
 its own, so it is exactly the two app gates and never a stricter superset.
 
 Beside the baseline each app defines **conditional gates** — mutation testing,
-end-to-end suites — which carry their own trigger and their own completion
-criterion rather than running on every change. The distinction matters: a
-baseline gate is unconditional and binary, while a conditional gate is worth
-nothing without the trigger that says when it applies. Both kinds live in the
+end-to-end suites — each with its own trigger and completion criterion, in the
 owning app's `AGENTS.md`; read it before declaring work done.
 
 **A change is complete only when the owning app's baseline gate is green, plus
@@ -99,7 +96,7 @@ the run.** So write the result where the shell cannot lose it — redirect to a
 log and append a **sentinel** carrying the exit status:
 
 ```bash
-./scripts/verify.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
+make verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 ```
 
 Then wait for the sentinel and read the log in one call, rather than polling:
@@ -123,8 +120,7 @@ frontend source -> frontend/dist -> backend/target/classes/static -> executable 
 ```
 
 `frontend/dist/` and `backend/target/` are both generated and ignored.
-**Nothing generated is ever copied back into a source directory**, and no
-compiled SPA is tracked — the source is the only source of truth.
+**Nothing generated is ever copied back into a source directory.**
 
 The copy is the `with-frontend` Maven profile in `backend/pom.xml`, which is
 **off by default**: `./mvnw clean verify` in `backend/` is a pure backend build
@@ -167,19 +163,13 @@ already matches at any depth.
   variables must carry the `VITE_` prefix and be documented in
   `frontend/README.md`.
 - `backend/` requires `.env`; copy `backend/.env.example` first. It also needs
-  SQL Server and Redis — `make infra-up` from the repo root, which also runs
-  the one-shot `sqlserver-init` compose service
-  (`backend/scripts/local-db-init.sh`) to create the local database and its
-  owner, app and retention logins from `.env`, or `docker compose up --wait`
-  in `backend/` followed by `docker compose run --rm sqlserver-init`. `.env`
-  sets `SPRING_PROFILES_ACTIVE=local`, the profile that runs the migrations at
-  startup; outside `local`, `test` and `migrate`, Flyway is off.
-- The backend connects as **three database logins** — app, retention and owner
-  (`DATABASE_USERNAME`/`DATABASE_PASSWORD`,
-  `DATABASE_RETENTION_USERNAME`/`DATABASE_RETENTION_PASSWORD`,
-  `DATABASE_OWNER_USERNAME`/`DATABASE_OWNER_PASSWORD`), none with a fallback.
-  The owner login is read only where migrations run; a deployed service never
-  holds it (a separate migrate step migrates first). See `backend/docs/configuration/database.md`.
+  SQL Server and Redis: `make infra-up` from the repo root starts both and runs
+  the one-shot `sqlserver-init` compose service, which creates the local
+  database and its three database logins (owner, app, retention) from `.env`.
+  `.env` sets `SPRING_PROFILES_ACTIVE=local`, the profile that runs the
+  migrations at startup; outside `local`, `test` and `migrate`, Flyway is off.
+  The logins have no fallback values; `backend/docs/configuration/database.md`
+  has them.
 
 `backend/src/main/resources/application.yaml` still carries working default
 values for some non-database settings (the Bootstrap Admin's first password
@@ -228,12 +218,10 @@ reason to skip the graph; skip it only when the task is about stale graph output
 itself, or the user says not to use it.
 
 **Refresh before you report done**, by running `update .` through the recorded
-interpreter at the end of any turn in which you changed code or docs. That
-turn-boundary is the binding trigger: a commit-triggered rule never fires during
-an agent's turn, so the graph would go stale while the agent stayed technically
-compliant. `graphify-out/` is tracked, so the refresh belongs with the change
-that caused it, and `update` is AST-only — it spends no API credit, so nothing
-here needs you to hold a change open for it.
+interpreter at the end of any turn in which you changed code or docs — a
+commit-triggered rule never fires mid-turn, and `graphify-out/` is tracked, so
+the refresh belongs with the change that caused it. `update` is AST-only and
+spends no API credit.
 
 A refresh that **fails** is reported, not forced: a rebuild with fewer nodes is
 graphify's shrink guard working as designed, and `update --force` past it

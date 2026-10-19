@@ -90,10 +90,11 @@ change, when the backend side moves. What the SPA has to honour:
   change) and `useGatedWrite`, and both name that type; a bodiless request
   names none. The unit suites' fake backend keeps this rule, so a body sent
   under any other type fails there too.
-- **Features reach the backend through `useSessionRequest`; only `src/auth/`
-  reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
-  place that can drift, and a direct `apiFetch` call puts the session-ending
-  rule back in the feature. Playwright's `page.request` bypasses both: copy
+- **Pages reach the backend through the session seam; only `src/auth/`
+  reaches `apiFetch`.** A page requests through `useGatedRead` /
+  `useGatedWrite`, which go through `useSessionRequest`. A direct `fetch` call
+  puts the CSRF handling in one more place that can drift, and a direct
+  `apiFetch` call puts the session-ending rule back in the page. Playwright's `page.request` bypasses both: copy
   `postAdminAction()` in `test/e2e/auth.helpers.ts`, which fetches the
   session's CSRF token and echoes it, for an API call from a spec.
 - **Sessions expire after 15 minutes** of inactivity, the single default in
@@ -108,13 +109,9 @@ change, when the backend side moves. What the SPA has to honour:
   backend's idle clock too; at the limit the SPA calls logout, discards the CSRF token and
   sends the user to login with the sign-in reason `inactive`. A session the backend ended first
   still takes the ordinary `401` path above.
-- **Sessions are also capped at 8 hours from creation**, independent of the
-  15-minute idle bound above: a session kept continuously active is still
-  ended once it has existed that long. Both bounds apply to every
-  authenticated session, a Superuser's included, and whichever is reached first ends
-  it — there is no way to distinguish the two from the SPA's side; either one
-  simply presents as the ordinary `401` → `unauthenticated` → sign-out path
-  described above.
+- **Sessions are also capped at 8 hours from creation**, however active.
+  Whichever bound is reached first ends the session, and the SPA cannot tell
+  which: either presents as the ordinary `401` path above.
 - **One session per User.** A login ends every other session the same User
   holds, so signing in from a second browser or profile signs the first
   out; the first presents as the ordinary `401` path above. Epic Login counts
@@ -124,19 +121,13 @@ change, when the backend side moves. What the SPA has to honour:
   browser; the backend redirects through `GET /api/auth/epic/authorize` to
   Epic and back to `GET /api/auth/epic/callback`, and on success answers
   `302 /` with the session already signed in (session id rotated, pre-login
-  CSRF token dropped). The SPA does nothing special: its ordinary start-up
-  `GET /api/auth/me` answers `authenticated`, and `/` renders Home. Only the
-  failure landings are on the login page: a refused launch lands at
-  `/login?signin=refused` with its session ended — whoever's it was — and the
-  login page shows only the neutral "Sign-in from Epic was refused"; the
-  refusal's reason never reaches the browser. The second outcome is Epic being
-  unavailable — no answer within the backend's timeouts, or an Epic `5xx`, on
-  discovery, the JWKS or the token call — which lands at
-  `/login?signin=unavailable`, its session ended the same way, and the login page
-  shows "Sign-in from Epic is temporarily unavailable. Try again shortly."
-  instead. The two are distinct on purpose (D23): a refused clinician should not
-  retry, an unavailable one should. Neither marker carries any detail, and
-  either notice wins over router state. `src/auth/sign-in-reason.ts` is the
+  CSRF token dropped), so the ordinary start-up `GET /api/auth/me` renders
+  Home. Failures land on the login page, signed out, with a marker carrying no
+  detail: `/login?signin=refused` (a refused launch; the reason never reaches
+  the browser) or `/login?signin=unavailable` (Epic gave no answer within the
+  backend's timeouts, or a `5xx`, on discovery, the JWKS or the token call).
+  The two are distinct on purpose (ADR 0012, D23): a refused clinician should
+  not retry, an unavailable one should. Either notice wins over router state. `src/auth/sign-in-reason.ts` is the
   only place that reads the markers, decides that precedence, or holds the
   copy; the login page renders what its `signInNoticeFor` returns. All four Epic routes (the three
   above and the public `jwks.json`) are `404` while `APP_EPIC_ENABLED` is off.

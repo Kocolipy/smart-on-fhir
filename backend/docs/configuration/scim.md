@@ -18,6 +18,4 @@ tags: [scim, configuration]
 namespace then answers `404` — discovery included, and ahead of
 authentication, so a valid connector token gets the same answer as none at all.
 
-The value is not written in `application.yaml`: the default belongs to
-`ScimSecurityConfig`, so an unset variable reaches the gate as open rather than as
-whatever a replaced config file happens to say.
+The default belongs to `ScimSecurityConfig`, not `application.yaml`.
