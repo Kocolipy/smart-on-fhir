@@ -69,10 +69,10 @@ async function park(page: Page) {
 
 /**
  * The page's next request, after the session was ended elsewhere: `Back`
- * remounts Home, whose counter read is refused, and the SPA sends the
- * User to sign in with the expired-session notice. A read, never the counter's
- * increment — `home.spec.ts` asserts exact counts on the shared counter.
- * Every User holds the baseline `counter:read`, so the remount always reads.
+ * remounts Home, whose Patient card's read is refused, and the SPA sends the
+ * User to sign in with the expired-session notice. A read, so the spec changes
+ * nothing another spec reads. Every User holds the baseline `patient:read`, so
+ * the remount always reads.
  */
 async function expectNextRequestEndsSession(page: Page) {
   await page.getByRole("link", { name: "Back" }).click();
