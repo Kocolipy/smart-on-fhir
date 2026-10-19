@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/http";
 
-import { changePassword, getCurrentUser, login, logout } from "./api";
+import { changePassword, getCurrentUser, login, logout, PERMISSIONS } from "./api";
 
 vi.mock("@/lib/http");
 
@@ -10,6 +10,19 @@ const apiFetchMock = vi.mocked(apiFetch);
 const TEST_LOGIN = ["ada", "secret"] as const;
 /** A truthy non-boolean, as a malformed response might carry the flag. */
 const NOT_A_BOOLEAN: unknown = 1;
+/** The backend's Permission enum, value for value. */
+const BACKEND_PERMISSIONS = [
+  "audit:read",
+  "connector:read",
+  "connector:token",
+  "connector:write",
+  "group:read",
+  "group:write",
+  "ops:read",
+  "patient:read",
+  "user:read",
+  "user:write",
+];
 
 function resolveWith(result: object) {
   apiFetchMock.mockResolvedValue(result as never);
@@ -162,30 +175,22 @@ describe("the user decoder", () => {
     });
   });
 
+  // The backend's Permission enum, value for value: a name it no longer
+  // grants is refused like any unknown one, never passed through.
+  it("knows exactly the Permissions the backend can grant", () => {
+    expect(PERMISSIONS).toEqual(BACKEND_PERMISSIONS);
+  });
+
   it("reads every Permission the backend can grant", async () => {
-    const every = [
-      "audit:read",
-      "connector:read",
-      "connector:token",
-      "connector:write",
-      "counter:read",
-      "counter:write",
-      "group:read",
-      "group:write",
-      "ops:read",
-      "patient:read",
-      "user:read",
-      "user:write",
-    ];
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
-        permissions: every,
+        permissions: BACKEND_PERMISSIONS,
         username: "root",
       }),
-    ).resolves.toMatchObject({ permissions: every });
+    ).resolves.toMatchObject({ permissions: BACKEND_PERMISSIONS });
   });
 
   it("ignores a role field a body might still carry", async () => {

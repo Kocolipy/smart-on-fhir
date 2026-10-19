@@ -157,7 +157,7 @@ class FhirErrorDocumentFilterTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/api/patients", "/api/count", "/", "/api"})
+    @ValueSource(strings = {"/api/patients", "/api/self", "/", "/api"})
     void noOtherPathIsTheFhirPath(String path) {
         assertThat(FhirOperationOutcome.coversPath(new MockHttpServletRequest("GET", path))).isFalse();
     }
@@ -172,7 +172,7 @@ class FhirErrorDocumentFilterTests {
 
     @Test
     void aRefusalAnywhereElseIsLeftAsItWasSent() throws Exception {
-        MockHttpServletResponse response = refused("/api/count", 405);
+        MockHttpServletResponse response = refused("/api/self", 405);
 
         assertThat(response.getErrorMessage())
                 .isEqualTo("Request method 'POST' is not supported: S1234567A");

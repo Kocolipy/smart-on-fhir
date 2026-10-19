@@ -95,8 +95,7 @@ class EpicLoginDecisionTests {
 
         assertThat(attested("eACTIVE").authentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactlyInAnyOrder(
-                        "ROLE_USER", "counter:read", "counter:write", "patient:read");
+                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
     }
 
     /** As for a password Login, the session's authentication never carries the stored hash. */

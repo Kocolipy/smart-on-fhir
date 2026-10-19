@@ -67,8 +67,8 @@ class BackendApplicationTests {
             }
             // One T-SQL V1 (ADR 0013): the preparation's migrations and the seeding lock's row
             // (ADR 0013's 2026-10-16 addendum) were folded into it. V2 adds the patients table
-            // (ADR 0014).
-            assertThat(versions).containsExactly("1", "2");
+            // (ADR 0014), and V3 drops a table V1 created that nothing maps any more.
+            assertThat(versions).containsExactly("1", "2", "3");
         }
     }
 }

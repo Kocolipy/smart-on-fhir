@@ -25,20 +25,12 @@ test.describe("Home", () => {
     ]);
   });
 
-  test("asks for no counter and offers no counter control", async ({ page }) => {
-    const counterRequests: string[] = [];
-    page.on("request", (request) => {
-      if (new URL(request.url()).pathname.startsWith("/api/count")) {
-        counterRequests.push(request.url());
-      }
-    });
-
+  test("offers no control but Sign out", async ({ page }) => {
     await page.goto("/");
     // Settled: the Patient card's read, Home's only one, has landed.
     await expect(page.getByText("Tan Wei Ming")).toBeVisible();
 
     await expect(page.getByRole("button")).toHaveText(["Sign out"]);
-    expect(counterRequests).toEqual([]);
   });
 
   // The development fixtures seed the default patient (backend

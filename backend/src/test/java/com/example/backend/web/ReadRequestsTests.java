@@ -14,24 +14,24 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  */
 class ReadRequestsTests {
 
-    private final RequestMatcher readOfCount = ReadRequests.read("/api/count");
+    private final RequestMatcher readOfSelf = ReadRequests.read("/api/self");
 
     @ParameterizedTest
     @ValueSource(strings = {"GET", "HEAD"})
     void aGetOrHeadOfThePathIsARead(String method) {
-        assertThat(readOfCount.matches(new MockHttpServletRequest(method, "/api/count"))).isTrue();
+        assertThat(readOfSelf.matches(new MockHttpServletRequest(method, "/api/self"))).isTrue();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
     void anyOtherMethodOnThePathIsNotARead(String method) {
-        assertThat(readOfCount.matches(new MockHttpServletRequest(method, "/api/count")))
+        assertThat(readOfSelf.matches(new MockHttpServletRequest(method, "/api/self")))
                 .isFalse();
     }
 
     @Test
     void aGetOfAnotherPathIsNotAReadOfThisOne() {
-        assertThat(readOfCount.matches(new MockHttpServletRequest("GET", "/api/count/reset")))
+        assertThat(readOfSelf.matches(new MockHttpServletRequest("GET", "/api/self/password")))
                 .isFalse();
     }
 }

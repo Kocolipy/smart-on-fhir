@@ -227,11 +227,7 @@ issue and on rotation alike.
 **Baseline access**:
 What every active User holds without any Role and without a required password
 change: self-service, spelled `ROLE_USER` in the session and not a Role, and the
-baseline Permissions `counter:read`, `counter:write` and `patient:read`.
-
-**Counter**:
-Each User's own tally at `/api/count`, the application's sample feature, read
-and changed through the baseline Permissions.
+baseline Permission `patient:read`.
 
 **Development fixtures**:
 The development Role mapping's Groups and Users, and the dummy Patients, seeded

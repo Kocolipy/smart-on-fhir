@@ -22,7 +22,7 @@ class SpaRoutesTests {
         @ValueSource(strings = {
             "/api",
             "/api/",
-            "/api/count",
+            "/api/self",
             "/api/auth/login",
             "/actuator",
             "/actuator/health"

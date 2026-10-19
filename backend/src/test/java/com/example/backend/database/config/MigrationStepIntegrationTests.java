@@ -72,7 +72,24 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1", "2");
+                .containsExactly("1", "2", "3");
+    }
+
+    /**
+     * The retired per-User tally's table is gone once every migration has run: V1 created it, and
+     * V3 drops it, its grant with it. V1 itself is untouched, so its checksum holds on a database
+     * that already ran it.
+     */
+    @Test
+    void theMigrationsLeaveNoRetiredTallyTable() throws SQLException {
+        String url = emptyDatabase();
+
+        MigrationStep.main(migrate(url));
+
+        assertThat(asOwner(url).queryForObject(
+                        "SELECT count(*) FROM sys.tables WHERE name = 'user_counters'",
+                        Integer.class))
+                .isZero();
     }
 
     /**
@@ -89,7 +106,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForObject(OWNER_PRINCIPAL_AND_MIGRATIONS, String.class))
-                .isEqualTo("backend_owner/1/2");
+                .isEqualTo("backend_owner/1/3");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */

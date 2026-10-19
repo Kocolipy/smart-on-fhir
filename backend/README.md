@@ -1,7 +1,7 @@
 # Backend
 
 A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
-identity directory, audit trail and per-User counters persisted in SQL Server 2022
+identity directory, audit trail and patients persisted in SQL Server 2022
 (ADR 0013).
 Identities are provisioned by an external directory over a SCIM 2.0 interface
 (`/scim/v2`); the session-authenticated application API lives under `/api`.
@@ -126,7 +126,7 @@ The administration API only reads what the directory owns (`userName`,
 change. Deactivation is the directory's, over SCIM.
 
 `docs/openapi.yaml` documents every operation, status and body — the
-authentication, session, counter, self-service (`/api/self`), administration
+authentication, session, self-service (`/api/self`), patient, administration
 (accounts, groups, connectors and their tokens, audit events) and SCIM
 surfaces — and the baseline gate holds it against the running code (see
 `docs/api-contract-check.md`).
@@ -228,7 +228,7 @@ The fast gate is an explicit class list in the script: every test class that
 starts no Spring context and no container. Its run fails if the log shows
 either, so a class that grows a `@SpringBootTest` has to move out. Subsystem
 names are the test packages (`arch`, `auth`, `scim`, `audit`, `authorization`,
-`contract`, `observability`, `counter`, `database`, `lifecycle`, `scheduling`, `web`);
+`contract`, `observability`, `database`, `lifecycle`, `scheduling`, `web`);
 `BackendApplicationTests`, at the package root, runs only in the broad gate.
 
 The test JVMs drop every `.env.example` key from their environment

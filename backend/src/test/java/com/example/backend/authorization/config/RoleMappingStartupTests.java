@@ -122,17 +122,17 @@ class RoleMappingStartupTests {
 
     @Test
     void aSuperuserRoleMissingAPermissionFailsStartup() {
-        String allButCounterWrite = Arrays.stream(Permission.values())
-                .filter(permission -> permission != Permission.COUNTER_WRITE)
+        String allButOpsRead = Arrays.stream(Permission.values())
+                .filter(permission -> permission != Permission.OPS_READ)
                 .map(Permission::value)
                 .collect(Collectors.joining(","));
 
         assertStartupFails(
                 "Superuser Group " + ADMINS + "'s Role 'Superuser' is missing Permissions:"
-                        + " counter:write",
+                        + " ops:read",
                 SUPERUSER_GROUP, List.of(
                         "app.authorization.roles[0].name=Superuser",
-                        "app.authorization.roles[0].permissions=" + allButCounterWrite));
+                        "app.authorization.roles[0].permissions=" + allButOpsRead));
     }
 
     /**

@@ -380,7 +380,7 @@ Every other database failure is `database`. Two rows need more than a state:
   **Coverage and placement are rules, not conventions** (`ArchitectureTest`). Every
   public, non-read-only `@Transactional` method carries the retry unless
   `NOT_RETRIED_ON_DEADLOCK` names it with its reason — the login-state events, the
-  self-service password change and counter, the SCIM reads (whose transaction
+  self-service password change, the SCIM reads (whose transaction
   writes only the read's own audit row), and the startup seed and scheduled paths,
   which the next start or run covers — and an exemption naming no such method
   fails. A retried method opens a read-write transaction of its own, implements no

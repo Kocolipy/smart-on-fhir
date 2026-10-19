@@ -100,9 +100,8 @@ class EpicLoginIntegrationTests {
 
     /** Every Permission the Superuser Role holds, sorted as {@code /api/auth/me} reports them. */
     private static final List<String> SUPERUSER_PERMISSIONS = List.of(
-            "audit:read", "connector:read", "connector:token", "connector:write", "counter:read",
-            "counter:write", "group:read", "group:write", "ops:read", "patient:read", "user:read",
-            "user:write");
+            "audit:read", "connector:read", "connector:token", "connector:write", "group:read",
+            "group:write", "ops:read", "patient:read", "user:read", "user:write");
 
     /** When the change-required flag of a User provisioned flagged was set. */
     private static final Instant FLAGGED_SINCE = Instant.parse("2026-10-01T09:00:00Z");

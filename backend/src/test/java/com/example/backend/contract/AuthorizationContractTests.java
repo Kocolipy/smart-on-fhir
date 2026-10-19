@@ -414,7 +414,6 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"DELETE", "/api/admin/roles"},
                 new String[] {"PUT", "/api/admin/roles/Superuser"},
                 new String[] {"DELETE", "/api/admin/roles/Superuser"},
-                new String[] {"PATCH", "/api/count"},
                 new String[] {"GET", "/api/admin"})) {
             MockHttpServletRequestBuilder request =
                     request(HttpMethod.valueOf(undeclared[0]), undeclared[1])
@@ -440,20 +439,58 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         List<String> answers = new ArrayList<>();
         for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
             MockHttpSession session = session(EVERY_PERMISSION);
-            MockHttpServletRequestBuilder signedIn = request(method, "/api/session").session(session);
-            MockHttpServletRequestBuilder guest = request(method, "/api/session");
-            if (method == HttpMethod.DELETE) {
-                // A token for each, so the refusal is the authorization one and not the CSRF
-                // filter's.
-                SessionCsrf.withCsrf(mvc, signedIn);
-                SessionCsrf.withCsrf(mvc, guest);
-            }
-            MockHttpServletResponse refused = mvc.perform(signedIn).andReturn().getResponse();
-            MockHttpServletResponse anonymous = mvc.perform(guest).andReturn().getResponse();
-            assertThat(refused.getContentAsString()).doesNotContain(session.getId());
-            answers.add(method + " " + refused.getStatus() + " " + anonymous.getStatus());
+            RetiredAnswers retired = answersOfRetired(method, "/api/session", session);
+            assertThat(retired.refused().getContentAsString()).doesNotContain(session.getId());
+            answers.add(method + " " + retired.statuses());
         }
         assertThat(answers).containsExactly("GET 403 401", "DELETE 403 401");
+    }
+
+    /**
+     * {@code /api/count} and its two writes no longer exist. Each is answered as any route nothing
+     * declares: a session holding every Permission is refused, a caller with none is
+     * unauthenticated.
+     */
+    @Test
+    void the_retired_count_endpoints_are_undeclared_routes() throws Exception {
+        List<String> answers = new ArrayList<>();
+        for (String[] retired : List.of(
+                new String[] {"GET", "/api/count"},
+                new String[] {"POST", "/api/count/increment"},
+                new String[] {"POST", "/api/count/reset"})) {
+            answers.add(retired[0] + " " + retired[1] + " "
+                    + answersOfRetired(HttpMethod.valueOf(retired[0]), retired[1],
+                            session(EVERY_PERMISSION)).statuses());
+        }
+        assertThat(answers).containsExactly(
+                "GET /api/count 403 401",
+                "POST /api/count/increment 403 401",
+                "POST /api/count/reset 403 401");
+    }
+
+    /**
+     * A retired route asked twice: once by {@code session}, once by a caller with no session. A
+     * write carries a CSRF token on both, so any refusal is the authorization one and not the CSRF
+     * filter's.
+     */
+    private RetiredAnswers answersOfRetired(HttpMethod method, String path, MockHttpSession session)
+            throws Exception {
+        MockHttpServletRequestBuilder signedIn = request(method, path).session(session);
+        MockHttpServletRequestBuilder guest = request(method, path);
+        if (method != HttpMethod.GET) {
+            SessionCsrf.withCsrf(mvc, signedIn);
+            SessionCsrf.withCsrf(mvc, guest);
+        }
+        return new RetiredAnswers(mvc.perform(signedIn).andReturn().getResponse(),
+                mvc.perform(guest).andReturn().getResponse());
+    }
+
+    /** What a retired route answered a signed-in caller and a caller with no session. */
+    private record RetiredAnswers(MockHttpServletResponse refused,
+            MockHttpServletResponse anonymous) {
+        String statuses() {
+            return refused.getStatus() + " " + anonymous.getStatus();
+        }
     }
 
     @Test

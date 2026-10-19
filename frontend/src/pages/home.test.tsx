@@ -14,8 +14,8 @@ const renderHolding = (permissions: Permission[]) =>
     [DEFAULT_PATIENT_READ]: json(TAN_WEI_MING),
   });
 
-/** Every baseline Permission a User holds today, the counter's included. */
-const BASELINE: Permission[] = ["counter:read", "counter:write", "patient:read"];
+/** Every baseline Permission a User holds. */
+const BASELINE: Permission[] = ["patient:read"];
 
 describe("Home", () => {
   it("links a page it is handed only for a session that may open it, with no edit of its own", async () => {
@@ -87,7 +87,7 @@ describe("Home", () => {
     );
   });
 
-  it("asks for nothing but the patient, even for a session holding the counter Permissions", async () => {
+  it("asks for nothing but the patient for a session holding the baseline Permissions", async () => {
     const { requests } = await renderHolding(BASELINE);
     await screen.findByText("Tan Wei Ming");
 
@@ -96,14 +96,13 @@ describe("Home", () => {
     ]);
   });
 
-  it("shows no counter reading and offers no counter control", async () => {
+  it("offers no control but Sign out", async () => {
     await renderHolding(BASELINE);
     await screen.findByText("Tan Wei Ming");
 
-    expect({
-      buttons: screen.queryAllByRole("button").map((button) => button.textContent),
-      counter: screen.queryByText(/Clicked|counter/),
-    }).toEqual({ buttons: ["Sign out"], counter: null });
+    expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Sign out",
+    ]);
   });
 
   it("shows the Patient card above the links card, titled Pages", async () => {

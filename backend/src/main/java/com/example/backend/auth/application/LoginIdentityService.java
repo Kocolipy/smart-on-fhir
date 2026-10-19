@@ -52,8 +52,8 @@ import org.springframework.stereotype.Service;
  *
  * <h2>Permissions come from the role mapping</h2>
  *
- * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — the counter's, which every
- * active User may read and change, and {@code patient:read} — and the Permissions of every Role the {@link RoleMapping}
+ * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — {@code patient:read},
+ * which every active User holds — and the Permissions of every Role the {@link RoleMapping}
  * assigns to a Group it is a direct member of, derived here too, once per login, for the same
  * reasons. A session confined by a required password change holds none, as it holds no role.
  */
@@ -67,14 +67,13 @@ public class LoginIdentityService implements UserDetailsService {
     private static final String USER_ROLE = "USER";
 
     /**
-     * The Permissions every active User holds whatever its Groups: the counter's, and reading a
-     * patient. Granted here, at login, beside {@code ROLE_USER} rather than through a Role, because
+     * The Permissions every active User holds whatever its Groups: reading a patient. Granted
+     * here, at login, beside {@code ROLE_USER} rather than through a Role, because
      * a Role is conferred by a Group and a redundant "every User" Group would be a second place for
      * the same fact. A session confined by a required password change does not receive them.
      */
     public static final Set<Permission> BASELINE_PERMISSIONS =
-            Set.copyOf(EnumSet.of(
-                    Permission.COUNTER_READ, Permission.COUNTER_WRITE, Permission.PATIENT_READ));
+            Set.copyOf(EnumSet.of(Permission.PATIENT_READ));
 
     /**
      * The only authority a password Login by a User with a pending required password change
@@ -206,7 +205,8 @@ public class LoginIdentityService implements UserDetailsService {
 
     /**
      * The stable id behind a userName, for a caller that holds only the userName Spring Security
-     * keeps using and needs to key application-owned state — the counter feature — by that id.
+     * keeps using and needs to key application-owned state by that id, as data the application
+     * keeps per User must be, since a userName can change hands.
      *
      * <p>Not for a Login: the {@link LoginPrincipal} a Login authenticated carries its User's id
      * already, and a second lookup by name would follow whichever User holds the name by then.

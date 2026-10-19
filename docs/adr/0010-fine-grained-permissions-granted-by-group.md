@@ -38,8 +38,8 @@ for access.
 
 - **Permissions are a closed set** defined in code: `user:read`, `user:write`,
   `group:read`, `group:write`, `audit:read`, `connector:read`,
-  `connector:write`, `connector:token`, `ops:read`, `counter:read`,
-  `counter:write`. `user:write` covers Unlock and force password change on the
+  `connector:write`, `connector:token`, `ops:read`, and `patient:read` (see the
+  addendum). `user:write` covers Unlock and force password change on the
   session chain as well as Users writes over SCIM.
 - **A Role is a named set of Permissions, and a Group confers a Role.** Both live
   in deployment configuration, read-only while the application runs. Startup
@@ -77,12 +77,12 @@ for access.
   each Role, its Permissions and its Group.
 - `ROLE_ADMIN` is removed. `ROLE_USER` stays as the baseline authority meaning
   "active and no password change required".
-- **`counter:read` and `counter:write` are baseline Permissions** (amended while
-  implementing this ADR): every active User holds them at sign-in beside
-  `ROLE_USER`, whatever its Groups, because the counter is a basic capability
-  rather than an administrative one. A confined session holds neither. They stay
-  Permissions, and each counter operation still declares its own, so making the
-  counter Role-granted later is a one-line change.
+- **A basic capability is a baseline Permission** (amended while implementing
+  this ADR): every active User holds it at sign-in beside `ROLE_USER`, whatever
+  its Groups, because it is a basic capability rather than an administrative one.
+  A confined session holds none. It stays a Permission, and each operation it
+  guards still declares it, so making it Role-granted later is a one-line change.
+  The baseline set is `patient:read` alone (see the addendum).
 
 ## Consequences
 
@@ -104,8 +104,8 @@ for access.
 
 ## Addendum (2026-10-18): `patient:read` is a baseline Permission
 
-`patient:read` joins the closed set, and it is baseline on the same terms as
-`counter:read` and `counter:write`: every active User holds it at sign-in,
+`patient:read` joins the closed set, and it is the baseline Permission: every
+active User holds it at sign-in,
 whatever its Groups, because reading a patient is the application's basic
 capability rather than an administrative one. A confined session does not hold
 it, and the Superuser Role is granted it in the mapping, since startup still

@@ -22,7 +22,7 @@ public final class SpaRoutes {
     /**
      * Path prefixes the server answers for itself. Each reserves both the exact
      * path and everything beneath it, so {@code /api} is as reserved as
-     * {@code /api/count}.
+     * {@code /api/self}.
      *
      * <p>{@code /scim} is here because an unknown path beneath it must stay a
      * {@code 404} and must never be authenticated as a frontend GET. Without the

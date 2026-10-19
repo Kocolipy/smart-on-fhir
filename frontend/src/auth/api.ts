@@ -11,8 +11,6 @@ export const PERMISSIONS = [
   "connector:read",
   "connector:token",
   "connector:write",
-  "counter:read",
-  "counter:write",
   "group:read",
   "group:write",
   "ops:read",
