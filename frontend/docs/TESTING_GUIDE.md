@@ -299,20 +299,24 @@ response:
 
 - **`401`** — drop the session cookie from the browser context and put every
   other cookie back (`expireSession()` in `test/e2e/auth.helpers.ts`). The CSRF
-  token lives in the session, so it goes too: an unsafe request is first refused
-  `403`, and `apiFetch`'s re-fetch — which opens a fresh, anonymous session —
-  then lands the retry on the `401`. The backend session stays valid, so a spec
-  doing this cannot break one running beside it. `session.spec.ts` meets the
-  `401` with the Patient card's read as Home remounts. Not with the password
-  change: its `401` means a wrong current password or a lockout, which the SPA
-  tells apart by probing the session, so an expired session reads as a lockout
-  there.
+  token lives in the session, so it goes too: an unsafe request sent with a
+  token already held is first refused `403`, and `apiFetch`'s re-fetch — which
+  opens a fresh, anonymous session — then lands the retry on the `401`; one sent
+  with no token held fetches that anonymous session's first. The backend
+  session stays valid, so a spec doing this cannot break one running beside
+  it. `session.spec.ts` meets the `401` with the password change. The backend
+  refuses it before the password check, for want of a live session, so no
+  password moves and no failed attempt is counted, and its `401` carries none
+  of the mark the password check puts on its own refusal — which is how the SPA
+  reads it as an expired session instead of probing the session for a lockout
+  (`frontend/docs/BACKEND_CONTRACT.md`).
 - **`403`, persistently** — rewrite the `X-CSRF-TOKEN` header with
   `page.route`. A stale token does not work: `apiFetch` answers a `403` by
   re-fetching the token and retrying once, so the retry would succeed. Rewriting
   on every attempt makes the backend reject both, and a `403` that survives the
   re-fetch is reported as `forbidden`. `session.spec.ts` does this to the
-  password change: the backend refuses it for its token, so no password changes.
+  password change too: the backend refuses it for its token, so no password
+  changes.
 - **`401` from a session the backend really ended** — sign the same User in
   again elsewhere, or make the SCIM write that revokes its sessions
   (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
@@ -326,10 +330,13 @@ back.
 ### Sharing backend state under `fullyParallel`
 
 The counter is one value on the backend and `home.spec.ts` resets it,
-so a spec running beside it must not assert a count. A spec that exercises the
-request machinery rather than a feature only reads, or only makes requests the
-backend refuses: `session.spec.ts` reads the Patient card and sends a password
-change refused for its token, so it changes nothing another spec reads.
+so a spec running beside it must not assert a count. The reset sits in the one
+test that writes the counter, never in a `beforeEach`: the hook runs for every
+test in the file, and under `fullyParallel` a sibling's reset lands between the
+counter test's increments. A spec that exercises the request machinery rather
+than a feature only reads, or only makes requests the backend refuses:
+`session.spec.ts` sends two password changes, one refused for want of a live
+session and one for its token, so it changes nothing another spec reads.
 
 ### Unit-testing a module that calls the API
 
@@ -471,7 +478,8 @@ timing hacks:
   `getByLabel("Current password")`. `getByTestId` is fine for a value with no
   accessible name of its own, as `home.spec.ts` uses for the counter.
 - **Restore anything a spec mutates, or own it.** A spec either resets the
-  shared state it changes (`home.spec.ts` resets the counter) or acts only
+  shared state it changes (`home.spec.ts` resets the counter, in the test that
+  writes it) or acts only
   on fixtures it provisioned and deletes in a `finally` (see "Calling the API
   from a spec").
 

@@ -3,11 +3,11 @@ import { expect, test } from "@playwright/test";
 import { resetCounterViaApi } from "./auth.helpers";
 
 test.describe("authentication and counter", () => {
-  test.beforeEach(async ({ page }) => {
-    await resetCounterViaApi(page);
-  });
-
   test("opens Home with the saved session and manages the counter", async ({ page }) => {
+    // Reset here, in the one test that writes the counter, and not in a
+    // `beforeEach`: under `fullyParallel` a sibling's reset would land between
+    // this test's increments.
+    await resetCounterViaApi(page);
     await page.goto("/");
 
     await expect(page).toHaveURL("/");
