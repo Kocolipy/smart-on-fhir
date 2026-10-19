@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -15,6 +16,7 @@ import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -26,7 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -77,9 +79,9 @@ class LoginStateServiceTests {
         PASSWORD_CHANGE_FORCED((module, user) -> module.passwordChangeForced(user)),
         DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
 
-        private final BiConsumer<LoginStateService, ScimUser> report;
+        private final BiFunction<LoginStateService, ScimUser, LoginStateChange> report;
 
-        Event(BiConsumer<LoginStateService, ScimUser> report) {
+        Event(BiFunction<LoginStateService, ScimUser, LoginStateChange> report) {
             this.report = report;
         }
     }
@@ -173,9 +175,102 @@ class LoginStateServiceTests {
                 ? users.createReserved(user, ReservedResourceName.BOOTSTRAP_ADMIN)
                 : users.given(user);
 
-        event.report.accept(loginState, stored);
+        event.report.apply(loginState, stored);
 
         assertThat(users.require("ada").login()).isEqualTo(expected);
+    }
+
+    // ---- what each event changed, which its audit rows name ----------------------------------
+
+    private static final AuditLoginStateAttribute RUN = AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS;
+    private static final AuditLoginStateAttribute LOCKED_AT = AuditLoginStateAttribute.LOCKED_AT;
+    private static final AuditLoginStateAttribute LOCK_CAUSE = AuditLoginStateAttribute.LOCK_CAUSE;
+    private static final AuditLoginStateAttribute BASIS =
+            AuditLoginStateAttribute.LAST_AUTHENTICATED_AT;
+    private static final AuditLoginStateAttribute FLAG =
+            AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE;
+
+    static Stream<Arguments> movedPaths() {
+        return Stream.of(
+                moved("a failure below the limit moves the run",
+                        Event.FAILURE_COUNTED, false, run(1), RUN),
+                moved("the failure reaching the limit moves the run and the lock",
+                        Event.FAILURE_COUNTED, false, run(LIMIT - 1), RUN, LOCKED_AT, LOCK_CAUSE),
+                moved("a failure on a User locked for failures moves nothing",
+                        Event.FAILURE_COUNTED, false, locked(LockCause.FAILURES)),
+                moved("a failure on a User locked for dormancy moves nothing",
+                        Event.FAILURE_COUNTED, false, locked(LockCause.DORMANCY)),
+                moved("the Bootstrap Admin's failure at the limit moves the run alone",
+                        Event.FAILURE_COUNTED, true, run(LIMIT - 1), RUN),
+                moved("a password Login moves the run it clears and the basis",
+                        Event.PASSWORD_LOGIN, false, run(2), RUN, BASIS),
+                moved("a password Login with no run moves the basis alone",
+                        Event.PASSWORD_LOGIN, false, run(0), BASIS),
+                moved("a confined Login moves the run it clears and not the basis",
+                        Event.PASSWORD_LOGIN, false, flaggedWithRun(2), RUN),
+                moved("an Epic Login by a flagged User moves the run and the basis, not the flag",
+                        Event.EPIC_LOGIN, false, flaggedWithRun(2), RUN, BASIS),
+                moved("a password change moves the run, the basis and the flag it clears",
+                        Event.PASSWORD_CHANGED, false, flaggedWithRun(2), RUN, BASIS, FLAG),
+                moved("a password change by a User owing none moves the basis alone",
+                        Event.PASSWORD_CHANGED, false, run(0), BASIS),
+                moved("an Unlock of a failure lock moves the run, the lock, the basis and the flag",
+                        Event.UNLOCKED, false, locked(LockCause.FAILURES),
+                        RUN, LOCKED_AT, LOCK_CAUSE, BASIS, FLAG),
+                moved("an Unlock of a dormancy lock no run preceded moves no run",
+                        Event.UNLOCKED, false,
+                        new ScimLoginState("hash", 0, EARLIER, LockCause.DORMANCY, EARLIER, null),
+                        LOCKED_AT, LOCK_CAUSE, BASIS, FLAG),
+                moved("an Unlock of a credentialless User moves no flag",
+                        Event.UNLOCKED, false,
+                        new ScimLoginState(null, LIMIT, EARLIER, LockCause.FAILURES, EARLIER, null),
+                        RUN, LOCKED_AT, LOCK_CAUSE, BASIS),
+                moved("an Unlock of an unlocked User moves the run alone",
+                        Event.UNLOCKED, false, run(2), RUN),
+                moved("an Unlock of a User with nothing to clear moves nothing",
+                        Event.UNLOCKED, false, run(0)),
+                moved("a forced change moves the flag",
+                        Event.PASSWORD_CHANGE_FORCED, false, run(0), FLAG),
+                moved("a forced change of a User already owing one moves nothing",
+                        Event.PASSWORD_CHANGE_FORCED, false, flaggedWithRun(0)),
+                moved("the dormancy lock moves the lock alone",
+                        Event.DORMANCY_LOCKED, false, flaggedWithRun(2), LOCKED_AT, LOCK_CAUSE),
+                moved("the dormancy lock of a User locked for failures moves nothing",
+                        Event.DORMANCY_LOCKED, false, locked(LockCause.FAILURES)));
+    }
+
+    private static Arguments moved(String rule, Event event, boolean bootstrapAdmin,
+            ScimLoginState given, AuditLoginStateAttribute... paths) {
+        return Arguments.of(rule, event, bootstrapAdmin, given, List.of(paths));
+    }
+
+    /**
+     * Every event hands back exactly the login-state paths it moved — the one source its audit
+     * rows read their changed paths from.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("movedPaths")
+    void eachEventHandsBackExactlyThePathsItMoved(String rule, Event event,
+            boolean bootstrapAdmin, ScimLoginState given, List<AuditLoginStateAttribute> paths) {
+        ScimUser user = ScimIdentities.userWithLoginState("ada", given);
+        ScimUser stored = bootstrapAdmin
+                ? users.createReserved(user, ReservedResourceName.BOOTSTRAP_ADMIN)
+                : users.given(user);
+
+        LoginStateChange change = event.report.apply(loginState, stored);
+
+        assertThat(change.moved()).containsExactlyInAnyOrderElementsOf(paths);
+    }
+
+    /** Each event hands back the state it left stored, which the administration path answers with. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Event.class)
+    void eachEventHandsBackTheStateItLeftStored(Event event) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", flaggedWithRun(2)));
+
+        LoginStateChange change = event.report.apply(loginState, stored);
+
+        assertThat(change.after()).isEqualTo(users.require("ada").login());
     }
 
     // ---- serialization: the lock, and the state read under it -------------------------------
@@ -189,7 +284,7 @@ class LoginStateServiceTests {
     void everyEventTakesTheUsersLock(Event event) {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
 
-        event.report.accept(loginState, stored);
+        event.report.apply(loginState, stored);
 
         assertThat(locks.requests()).containsExactly(Set.of(stored.id()));
     }
@@ -244,7 +339,7 @@ class LoginStateServiceTests {
                 ? users.createReserved(user, ReservedResourceName.BOOTSTRAP_ADMIN)
                 : users.given(user);
 
-        event.report.accept(loginState, staleCopyOf(stored));
+        event.report.apply(loginState, staleCopyOf(stored));
 
         assertThat(users.require("ada").login()).isEqualTo(expected);
     }
@@ -255,11 +350,11 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState(
                 "ada", locked(LockCause.DORMANCY)));
 
-        LoginStateService.Unlock decided = loginState.unlocked(staleCopyOf(stored));
+        LoginStateChange decided = loginState.unlocked(staleCopyOf(stored));
 
-        assertThat(List.of(Optional.ofNullable(decided.lifted()), decided.changeRequired(),
-                decided.attemptsCleared()))
-                .containsExactly(Optional.of(LockCause.DORMANCY), true, true);
+        assertThat(List.of(Optional.ofNullable(decided.before().lockCause()), decided.moved()))
+                .containsExactly(Optional.of(LockCause.DORMANCY),
+                        Set.of(RUN, LOCKED_AT, LOCK_CAUSE, BASIS, FLAG));
     }
 
     /** The forced change's answer is the decision made on the stored state, not on the copy. */
@@ -267,7 +362,7 @@ class LoginStateServiceTests {
     void aForcedChangeOfAUserFlaggedSinceTheCopyWasReadImposesNothing() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", flaggedWithRun(0)));
 
-        assertThat(loginState.passwordChangeForced(staleCopyOf(stored)).imposed()).isFalse();
+        assertThat(loginState.passwordChangeForced(staleCopyOf(stored)).moved()).isEmpty();
     }
 
     /** The fixture reset clears a run and a lock stored since its copy was read. */
@@ -291,9 +386,9 @@ class LoginStateServiceTests {
     void anUnlockOfAUserGoneByTheLockAnswersFromTheCopyItWasHanded() {
         ScimUser gone = ScimIdentities.userWithLoginState("ada", run(2));
 
-        LoginStateService.Unlock decided = loginState.unlocked(gone);
+        LoginStateChange decided = loginState.unlocked(gone);
 
-        assertThat(decided.state()).isEqualTo(run(0));
+        assertThat(decided.after()).isEqualTo(run(0));
     }
 
     /** {@code user} as a caller might hold it from before a concurrent write: a clean record. */
@@ -353,22 +448,64 @@ class LoginStateServiceTests {
                 ScimUser.INITIAL_VERSION, EARLIER, EARLIER);
 
         ScimLoginState written = loginState.afterReplacement(
-                stored, ScimIdentities.profile("ada", write.active()), write.credential(), NOW);
+                stored, ScimIdentities.profile("ada", write.active()), write.credential(), NOW)
+                .after();
 
         assertThat(written).isEqualTo(expected);
+    }
+
+    static Stream<Arguments> directoryWriteMoves() {
+        return Stream.of(
+                Arguments.of("a Reactivation moves the basis and the flag it re-dates",
+                        false, flaggedWithRun(2), Write.REACTIVATES, List.of(BASIS, FLAG)),
+                Arguments.of("re-asserting active over an active User moves nothing",
+                        true, run(0), Write.KEEPS_ACTIVE, List.of()),
+                Arguments.of("a connector-set password moves the flag, never the credential",
+                        true, run(0), new Write(true, Credential.set("connector-hash")),
+                        List.of(FLAG)),
+                Arguments.of("a removed password moves no login-state column",
+                        true, flaggedWithRun(0), new Write(true, Credential.cleared()),
+                        List.of()));
+    }
+
+    /** A replacement hands back what it moved, in the shape every other transition does. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("directoryWriteMoves")
+    void eachDirectoryWriteHandsBackExactlyThePathsItMoved(String rule, boolean storedActive,
+            ScimLoginState given, Write write, List<AuditLoginStateAttribute> paths) {
+        ScimUser stored = new ScimUser(UUID.randomUUID(),
+                ScimIdentities.profile("ada", storedActive), given, null,
+                ScimUser.INITIAL_VERSION, EARLIER, EARLIER);
+
+        LoginStateChange change = loginState.afterReplacement(
+                stored, ScimIdentities.profile("ada", write.active()), write.credential(), NOW);
+
+        assertThat(change.moved()).containsExactlyInAnyOrderElementsOf(paths);
     }
 
     /** A connector chose and transported the first password, so the User must replace it. */
     @Test
     void aUserCreatedWithAPasswordOwesAChangeAsOfItsCreation() {
-        assertThat(loginState.created("hash", NOW))
+        assertThat(loginState.created("hash", NOW).after())
                 .isEqualTo(new ScimLoginState("hash", 0, null, null, null, NOW));
+    }
+
+    /** The change a creation with a password owes is the one path it moves. */
+    @Test
+    void aUserCreatedWithAPasswordMovesTheFlagAlone() {
+        assertThat(loginState.created("hash", NOW).moved()).containsExactly(FLAG);
+    }
+
+    /** A credentialless creation decides nothing beyond the new User's own state. */
+    @Test
+    void aUserCreatedWithoutAPasswordMovesNothing() {
+        assertThat(loginState.created(null, NOW).moved()).isEmpty();
     }
 
     /** The flag arrives with the first password, so a credentialless User owes none. */
     @Test
     void aUserCreatedWithoutAPasswordOwesNothing() {
-        assertThat(loginState.created(null, NOW)).isEqualTo(ScimLoginState.CREDENTIALLESS);
+        assertThat(loginState.created(null, NOW).after()).isEqualTo(ScimLoginState.CREDENTIALLESS);
     }
 
     /**
@@ -384,6 +521,30 @@ class LoginStateServiceTests {
 
         assertThat(users.require("ada").login()).isEqualTo(new ScimLoginState(
                 "fixture-hash", 0, null, null, NOW.minus(Duration.ofDays(91)), null));
+    }
+
+    /** The fixture's reset hands back everything it moved: the run, the lock, basis and flag. */
+    @Test
+    void theDormantFixtureResetHandsBackEveryPathItMoved() {
+        ScimUser fixture = users.given(ScimIdentities.userWithLoginState("ada",
+                new ScimLoginState("chosen-hash", 2, EARLIER, LockCause.DORMANCY, EARLIER, EARLIER)));
+
+        LoginStateChange reset =
+                loginState.dormantFixtureReset(fixture, "fixture-hash", NOW, Duration.ofDays(91));
+
+        assertThat(reset.moved())
+                .containsExactlyInAnyOrder(RUN, LOCKED_AT, LOCK_CAUSE, BASIS, FLAG);
+    }
+
+    /** The fixture's credential is replaced by a completed password change, as of now. */
+    @Test
+    void theDormantFixtureResetCompletesAPasswordChangeAsOfNow() {
+        ScimUser fixture = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+
+        LoginStateChange reset =
+                loginState.dormantFixtureReset(fixture, "fixture-hash", NOW, Duration.ofDays(91));
+
+        assertThat(reset.completedAt()).isEqualTo(NOW);
     }
 
     // ---- what a newly imposed Lockout implies ------------------------------------------------
@@ -503,7 +664,18 @@ class LoginStateServiceTests {
         ScimLoginState given = before.equals("NOTHING") ? run(0) : locked(LockCause.valueOf(before));
         ScimUser user = users.given(ScimIdentities.userWithLoginState("ada", given));
 
-        assertThat(loginState.dormancyLocked(user, NOW)).isEqualTo(imposed);
+        assertThat(loginState.dormancyLocked(user, NOW).hasMoved(LOCKED_AT)).isEqualTo(imposed);
+    }
+
+    /**
+     * A User gone by the lock has no stored state, so the copy the job read shows it unlocked —
+     * yet the store imposed nothing, and the module reports what the store did, not what it read.
+     */
+    @Test
+    void theDormancyLockOfAUserGoneByTheLockMovesNothing() {
+        ScimUser gone = ScimIdentities.userWithLoginState("ada", run(0));
+
+        assertThat(loginState.dormancyLocked(gone, NOW).moved()).isEmpty();
     }
 
     /**
@@ -515,9 +687,9 @@ class LoginStateServiceTests {
         ScimUser read = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
         loginState.failureCounted(read);
 
-        boolean imposed = loginState.dormancyLocked(read, NOW.plusSeconds(1));
+        LoginStateChange lock = loginState.dormancyLocked(read, NOW.plusSeconds(1));
 
-        assertThat(imposed).isFalse();
+        assertThat(lock.moved()).isEmpty();
         assertThat(users.require("ada").login()).isEqualTo(
                 new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null));
     }
@@ -590,17 +762,6 @@ class LoginStateServiceTests {
 
     // ---- what the events answer --------------------------------------------------------------
 
-    /** The Unlock response is built from the decision, so the decision is the state written. */
-    @Test
-    void anUnlockAnswersWithTheStateItLeftStored() {
-        ScimUser ada = users.given(ScimIdentities.userWithLoginState(
-                "ada", locked(LockCause.FAILURES)));
-
-        LoginStateService.Unlock decided = loginState.unlocked(ada);
-
-        assertThat(decided.state()).isEqualTo(users.require("ada").login());
-    }
-
     /** Whether the Unlock required a change, which the administration path audits. */
     @ParameterizedTest(name = "locked={0}, password={1} -> change required {2}")
     @CsvSource({"true, true, true", "true, false, false", "false, true, false"})
@@ -611,7 +772,7 @@ class LoginStateServiceTests {
                 lockedBefore ? EARLIER : null, lockedBefore ? LockCause.FAILURES : null,
                 EARLIER, null)));
 
-        assertThat(loginState.unlocked(ada).changeRequired()).isEqualTo(changeRequired);
+        assertThat(loginState.unlocked(ada).hasMoved(FLAG)).isEqualTo(changeRequired);
     }
 
     /**
@@ -631,9 +792,9 @@ class LoginStateServiceTests {
                 withPassword ? "hash" : null, attempts, lockBefore == null ? null : EARLIER,
                 lockBefore, EARLIER, null)));
 
-        LoginStateService.Unlock decided = loginState.unlocked(ada);
+        LoginStateChange decided = loginState.unlocked(ada);
 
-        assertThat(List.of(Optional.ofNullable(decided.lifted()), decided.attemptsCleared()))
+        assertThat(List.of(Optional.ofNullable(decided.before().lockCause()), decided.hasMoved(RUN)))
                 .containsExactly(Optional.ofNullable(lifted), cleared);
     }
 
@@ -644,9 +805,9 @@ class LoginStateServiceTests {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState(
                 "ada", flagged ? flaggedWithRun(0) : run(0)));
 
-        LoginStateService.ForcedChange decided = loginState.passwordChangeForced(ada);
+        LoginStateChange decided = loginState.passwordChangeForced(ada);
 
-        assertThat(decided.state()).isEqualTo(users.require("ada").login());
+        assertThat(decided.after()).isEqualTo(users.require("ada").login());
     }
 
     /** Whether the forced change imposed one, which decides the path's audit and revocation. */
@@ -656,7 +817,7 @@ class LoginStateServiceTests {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState(
                 "ada", flagged ? flaggedWithRun(0) : run(0)));
 
-        assertThat(loginState.passwordChangeForced(ada).imposed()).isEqualTo(imposed);
+        assertThat(loginState.passwordChangeForced(ada).hasMoved(FLAG)).isEqualTo(imposed);
     }
 
     /** A User already owing the change is not written again. */
@@ -685,7 +846,15 @@ class LoginStateServiceTests {
     void aPasswordChangeAnswersWithTheInstantItWasCompletedAt() {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
 
-        assertThat(loginState.passwordChanged(ada, "new-hash")).contains(NOW);
+        assertThat(loginState.passwordChanged(ada, "new-hash").completedAt()).isEqualTo(NOW);
+    }
+
+    /** A completed change says so: its row names the credential from that. */
+    @Test
+    void aPasswordChangeSaysItCompletedOne() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+
+        assertThat(loginState.passwordChanged(ada, "new-hash").completedPasswordChange()).isTrue();
     }
 
     /** A User gone between the read and the write completes no change. */
@@ -694,7 +863,10 @@ class LoginStateServiceTests {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
         users.vanishBeforeNextPasswordChange(ada.id());
 
-        assertThat(loginState.passwordChanged(ada, "new-hash")).isEmpty();
+        LoginStateChange change = loginState.passwordChanged(ada, "new-hash");
+
+        assertThat(List.of(change.completedPasswordChange(), change.moved()))
+                .containsExactly(false, Set.of());
     }
 
     /** ... and records no use of the account. */

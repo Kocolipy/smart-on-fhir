@@ -167,6 +167,52 @@ class PasswordChangeServiceTests {
                 .containsExactly("BAD_CURRENT_PASSWORD");
     }
 
+    /** The history remembers the new password as of the instant the change was completed at. */
+    @Test
+    void anAcceptedChangeIsRememberedAsOfTheInstantItWasCompleted() {
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(history.findRecentSetAts(ada.id())).containsExactly(clock.instant());
+    }
+
+    // ---- the paths each row names --------------------------------------------------------------
+
+    /** A completed change names the credential it replaced and the flag it cleared. */
+    @Test
+    void anAcceptedChangeOfAUserOwingOneNamesTheCredentialAndTheFlagItCleared() {
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE))
+                .containsExactly(List.of("password", "passwordChangeRequiredSince"));
+    }
+
+    /** A User owing no change has no flag for the completion to clear, so none is named. */
+    @Test
+    void anAcceptedChangeOfAUserOwingNoneNamesTheCredentialAlone() {
+        ScimUser bob = users.given(ScimIdentities.userWithLoginState("bob", new ScimLoginState(
+                encoder.encode(CURRENT), 0, null, null, ScimIdentities.NOW, null)));
+
+        service.changePassword(bob.id(), CURRENT, NEXT);
+
+        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE))
+                .containsExactly(List.of("password"));
+    }
+
+    /**
+     * A wrong current password lengthens the failure run, so its refusal names the run; a refusal
+     * decided before any comparison — here the policy's — moves nothing and names nothing.
+     */
+    @Test
+    void aWrongCurrentPasswordsRefusalNamesTheRunItLengthenedAndAPolicyRefusalNothing() {
+        assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, "short"))
+                .isInstanceOf(PasswordPolicyViolationException.class);
+
+        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE))
+                .containsExactly(List.of("failedLoginAttempts"), List.of());
+    }
+
     /**
      * The change endpoint's own half of the Lockout: its wrong current passwords count into the
      * login run, and once that locks the User the endpoint refuses even the correct password as

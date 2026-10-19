@@ -141,6 +141,18 @@ class DormancyServiceTests {
                 AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS::DORMANCY_LOCKOUT"));
     }
 
+    /** The dormancy lock moves the lock and its cause, never the run, and its row names those. */
+    @Test
+    void aDormancyLockoutNamesTheLockItSet() {
+        users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
+                "hash", 2, null, null, ago(LOCKOUT.plusSeconds(1)), null)));
+
+        job.run();
+
+        assertThat(audit.changedPaths(AuditOperation.DORMANCY_LOCKOUT))
+                .containsExactly(List.of("lockedAt", "lockCause"));
+    }
+
     /**
      * A boundary case, so the clock moves: the candidate query and the verdict agree that a basis
      * exactly one window old is not yet due and one nanosecond more is.

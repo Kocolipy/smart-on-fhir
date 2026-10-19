@@ -4,6 +4,7 @@ import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.Role;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -52,6 +53,34 @@ public sealed interface Audited {
      * event, so "nothing changed" is spelled once.
      */
     List<String> NO_PATHS = List.of();
+
+    /**
+     * Of what a transition moved, the change-required flag alone. A transition two rows record —
+     * an Unlock that also requires a change — names the flag on its own
+     * {@link PasswordChangeRequired}, and the rest it moved on the other
+     * ({@link #withoutChangeRequired}).
+     *
+     * <p>Every row a login-state transition produces names its paths from what the login-state
+     * module handed back, through {@link AuditAttribute#paths}, so it names exactly what the
+     * transition moved — and nothing when it moved nothing ({@code /docs/domain/authentication.md}).
+     */
+    private static Set<AuditLoginStateAttribute> onlyChangeRequired(
+            Set<AuditLoginStateAttribute> moved) {
+        Set<AuditLoginStateAttribute> kept = EnumSet.noneOf(AuditLoginStateAttribute.class);
+        if (moved.contains(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
+            kept.add(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE);
+        }
+        return kept;
+    }
+
+    /** Of what a transition moved, everything but the change-required flag. */
+    private static Set<AuditLoginStateAttribute> withoutChangeRequired(
+            Set<AuditLoginStateAttribute> moved) {
+        Set<AuditLoginStateAttribute> kept = EnumSet.noneOf(AuditLoginStateAttribute.class);
+        kept.addAll(moved);
+        kept.remove(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE);
+        return kept;
+    }
 
     /**
      * Whether the append is fail-closed: {@code true} for an {@link Accepted} event, {@code false}
@@ -129,23 +158,28 @@ public sealed interface Audited {
     }
 
     /**
-     * A refused login that counted toward the failure run. The caller is already receiving a bare
-     * {@code 401}, and that answer does not change.
+     * A refused password Login, reported to the login-state module to count. The caller is already
+     * receiving a bare {@code 401}, and that answer does not change.
      *
      * @param subjectId stable id of the account the attempt named, or {@code null} when the
      *                  submitted username names no account — the one thing that must not be
      *                  recorded in its place
      * @param method    how the refused Login was attempted (D15)
+     * @param moved     what counting it moved: the failure run, and the lock when it reached the
+     *                  limit — nothing for a locked User, whose attempts neither count nor deepen
+     *                  the lock, and nothing for a name that matched no User
      */
-    record LoginFailure(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method)
-            implements Refused {
+    record LoginFailure(UUID subjectId, AuditRefusalReason reason, AuditLoginMethod method,
+            Set<AuditLoginStateAttribute> moved) implements Refused {
 
-        /** A rejected login lengthens the failure run and nothing else. */
-        public static final List<String> PATHS = List.of("failedLoginAttempts");
+        public LoginFailure {
+            moved = Set.copyOf(moved);
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.loginFailure(stamp, subjectId, reason, method, PATHS);
+            return AuditRows.loginFailure(
+                    stamp, subjectId, reason, method, AuditAttribute.paths(moved));
         }
     }
 
@@ -186,17 +220,19 @@ public sealed interface Audited {
      * that is already a refusal, the rejected Login or password change it rides; so it is
      * {@link Refused}, and a trail outage cannot turn that {@code 401} into a {@code 500}.
      */
-    record LockoutSet(UUID accountId) implements Refused {
+    record LockoutSet(UUID accountId, Set<AuditLoginStateAttribute> moved)
+            implements Refused {
 
-        /** The lockout columns a failure lock writes. */
-        public static final List<String> PATHS =
-                List.of("failedLoginAttempts", "lockedAt", "lockCause");
+        /** @param moved what the failure that imposed the lock moved: the run, and the lock */
+        public LockoutSet {
+            moved = Set.copyOf(moved);
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.user(stamp, new AuditRows.Change(AuditOperation.LOCKOUT_SET,
-                    AuditOutcome.SUCCESS, null, accountId, PATHS, AuditEvent.STATUS_CLIENT_ERROR,
-                    null));
+                    AuditOutcome.SUCCESS, null, accountId, AuditAttribute.paths(moved),
+                    AuditEvent.STATUS_CLIENT_ERROR, null));
         }
     }
 
@@ -208,33 +244,24 @@ public sealed interface Audited {
      * and, when a lock stood, the lock and its cause together with the dormancy basis
      * ({@code lastAuthenticatedAt}) the lift restarts. An Unlock of a User serving no lockout
      * clears its run and nothing else. The change-required flag the lift may also set is recorded
-     * by its own {@link PasswordChangeRequired}.
+     * by its own {@link PasswordChangeRequired}, so it is the one path the Unlock moved that this
+     * event does not name.
      *
-     * @param lockCause       why the lifted lock had been imposed, recorded as the event's reason,
-     *                        or {@code null} when the User was not locked
-     * @param attemptsCleared whether the User's failure run held attempts the Unlock cleared
+     * @param lockCause why the lifted lock had been imposed, recorded as the event's reason, or
+     *                  {@code null} when the User was not locked
+     * @param moved     what the Unlock moved, as the login-state module handed it back
      */
     record LockoutLiftedByUnlock(
-            UUID actorId, UUID subjectId, AuditLockCause lockCause, boolean attemptsCleared)
-            implements Accepted {
+            UUID actorId, UUID subjectId, AuditLockCause lockCause,
+            Set<AuditLoginStateAttribute> moved) implements Accepted {
 
-        /** What clearing a failure run that held attempts writes. */
-        public static final List<String> CLEARED_RUN_PATHS = List.of("failedLoginAttempts");
+        public LockoutLiftedByUnlock {
+            moved = Set.copyOf(moved);
+        }
 
-        /** What lifting a lock writes, beside the failure run: the lock, and the dormancy basis. */
-        public static final List<String> LIFTED_PATHS =
-                List.of("lockedAt", "lockCause", "lastAuthenticatedAt");
-
-        /** The paths this Unlock changed, in the recorded order. */
+        /** The paths this event names, in the recorded order. */
         public List<String> changedPaths() {
-            List<String> paths = new ArrayList<>();
-            if (attemptsCleared) {
-                paths.addAll(CLEARED_RUN_PATHS);
-            }
-            if (lockCause != null) {
-                paths.addAll(LIFTED_PATHS);
-            }
-            return List.copyOf(paths);
+            return AuditAttribute.paths(withoutChangeRequired(moved));
         }
 
         @Override
@@ -739,15 +766,18 @@ public sealed interface Audited {
      * the trail cannot record is not imposed. No actor, because the scheduled job is not a
      * principal; the operation is what names it.
      */
-    record DormancyLockout(UUID userId) implements Accepted {
+    record DormancyLockout(UUID userId, Set<AuditLoginStateAttribute> moved)
+            implements Accepted {
 
-        /** What a dormancy lockout sets: the lock and its cause; the failure run does not move. */
-        public static final List<String> PATHS = List.of("lockedAt", "lockCause");
+        /** @param moved what the dormancy lock moved: the lock and its cause, never the run */
+        public DormancyLockout {
+            moved = Set.copyOf(moved);
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.user(stamp,
-                    AuditRows.Change.success(AuditOperation.DORMANCY_LOCKOUT, null, userId, PATHS));
+            return AuditRows.user(stamp, AuditRows.Change.success(
+                    AuditOperation.DORMANCY_LOCKOUT, null, userId, AuditAttribute.paths(moved)));
         }
     }
 
@@ -810,16 +840,24 @@ public sealed interface Audited {
     /**
      * An administrator requiring a password change of a User — directly, or by lifting its
      * lockout. A requirement this service cannot account for is not imposed.
+     *
+     * @param moved what the forced change or the Unlock moved, as the login-state module handed it
+     *              back; this event names the change-required flag of it, and an Unlock's
+     *              {@link LockoutLiftedByUnlock} the rest
      */
-    record PasswordChangeRequired(UUID actorId, UUID subjectId) implements Accepted {
+    record PasswordChangeRequired(
+            UUID actorId, UUID subjectId, Set<AuditLoginStateAttribute> moved)
+            implements Accepted {
 
-        /** What requiring a password change sets: the flag, and nothing about the credential. */
-        public static final List<String> PATHS = List.of("passwordChangeRequiredSince");
+        public PasswordChangeRequired {
+            moved = Set.copyOf(moved);
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.user(stamp, AuditRows.Change.success(
-                    AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId, PATHS));
+                    AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId,
+                    AuditAttribute.paths(onlyChangeRequired(moved))));
         }
     }
 
@@ -836,31 +874,54 @@ public sealed interface Audited {
 
     /**
      * A User replacing its own password: a credential change this service cannot account for does
-     * not happen. The User is its own actor, and the paths name the credential and the flag it
-     * clears — never a value.
+     * not happen. The User is its own actor, and the paths name what the completion changed —
+     * never a value: the credential, which is not a login-state column and is named because the
+     * change was completed, and the change-required flag when the completion cleared one.
+     *
+     * @param moved what the completed change moved, as the login-state module handed it back
      */
-    record PasswordChanged(UUID userId) implements Accepted {
+    record PasswordChanged(UUID userId, Set<AuditLoginStateAttribute> moved)
+            implements Accepted {
 
-        /** What a self-service change moves: the credential, and the flag it clears. */
-        public static final List<String> PATHS = List.of("password", "passwordChangeRequiredSince");
+        public PasswordChanged {
+            moved = Set.copyOf(moved);
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
+            List<String> paths = new ArrayList<>();
+            paths.add(AuditUserAttribute.PASSWORD.path());
+            paths.addAll(AuditAttribute.paths(onlyChangeRequired(moved)));
             return AuditRows.user(stamp,
                     AuditRows.Change.success(AuditOperation.PASSWORD_CHANGE,
-                            userId, userId, PATHS));
+                            userId, userId, List.copyOf(paths)));
         }
     }
 
-    /** A self-service password change refused; the caller is already receiving the refusal. */
-    record PasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason)
-            implements Refused {
+    /**
+     * A self-service password change refused; the caller is already receiving the refusal.
+     *
+     * @param moved what the refusal moved, as the login-state module handed it back: the failure
+     *              run a wrong current password lengthened, and the lock when it reached the
+     *              limit; nothing for every other refusal
+     */
+    record PasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason,
+            Set<AuditLoginStateAttribute> moved) implements Refused {
+
+        public PasswordChangeRefused {
+            moved = Set.copyOf(moved);
+        }
+
+        /** A refusal that moved nothing: one decided before any attempt was counted. */
+        public PasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason) {
+            this(userId, reason, Set.of());
+        }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.user(stamp,
                     AuditRows.Change.refusal(AuditOperation.PASSWORD_CHANGE,
-                            userId, userId, reason));
+                            userId, userId, reason, AuditAttribute.paths(moved)));
         }
     }
 

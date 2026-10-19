@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
@@ -11,6 +12,7 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
@@ -201,11 +203,14 @@ public class DormancyService {
         List<UUID> locked = new ArrayList<>();
         for (UUID candidate : candidates) {
             Optional<ScimUser> user = users.findById(candidate);
-            if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()
-                    || !loginState.dormancyLocked(user.get(), now)) {
+            if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()) {
                 continue;
             }
-            audit.append(new Audited.DormancyLockout(candidate));
+            LoginStateChange lock = loginState.dormancyLocked(user.get(), now);
+            if (!lock.hasMoved(AuditLoginStateAttribute.LOCKED_AT)) {
+                continue;
+            }
+            audit.append(new Audited.DormancyLockout(candidate, lock.moved()));
             logLockout(candidate);
             sessions.revokeAllAfterCommit(candidate, SessionRevocationCause.DORMANCY_LOCKOUT, null);
             locked.add(candidate);

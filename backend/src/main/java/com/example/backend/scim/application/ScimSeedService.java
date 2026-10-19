@@ -270,7 +270,7 @@ public class ScimSeedService {
         ScimUser flagged = new ScimUser(
                 seeded.id(),
                 seeded.profile(),
-                loginStates.created(seeded.login().passwordHash(), now),
+                loginStates.created(seeded.login().passwordHash(), now).after(),
                 null,
                 ScimUser.INITIAL_VERSION,
                 now,

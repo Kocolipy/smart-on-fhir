@@ -59,8 +59,17 @@ final class AuditRows {
         /** A refusal: a client error that changed nothing, recorded with its one reason. */
         static Change refusal(
                 AuditOperation operation, UUID actorId, UUID subjectId, Enum<?> reason) {
+            return refusal(operation, actorId, subjectId, reason, Audited.NO_PATHS);
+        }
+
+        /**
+         * A refusal that still moved something — a wrong current password lengthens the failure
+         * run — recorded with its one reason and the paths it moved.
+         */
+        static Change refusal(AuditOperation operation, UUID actorId, UUID subjectId,
+                Enum<?> reason, List<String> changedPaths) {
             return new Change(operation, AuditOutcome.FAILURE, actorId, subjectId,
-                    Audited.NO_PATHS, AuditEvent.STATUS_CLIENT_ERROR, reason.name());
+                    changedPaths, AuditEvent.STATUS_CLIENT_ERROR, reason.name());
         }
     }
 

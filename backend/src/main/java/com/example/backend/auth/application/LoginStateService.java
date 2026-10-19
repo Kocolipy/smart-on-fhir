@@ -3,9 +3,9 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
-import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -16,8 +16,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -102,6 +100,21 @@ import org.springframework.stereotype.Service;
  * these writes: the state this hands back rides the profile's own row write, which writes only the
  * columns that differ.
  *
+ * <h2>What each transition hands back</h2>
+ *
+ * <p>Every transition answers with what it changed, in one shape: a {@link LoginStateChange}, the
+ * state read under the User's lock and the state it left stored. What it moved
+ * ({@link LoginStateChange#moved}) is the columns that differ, read by the rule {@link ScimLoginStateRepository#writeChange} writes by, so they are
+ * exactly what was written — and every audit row a transition produces names its changed paths
+ * from them, never from a list of its own: a refused Login that lengthened the run names
+ * {@code failedLoginAttempts}, and one that counted nothing — a locked User's — names nothing
+ * ({@code /docs/domain/authentication.md}). A transition that moved nothing hands back no path, and
+ * a completed password change also says when it was completed, which is how its row names the
+ * credential. The directory's events answer in the same shape, which lives beside their port in
+ * {@code scim.domain} so the port can name it: a create or a replacement hands back the change
+ * whose {@link LoginStateChange#after} its own row write stores, and the dormant fixture's reset
+ * the change it wrote. None of the three records a login-state row.
+ *
  * <h2>Serialization</h2>
  *
  * <p>Every event that writes the login state is serialized here, so no caller decides whether to
@@ -145,29 +158,6 @@ public class LoginStateService implements ScimUserLoginState {
         EPIC
     }
 
-    /**
-     * What an Unlock decided, and so what it changed.
-     *
-     * @param state           the User's login state as the Unlock left it
-     * @param changeRequired  whether the Unlock required a password change
-     * @param lifted          the cause of the lock the Unlock lifted, which also restarted the
-     *                        dormancy basis — or {@code null} when no lock stood
-     * @param attemptsCleared whether the failure run held attempts the Unlock cleared
-     */
-    public record Unlock(
-            ScimLoginState state, boolean changeRequired, LockCause lifted,
-            boolean attemptsCleared) {
-    }
-
-    /**
-     * What an Admin's forced password change decided.
-     *
-     * @param state   the User's login state as the forced change left it
-     * @param imposed whether the forced change required a change the User did not already owe
-     */
-    public record ForcedChange(ScimLoginState state, boolean imposed) {
-    }
-
     private final ScimLoginStateRepository loginStates;
     private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
@@ -208,17 +198,19 @@ public class LoginStateService implements ScimUserLoginState {
      * Counted on the run stored under the User's lock, so a parallel failure is never lost and
      * only the one that reaches the limit imposes the Lockout.
      */
-    public void failureCounted(ScimUser user) {
+    public LoginStateChange failureCounted(ScimUser user) {
         ScimLoginState before = stateUnderLock(user);
         ScimLoginState after = user.isExemptFromLockout()
                 ? before.withFailureCounted()
                 : before.withFailureRecorded(policy, clock.instant());
         loginStates.writeChange(user.id(), before, after);
+        LoginStateChange change = LoginStateChange.between(before, after);
         if (after.isLocked() && !before.isLocked()) {
-            audit.append(new Audited.LockoutSet(user.id()));
+            audit.append(new Audited.LockoutSet(user.id(), change.moved()));
             sessions.revokeAllAfterCommit(
                     user.id(), SessionRevocationCause.FAILURE_RUN_LOCKOUT, null);
         }
+        return change;
     }
 
     /**
@@ -227,13 +219,14 @@ public class LoginStateService implements ScimUserLoginState {
      * or log out, so it is not use of the account, and counting it would let an imposed credential
      * nobody replaces stay live for as long as somebody keeps logging in with it (ADR 0008).
      */
-    public void credentialVerified(ScimUser user, LoginKind kind) {
+    public LoginStateChange credentialVerified(ScimUser user, LoginKind kind) {
         ScimLoginState before = stateUnderLock(user);
         ScimLoginState after = before.withFailureRunCleared();
         if (!confines(kind, before)) {
             after = after.withDormancyBasisReset(clock.instant());
         }
         loginStates.writeChange(user.id(), before, after);
+        return LoginStateChange.between(before, after);
     }
 
     /**
@@ -245,16 +238,13 @@ public class LoginStateService implements ScimUserLoginState {
      * <p>The completion is written first, and the run and the basis after it, from the state it
      * left.
      *
-     * @return the instant the change was completed at, which the credential, the dormancy basis
-     *     and the caller's password history all share; empty when the User was gone by the write,
-     *     in which case the basis is not moved
+     * @return what the change moved, and the instant it was completed at, which the credential,
+     *     the dormancy basis and the caller's password history all share; no completion and no
+     *     path when the User was gone by the write, in which case the basis is not moved
      */
-    public Optional<Instant> passwordChanged(ScimUser user, String passwordHash) {
-        locks.lock(List.of(user.id()));
+    public LoginStateChange passwordChanged(ScimUser user, String passwordHash) {
         Instant now = clock.instant();
-        return changeCompleted(user.id(), passwordHash, now, now)
-                ? Optional.of(now)
-                : Optional.empty();
+        return changeCompleted(user, passwordHash, now, now);
     }
 
     /**
@@ -263,23 +253,22 @@ public class LoginStateService implements ScimUserLoginState {
      * credential that reached the limit may be the one an attacker was guessing. A User serving no
      * lockout has only its run cleared.
      *
-     * @return the state the Unlock stored, and whether it required a change
+     * @return what the Unlock moved — the run when it held attempts; the lock, the basis and,
+     *     for a User with a password, the change-required flag when a lock stood — and the state
+     *     it stored; the lifted lock's cause is the state it read
      */
-    public Unlock unlocked(ScimUser user) {
+    public LoginStateChange unlocked(ScimUser user) {
         ScimLoginState before = stateUnderLock(user);
         ScimLoginState after = before.withFailureRunCleared();
-        boolean changeRequired = false;
         if (before.isLocked()) {
             Instant now = clock.instant();
             after = after.withDormancyBasisReset(now);
             if (before.hasPassword()) {
                 after = after.withPasswordChangeRequired(now);
-                changeRequired = true;
             }
         }
         loginStates.writeChange(user.id(), before, after);
-        return new Unlock(after, changeRequired, before.lockCause(),
-                before.failedLoginAttempts() > 0);
+        return LoginStateChange.between(before, after);
     }
 
     /**
@@ -289,16 +278,17 @@ public class LoginStateService implements ScimUserLoginState {
      * forced change re-imposes nothing; the administration path's audit and Session revocation
      * follow only a change this imposed.
      *
-     * @return the state the forced change stored, and whether it imposed a change
+     * @return what the forced change moved — the change-required flag, or nothing for a User
+     *     already owing one — and the state it stored
      */
-    public ForcedChange passwordChangeForced(ScimUser user) {
+    public LoginStateChange passwordChangeForced(ScimUser user) {
         ScimLoginState before = stateUnderLock(user);
         if (before.isPasswordChangeRequired()) {
-            return new ForcedChange(before, false);
+            return LoginStateChange.none(before);
         }
         ScimLoginState after = before.withPasswordChangeRequired(clock.instant());
         loginStates.writeChange(user.id(), before, after);
-        return new ForcedChange(after, true);
+        return LoginStateChange.between(before, after);
     }
 
     /**
@@ -314,12 +304,15 @@ public class LoginStateService implements ScimUserLoginState {
      * says whether the lock was imposed, and refuses to overwrite a standing one whatever this
      * read.
      *
-     * @return whether this imposed the lock
+     * @return what the lock moved — the lock and its cause, or nothing when the store refused to
+     *     overwrite a standing lock
      */
-    public boolean dormancyLocked(ScimUser user, Instant now) {
-        ScimLoginState locked = stateUnderLock(user).withDormancyLock(now);
-        return loginStates.imposeLock(
+    public LoginStateChange dormancyLocked(ScimUser user, Instant now) {
+        ScimLoginState before = stateUnderLock(user);
+        ScimLoginState locked = before.withDormancyLock(now);
+        boolean imposed = loginStates.imposeLock(
                 user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
+        return imposed ? LoginStateChange.between(before, locked) : LoginStateChange.none(before);
     }
 
     /**
@@ -329,9 +322,10 @@ public class LoginStateService implements ScimUserLoginState {
      * nothing; the flag arrives with its first password.
      */
     @Override
-    public ScimLoginState created(String passwordHash, Instant now) {
+    public LoginStateChange created(String passwordHash, Instant now) {
         ScimLoginState created = ScimLoginState.of(passwordHash);
-        return created.hasPassword() ? created.withPasswordChangeRequired(now) : created;
+        return LoginStateChange.between(created,
+                created.hasPassword() ? created.withPasswordChangeRequired(now) : created);
     }
 
     /**
@@ -355,7 +349,7 @@ public class LoginStateService implements ScimUserLoginState {
      * failure run and the lock are carried as read, since the replacement does not store them.
      */
     @Override
-    public ScimLoginState afterReplacement(
+    public LoginStateChange afterReplacement(
             ScimUser stored, ScimUserProfile profile, Credential credential, Instant now) {
         ScimLoginState after = stored.login().withCredential(credential.passwordHash());
         if (credential.connectorSet()) {
@@ -367,7 +361,7 @@ public class LoginStateService implements ScimUserLoginState {
                 after = after.withPasswordChangeRequired(now);
             }
         }
-        return after;
+        return LoginStateChange.between(stored.login(), after);
     }
 
     /**
@@ -376,31 +370,37 @@ public class LoginStateService implements ScimUserLoginState {
      * {@code now}, so the development profile's startup run of the job locks it again.
      */
     @Override
-    public void dormantFixtureReset(
+    public LoginStateChange dormantFixtureReset(
             ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
-        locks.lock(List.of(fixture.id()));
-        changeCompleted(fixture.id(), passwordHash, now, now.minus(dormantFor));
+        return changeCompleted(fixture, passwordHash, now, now.minus(dormantFor));
     }
 
     /**
-     * Completes a change of User {@code id}'s password to {@code passwordHash} as of
+     * Completes a change of {@code user}'s password to {@code passwordHash} as of
      * {@code completedAt}, then clears its run and moves its dormancy basis to {@code basis}: the
-     * shared tail of a self-service change and the dormant fixture's reset.
+     * shared transition of a self-service change and the dormant fixture's reset.
      *
-     * <p>The caller holds the User's lock and has read no state: the state the run and the basis
-     * are written from is the one the completion left, so the change cannot write back the flag
-     * the completion cleared, and a User gone by the completion has nothing else written either.
+     * <p>Takes the User's lock. Whatever it read, the state the run and the basis are written from
+     * is the one the completion left, so the change cannot write back the flag the completion
+     * cleared, and a User gone by the completion has nothing else written either.
      *
-     * @return whether the User was still there to complete the change for
+     * @return what the change moved from the state read under the lock, and {@code completedAt};
+     *     no completion and no path when the User was gone by the completion and nothing was
+     *     written
      */
-    private boolean changeCompleted(
-            UUID id, String passwordHash, Instant completedAt, Instant basis) {
-        Optional<ScimLoginState> completed = loginStates
-                .completePasswordChange(id, passwordHash, completedAt)
-                .map(ScimUser::login);
-        completed.ifPresent(before -> loginStates.writeChange(
-                id, before, before.withFailureRunCleared().withDormancyBasisReset(basis)));
-        return completed.isPresent();
+    private LoginStateChange changeCompleted(
+            ScimUser user, String passwordHash, Instant completedAt, Instant basis) {
+        ScimLoginState before = stateUnderLock(user);
+        return loginStates
+                .completePasswordChange(user.id(), passwordHash, completedAt)
+                .map(ScimUser::login)
+                .map(completed -> {
+                    ScimLoginState after =
+                            completed.withFailureRunCleared().withDormancyBasisReset(basis);
+                    loginStates.writeChange(user.id(), completed, after);
+                    return new LoginStateChange(before, after, completedAt);
+                })
+                .orElseGet(() -> LoginStateChange.none(before));
     }
 
     /**

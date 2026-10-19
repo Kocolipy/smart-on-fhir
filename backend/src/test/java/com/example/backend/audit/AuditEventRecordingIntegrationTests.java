@@ -185,6 +185,26 @@ class AuditEventRecordingIntegrationTests {
                 "error_code", AuditRefusalReason.UNKNOWN_ACCOUNT.name());
     }
 
+    /**
+     * A refusal that counted nothing names no changed path: an unknown name has no User to count
+     * against, and a locked User's attempts neither count nor deepen the lock.
+     */
+    @Test
+    void aRefusedLoginThatCountedNothingNamesNoChangedPath() throws Exception {
+        ScimUser user = require(USER);
+        transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
+                loginStates, user.id(),
+                new ScimLoginState(user.login().passwordHash(), 5, Instant.now())));
+        clearRecordedEvents();
+
+        logIn("nobody-by-that-name", "whatever").andExpect(status().isUnauthorized());
+        logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
+
+        assertThat(rows(AuditOperation.LOGIN_FAILURE))
+                .extracting(row -> row.get("changed_paths"))
+                .containsExactly(null, null);
+    }
+
     @Test
     void aLogoutProducesExactlyOneEvent() throws Exception {
         MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)

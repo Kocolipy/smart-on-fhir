@@ -170,7 +170,7 @@ public class ScimUserService {
         // Whether the new credential owes a change is the login-state module's decision.
         ScimUser user = withLogin(
                 ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now),
-                loginStates.created(passwordHash, now));
+                loginStates.created(passwordHash, now).after());
         ScimUser created = users.create(user);
         if (password != null) {
             passwordAcceptance.remember(created.id(), password, now);
@@ -368,7 +368,7 @@ public class ScimUserService {
         if (implied.stored().columns()) {
             // A taken userName fails here as DuplicateUserNameException, audited at the edge.
             users.replace(desired(current, after.profile(), loginStates.afterReplacement(
-                            current, after.profile(), credential, now)),
+                            current, after.profile(), credential, now).after()),
                     now);
         }
         if (accepted != null) {
