@@ -7,7 +7,7 @@
  * earlier run left, holds the pending flag while the action is out, and reads
  * the closed outcome it resolves to (`auth/api.ts`; an action never throws).
  * An outcome that ends or starts a session — `signed-in`, `signed-out`,
- * `changed`, `locked` — has already moved the session, so the guards move the
+ * `changed`, `locked`, `expired` — has already moved the session, so the guards move the
  * visitor on and the login page says why (`sign-in-reason.ts`); there is
  * nothing to show, and the hook shows nothing. Every other outcome leaves the
  * visitor on the page, and the hook hands it the one line
@@ -51,7 +51,7 @@ type OutcomeOf<N extends SessionActionName> = Awaited<ReturnType<SessionActions[
  */
 function endedSession(
   outcome: PasswordChangeOutcome,
-): outcome is Extract<PasswordChangeOutcome, { kind: "changed" | "locked" }> {
+): outcome is Extract<PasswordChangeOutcome, { kind: "changed" | "expired" | "locked" }> {
   return sessionEndReasonFor(outcome) !== null;
 }
 

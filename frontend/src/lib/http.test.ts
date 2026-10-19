@@ -425,6 +425,41 @@ describe("apiFetch", () => {
       apiFetch("/api/auth/change-password", { method: "POST" }, undefined, decodeRule),
     ).resolves.toStrictEqual({ kind: "failed", status: 400, detail: undefined });
   });
+
+  it("decodes a 401 body too, for a caller that asks for one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === CSRF_PATH
+            ? grant("token-1")
+            : Response.json({ rule: "ANSWERED" }, { status: 401 }),
+        ),
+      ),
+    );
+
+    await expect(
+      apiFetch("/api/example", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "unauthenticated", detail: "ANSWERED" });
+    // Without a failure decoder the body is not read, and no `detail` key appears.
+    await expect(apiFetch("/api/example", { method: "POST" })).resolves.toStrictEqual({
+      kind: "unauthenticated",
+    });
+  });
+
+  it("reads a 401 whose body does not decode as unauthenticated with no detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(grant("token-1"))
+        .mockResolvedValueOnce(new Response(null, { status: 401 })),
+    );
+
+    await expect(
+      apiFetch("/api/example", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "unauthenticated", detail: undefined });
+  });
 });
 
 /**

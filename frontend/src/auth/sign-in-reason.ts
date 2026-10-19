@@ -21,7 +21,9 @@ export type SessionEndReason = "expired" | "inactive" | "locked" | "password-cha
 /**
  * The reason a password change records, or `null` for an outcome that leaves
  * the session standing. A change replaces the password and a lockout revokes
- * every session of the User, so both end this one; every refusal keeps it.
+ * every session of the User, so both end this one; a change that found the
+ * session already gone records the Expired session it met, as any other
+ * request's `401` does; every refusal keeps it.
  */
 export function sessionEndReasonFor(outcome: PasswordChangeOutcome): SessionEndReason | null {
   switch (outcome.kind) {
@@ -29,6 +31,8 @@ export function sessionEndReasonFor(outcome: PasswordChangeOutcome): SessionEndR
       return "password-changed";
     case "locked":
       return "locked";
+    case "expired":
+      return "expired";
     default:
       return null;
   }

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   bare,
+  CURRENT_PASSWORD_REFUSED,
   deferred,
   fakeBackend,
   json,
@@ -197,7 +198,10 @@ describe("AuthProvider", () => {
 
   it("ends the session on a lockout and records why, forgetting the token", async () => {
     // The 401 ended the session too, so the check that follows it is refused.
-    const session = await mounted({ [CHANGE]: bare(401), [ME]: [json(USER), bare(401)] });
+    const session = await mounted({
+      [CHANGE]: CURRENT_PASSWORD_REFUSED,
+      [ME]: [json(USER), bare(401)],
+    });
 
     const settled = await settle(session, (auth) =>
       auth.changePassword("wrong-value", "new-value"),
@@ -210,11 +214,32 @@ describe("AuthProvider", () => {
     }).toEqual({ signInReason: "locked", status: "guest", tokenForgotten: true, user: null });
   });
 
+  it("ends a session that had already expired as expired, forgetting the token", async () => {
+    // Refused before the password check, so the 401 carries no mark of it.
+    // The session is not checked again: a gone session would read as a lockout.
+    const session = await mounted({ ...SIGNED_IN_CONFINED, [CHANGE]: bare(401) });
+
+    const settled = await settle(session, (auth) => auth.changePassword(OLD_VALUE, NEW_VALUE));
+
+    expect({
+      ...signInReasonAndStatus(session.result.current),
+      outcome: settled.outcome,
+      tokenForgotten: settled.tokenForgotten,
+      user: session.result.current.user,
+    }).toEqual({
+      outcome: { kind: "expired" },
+      signInReason: "expired",
+      status: "guest",
+      tokenForgotten: true,
+      user: null,
+    });
+  });
+
   it.each([
     [
       "current-password-rejected",
       // The session survives the 401, so the check that follows it still answers.
-      { [CHANGE]: bare(401) },
+      { [CHANGE]: CURRENT_PASSWORD_REFUSED },
       { kind: "current-password-rejected" },
     ],
     [

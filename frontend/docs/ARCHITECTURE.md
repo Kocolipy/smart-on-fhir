@@ -29,9 +29,10 @@ runs it.
 map; `/frontend/AGENTS.md` points here rather than repeating it.
 
 - `api.ts` — the `/api/auth/*` calls, each mapping a status code to a domain
-  outcome (`401` on `/me` is a guest, not an error; `401` on change-password is
-  a wrong current password or a lockout, never a reason to end the session by
-  itself), and the decoder for the session's `permissions`. The three **session
+  outcome (`401` on `/me` is a guest, not an error; a `401` on change-password
+  carrying the password check's mark is a wrong current password or a lockout,
+  never a reason to end the session by itself, and one without it is an
+  expired session), and the decoder for the session's `permissions`. The three **session
   actions** — `login`, `logout`, `changePassword` — and the start-up session
   check, `getCurrentUser`, each resolve to a closed outcome (`LoginOutcome`,
   `LogoutOutcome`, `PasswordChangeOutcome`, `SessionCheckOutcome`) for every
@@ -513,16 +514,20 @@ voluntary change, and Home links to it.
 
 `pages/change-password.tsx` submits current and new password (plus a
 confirmation checked in the browser) through `changePassword` on the auth
-context, not through `useSessionRequest`: a `401` there is an answer about the
-current password, and the seam would end the session on it unconditionally.
+context, not through `useSessionRequest`: a `401` there may be an answer about
+the current password, and the seam would end the session on it unconditionally.
 `src/auth/api.ts` maps the outcomes. `204` means every session of the User has
 ended, the submitting one included, so the context clears its auth state and
 records why, and the guard returns the visitor to login with "Your password was
 changed" and no return destination — the next sign-in lands on Home, not
 back on the change. A `400` carries the backend's `PasswordRuleViolation`, and
-the page shows its statement of the unmet rule. The backend answers a wrong
-current password and a lockout with the same bodiless `401`, so `api.ts` tells
-them apart by asking `GET /api/auth/me` whether the session survived: a wrong
+the page shows its statement of the unmet rule. A `401` without the password
+check's `{"refused":"current-password"}` mark was refused before the check, for
+want of a live session: `api.ts` resolves it `expired` without asking anything,
+and the context ends the session as any request's `401` does, recording the
+sign-in reason `expired`. The backend answers a wrong current password and a
+lockout with the same marked `401`, so `api.ts` tells them apart by asking
+`GET /api/auth/me` whether the session survived: a wrong
 password leaves it standing; reaching the lockout threshold revokes every
 session of the User, so the context ends the session as for a change, recording
 the sign-in reason `locked`, and the guard returns the visitor to login — no

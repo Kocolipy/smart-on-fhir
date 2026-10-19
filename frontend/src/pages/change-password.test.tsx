@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   bare,
+  CURRENT_PASSWORD_REFUSED,
   deferred,
   holding,
   json,
@@ -155,7 +156,9 @@ describe("ChangePassword", () => {
     ["a success", { [CHANGE]: bare(204) }],
     // A 401 the session does not survive: the lockout ended it too, so the
     // login page says it, not this one.
-    ["a lockout", { [CHANGE]: bare(401), "GET /api/auth/me": bare(401) }],
+    ["a lockout", { [CHANGE]: CURRENT_PASSWORD_REFUSED, "GET /api/auth/me": bare(401) }],
+    // A 401 the password check did not answer: the session was already gone.
+    ["an expired session", { [CHANGE]: bare(401) }],
   ] as [string, Answers][])(
     "submits current and new password and shows nothing on %s",
     async (_name, answers) => {
@@ -203,7 +206,7 @@ describe("ChangePassword", () => {
     [
       // The session survives the 401, so the probe after it still answers 200.
       "a 401 as a wrong current password",
-      bare(401),
+      CURRENT_PASSWORD_REFUSED,
       /^The current password is incorrect\.$/,
     ],
   ];
@@ -226,7 +229,7 @@ describe("ChangePassword", () => {
 
   it("clears an earlier refusal when the next submission starts", async () => {
     const second = deferred();
-    await renderPage({ [CHANGE]: [bare(401), second.answer] });
+    await renderPage({ [CHANGE]: [CURRENT_PASSWORD_REFUSED, second.answer] });
 
     await fillAndSubmit();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
@@ -240,7 +243,7 @@ describe("ChangePassword", () => {
   });
 
   it("says the confirmation does not match in place of an earlier refusal", async () => {
-    await renderPage({ [CHANGE]: bare(401) });
+    await renderPage({ [CHANGE]: CURRENT_PASSWORD_REFUSED });
     await fillAndSubmit();
     await screen.findByRole("alert");
 

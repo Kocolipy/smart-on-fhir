@@ -197,14 +197,20 @@ export async function logout(): Promise<LogoutOutcome> {
  *   ended, the submitting one included.
  * - `policy-violation` — `400` naming the unmet rule; `message` is the backend's
  *   statement of that rule, which never contains either submitted value.
- * - `current-password-rejected` — `401` while the session survives it.
- * - `locked` — `401` that ended the session: at the lockout threshold the
- *   backend locks the account and revokes every session it holds.
- * - `failed` — includes a `401` whose session check did not answer, which can
- *   confirm neither of the two above.
+ * - `current-password-rejected` — the password check's `401`, while the
+ *   session survives it.
+ * - `locked` — the password check's `401`, which ended the session: at the
+ *   lockout threshold the backend locks the account and revokes every session
+ *   it holds.
+ * - `expired` — a `401` the password check did not answer: the request found
+ *   no live session, so nothing was compared or counted. The ordinary Expired
+ *   session.
+ * - `failed` — includes a password check's `401` whose session check did not
+ *   answer, which can confirm neither `current-password-rejected` nor `locked`.
  *
- * `changed` and `locked` both mean the session is gone, which the caller acts
- * on; this module only classifies, and `session-action-copy.ts` says the rest.
+ * `changed`, `locked` and `expired` all mean the session is gone, which the
+ * caller acts on; this module only classifies, and `session-action-copy.ts`
+ * says the rest.
  * Every request outcome resolves to one of these; none throws.
  */
 export type PasswordChangeOutcome =
@@ -212,21 +218,34 @@ export type PasswordChangeOutcome =
   | { kind: "policy-violation"; message: string }
   | { kind: "current-password-rejected" }
   | { kind: "locked" }
+  | { kind: "expired" }
   | RequestFailure;
 
 /**
- * The `PasswordRuleViolation` body's statement of the rule. Any other body
- * throws, which `apiFetch` reads as no `detail` at all.
+ * What a refused password change's body says: a policy refusal's statement of
+ * the rule, or the password check's mark on its `401`.
  */
-const decodeRuleMessage = jsonDecoder((body: unknown): string =>
-  readObject(body, "PasswordRuleViolation").string("message"),
-);
+type PasswordChangeRefusal = { kind: "rule"; message: string } | { kind: "current-password" };
+
+/**
+ * A `401`'s `PasswordChangeRefusal` body, or any other status's
+ * `PasswordRuleViolation`. Any other body throws, which `apiFetch` reads as no
+ * `detail` at all — on a `401`, as no mark of the password check.
+ */
+async function decodeRefusal(response: Response): Promise<PasswordChangeRefusal> {
+  const body: unknown = await response.json();
+  if (response.status === 401) {
+    readObject(body, "PasswordChangeRefusal").oneOf("refused", ["current-password"]);
+    return { kind: "current-password" };
+  }
+  return { kind: "rule", message: readObject(body, "PasswordRuleViolation").string("message") };
+}
 
 /**
  * Tells a lockout from a wrong current password.
  *
- * The backend answers both with the same bodiless `401`, as it does for Login,
- * so the status alone cannot say which. What does differ is the session: a
+ * The password check answers both with the same `401` and the same body, as
+ * Login gives every refusal one answer, so the answer alone cannot say which. What does differ is the session: a
  * wrong password leaves it standing, while reaching the threshold locks the
  * account and revokes every session the User holds, this one included. So the
  * session is asked whether it still exists.
@@ -254,9 +273,14 @@ async function classifyRejection(): Promise<PasswordChangeOutcome> {
 /**
  * Submits the session's own password change.
  *
- * Reached through `src/auth`, not `useSessionRequest`, because a `401` here is
- * an answer about the current password, not necessarily a session that has
- * ended; the seam would end the session on it unconditionally.
+ * Reached through `src/auth`, not `useSessionRequest`, because a `401` here may
+ * be an answer about the current password, not necessarily a session that has
+ * ended; the seam would end the session on it unconditionally. The backend
+ * marks the `401` its password check gives with a `PasswordChangeRefusal`
+ * body. A `401` without it was refused before the check, for want of a live
+ * session — which also means no failed attempt was counted — and is read as
+ * the Expired session it is, never probed: a gone session would read as a
+ * lockout.
  */
 export async function changePassword(
   currentPassword: string,
@@ -270,21 +294,21 @@ export async function changePassword(
       method: "POST",
     },
     undefined,
-    decodeRuleMessage,
+    decodeRefusal,
   );
 
   switch (result.kind) {
     case "ok":
       return { kind: "changed" };
     case "unauthenticated":
-      return classifyRejection();
+      return result.detail?.kind === "current-password" ? classifyRejection() : { kind: "expired" };
     case "forbidden":
       return { kind: "forbidden" };
     case "csrf-expired":
       return { kind: "csrf-expired" };
     case "failed":
-      return result.status === 400 && result.detail !== undefined
-        ? { kind: "policy-violation", message: result.detail }
+      return result.status === 400 && result.detail?.kind === "rule"
+        ? { kind: "policy-violation", message: result.detail.message }
         : { kind: "failed" };
   }
 }

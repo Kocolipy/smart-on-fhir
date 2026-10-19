@@ -314,6 +314,8 @@ describe("the user decoder", () => {
 
 describe("changePassword", () => {
   const [current, next] = ["current-value-1", "next-value-22"] as const;
+  /** What the decoder reads out of the backend's answer that the password check refused. */
+  const ANSWERED = { kind: "current-password" } as const;
 
   beforeEach(() => {
     apiFetchMock.mockReset();
@@ -337,7 +339,11 @@ describe("changePassword", () => {
   });
 
   it("names the unmet rule from a policy refusal", async () => {
-    resolveWith({ kind: "failed", status: 400, detail: "The new password is too short" });
+    resolveWith({
+      kind: "failed",
+      status: 400,
+      detail: { kind: "rule", message: "The new password is too short" },
+    });
     await expect(changePassword(current, next)).resolves.toEqual({
       kind: "policy-violation",
       message: "The new password is too short",
@@ -346,7 +352,14 @@ describe("changePassword", () => {
 
   it.each([
     ["a 400 with no rule", { kind: "failed", status: 400 }],
-    ["another status carrying a message", { kind: "failed", status: 500, detail: "boom" }],
+    [
+      "another status carrying a message",
+      { kind: "failed", status: 500, detail: { kind: "rule", message: "boom" } },
+    ],
+    [
+      "a 400 carrying the password check's refusal",
+      { kind: "failed", status: 400, detail: ANSWERED },
+    ],
     ["a transport failure", { kind: "failed" }],
   ])("reports %s as a plain failure", async (_name, result) => {
     resolveWith(result);
@@ -364,9 +377,22 @@ describe("changePassword", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
+  // The backend marks the 401 its password check answered. A 401 without that
+  // mark was refused before the check, for want of a live session: nothing was
+  // compared or counted, so it is the ordinary Expired session.
+  it.each([
+    ["no body", { kind: "unauthenticated" }],
+    ["a body that is not the password check's", { kind: "unauthenticated", detail: undefined }],
+  ])("reads a 401 with %s as an expired session, without probing", async (_name, result) => {
+    resolveWith(result);
+
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "expired" });
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("reads a 401 that leaves the session standing as a wrong current password", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "unauthenticated", detail: ANSWERED } as never)
       .mockResolvedValueOnce({ kind: "ok", data: undefined } as never);
 
     await expect(changePassword(current, next)).resolves.toEqual({
@@ -377,7 +403,7 @@ describe("changePassword", () => {
 
   it("reads a 401 that ended the session as a lockout", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "unauthenticated", detail: ANSWERED } as never)
       .mockResolvedValueOnce({ kind: "unauthenticated" } as never);
 
     await expect(changePassword(current, next)).resolves.toEqual({ kind: "locked" });
@@ -395,7 +421,7 @@ describe("changePassword", () => {
     "reports a 401 whose session check %s as unconfirmed, not a wrong password",
     async (_name, probe) => {
       apiFetchMock
-        .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+        .mockResolvedValueOnce({ kind: "unauthenticated", detail: ANSWERED } as never)
         .mockResolvedValueOnce(probe as never);
 
       await expect(changePassword(current, next)).resolves.toEqual({ kind: "failed" });
@@ -411,7 +437,10 @@ describe("changePassword", () => {
         message: "The new password must not contain the user name",
         rule: "CONTAINS_USER_NAME",
       }),
-    ).resolves.toBe("The new password must not contain the user name");
+    ).resolves.toEqual({
+      kind: "rule",
+      message: "The new password must not contain the user name",
+    });
     // Anything else throws, which `apiFetch` turns into a `failed` with no `detail`.
     await expect(decodeWithCall(0, 3, { status: 400 })).rejects.toThrow(
       "PasswordRuleViolation.message is not a string",
@@ -422,5 +451,24 @@ describe("changePassword", () => {
     await expect(decodeWithCall(0, 3, "too short")).rejects.toThrow(
       "PasswordRuleViolation is not an object",
     );
+  });
+
+  it("reads a 401 body as the password check's refusal only when it says so", async () => {
+    resolveWith({ kind: "ok", data: undefined });
+    await changePassword(current, next);
+    const decoder = apiFetchMock.mock.calls[0]?.[3] as (response: Response) => Promise<unknown>;
+    const answer = (body: unknown) => decoder(Response.json(body, { status: 401 }));
+
+    await expect(answer({ refused: "current-password" })).resolves.toEqual(ANSWERED);
+    // Anything else throws, which `apiFetch` turns into a 401 with no `detail`.
+    await expect(answer({ refused: "something-else" })).rejects.toThrow(
+      "PasswordChangeRefusal.refused is not current-password",
+    );
+    await expect(answer({ message: "The current password is incorrect." })).rejects.toThrow(
+      "PasswordChangeRefusal.refused is not a string",
+    );
+    await expect(
+      decoder(new Response("<html>Unauthorized</html>", { status: 401 })),
+    ).rejects.toThrow(SyntaxError);
   });
 });

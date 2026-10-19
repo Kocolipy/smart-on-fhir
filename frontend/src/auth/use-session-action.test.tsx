@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   bare,
+  CURRENT_PASSWORD_REFUSED,
   deferred,
   fakeBackend,
   json,
@@ -162,7 +163,7 @@ describe("useSessionAction", () => {
       [
         // The session survives the 401, so the check that follows it still answers.
         "a password change with the wrong current password",
-        { [CHANGE]: bare(401) },
+        { [CHANGE]: CURRENT_PASSWORD_REFUSED },
         "changePassword",
         "The current password is incorrect.",
       ],
@@ -183,7 +184,13 @@ describe("useSessionAction", () => {
       [
         // The 401 ended the session too, so the check that follows it is refused.
         "a password change that locked the account",
-        { [CHANGE]: bare(401), [ME]: [json(testUser()), bare(401)] },
+        { [CHANGE]: CURRENT_PASSWORD_REFUSED, [ME]: [json(testUser()), bare(401)] },
+        "changePassword",
+      ],
+      [
+        // Refused before the password check: the session was already gone.
+        "a password change that found the session expired",
+        { [CHANGE]: bare(401) },
         "changePassword",
       ],
     ];
