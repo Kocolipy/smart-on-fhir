@@ -35,6 +35,8 @@ const connector = workerConnector("revocation");
 
 const EXPIRED_NOTICE = "Your session ended. Please sign in again.";
 const REPLACED_PASSWORD = "Directory-Replaced-6t";
+/** The new password a revoked session's change asks for, which is never applied. */
+const UNAPPLIED_PASSWORD = "Never-Applied-Change-4k";
 
 /** A provisioned User, settled on {@link OWN_PASSWORD}; deleted again by `withUser`. */
 async function withUser(label: string, body: (userName: string, id: string) => Promise<void>) {
@@ -68,14 +70,19 @@ async function park(page: Page) {
 }
 
 /**
- * The page's next request, after the session was ended elsewhere: `Back`
- * remounts Home, whose Patient card's read is refused, and the SPA sends the
- * User to sign in with the expired-session notice. A read, so the spec changes
- * nothing another spec reads. Every User holds the baseline `patient:read`, so
- * the remount always reads.
+ * The page's next request, after the session was ended elsewhere: the parked
+ * page's password change is refused for want of a session, and the SPA sends
+ * the User to sign in with the expired-session notice. Home is no use here: with
+ * no patient in context it sends nothing. The refusal comes before the password
+ * check, so nothing is written; a session still standing would change the
+ * password instead, and the sign-ins with `OWN_PASSWORD` after it would fail.
+ * Signing in again returns the User to `/change-password`, where it ended.
  */
 async function expectNextRequestEndsSession(page: Page) {
-  await page.getByRole("link", { name: "Back" }).click();
+  await page.getByLabel("Current password").fill(OWN_PASSWORD);
+  await page.getByLabel("New password", { exact: true }).fill(UNAPPLIED_PASSWORD);
+  await page.getByLabel("Confirm new password").fill(UNAPPLIED_PASSWORD);
+  await page.getByRole("button", { name: "Change password" }).click();
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText(EXPIRED_NOTICE);
   expect((await page.request.get("/api/auth/me")).status()).toBe(401);
@@ -210,7 +217,7 @@ test("a SCIM rename ends the User's session and only the new name signs in", asy
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
       await submitLogin(page, renamed, OWN_PASSWORD);
-      await expect(page).toHaveURL("/");
+      await expect(page).toHaveURL("/change-password");
       await expect(page.getByText(`Signed in as ${renamed}`)).toBeVisible();
     } finally {
       await page.context().close();
@@ -255,7 +262,7 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
       // Signed in again, the User holds only the baseline Permissions: the page sends them
       // away, and the backend refuses the data behind it.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/");
+      await expect(page).toHaveURL("/change-password");
       await page.goto("/accounts");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
@@ -311,7 +318,7 @@ test("removal from a mapped Group over SCIM signs an Account admin's open SPA se
       // Signed in again, the Role is gone: the Accounts page routes away and the
       // backend refuses the listing.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/");
+      await expect(page).toHaveURL("/change-password");
       await page.goto("/accounts");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);

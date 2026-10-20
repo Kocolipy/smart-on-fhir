@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 import { ROUTE_READY } from "./route.helpers";
 
 /**
@@ -71,6 +72,7 @@ test("the login page loads under the CSP without a violation", async ({ browser 
 
 test("every signed-in route loads under the CSP without a violation", async ({ page }) => {
   const violations = await recordViolations(page);
+  const patientRequests = recordPatientRequests(page);
 
   for (const [path, ready] of Object.entries(ROUTE_READY)) {
     // A deep link, so the backend's SPA fallback serves each route's shell too.
@@ -81,6 +83,8 @@ test("every signed-in route loads under the CSP without a violation", async ({ p
   }
 
   expect(await violations()).toEqual([]);
+  // Home's Patient card rendered its empty state: no patient is in context to read.
+  expect(patientRequests()).toEqual([]);
 });
 
 // The detector has to be shown to fire: an inline script, which the policy
@@ -88,7 +92,7 @@ test("every signed-in route loads under the CSP without a violation", async ({ p
 test("an inline script is refused and reported", async ({ page }) => {
   const violations = await recordViolations(page);
   await openUnderPolicy(page, "/");
-  await expect(page.getByText("Tan Wei Ming")).toBeVisible();
+  await expectNoPatientInContext(page);
 
   await page.evaluate(() => {
     const script = document.createElement("script");

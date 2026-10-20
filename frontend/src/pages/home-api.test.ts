@@ -1,7 +1,7 @@
 import type { Patient } from "fhir/r5";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { DEFAULT_PATIENT_ID, PATIENT, type PatientGender } from "./home-api";
+import { PATIENT, type PatientGender } from "./home-api";
 import { TAN_WEI_MING } from "./patient.testHelpers";
 
 describe("PATIENT", () => {
@@ -19,10 +19,6 @@ describe("PATIENT", () => {
 
   it("reads exactly fhir5's administrative gender codes", () => {
     expectTypeOf<PatientGender>().toEqualTypeOf<NonNullable<Patient["gender"]>>();
-  });
-
-  it("names the seeder's default patient by its fixed UUID", () => {
-    expect(DEFAULT_PATIENT_ID).toBe("00000000-0000-4000-8000-00000000c001");
   });
 });
 

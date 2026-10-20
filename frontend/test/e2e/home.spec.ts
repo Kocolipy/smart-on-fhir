@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { cardTitled } from "./card.helpers";
+import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 
 test.describe("Home", () => {
   test("opens Home with the saved session, the Patient card above the Pages card", async ({
@@ -45,25 +46,21 @@ test.describe("Home", () => {
 
   test("offers no control but Sign out", async ({ page }) => {
     await page.goto("/");
-    // Settled: the Patient card's read, Home's only one, has landed.
-    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
+    await expectNoPatientInContext(page);
 
     await expect(page.getByRole("button")).toHaveText(["Sign out"]);
   });
 
-  // The development fixtures seed the default patient (backend
-  // DevPatientFixtures); every active User holds patient:read.
-  test("shows the default patient on Home", async ({ page }) => {
+  // A password login puts no patient in context, though the Superuser holds
+  // patient:read: the Patient card says so and reads nothing.
+  test("shows no patient in context on Home, asking for no patient", async ({ page }) => {
+    const patientRequests = recordPatientRequests(page);
     await page.goto("/");
 
-    const card = cardTitled(page, "Patient");
-    await expect(card.getByRole("definition")).toHaveText([
-      "Tan Wei Ming",
-      "S1234567A",
-      "Male",
-      /^12 Mar 1985 \(\d+ y\)$/,
-    ]);
+    await expectNoPatientInContext(page);
+    await expect(cardTitled(page, "Patient").getByRole("definition")).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(patientRequests()).toEqual([]);
   });
 
   test("sends a signed-in visit to login on to Home", async ({ page }) => {

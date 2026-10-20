@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Patients
-description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the data classification, the error contract, the logging rules, the deliberate absence of read auditing, the default patient, the four development fixtures and their seeding, and how R5 conformance is proven.
+description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the data classification, the error contract, the logging rules, the deliberate absence of read auditing, the Patient card's patient in context, the four development fixtures and their seeding, and how R5 conformance is proven.
 tags: [patient, fhir]
 ---
 
@@ -160,17 +160,16 @@ on, and a 29 February birthday counts from 1 March in a common year. The SPA
 counts it on today's date **in Asia/Singapore**, read from an injectable clock, so
 a test states the day it runs on and the age never depends on the viewer's zone.
 
-## The default patient and its seeding
+## The patient in context and the seeding
 
-**Default patient** — the one Patient Home's **Patient card** shows until a SMART
-launch supplies the patient in context: `Tan Wei Ming` (a Chinese name, family name
-first), under the fixed id `00000000-0000-4000-8000-00000000c001`. The backend's
-`DevPatientFixtures` owns that id; the SPA's `DEFAULT_PATIENT_ID` is a copy.
+Home's **Patient card** shows the patient in context, and only that patient: with
+none in context it shows "No patient in context" and reads nothing. The SPA holds
+no patient id of its own.
 
 Patients are **development fixtures** only. The patient module's own seeder runs at
 startup **only when `APP_DEV_FIXTURES_ENABLED` is set**, so no dummy Patient
-reaches a deployed environment, where the flag is off and the default patient is
-therefore absent. The module binds the flag itself; the directory's seeding knows
+reaches a deployed environment, where the flag is off. Each fixture's fixed id is
+owned by the backend's `DevPatientFixtures`. The module binds the flag itself; the directory's seeding knows
 nothing of Patients, and the patient module nothing of the directory.
 
 - **Idempotent.** Every fixture has a fixed id. A run inserts each fixture not yet
@@ -183,7 +182,7 @@ nothing of Patients, and the patient module nothing of the directory.
   `observability` as well as `auth` (ADR 0014).
 - **Dummy NRICs.** Every fixture's NRIC has the NRIC shape — a prefix letter,
   seven digits and a check letter — but carries a **deliberately wrong check
-  letter**, so it cannot be a real person's: the default patient's `S1234567A`
+  letter**, so it cannot be a real person's: Tan Wei Ming's `S1234567A`
   would be `S1234567D` if it were valid. No two fixtures share an NRIC. The check
   letter is the seven digits weighted 2, 7, 6, 5, 4, 3, 2, plus 4 for a `T` or `G`
   prefix, taken mod 11 to index `J Z I H G F E D C B A` (`S`/`T`) or
@@ -201,7 +200,7 @@ resource has is exercised by real data:
 
 | Id (`00000000-0000-4000-8000-…`) | `name.text` | `family` | `given` | Gender | NRIC (valid letter) | Purpose |
 | --- | --- | --- | --- | --- | --- | --- |
-| `…c001` | `Tan Wei Ming` | `Tan` | `Wei`, `Ming` | `male` | `S1234567A` (`D`) | The default patient: a Chinese name, family name first |
+| `…c001` | `Tan Wei Ming` | `Tan` | `Wei`, `Ming` | `male` | `S1234567A` (`D`) | A Chinese name, family name first |
 | `…c002` | `Siti Nurhaliza binte Ahmad` | — | — | `female` | `S9212345A` (`F`) | A Malay name: `binte Ahmad` is a patronymic, not a family name, so the name is not split at all |
 | `…c003` | `Kumaravel` | — | `Kumaravel` | `unknown` | `T0312345C` (`B`) | An Indian single name: one given name and no family name |
 | `…c004` | `Marcus Anthony de Souza` | `de Souza` | `Marcus`, `Anthony` | `other` | `S7812345B` (`A`) | A Eurasian name: given names first, a family name of two words |

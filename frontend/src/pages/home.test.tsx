@@ -1,18 +1,14 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { holding, json, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
+import { holding, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
 
 import { Home } from "./home";
-import { DEFAULT_PATIENT_READ, TAN_WEI_MING } from "./patient.testHelpers";
 import { renderInLayout, renderSignedIn } from "./signed-in-shell.testHelpers";
 
 /** The page for a session holding exactly `permissions`, inside the signed-in layout. */
-const renderHolding = (permissions: Permission[]) =>
-  renderSignedIn("/", holding(permissions), {
-    [DEFAULT_PATIENT_READ]: json(TAN_WEI_MING),
-  });
+const renderHolding = (permissions: Permission[]) => renderSignedIn("/", holding(permissions), {});
 
 /** Every baseline Permission a User holds. */
 const BASELINE: Permission[] = ["patient:read"];
@@ -87,18 +83,15 @@ describe("Home", () => {
     );
   });
 
-  it("asks for nothing but the patient for a session holding the baseline Permissions", async () => {
+  it("shows no patient in context, and asks for nothing, for a session holding the baseline Permissions", async () => {
     const { requests } = await renderHolding(BASELINE);
-    await screen.findByText("Tan Wei Ming");
 
-    expect(requests()).toEqual([
-      { method: "GET", path: "/api/patient/00000000-0000-4000-8000-00000000c001" },
-    ]);
+    expect(screen.getByText("No patient in context")).toBeInTheDocument();
+    expect(requests()).toEqual([]);
   });
 
   it("offers no control but Sign out", async () => {
     await renderHolding(BASELINE);
-    await screen.findByText("Tan Wei Ming");
 
     expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual([
       "Sign out",
@@ -107,7 +100,6 @@ describe("Home", () => {
 
   it("shows the Patient card above the links card, titled Pages", async () => {
     await renderHolding(BASELINE);
-    await screen.findByText("Tan Wei Ming");
 
     expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
       "Home",

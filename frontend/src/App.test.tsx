@@ -11,7 +11,6 @@ import {
   json,
   type Answers,
 } from "./lib/fake-backend.testHelpers";
-import { DEFAULT_PATIENT_READ, TAN_WEI_MING } from "./pages/patient.testHelpers";
 
 // `App` owns its router and `AuthProvider`, so it renders whole over the
 // backend layer alone: each test states its backend as an answer table keyed by
@@ -101,12 +100,15 @@ describe("App", () => {
     });
   });
 
-  it("returns to login when Home discovers an expired session", async () => {
-    renderApp({
-      // patient:read, so Home's Patient card reads the patient and meets the 401.
-      [ME]: json(testUser({ permissions: ["patient:read"] })),
-      [DEFAULT_PATIENT_READ]: bare(401),
-    });
+  it("returns to login when a page discovers an expired session", async () => {
+    renderApp(
+      {
+        // audit:read, so the audit page reads its listing and meets the 401.
+        [ME]: json(testUser({ permissions: ["audit:read"] })),
+        "GET /api/admin/audit-events*": bare(401),
+      },
+      "/audit",
+    );
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
@@ -141,14 +143,11 @@ describe("App", () => {
     ]);
   });
 
-  it("shows the default patient on Home once signed in", async () => {
-    renderApp({
-      [ME]: json(testUser({ permissions: ["patient:read"] })),
-      [DEFAULT_PATIENT_READ]: json(TAN_WEI_MING),
-    });
+  it("shows Home with no patient in context once signed in, asking for no patient", async () => {
+    const { requests } = renderApp({ [ME]: json(testUser({ permissions: ["patient:read"] })) });
 
-    expect(await screen.findByText("Tan Wei Ming")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/");
+    expect(await screen.findByText("No patient in context")).toBeInTheDocument();
+    expect(requests()).toEqual([{ method: "GET", path: "/api/auth/me" }]);
   });
 
   it("shows invalid credential errors", async () => {

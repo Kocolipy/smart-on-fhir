@@ -13,16 +13,6 @@ import type { ReadDeclaration } from "@/auth/declarations";
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 import { isCalendarDate } from "@/lib/time";
 
-/**
- * The default patient's id, which Home shows until a SMART launch supplies
- * the patient in context.
- *
- * A copy: the backend's development patient seeder
- * (`backend/.../patient/application/DevPatientFixtures.java`) owns the value,
- * and seeds the patient under it only where the development fixtures are on.
- */
-export const DEFAULT_PATIENT_ID = "00000000-0000-4000-8000-00000000c001";
-
 /** Synapxe's NRIC NamingSystem, the `system` of the identifier that holds a patient's NRIC. */
 const NRIC_SYSTEM = "https://fhir.synapxe.sg/NamingSystem/nric";
 

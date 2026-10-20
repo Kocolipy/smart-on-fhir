@@ -1,5 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 
+import { expectNoPatientInContext } from "./patient.helpers";
+
 /**
  * Each signed-in route, and what it shows once its data has loaded, so a spec
  * that walks the routes checks nothing mid-fetch. Shared by
@@ -7,9 +9,7 @@ import { expect, type Page } from "@playwright/test";
  * routes against the dev server and the packaged JAR.
  */
 export const ROUTE_READY: Record<string, (page: Page) => Promise<void>> = {
-  "/": async (page) => {
-    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
-  },
+  "/": expectNoPatientInContext,
   "/accounts": async (page) => {
     await expect(page.getByRole("table", { name: "Users" }).getByRole("row").nth(1)).toBeVisible();
     await expect(page.getByRole("table", { name: "Groups" }).getByRole("row").nth(1)).toBeVisible();

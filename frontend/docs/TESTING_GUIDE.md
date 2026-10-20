@@ -326,8 +326,13 @@ response:
 - **`401` from a session the backend really ended** — sign the same User in
   again elsewhere, or make the SCIM write that revokes its sessions
   (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
-  next request a read, such as the Patient card's when Home remounts, so the
-  spec changes nothing another spec reads.
+  next request one the ended session gets refused, so the spec changes nothing
+  another spec reads. Home sends nothing to fire, since no patient is in
+  context, so `session-revocation.spec.ts` parks the page on
+  `/change-password` and submits a password change: the backend refuses it for
+  want of a session before the password check, so no password moves. Were the
+  session still standing, the change would apply and the spec's later sign-ins
+  with the old password would fail, so the probe cannot pass silently.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
 (keep the session cookie, drop the header rewrite), confirm the test fails, then put it
@@ -442,8 +447,8 @@ All of them sign in as the same User, `testUser(overrides?)` in
 `src/auth/auth-context.testHelpers.ts`: `ada`, unflagged, with a 15-minute idle
 limit. A suite that needs a `UserResponse` body — the login's — answers with
 it too, rather than writing the User out again. Likewise every suite that
-answers Home's patient read takes the default patient and its request key,
-`TAN_WEI_MING` and `DEFAULT_PATIENT_READ`, from
+answers the Patient card's read takes its patient and request key,
+`TAN_WEI_MING` and `TAN_WEI_MING_READ`, from
 `src/pages/patient.testHelpers.ts`. A hook that reports to the page
 status runs inside the real one, `InPageStatus` in
 `src/auth/page-status.testHelpers.tsx`, and the suite reads the line back with
