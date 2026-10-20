@@ -59,11 +59,16 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     private static final String BIRTH_DATE = "1963-07-29";
 
+    /** One character past the FHIR id grammar's 64, and nothing else wrong with it. */
+    private static final String TOO_LONG =
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
     private static final String REQUEST_RECORD = "HTTP request completed";
 
     private final JsonMapper json = JsonMapper.builder().build();
 
-    private final UUID id = UUID.randomUUID();
+    /** This class's own row's FHIR id. */
+    private final String id = "error-contract-" + UUID.randomUUID();
 
     private final List<String> provisioned = new ArrayList<>();
 
@@ -105,21 +110,24 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     // ---- the error contract --------------------------------------------------------------
 
     /**
-     * Markup, and an encoded line break, in place of the id. The line break never reaches the
-     * dispatcher — the request firewall refuses it — and is answered with the same outcome.
+     * One character past FHIR's 64, markup, an encoded line break and an empty segment in place of
+     * the id. The line break and the empty segment never reach the dispatcher — the request
+     * firewall refuses them — and are answered with the same outcome.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"not-a-uuid", "%3Cimg%20src=x%20onerror=alert(1)%3E",
-        "1%0D%0Aforged:%20S1234567A"})
+    @ValueSource(strings = {TOO_LONG, "%3Cimg%20src=x%20onerror=alert(1)%3E",
+        "1%0D%0Aforged:%20S1234567A", "a//b"})
     void aMalformedIdIsAnInvalidOutcome(String id) throws Exception {
         HttpResponse<String> response = send(signedIn(), patient(id).GET());
 
         assertThat(answer(response)).isEqualTo(answer(400, "invalid", "The request is not valid."));
     }
 
-    @Test
-    void anUnknownIdIsANotFoundOutcome() throws Exception {
-        HttpResponse<String> response = send(signedIn(), patient(UUID.randomUUID().toString()).GET());
+    /** A well-formed id no patient is held under: {@code not-a-uuid} is a FHIR id like any other. */
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "eq081-VQEgP8drUUqCWzHfw3-absent"})
+    void anUnknownIdIsANotFoundOutcome(String unknown) throws Exception {
+        HttpResponse<String> response = send(signedIn(), patient(unknown).GET());
 
         assertThat(answer(response))
                 .isEqualTo(answer(404, "not-found", "The resource was not found."));
@@ -127,7 +135,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     @Test
     void aSessionWithoutPatientReadIsAForbiddenOutcome() throws Exception {
-        HttpResponse<String> response = send(confined(), patient(id.toString()).GET());
+        HttpResponse<String> response = send(confined(), patient(id).GET());
 
         assertThat(answer(response))
                 .isEqualTo(answer(403, "forbidden", "The request is not permitted."));
@@ -142,7 +150,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     void aMethodOtherThanAReadIsANotSupportedOutcome(String method) throws Exception {
         HttpClient session = signedIn();
 
-        HttpResponse<String> response = send(session, withCsrf(session, patient(id.toString()))
+        HttpResponse<String> response = send(session, withCsrf(session, patient(id))
                 .method(method, HttpRequest.BodyPublishers.noBody()));
 
         assertThat(answer(response))
@@ -155,7 +163,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
         HttpClient confined = confined();
         logs.reset();
 
-        send(confined, patient(id.toString()).GET());
+        send(confined, patient(id).GET());
         logs.awaitRequestRecords(1);
 
         assertThat(logs.records()).filteredOn(record ->
@@ -174,11 +182,11 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
      * request's only one, and it carries the refusal's classification, the caller's error.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"not-a-uuid", "unknown"})
+    @ValueSource(strings = {TOO_LONG, "unknown"})
     void aRefusedReadsOnlyRecordIsItsRequestRecordClassifiedAsData(String asked)
             throws Exception {
         HttpClient session = signedIn();
-        String path = asked.equals("unknown") ? UUID.randomUUID().toString() : asked;
+        String path = asked.equals("unknown") ? "unknown-" + UUID.randomUUID() : asked;
         logs.reset();
 
         send(session, patient(path).GET());
@@ -206,10 +214,10 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     void noReadPutsThePatientOrTheIdAskedForInTheLog() throws Exception {
         HttpClient session = signedIn();
         String unknown = UUID.randomUUID().toString();
-        String malformed = "probe-" + UUID.randomUUID();
+        String malformed = "probe-" + UUID.randomUUID() + "-" + "x".repeat(64);
         logs.reset();
 
-        assertThat(send(session, patient(id.toString()).GET()).statusCode()).isEqualTo(200);
+        assertThat(send(session, patient(id).GET()).statusCode()).isEqualTo(200);
         assertThat(send(session, patient(malformed).GET()).statusCode()).isEqualTo(400);
         assertThat(send(session, patient(unknown).GET()).statusCode()).isEqualTo(404);
         logs.awaitRequestRecords(3);
@@ -217,7 +225,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
         assertThat(logs.lines())
                 .contains(REQUEST_RECORD)
                 .doesNotContain(NRIC, NAME_TEXT, "Seow Peng", BIRTH_DATE,
-                        id.toString(), unknown, malformed);
+                        id, unknown, malformed);
     }
 
     // ---- harness -------------------------------------------------------------------------

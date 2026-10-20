@@ -1,9 +1,9 @@
 package com.example.backend.patient.application;
 
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientStore;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +18,7 @@ public class PatientReadService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<Patient> find(UUID id) {
+    public Optional<Patient> find(PatientId id) {
         return patients.findById(id);
     }
 }

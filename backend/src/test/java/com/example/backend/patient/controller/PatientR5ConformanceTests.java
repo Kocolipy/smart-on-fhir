@@ -14,10 +14,10 @@ import com.example.backend.patient.application.DevPatientFixtures;
 import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.application.PatientSeedService;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.web.ApiExceptionHandler;
 import com.example.backend.web.ErrorNamespaces;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Stream;
 import org.hl7.fhir.common.hapi.validation.support.CommonCodeSystemsTerminologyService;
 import org.hl7.fhir.common.hapi.validation.support.InMemoryTerminologyServerValidationSupport;
@@ -94,7 +94,19 @@ class PatientR5ConformanceTests {
 
     /** Every fixture's id, as the read endpoint's path takes it. */
     static Stream<String> fixtureIds() {
-        return DevPatientFixtures.ALL.stream().map(Patient::id).map(UUID::toString);
+        return DevPatientFixtures.ALL.stream().map(Patient::id).map(PatientId::value);
+    }
+
+    /**
+     * Tan Wei Ming is read by his EHR's FHIR id — the Epic sandbox id he borrows — and the resource
+     * carries that id as its own.
+     */
+    @Test
+    void tanWeiMingIsReadByHisEpicSandboxId() throws Exception {
+        MockHttpServletResponse response = read("eq081-VQEgP8drUUqCWzHfw3");
+
+        assertThat(json.readTree(response.getContentAsString()).get("id").asString())
+                .isEqualTo("eq081-VQEgP8drUUqCWzHfw3");
     }
 
     @ParameterizedTest
@@ -111,7 +123,7 @@ class PatientR5ConformanceTests {
 
     @Test
     void theNotFoundAnswerIsAValidBaseR5OperationOutcome() throws Exception {
-        MockHttpServletResponse response = read(UUID.randomUUID().toString());
+        MockHttpServletResponse response = read("not-a-uuid");
 
         assertThat(response.getStatus()).isEqualTo(404);
         assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
@@ -119,7 +131,7 @@ class PatientR5ConformanceTests {
 
     @Test
     void theInvalidIdAnswerIsAValidBaseR5OperationOutcome() throws Exception {
-        MockHttpServletResponse response = read("not-a-uuid");
+        MockHttpServletResponse response = read("x".repeat(65));
 
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
@@ -141,10 +153,10 @@ class PatientR5ConformanceTests {
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', textBlock = """
-        00000000-0000-4000-8000-00000000c001 | {"use":"official","text":"Tan Wei Ming","family":"Tan","given":["Wei","Ming"]}
-        00000000-0000-4000-8000-00000000c002 | {"use":"official","text":"Siti Nurhaliza binte Ahmad"}
-        00000000-0000-4000-8000-00000000c003 | {"use":"official","text":"Kumaravel","given":["Kumaravel"]}
-        00000000-0000-4000-8000-00000000c004 | {"use":"official","text":"Marcus Anthony de Souza","family":"de Souza","given":["Marcus","Anthony"]}
+        eq081-VQEgP8drUUqCWzHfw3 | {"use":"official","text":"Tan Wei Ming","family":"Tan","given":["Wei","Ming"]}
+        erXuFYUfucBZaryVksYEcMg3 | {"use":"official","text":"Siti Nurhaliza binte Ahmad"}
+        e0w0LEDCYtfckT6N.CkJKCw3 | {"use":"official","text":"Kumaravel","given":["Kumaravel"]}
+        egqBHVfQlt4Bw3XGXoxVxHg3 | {"use":"official","text":"Marcus Anthony de Souza","family":"de Souza","given":["Marcus","Anthony"]}
         """)
     void everyFixturesNameIsServedWithOnlyThePartsItHolds(String id, String name) throws Exception {
         JsonNode body = json.readTree(read(id).getContentAsString());

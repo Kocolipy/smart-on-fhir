@@ -11,6 +11,7 @@ import com.example.backend.patient.application.PatientSeedService;
 import com.example.backend.patient.application.PatientSeedService.SeedCounts;
 import com.example.backend.patient.domain.AdministrativeGender;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientName;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -57,19 +58,25 @@ class PatientStorageIntegrationTests {
     @Autowired
     private DatabaseLogins logins;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final List<String> created = new ArrayList<>();
 
     @AfterEach
     void removeWhatThisTestCreated() {
-        for (UUID id : created) {
+        for (String id : created) {
             logins.owner().jdbc().update("DELETE FROM patients WHERE id = ?", id);
         }
     }
 
-    private UUID freshId() {
-        UUID id = UUID.randomUUID();
+    /** A row id no other row holds, for a raw insert: a UUID's text is a valid FHIR id. */
+    private String freshRowId() {
+        String id = UUID.randomUUID().toString();
         created.add(id);
         return id;
+    }
+
+    /** A Patient's id no other row holds. */
+    private PatientId freshId() {
+        return new PatientId(freshRowId());
     }
 
     private static String freshNric() {
@@ -98,14 +105,14 @@ class PatientStorageIntegrationTests {
 
         assertThat(reads.find(suriani.id())).contains(suriani);
         assertThat(jdbc.queryForList(
-                "SELECT name_family, name_given FROM patients WHERE id = ?", suriani.id()))
+                "SELECT name_family, name_given FROM patients WHERE id = ?", suriani.id().value()))
                 .singleElement()
                 .satisfies(row -> assertThat(row.values()).containsOnlyNulls());
     }
 
     @Test
     void anIdNoPatientIsHeldUnderReadsAsAbsent() {
-        assertThat(reads.find(UUID.randomUUID())).isEmpty();
+        assertThat(reads.find(new PatientId("no-such-patient-" + UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -119,7 +126,7 @@ class PatientStorageIntegrationTests {
         assertThat(once).isEqualTo(new SeedCounts(2, 0));
         assertThat(twice).isEqualTo(new SeedCounts(0, 2));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM patients WHERE id IN (?, ?)",
-                Integer.class, first.id(), second.id())).isEqualTo(2);
+                Integer.class, first.id().value(), second.id().value())).isEqualTo(2);
     }
 
     /**
@@ -152,11 +159,11 @@ class PatientStorageIntegrationTests {
 
         seeding.seedDevFixtures(fixtures);
 
-        Map<UUID, String> storedGiven = new HashMap<>();
-        Map<UUID, String> expected = new HashMap<>();
+        Map<PatientId, String> storedGiven = new HashMap<>();
+        Map<PatientId, String> expected = new HashMap<>();
         for (Patient fixture : fixtures) {
             storedGiven.put(fixture.id(), jdbc.queryForObject(
-                    "SELECT name_given FROM patients WHERE id = ?", String.class, fixture.id()));
+                    "SELECT name_given FROM patients WHERE id = ?", String.class, fixture.id().value()));
             List<String> given = fixture.name().given();
             expected.put(fixture.id(), given.isEmpty() ? null : String.join(" ", given));
         }
@@ -166,10 +173,10 @@ class PatientStorageIntegrationTests {
     @Test
     void theSchemaRefusesASecondPatientWithTheSameNric() {
         String nric = freshNric();
-        jdbc.update(INSERT, freshId(), nric, "One", null, null, "male", "1980-01-01");
+        jdbc.update(INSERT, freshRowId(), nric, "One", null, null, "male", "1980-01-01");
 
         assertThatThrownBy(() ->
-                jdbc.update(INSERT, freshId(), nric, "Two", null, null, "male", "1980-01-01"))
+                jdbc.update(INSERT, freshRowId(), nric, "Two", null, null, "male", "1980-01-01"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uq_patients_nric");
     }
@@ -177,7 +184,7 @@ class PatientStorageIntegrationTests {
     @Test
     void theSchemaRefusesAPatientWithNoNameText() {
         assertThatThrownBy(() ->
-                jdbc.update(INSERT, freshId(), freshNric(), null, "Tan", "Wei", "male", "1980-01-01"))
+                jdbc.update(INSERT, freshRowId(), freshNric(), null, "Tan", "Wei", "male", "1980-01-01"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("name_text");
     }
@@ -185,7 +192,7 @@ class PatientStorageIntegrationTests {
     @Test
     void theSchemaRefusesAPatientWithNoGender() {
         assertThatThrownBy(() ->
-                jdbc.update(INSERT, freshId(), freshNric(), "No Gender", null, null, null, "1980-01-01"))
+                jdbc.update(INSERT, freshRowId(), freshNric(), "No Gender", null, null, null, "1980-01-01"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("gender");
     }
@@ -193,7 +200,7 @@ class PatientStorageIntegrationTests {
     @Test
     void theSchemaRefusesAPatientWithNoBirthDate() {
         assertThatThrownBy(() ->
-                jdbc.update(INSERT, freshId(), freshNric(), "No Birth Date", null, null, "male", null))
+                jdbc.update(INSERT, freshRowId(), freshNric(), "No Birth Date", null, null, "male", null))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("birth_date");
     }
@@ -201,7 +208,7 @@ class PatientStorageIntegrationTests {
     @Test
     void theSchemaRefusesAGenderOutsideTheFourCodes() {
         assertThatThrownBy(() ->
-                jdbc.update(INSERT, freshId(), freshNric(), "Upper Case", null, null, "Male", "1980-01-01"))
+                jdbc.update(INSERT, freshRowId(), freshNric(), "Upper Case", null, null, "Male", "1980-01-01"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_patients_gender");
     }
@@ -212,7 +219,7 @@ class PatientStorageIntegrationTests {
         seeding.seedDevFixtures(List.of(stored));
 
         assertThatThrownBy(() -> jdbc.update(
-                "UPDATE patients SET name_text = 'Changed' WHERE id = ?", stored.id()))
+                "UPDATE patients SET name_text = 'Changed' WHERE id = ?", stored.id().value()))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("UPDATE permission was denied");
     }
@@ -222,7 +229,7 @@ class PatientStorageIntegrationTests {
         Patient stored = patient(new PatientName("Irremovable", null, List.of()));
         seeding.seedDevFixtures(List.of(stored));
 
-        assertThatThrownBy(() -> jdbc.update("DELETE FROM patients WHERE id = ?", stored.id()))
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM patients WHERE id = ?", stored.id().value()))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("DELETE permission was denied");
     }

@@ -57,7 +57,7 @@ class PatientSeedConfigTests {
                 context.getBean(ApplicationRunner.class).run(new DefaultApplicationArguments()));
 
         assertThat(patients.all()).containsExactly(
-                DevPatientFixtures.DEFAULT_PATIENT,
+                DevPatientFixtures.CHINESE_PATIENT,
                 DevPatientFixtures.MALAY_PATIENT,
                 DevPatientFixtures.SINGLE_NAME_PATIENT,
                 DevPatientFixtures.EURASIAN_PATIENT);
@@ -89,7 +89,8 @@ class PatientSeedConfigTests {
                         "S9212345A", "Siti", "Nurhaliza", "binte", "1992", "female",
                         "T0312345C", "Kumaravel", "2003", "unknown",
                         "S7812345B", "Marcus", "Souza", "1978", "other",
-                        "00000000-0000-4000-8000-00000000c00");
+                        "eq081-VQEgP8drUUqCWzHfw3", "erXuFYUfucBZaryVksYEcMg3",
+                        "e0w0LEDCYtfckT6N.CkJKCw3", "egqBHVfQlt4Bw3XGXoxVxHg3");
             }
         }
     }

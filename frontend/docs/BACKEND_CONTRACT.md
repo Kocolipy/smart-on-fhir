@@ -84,7 +84,11 @@ change, when the backend side moves. What the SPA has to honour:
   `absentOnNotFound`, so that `404` is the Patient card's "No patient in
   context" and reports nothing to the page status; every other failure — a
   `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx` — is the
-  card's failed state, "Couldn't load patient".
+  card's failed state, "Couldn't load patient". The `{id}` is the patient's
+  EHR's FHIR id: an id outside FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}`
+  (over 64 characters, markup, a line break, an empty segment), is the `400`;
+  a well-formed id no patient is held under is the `404`. The SPA sends the
+  in-context patient's id through `encodeURIComponent`.
 - **A request body is JSON, and says so.** The backend reads a request body
   through its JSON converter only, so a body sent without
   `Content-Type: application/json` is refused `415` before any handler runs.

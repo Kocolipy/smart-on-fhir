@@ -2,7 +2,6 @@ package com.example.backend.patient.domain;
 
 import java.time.LocalDate;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * A Patient: the person care is about, as the service holds them (/docs/domain/patient.md).
@@ -15,14 +14,14 @@ import java.util.UUID;
  * record's generated one prints every field, and would put the NRIC, the name and the date of
  * birth into any record, message or exception that happened to print a Patient.
  *
- * @param id        the patient's stable id, also its FHIR resource id
+ * @param id        the patient's id: its EHR's FHIR id, and its FHIR resource id here
  * @param nric      the NRIC, its one identifier; dummy values only today, their shape unchecked
  * @param name      the official name
  * @param gender    the administrative gender
  * @param birthDate the date of birth
  */
 public record Patient(
-        UUID id, String nric, PatientName name, AdministrativeGender gender, LocalDate birthDate) {
+        PatientId id, String nric, PatientName name, AdministrativeGender gender, LocalDate birthDate) {
 
     public Patient {
         Objects.requireNonNull(id, "id");

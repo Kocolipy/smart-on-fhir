@@ -22,7 +22,7 @@ these:
 ```json
 {
   "resourceType": "Patient",
-  "id": "<uuid>",
+  "id": "eq081-VQEgP8drUUqCWzHfw3",
   "identifier": [
     {
       "system": "https://fhir.synapxe.sg/NamingSystem/nric",
@@ -42,7 +42,13 @@ these:
 }
 ```
 
-- **`id`** — the Patient's UUID, its stable id in the table and its FHIR resource id.
+- **`id`** — the Patient's **EHR's FHIR id**, its stable id in the table and its
+  FHIR resource id here, so the patient an EHR launch names is read by that id
+  directly. The service assigns no id of its own. Any value in FHIR's id grammar,
+  `[A-Za-z0-9\-.]{1,64}` (letters, digits, `-` and `.`, 1 to 64 of them), is
+  well-formed; anything else is refused `400` before any read. The grammar lives
+  in the domain's `PatientId`, which the read binds its path segment through, and
+  the table holds the id as `VARCHAR(64)`.
 - **`identifier`** — exactly one, the NRIC, under Synapxe's NRIC NamingSystem,
   `https://fhir.synapxe.sg/NamingSystem/nric`. Unique across Patients. Its shape is
   not checked.
@@ -76,17 +82,21 @@ fixed sentence per code:
 
 | Case                               | Status | `code`          | `diagnostics`                       |
 | ---------------------------------- | ------ | --------------- | ----------------------------------- |
-| Malformed (non-UUID) id            | `400`  | `invalid`       | The request is not valid.           |
+| Id outside the FHIR id grammar     | `400`  | `invalid`       | The request is not valid.           |
 | No session                         | `401`  | `login`         | A signed-in session is required.    |
 | Session lacks `patient:read`       | `403`  | `forbidden`     | The request is not permitted.       |
-| Unknown UUID                       | `404`  | `not-found`     | The resource was not found.         |
+| Well-formed id, no patient held    | `404`  | `not-found`     | The resource was not found.         |
 | `POST`, `PUT`, `PATCH` or `DELETE` | `405`  | `not-supported` | The request is not supported.       |
 | Unexpected failure                 | `5xx`  | `exception`     | The request could not be completed. |
 
 An outcome never contains an exception message, SQL, a stack trace or the
-submitted id — markup or a line break in the id included. The SPA reads the `404`
-as "No patient in context", an ordinary answer rather than a failure; every other
-error is the Patient card's failed state.
+submitted id — markup or a line break in the id included. Malformed covers an id
+over 64 characters, markup, a line break and an empty segment (`a//b`); the last
+two never reach the dispatcher, since the request firewall refuses them, and are
+answered with the same outcome. A well-formed id that names no patient —
+`not-a-uuid` is one — is the `404`. The SPA reads the `404` as "No patient in
+context", an ordinary answer rather than a failure; every other error is the
+Patient card's failed state.
 
 Every layer answers in this one shape, and the backend's `web` module owns it
 (`FhirOperationOutcome`), so the `patient` module keeps its two edges (ADR 0014):
@@ -123,7 +133,7 @@ adapter every namespace shares. A new FHIR resource served beneath
 
 ## Logging
 
-- **A patient is identified in a log only by its UUID.** The NRIC, the name and
+- **A patient is identified in a log only by its id.** The NRIC, the name and
   the `birthDate` are never logged, and neither is the resource or its JSON.
 - **`Patient.toString()` prints the id alone.** A Java record's generated
   `toString` prints every field, so a Patient printed into a message or an
@@ -196,14 +206,24 @@ nothing of Patients, and the patient module nothing of the directory.
 Four dummy Patients, `DevPatientFixtures.ALL`, seeded in this order. Between them
 they cover Singapore's name styles, every way a name splits — family and given,
 given only, neither — and all four gender codes, so each rendering path the
-resource has is exercised by real data:
+resource has is exercised by real data.
 
-| Id (`00000000-0000-4000-8000-…`) | `name.text` | `family` | `given` | Gender | NRIC (valid letter) | Purpose |
-| --- | --- | --- | --- | --- | --- | --- |
-| `…c001` | `Tan Wei Ming` | `Tan` | `Wei`, `Ming` | `male` | `S1234567A` (`D`) | A Chinese name, family name first |
-| `…c002` | `Siti Nurhaliza binte Ahmad` | — | — | `female` | `S9212345A` (`F`) | A Malay name: `binte Ahmad` is a patronymic, not a family name, so the name is not split at all |
-| `…c003` | `Kumaravel` | — | `Kumaravel` | `unknown` | `T0312345C` (`B`) | An Indian single name: one given name and no family name |
-| `…c004` | `Marcus Anthony de Souza` | `de Souza` | `Marcus`, `Anthony` | `other` | `S7812345B` (`A`) | A Eurasian name: given names first, a family name of two words |
+A Patient's id is its EHR's FHIR id, so each fixture borrows the id of one of
+Epic's public sandbox test patients (fhir.epic.com, "Sandbox Test Data"), named
+in the table. Only the id is borrowed: the name, NRIC, gender and birth date are
+the fixture's own. The fixtures were first seeded under UUIDs
+(`00000000-0000-4000-8000-00000000c001` to `…c004`, in this order); migration V4
+turned the id column into `VARCHAR(64)` and rewrote those four rows to the ids
+below, so a local database seeded before it upgrades in place and the seeder finds
+every fixture present. Deployed environments run without the fixtures, so the
+rewrite matches nothing there.
+
+| Id (Epic sandbox patient it borrows from)    | `name.text`                  | `family`   | `given`             | Gender    | NRIC (valid letter) | Purpose                                                                                         |
+| -------------------------------------------- | ---------------------------- | ---------- | ------------------- | --------- | ------------------- | ----------------------------------------------------------------------------------------------- |
+| `eq081-VQEgP8drUUqCWzHfw3` (Derrick Lin)     | `Tan Wei Ming`               | `Tan`      | `Wei`, `Ming`       | `male`    | `S1234567A` (`D`)   | A Chinese name, family name first                                                               |
+| `erXuFYUfucBZaryVksYEcMg3` (Camila Lopez)    | `Siti Nurhaliza binte Ahmad` | —          | —                   | `female`  | `S9212345A` (`F`)   | A Malay name: `binte Ahmad` is a patronymic, not a family name, so the name is not split at all |
+| `e0w0LEDCYtfckT6N.CkJKCw3` (Warren McGinnis) | `Kumaravel`                  | —          | `Kumaravel`         | `unknown` | `T0312345C` (`B`)   | An Indian single name: one given name and no family name                                        |
+| `egqBHVfQlt4Bw3XGXoxVxHg3` (Elijah Davis)    | `Marcus Anthony de Souza`    | `de Souza` | `Marcus`, `Anthony` | `other`   | `S7812345B` (`A`)   | A Eurasian name: given names first, a family name of two words                                  |
 
 The given names are held as one string and split on spaces into `given[]` — a
 known shortcut, fine for dummy data, and the reason a fixture's given name never

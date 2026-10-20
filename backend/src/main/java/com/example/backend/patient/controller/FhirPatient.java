@@ -12,7 +12,7 @@ import java.util.List;
  * FHIR library is on the runtime classpath.
  *
  * @param resourceType always {@code Patient}
- * @param id           the patient's UUID
+ * @param id           the patient's id, its EHR's FHIR id
  * @param identifier   exactly one: the NRIC, under Synapxe's NRIC NamingSystem
  * @param name         exactly one: the official name
  * @param gender       the administrative gender code
@@ -33,7 +33,7 @@ public record FhirPatient(
     public static FhirPatient of(Patient patient) {
         return new FhirPatient(
                 "Patient",
-                patient.id().toString(),
+                patient.id().value(),
                 List.of(new Identifier(NRIC_SYSTEM, patient.nric())),
                 List.of(HumanName.official(patient.name())),
                 patient.gender().code(),
