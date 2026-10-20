@@ -1,13 +1,13 @@
 package com.example.backend.patient;
 
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientStore;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * A {@link PatientStore} in memory, for the tests above the persistence adapter. It refuses what
@@ -16,7 +16,7 @@ import java.util.UUID;
  */
 public final class InMemoryPatientStore implements PatientStore {
 
-    private final Map<UUID, Patient> patients = new LinkedHashMap<>();
+    private final Map<PatientId, Patient> patients = new LinkedHashMap<>();
 
     /** Stores {@code patient} as a test's given state. */
     public Patient given(Patient patient) {
@@ -30,12 +30,12 @@ public final class InMemoryPatientStore implements PatientStore {
     }
 
     @Override
-    public Optional<Patient> findById(UUID id) {
+    public Optional<Patient> findById(PatientId id) {
         return Optional.ofNullable(patients.get(id));
     }
 
     @Override
-    public boolean existsById(UUID id) {
+    public boolean existsById(PatientId id) {
         return patients.containsKey(id);
     }
 

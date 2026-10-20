@@ -4,33 +4,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.patient.domain.AdministrativeGender;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientName;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 /**
- * The development patient fixtures: four dummy patients under fixed ids, covering Singapore's name
- * styles and every gender code, each with an NRIC that cannot be a real person's.
+ * The development patient fixtures: four dummy patients under fixed ids borrowed from Epic's
+ * public sandbox test patients, covering Singapore's name styles and every gender code, each with
+ * an NRIC that cannot be a real person's.
  */
 class DevPatientFixturesTests {
 
     @Test
-    void theFixturesAreFourPatientsUnderFixedIdsInSeedingOrder() {
+    void theFixturesAreFourPatientsUnderEpicSandboxIdsInSeedingOrder() {
         assertThat(DevPatientFixtures.ALL).extracting(Patient::id).containsExactly(
-                UUID.fromString("00000000-0000-4000-8000-00000000c001"),
-                UUID.fromString("00000000-0000-4000-8000-00000000c002"),
-                UUID.fromString("00000000-0000-4000-8000-00000000c003"),
-                UUID.fromString("00000000-0000-4000-8000-00000000c004"));
+                new PatientId("eq081-VQEgP8drUUqCWzHfw3"),
+                new PatientId("erXuFYUfucBZaryVksYEcMg3"),
+                new PatientId("e0w0LEDCYtfckT6N.CkJKCw3"),
+                new PatientId("egqBHVfQlt4Bw3XGXoxVxHg3"));
     }
 
     @Test
-    void theDefaultPatientIsTanWeiMingFamilyNameFirst() {
-        assertThat(DevPatientFixtures.DEFAULT_PATIENT).isEqualTo(new Patient(
-                UUID.fromString("00000000-0000-4000-8000-00000000c001"),
+    void theChinesePatientIsTanWeiMingFamilyNameFirst() {
+        assertThat(DevPatientFixtures.CHINESE_PATIENT).isEqualTo(new Patient(
+                new PatientId("eq081-VQEgP8drUUqCWzHfw3"),
                 "S1234567A",
                 new PatientName("Tan Wei Ming", "Tan", List.of("Wei", "Ming")),
                 AdministrativeGender.MALE,
@@ -40,7 +41,7 @@ class DevPatientFixturesTests {
     @Test
     void theMalayFixtureIsABinteNameLeftUnsplit() {
         assertThat(DevPatientFixtures.MALAY_PATIENT).isEqualTo(new Patient(
-                UUID.fromString("00000000-0000-4000-8000-00000000c002"),
+                new PatientId("erXuFYUfucBZaryVksYEcMg3"),
                 "S9212345A",
                 new PatientName("Siti Nurhaliza binte Ahmad", null, List.of()),
                 AdministrativeGender.FEMALE,
@@ -50,7 +51,7 @@ class DevPatientFixturesTests {
     @Test
     void theIndianFixtureIsASingleGivenNameWithNoFamilyName() {
         assertThat(DevPatientFixtures.SINGLE_NAME_PATIENT).isEqualTo(new Patient(
-                UUID.fromString("00000000-0000-4000-8000-00000000c003"),
+                new PatientId("e0w0LEDCYtfckT6N.CkJKCw3"),
                 "T0312345C",
                 new PatientName("Kumaravel", null, List.of("Kumaravel")),
                 AdministrativeGender.UNKNOWN,
@@ -60,7 +61,7 @@ class DevPatientFixturesTests {
     @Test
     void theEurasianFixtureIsGivenNamesFirstAndAMultiWordFamilyName() {
         assertThat(DevPatientFixtures.EURASIAN_PATIENT).isEqualTo(new Patient(
-                UUID.fromString("00000000-0000-4000-8000-00000000c004"),
+                new PatientId("egqBHVfQlt4Bw3XGXoxVxHg3"),
                 "S7812345B",
                 new PatientName("Marcus Anthony de Souza", "de Souza", List.of("Marcus", "Anthony")),
                 AdministrativeGender.OTHER,

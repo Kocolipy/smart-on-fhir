@@ -98,7 +98,11 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
   the development fixtures' seeder does, so a deployed environment (fixtures off)
   has no Patients and Home shows "No patient in context".
 - An EHR-backed `PatientStore` adapter is the next step for real data. It owns the
-  R4 → R5 mapping and decides how a Patient's id relates to the EHR's.
+  R4 → R5 mapping. A Patient's id is the EHR's FHIR id (#151): the service assigns
+  no id of its own, so the patient a SMART launch names is read by the id the EHR
+  gave it, and the table adapter holds the same id (`VARCHAR(64)`, FHIR's id
+  grammar `[A-Za-z0-9\-.]{1,64}`). The development fixtures borrow the ids of
+  Epic's public sandbox test patients (`/docs/domain/patient.md`).
 - If served elements grow to ones that differ between R4 and R5, the mapping in
   that adapter grows with them; the wire stays R5.
 - Adopting a FHIR library later, for many more resource types, is open: it would

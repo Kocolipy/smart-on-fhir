@@ -133,6 +133,7 @@ FAST_GATE=(
   com/example/backend/patient/config/PatientSeedConfigTests
   com/example/backend/patient/controller/PatientControllerTests
   com/example/backend/patient/controller/PatientR5ConformanceTests
+  com/example/backend/patient/domain/PatientIdTests
   com/example/backend/patient/domain/PatientTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests

@@ -716,10 +716,12 @@ paths:
         - name: id
           in: path
           required: true
-          description: The patient's id, a UUID, which is also its FHIR resource id.
+          description: |
+            The patient's id: its EHR's FHIR id, which is also its FHIR resource
+            id here. Any value in FHIR's id grammar is well-formed.
           schema:
             type: string
-            format: uuid
+            pattern: "^[A-Za-z0-9\\-.]{1,64}$"
       responses:
         "200":
           description: The patient.
@@ -729,10 +731,11 @@ paths:
                 $ref: "#/components/schemas/FhirPatient"
         "400":
           description: |
-            `id` is not a UUID — markup, an encoded line break, anything else:
-            `code: invalid`, `diagnostics` "The request is not valid.". A line
-            break is refused by the request firewall before the dispatcher, in the
-            same outcome.
+            `id` is outside FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}` — over 64
+            characters, markup, an encoded line break, an empty segment, anything
+            else: `code: invalid`, `diagnostics` "The request is not valid.". A
+            line break or an empty segment is refused by the request firewall
+            before the dispatcher, in the same outcome.
           content:
             application/fhir+json:
               schema:
@@ -759,9 +762,9 @@ paths:
                 $ref: "#/components/schemas/FhirOperationOutcome"
         "404":
           description: |
-            No patient is held under `id`: `code: not-found`, `diagnostics` "The
-            resource was not found.". An ordinary answer, not a fault — the SPA
-            shows it as "No patient in context".
+            `id` is well-formed but no patient is held under it: `code:
+            not-found`, `diagnostics` "The resource was not found.". An ordinary
+            answer, not a fault — the SPA shows it as "No patient in context".
           content:
             application/fhir+json:
               schema:
@@ -3582,7 +3585,8 @@ components:
           enum: [Patient]
         id:
           type: string
-          format: uuid
+          description: The patient's EHR's FHIR id.
+          pattern: "^[A-Za-z0-9\\-.]{1,64}$"
         identifier:
           type: array
           minItems: 1

@@ -673,7 +673,7 @@ that do not exist yet. Neither alone is the property.
   - Names matched anywhere in the argument: password, token (which covers
     `id_token`, `access_token` and `refresh_token`), hash, and similar — and a
     Patient's `nric` (but not the tail of `enrich`), a patient being logged by its
-    UUID alone (`docs/domain/patient.md`).
+    id alone (`docs/domain/patient.md`).
   - D22's other names (`code`, `authorizationCode`, `state`, `nonce`, `launch`, the
     verifier, the assertion, `privateKey`, `pem`, `clientKey`, `clientNextKey`, and
     the two key variables), matched as a whole identifier only. Otherwise

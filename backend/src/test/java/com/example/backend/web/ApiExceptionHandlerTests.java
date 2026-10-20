@@ -87,7 +87,8 @@ class ApiExceptionHandlerTests {
         resolver.afterPropertiesSet();
         HandlerMethod handled = new HandlerMethod(
                 new PatientController(null),
-                PatientController.class.getMethod("read", java.util.UUID.class));
+                PatientController.class.getMethod("read",
+                        com.example.backend.patient.domain.PatientId.class));
         MockHttpServletResponse response = new MockHttpServletResponse();
         AccessDeniedException refused = new AuthorizationDeniedException("Access Denied");
 

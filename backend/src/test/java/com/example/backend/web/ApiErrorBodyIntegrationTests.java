@@ -168,7 +168,7 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
 
     @Test
     void the_fhir_namespace_keeps_its_operation_outcome() throws Exception {
-        HttpResponse<String> response = send(user(), request("/api/patient/not-a-uuid").GET());
+        HttpResponse<String> response = send(user(), request("/api/patient/%3Cimg%3E").GET());
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(contentType(response)).isEqualTo(FHIR_JSON_R5);

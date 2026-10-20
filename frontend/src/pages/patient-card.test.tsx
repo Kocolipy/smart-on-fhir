@@ -83,9 +83,7 @@ describe("PatientCard with a patient in context", () => {
     const { requests } = await renderCard(json(TAN_WEI_MING));
 
     await screen.findByText("Tan Wei Ming");
-    expect(requests()).toEqual([
-      { method: "GET", path: "/api/patient/00000000-0000-4000-8000-00000000c001" },
-    ]);
+    expect(requests()).toEqual([{ method: "GET", path: "/api/patient/eq081-VQEgP8drUUqCWzHfw3" }]);
   });
 
   it("is headed Patient", async () => {

@@ -8,6 +8,7 @@ import com.example.backend.patient.InMemoryPatientStore;
 import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.domain.AdministrativeGender;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientName;
 import com.example.backend.patient.domain.PatientStore;
 import com.example.backend.web.ApiExceptionHandler;
@@ -16,7 +17,6 @@ import com.example.backend.web.FhirOperationOutcome;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -40,7 +40,9 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class PatientControllerTests {
 
-    private static final UUID TAN_ID = UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11");
+    /** An EHR's FHIR id, in the shape Epic's take: letters, digits, a hyphen and a dot. */
+    private static final PatientId TAN_ID =
+            new PatientId("Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoB");
 
     private static final Patient TAN_WEI_MING = new Patient(
             TAN_ID,
@@ -54,13 +56,13 @@ class PatientControllerTests {
     /** A store whose every read fails, with a message quoting what a driver's would. */
     private static final PatientStore FAILING = new PatientStore() {
         @Override
-        public Optional<Patient> findById(UUID id) {
+        public Optional<Patient> findById(PatientId id) {
             throw new IllegalStateException(
                     "SELECT nric FROM patients WHERE id = '" + id + "' -- S1234567A");
         }
 
         @Override
-        public boolean existsById(UUID id) {
+        public boolean existsById(PatientId id) {
             throw new UnsupportedOperationException();
         }
 
@@ -88,8 +90,8 @@ class PatientControllerTests {
                 .build();
     }
 
-    private MockHttpServletResponse read(UUID id) throws Exception {
-        return read(id.toString());
+    private MockHttpServletResponse read(PatientId id) throws Exception {
+        return read(id.value());
     }
 
     private MockHttpServletResponse read(String id) throws Exception {
@@ -122,7 +124,7 @@ class PatientControllerTests {
         assertThat(body(response)).isEqualTo(json.readTree("""
                 {
                   "resourceType": "Patient",
-                  "id": "0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11",
+                  "id": "Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoB",
                   "identifier": [
                     {"system": "https://fhir.synapxe.sg/NamingSystem/nric", "value": "S1234567A"}
                   ],
@@ -160,11 +162,17 @@ class PatientControllerTests {
         assertThat(body(read(TAN_ID)).get("gender").asString()).isEqualTo(code);
     }
 
-    @Test
-    void anUnknownIdIsANotFoundOutcome() throws Exception {
+    /**
+     * A well-formed id no patient is held under — a UUID among them, and {@code not-a-uuid}, which
+     * is a FHIR id like any other.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11",
+        "Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoC"})
+    void anUnknownIdIsANotFoundOutcome(String unknown) throws Exception {
         patients.given(TAN_WEI_MING);
 
-        MockHttpServletResponse response = read(UUID.randomUUID());
+        MockHttpServletResponse response = read(unknown);
 
         assertThat(response.getStatus()).isEqualTo(404);
         assertThat(body(response)).isEqualTo(outcome("not-found", "The resource was not found."));
@@ -172,15 +180,18 @@ class PatientControllerTests {
 
     @Test
     void anUnknownIdIsAnsweredAsFhirJsonOfVersionFive() throws Exception {
-        assertThat(read(UUID.randomUUID()).getContentType()).isEqualTo(FHIR_JSON_R5);
+        assertThat(read("not-a-uuid").getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     /**
-     * Whatever the id carries — a line break that would forge a log line, markup that would run
-     * in a page — the answer is the one fixed outcome, which quotes nothing of it.
+     * Whatever the id carries — one character past FHIR's 64, a line break that would forge a log
+     * line, markup that would run in a page, a space or an underscore — the answer is the one fixed
+     * outcome, which quotes nothing of it.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"not-a-uuid", "<img src=x onerror=alert(1)>", "1\r\nforged: S1234567A"})
+    @ValueSource(strings = {
+        "eq081-VQEgP8drUUqCWzHfw3eq081-VQEgP8drUUqCWzHfw3eq081-VQEgP8drUUq",
+        "<img src=x onerror=alert(1)>", "1\r\nforged: S1234567A", "Tan Wei Ming", "Tan_Wei_Ming"})
     void aMalformedIdIsAnInvalidOutcomeThatQuotesNothingOfIt(String id) throws Exception {
         MockHttpServletResponse response = read(id);
 
@@ -190,7 +201,7 @@ class PatientControllerTests {
 
     @Test
     void aMalformedIdIsAnsweredAsFhirJsonOfVersionFive() throws Exception {
-        assertThat(read("not-a-uuid").getContentType()).isEqualTo(FHIR_JSON_R5);
+        assertThat(read("<img>").getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     @Test

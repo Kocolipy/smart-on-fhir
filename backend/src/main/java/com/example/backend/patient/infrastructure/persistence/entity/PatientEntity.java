@@ -5,7 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
-import java.util.UUID;
 
 /**
  * JPA representation of a row of {@code patients}. Kept separate from the domain type so that
@@ -16,9 +15,10 @@ import java.util.UUID;
 @Table(name = "patients")
 public class PatientEntity {
 
+    /** The patient's FHIR id, in FHIR's id grammar. */
     @Id
-    @Column(updatable = false)
-    private UUID id;
+    @Column(updatable = false, length = 64)
+    private String id;
 
     @Column(updatable = false)
     private String nric;
@@ -43,7 +43,7 @@ public class PatientEntity {
     }
 
     public PatientEntity(
-            UUID id,
+            String id,
             String nric,
             String nameText,
             String nameFamily,
@@ -59,7 +59,7 @@ public class PatientEntity {
         this.birthDate = birthDate;
     }
 
-    public UUID getId() {
+    public String getId() {
         return id;
     }
 

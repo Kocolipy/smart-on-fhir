@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -18,7 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class PatientTests {
 
-    private static final UUID ID = UUID.fromString("0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11");
+    private static final PatientId ID = new PatientId("eq081-VQEgP8drUUqCWzHfw3");
     private static final PatientName NAME = new PatientName("Tan Wei Ming", null, List.of());
     private static final LocalDate BORN = LocalDate.of(1985, 3, 12);
 
@@ -93,7 +92,7 @@ class PatientTests {
                 new PatientName("Tan Wei Ming", "Tan", List.of("Wei", "Ming")),
                 AdministrativeGender.MALE, BORN);
 
-        assertThat(tan.toString()).isEqualTo("Patient[id=0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11]");
+        assertThat(tan.toString()).isEqualTo("Patient[id=eq081-VQEgP8drUUqCWzHfw3]");
     }
 
     @ParameterizedTest

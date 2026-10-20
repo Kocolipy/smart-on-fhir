@@ -1,7 +1,6 @@
 package com.example.backend.patient.domain;
 
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Outbound port for patient storage. Owned by the domain and implemented by an infrastructure
@@ -10,10 +9,10 @@ import java.util.UUID;
  */
 public interface PatientStore {
 
-    Optional<Patient> findById(UUID id);
+    Optional<Patient> findById(PatientId id);
 
     /** Whether a patient is stored under {@code id}. */
-    boolean existsById(UUID id);
+    boolean existsById(PatientId id);
 
     /** Stores a patient that is not stored yet. The development fixtures' seeder is the only caller. */
     void insert(Patient patient);

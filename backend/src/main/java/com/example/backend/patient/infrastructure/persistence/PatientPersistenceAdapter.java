@@ -2,6 +2,7 @@ package com.example.backend.patient.infrastructure.persistence;
 
 import com.example.backend.patient.domain.AdministrativeGender;
 import com.example.backend.patient.domain.Patient;
+import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientName;
 import com.example.backend.patient.domain.PatientStore;
 import com.example.backend.patient.infrastructure.persistence.entity.PatientEntity;
@@ -9,7 +10,6 @@ import jakarta.persistence.EntityManager;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -33,13 +33,13 @@ class PatientPersistenceAdapter implements PatientStore {
     }
 
     @Override
-    public Optional<Patient> findById(UUID id) {
-        return patients.findById(id).map(PatientPersistenceAdapter::toDomain);
+    public Optional<Patient> findById(PatientId id) {
+        return patients.findById(id.value()).map(PatientPersistenceAdapter::toDomain);
     }
 
     @Override
-    public boolean existsById(UUID id) {
-        return patients.existsById(id);
+    public boolean existsById(PatientId id) {
+        return patients.existsById(id.value());
     }
 
     /**
@@ -50,7 +50,7 @@ class PatientPersistenceAdapter implements PatientStore {
     public void insert(Patient patient) {
         PatientName name = patient.name();
         entities.persist(new PatientEntity(
-                patient.id(),
+                patient.id().value(),
                 patient.nric(),
                 name.text(),
                 name.family(),
@@ -65,7 +65,7 @@ class PatientPersistenceAdapter implements PatientStore {
                 ? List.of()
                 : Arrays.asList(entity.getNameGiven().split(GIVEN_SEPARATOR));
         return new Patient(
-                entity.getId(),
+                new PatientId(entity.getId()),
                 entity.getNric(),
                 new PatientName(entity.getNameText(), entity.getNameFamily(), given),
                 AdministrativeGender.fromCode(entity.getGender()).orElseThrow(),
