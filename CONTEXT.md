@@ -382,14 +382,10 @@ R5 `Patient` resource at `GET /api/patient/{id}`. Age is derived from the date o
 birth, never held.
 _Avoid_: patient record, demographics, subject (a Patient is no User)
 
-**Default patient**:
-The one Patient Home shows until a SMART launch supplies the patient in context:
-a development fixture under a fixed id, so it exists only where the development
-fixtures are on.
-
 **Patient card**:
-Home's card showing the Default patient's name, NRIC, gender, date of birth and
-age, or "No patient in context" when there is none.
+Home's card showing the patient in context's name, NRIC, gender, date of birth
+and age, or "No patient in context" when there is none. With no patient in
+context it reads nothing.
 
 ### Database
 

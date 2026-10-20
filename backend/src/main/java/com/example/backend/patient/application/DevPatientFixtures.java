@@ -15,9 +15,8 @@ import java.util.UUID;
  * /docs/domain/patient.md). Every NRIC here is well-formed but carries a deliberately wrong check
  * letter, so it cannot be a real person's. Each is unique.
  *
- * <p>This class owns the default patient's id. The SPA's {@code DEFAULT_PATIENT_ID}
- * ({@code frontend/src/pages/home-api.ts}) is a copy of it, which Home reads until a SMART launch
- * supplies the patient in context.
+ * <p>Nothing in the SPA names any of these ids: Home reads a patient only when a launch puts one in
+ * context.
  */
 public final class DevPatientFixtures {
 

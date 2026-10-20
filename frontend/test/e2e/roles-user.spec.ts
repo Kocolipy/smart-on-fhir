@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { csrfHeaderFor, postAdminAction, submitLoginViaApi } from "./auth.helpers";
 import { cardTitled } from "./card.helpers";
+import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 import {
   anonymousApi,
   BACKEND_URL,
@@ -21,14 +22,16 @@ import {
 // are both asserted.
 
 test.describe("baseline User pages", () => {
-  test("lands on Home with the patient and self-service, and no administration", async ({
+  test("lands on Home with no patient in context, self-service, and no administration", async ({
     page,
   }) => {
+    const patientRequests = recordPatientRequests(page);
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
     await expect(page).toHaveURL("/");
-    await expect(page.getByText("Tan Wei Ming")).toBeVisible();
+    await expectNoPatientInContext(page);
+    expect(patientRequests()).toEqual([]);
     // The Pages card links the one page a baseline User may open.
     const pages = cardTitled(page, "Pages");
     await expect(pages.getByRole("link")).toHaveText(["Change password"]);

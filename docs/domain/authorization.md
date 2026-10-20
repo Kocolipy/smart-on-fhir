@@ -152,7 +152,7 @@ With `APP_DEV_FIXTURES_ENABLED=true` startup seeds those Groups under the
 mapping's ids and their Users with `APP_DEV_FIXTURES_PASSWORD`, never
 overwriting one that exists, together with two Users in no Group: `user`, holding
 only baseline access, and `dormant`, put past the dormancy lockout window at
-every startup. The same flag has the patient module seed the dummy Patients,
-the default patient among them ([patient](patient.md)), by a seeder of its own. Without the fixtures those Groups do not exist, so a
+every startup. The same flag has the patient module seed the dummy Patients
+([patient](patient.md)) by a seeder of its own. Without the fixtures those Groups do not exist, so a
 deployment that did not replace the development mapping fails startup instead of
 running with it.

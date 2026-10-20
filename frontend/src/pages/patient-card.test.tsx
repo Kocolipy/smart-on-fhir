@@ -2,11 +2,12 @@ import { screen } from "@testing-library/react";
 import type { OperationOutcome } from "fhir/r5";
 import { describe, expect, it } from "vitest";
 
+import type { Permission } from "@/auth/api";
 import { bare, deferred, holding, json, type WireAnswer } from "@/auth/session-adapter.testHelpers";
 import type { Clock } from "@/lib/time";
 
 import { PatientCard } from "./patient-card";
-import { DEFAULT_PATIENT_READ, TAN_WEI_MING } from "./patient.testHelpers";
+import { TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
 import { renderInLayout } from "./signed-in-shell.testHelpers";
 
 /** An error answer as the backend sends it: one issue, its diagnostics fixed per code. */
@@ -27,15 +28,23 @@ const ON_THE_BIRTHDAY = at("2026-03-12T01:00:00+08:00");
 
 /**
  * The card alone, routed in the signed-in layout that renders the page's one
- * error line, as a session holding `patient:read` sees it, the default patient
- * read answered with `answer`.
+ * error line, as a session holding `patient:read` sees it, with Tan Wei Ming
+ * in context and the read of him answered with `answer`.
  */
 const renderCard = (answer: WireAnswer | Promise<WireAnswer>, clock: Clock = ON_THE_BIRTHDAY) =>
   renderInLayout(
-    [{ element: <PatientCard clock={clock} />, path: "/" }],
+    [{ element: <PatientCard clock={clock} patientId={TAN_WEI_MING.id} />, path: "/" }],
     "/",
     holding(["patient:read"]),
-    { [DEFAULT_PATIENT_READ]: answer },
+    { [TAN_WEI_MING_READ]: answer },
+  );
+
+/** The card with no patient in context, for a session holding exactly `permissions`. */
+const renderWithoutPatient = (permissions: Permission[]) =>
+  renderInLayout(
+    [{ element: <PatientCard clock={ON_THE_BIRTHDAY} />, path: "/" }],
+    "/",
+    holding(permissions),
   );
 
 /** What the card lists, each field's label beside its value. */
@@ -46,8 +55,31 @@ const fields = () => {
   );
 };
 
-describe("PatientCard", () => {
-  it("reads the default patient, and nothing else", async () => {
+describe("PatientCard with no patient in context", () => {
+  it.each([[["patient:read"]], [[]]] as Permission[][][])(
+    "says no patient is in context and asks nothing, for a session holding %j",
+    async (permissions) => {
+      const { requests } = await renderWithoutPatient(permissions);
+
+      expect(screen.getByText("No patient in context")).toBeInTheDocument();
+      expect(requests()).toEqual([]);
+    },
+  );
+
+  it("shows its note as muted text, under the heading Patient, and reports nothing", async () => {
+    await renderWithoutPatient(["patient:read"]);
+
+    expect(screen.getByText("No patient in context")).toHaveClass(
+      "text-sm",
+      "text-muted-foreground",
+    );
+    expect(screen.getByRole("heading", { name: "Patient" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("PatientCard with a patient in context", () => {
+  it("reads that patient, and nothing else", async () => {
     const { requests } = await renderCard(json(TAN_WEI_MING));
 
     await screen.findByText("Tan Wei Ming");
@@ -188,7 +220,7 @@ describe("PatientCard", () => {
 
   it("asks nothing and says so for a session without patient:read", async () => {
     const { requests } = await renderInLayout(
-      [{ element: <PatientCard clock={ON_THE_BIRTHDAY} />, path: "/" }],
+      [{ element: <PatientCard clock={ON_THE_BIRTHDAY} patientId={TAN_WEI_MING.id} />, path: "/" }],
       "/",
       holding([]),
     );

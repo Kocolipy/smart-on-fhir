@@ -157,11 +157,13 @@ decide where a visitor goes.
   pager names a total only once a read of the current query has stated one.
 - `home.tsx` — the Patient card, then the Pages card: a link to each page the
   session may open.
-- `patient-card.tsx` / `home-api.ts` — reads `GET /api/patient/{DEFAULT_PATIENT_ID}`
-  through `PATIENT` (opting in to `absent`), decoding the R5 `Patient` (typed by
-  `@types/fhir`'s `fhir5`). `DEFAULT_PATIENT_ID` copies the backend's
-  `DevPatientFixtures`, which owns it. Every field renders as a plain text node;
-  the age is computed from the card's injectable `Clock`.
+- `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
+  an optional `patientId` prop. Without one it shows "No patient in context" and
+  never calls the gated read; with one, a child component reads
+  `GET /api/patient/{patientId}` through `PATIENT` (opting in to `absent`),
+  decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes no
+  id yet. Every field renders as a plain text node; the age is computed from the
+  card's injectable `Clock`.
 - `listing-body.tsx` — the one listing body: loading, empty, and a blank body
   for a failure (whose copy is on the error line). Each page names its
   `staleRows` choice: Connectors keeps the last rows, Accounts and Audit hide

@@ -21,9 +21,10 @@ export interface LinkablePage {
 /**
  * Home, the signed-in landing page at `/`.
  *
- * Every signed-in User lands here. The Patient card comes first: the default
- * patient, read with `patient:read`, a baseline Permission every active User
- * holds — Home's only request. Beneath it the Pages card links each page it is
+ * Every signed-in User lands here. The Patient card comes first: the patient in
+ * context, read with `patient:read`, a baseline Permission every active User
+ * holds. Nothing puts a patient in context yet, so the card shows "No patient
+ * in context" and Home asks for nothing. Beneath it the Pages card links each page it is
  * handed (the other `SIGNED_IN_PAGES` entries, in registry order) that carries
  * a link label, exactly when that page's route guard would open it for this
  * session (`mayOpen`). It is handed them rather than importing the registry,

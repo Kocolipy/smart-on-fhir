@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { DEV_ROLES, loginAsRole, postAdminAction, type DevRole } from "./auth.helpers";
+import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 import { BACKEND_URL } from "./scim.helpers";
 
 // The development role mapping's fixture Users: each signs in through the login
@@ -50,11 +51,13 @@ const EXPECTED: Record<
 };
 
 async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
+  const patientRequests = recordPatientRequests(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
-  // Every fixture Role's User holds the baseline patient:read: the Patient card
-  // shows each the default patient.
-  await expect(page.getByText("Tan Wei Ming")).toBeVisible();
+  // Every fixture Role's User holds the baseline patient:read, but a password
+  // login puts no patient in context: the Patient card says so and reads nothing.
+  await expectNoPatientInContext(page);
+  expect(patientRequests()).toEqual([]);
   await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(
     linksToAccounts ? 1 : 0,
   );

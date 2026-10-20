@@ -2,9 +2,11 @@ import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type Clock, completedYears, formatCalendarDate, today, systemClock } from "@/lib/time";
 
-import { DEFAULT_PATIENT_ID, PATIENT, type PatientGender, type PatientSummary } from "./home-api";
+import { PATIENT, type PatientGender, type PatientSummary } from "./home-api";
 
 const NOTE_CLASS = "text-sm text-muted-foreground";
+
+const NO_PATIENT = <p className={NOTE_CLASS}>No patient in context</p>;
 
 const GENDER_LABELS: Readonly<Record<PatientGender, string>> = {
   female: "Female",
@@ -48,7 +50,7 @@ function PatientReading({ clock, view }: { clock: Clock; view: ReadView<PatientS
     case "loading":
       return <p className={NOTE_CLASS}>Loading the patient…</p>;
     case "absent":
-      return <p className={NOTE_CLASS}>No patient in context</p>;
+      return NO_PATIENT;
     case "failed":
       return null;
     default:
@@ -58,27 +60,49 @@ function PatientReading({ clock, view }: { clock: Clock; view: ReadView<PatientS
 }
 
 /**
- * Home's Patient card: the default patient, read once on mount with
- * `patient:read`, until a SMART launch supplies the patient in context.
- *
- * A `404` is "No patient in context", which is not an error; any other
- * failure — a `403` too, since the card reads only once `patient:read` is
- * held — goes to the page's one error line as "Couldn't load patient". Age is derived from the birth
- * date as completed years on today's date in Singapore, read from `clock`.
+ * The read of the patient in context, once on mount with `patient:read`. A
+ * component of its own so that only a card with a patient in context calls the
+ * gated read at all.
  */
-export function PatientCard({ clock = systemClock }: { clock?: Clock }) {
+function PatientInContext({ clock, patientId }: { clock: Clock; patientId: string }) {
   const { view } = useGatedRead(PATIENT, {
-    args: [DEFAULT_PATIENT_ID],
+    args: [patientId],
     failureMessage: "Couldn't load patient",
     forbiddenAsFailure: true,
   });
+  return <PatientReading clock={clock} view={view} />;
+}
+
+/**
+ * Home's Patient card: the patient in context, or "No patient in context",
+ * asking nothing, when there is none.
+ *
+ * With a patient in context it reads `GET /api/patient/{patientId}` with
+ * `patient:read`. A `404` is "No patient in context" too, which is not an
+ * error; any other failure — a `403` too, since the card reads only once
+ * `patient:read` is held — goes to the page's one error line as "Couldn't load
+ * patient". Age is derived from the birth date as completed years on today's
+ * date in Singapore, read from `clock`.
+ */
+export function PatientCard({
+  clock = systemClock,
+  patientId,
+}: {
+  clock?: Clock;
+  /** The FHIR id of the patient in context; omitted when there is none. */
+  patientId?: string;
+}) {
   return (
     <Card className="w-full">
       <CardHeader>
         <CardTitle>Patient</CardTitle>
       </CardHeader>
       <CardContent>
-        <PatientReading clock={clock} view={view} />
+        {patientId === undefined ? (
+          NO_PATIENT
+        ) : (
+          <PatientInContext clock={clock} patientId={patientId} />
+        )}
       </CardContent>
     </Card>
   );

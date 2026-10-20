@@ -78,7 +78,9 @@ change, when the backend side moves. What the SPA has to honour:
   `5xx` `exception`; `/docs/domain/patient.md`, "Errors") — and the SPA sends
   no `Accept` header that would refuse it. The SPA reads none of an outcome:
   the status alone classifies it, so the `401` / `403` split holds here as
-  everywhere. Its declaration (`PATIENT`, `src/pages/home-api.ts`) opts in to
+  everywhere. The Patient card sends it only for a patient in context, so a
+  session with none sends no patient read at all. Its declaration (`PATIENT`,
+  `src/pages/home-api.ts`) opts in to
   `absentOnNotFound`, so that `404` is the Patient card's "No patient in
   context" and reports nothing to the page status; every other failure — a
   `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx` — is the
