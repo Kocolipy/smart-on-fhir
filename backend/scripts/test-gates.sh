@@ -103,6 +103,7 @@ FAST_GATE=(
   com/example/backend/auth/infrastructure/session/SpringSessionAttributesTests
   com/example/backend/auth/infrastructure/transaction/AfterCommitAdapterTests
   com/example/backend/authorization/config/RoleMappingStartupTests
+  com/example/backend/authorization/domain/PermissionTests
   com/example/backend/authorization/domain/RoleMappingTests
   com/example/backend/contract/OpenApiContractTests
   com/example/backend/database/config/DatabaseConnectionsTests

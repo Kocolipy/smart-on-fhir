@@ -14,8 +14,6 @@ const NOT_A_BOOLEAN: unknown = 1;
 const BACKEND_PERMISSIONS = [
   "audit:read",
   "connector:read",
-  "connector:token",
-  "connector:write",
   "group:read",
   "group:write",
   "ops:read",
@@ -143,6 +141,7 @@ describe("the user decoder", () => {
   const confined = {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: true,
+    superuser: false,
     permissions: [],
     username: "ada",
   };
@@ -158,18 +157,37 @@ describe("the user decoder", () => {
     await expect(decodeWithCall(0, 2, confined)).resolves.toStrictEqual(confined);
   });
 
+  it.each([true, false])(
+    "reads a session's Superuser status, %s, from the session check",
+    async (flag) => {
+      await getCurrentUser();
+      await expect(decodeWithCall(0, 2, { ...confined, superuser: flag })).resolves.toMatchObject({
+        superuser: flag,
+      });
+    },
+  );
+
+  it("reads a session's Superuser status from the login response", async () => {
+    await login(...TEST_LOGIN);
+    await expect(decodeWithCall(0, 2, { ...confined, superuser: true })).resolves.toMatchObject({
+      superuser: true,
+    });
+  });
+
   it("reads an unflagged session's Permissions, in the order reported", async () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: ["audit:read", "user:read", "user:write"],
         username: "grace",
       }),
     ).resolves.toStrictEqual({
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
+      superuser: false,
       permissions: ["audit:read", "user:read", "user:write"],
       username: "grace",
     });
@@ -187,6 +205,7 @@ describe("the user decoder", () => {
       decodeWithCall(0, 2, {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: BACKEND_PERMISSIONS,
         username: "root",
       }),
@@ -199,6 +218,7 @@ describe("the user decoder", () => {
       decodeWithCall(0, 2, {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: [],
         role: "ADMIN",
         username: "ada",
@@ -206,6 +226,7 @@ describe("the user decoder", () => {
     ).resolves.toStrictEqual({
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
+      superuser: false,
       permissions: [],
       username: "ada",
     });
@@ -222,7 +243,7 @@ describe("the user decoder", () => {
   it.each([
     [
       "a missing username",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [] },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, superuser: false, permissions: [] },
       "UserResponse.username",
     ],
     [
@@ -232,7 +253,7 @@ describe("the user decoder", () => {
     ],
     [
       "missing Permissions",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, username: "ada" },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, superuser: false, username: "ada" },
       "UserResponse.permissions is not an array",
     ],
     [
@@ -240,16 +261,34 @@ describe("the user decoder", () => {
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: "user:read",
         username: "ada",
       },
       "UserResponse.permissions is not an array",
     ],
     [
+      "a missing Superuser status",
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [], username: "ada" },
+      "UserResponse.superuser",
+    ],
+    [
+      "a non-boolean Superuser status",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: [],
+        superuser: NOT_A_BOOLEAN,
+        username: "ada",
+      },
+      "UserResponse.superuser",
+    ],
+    [
       "a non-boolean flag",
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: NOT_A_BOOLEAN,
+        superuser: false,
         permissions: [],
         username: "ada",
       },
@@ -259,12 +298,18 @@ describe("the user decoder", () => {
     // number of seconds is refused rather than guessed at.
     [
       "a missing idle timeout",
-      { passwordChangeRequired: false, permissions: [], username: "ada" },
+      { passwordChangeRequired: false, superuser: false, permissions: [], username: "ada" },
       "UserResponse.idleTimeoutSeconds is not an integer",
     ],
     [
       "a fractional idle timeout",
-      { idleTimeoutSeconds: 1.5, passwordChangeRequired: false, permissions: [], username: "ada" },
+      {
+        idleTimeoutSeconds: 1.5,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [],
+        username: "ada",
+      },
       "UserResponse.idleTimeoutSeconds is not an integer",
     ],
     [
@@ -272,6 +317,7 @@ describe("the user decoder", () => {
       {
         idleTimeoutSeconds: "900",
         passwordChangeRequired: false,
+        superuser: false,
         permissions: [],
         username: "ada",
       },
@@ -279,7 +325,13 @@ describe("the user decoder", () => {
     ],
     [
       "a non-string username",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [], username: 7 },
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [],
+        username: 7,
+      },
       "UserResponse.username",
     ],
     [
@@ -287,6 +339,7 @@ describe("the user decoder", () => {
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: ["user:read", "superuser"],
         username: "ada",
       },
@@ -297,6 +350,7 @@ describe("the user decoder", () => {
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
+        superuser: false,
         permissions: ["User:Read"],
         username: "ada",
       },
@@ -304,7 +358,13 @@ describe("the user decoder", () => {
     ],
     [
       "a Permission that is not a string",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [7], username: "ada" },
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [7],
+        username: "ada",
+      },
       "UserResponse.permissions holds an unknown value",
     ],
     ["a non-object body", ["ada"], "UserResponse is not an object"],

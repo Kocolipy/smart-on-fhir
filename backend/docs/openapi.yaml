@@ -31,10 +31,15 @@ info:
     self-service — any signed-in session with baseline access, no Permission;
     `sessionCookie: [<permission>]` names the one Permission the operation
     requires, from the closed set `user:read`, `user:write`, `group:read`,
-    `group:write`, `audit:read`, `connector:read`, `connector:write`,
-    `connector:token`, `ops:read`, `patient:read`. A session's Permissions are
+    `group:write`, `audit:read`, `connector:read`, `ops:read`, `patient:read`;
+    `sessionCookie: [superuser]` names the Superuser instead, which is not a
+    Permission: connector creation and deletion and every token operation
+    require it (ADR 0015). A session's Permissions are
     the baseline `patient:read`, which every active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
-    reports them. A caller lacking the declared Permission gets a `403` that
+    reports them. A User is a Superuser when it is a direct member of the Admin
+    group; its session holds every delegatable Permission beside whatever its
+    Roles confer, and `GET /api/auth/me` reports `superuser: true`. A caller lacking the
+    declared Permission, or the Superuser, gets a `403` that
     never names it (see `PermissionRequired`). The application chain
     denies by default: a route or method this document does not declare is
     refused `403`, and a session never reaches `/scim/v2`. A session confined by
@@ -287,7 +292,13 @@ paths:
         by name: the baseline `patient:read`, which every active User holds, and those the role mapping confers through
         the User's direct Group memberships at sign-in. A User in no mapped Group
         gets only the baseline Permissions and keeps baseline access. There is no role field: what a User may
-        do is its Permissions.
+        do is its Permissions, and whether it is the Superuser.
+
+        `superuser` is true exactly when the session's User was a direct member of
+        the Admin group when it signed in, by password or through Epic. It is not
+        a Permission and is never among `permissions`, but a Superuser's
+        `permissions` include every delegatable Permission. Holding every
+        Permission does not make a session the Superuser.
       operationId: getCurrentUser
       security:
         - sessionCookie: []
@@ -1018,7 +1029,7 @@ paths:
         each token, not of the connector.
       operationId: createConnector
       security:
-        - sessionCookie: [connector:write]
+        - sessionCookie: [superuser]
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -1075,7 +1086,7 @@ paths:
         want a second no-op.
       operationId: deleteConnector
       security:
-        - sessionCookie: [connector:write]
+        - sessionCookie: [superuser]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -1108,14 +1119,14 @@ paths:
         walks away believing their integration has longer than it does.
 
         `permissions` is what the token may do over SCIM (see
-        `ConnectorTokenPermissions`). **No escalation:** every Permission asked for
-        must be one the calling administrator holds; otherwise `403`, and the
-        refusal is audited (`CONNECTOR_TOKEN_ISSUE`, `FAILURE`,
-        `PERMISSION_ESCALATION`) with the Permissions requested. The issue itself
-        is audited with the Permissions granted.
+        `ConnectorTokenPermissions`): any of `user:read`, `user:write`,
+        `group:read` and `group:write`. Only the Superuser mints a token, and a
+        token with a write Permission is Superuser-equivalent, so there is no
+        further rule on what may be granted. The issue is audited with the
+        Permissions granted.
       operationId: issueConnectorToken
       security:
-        - sessionCookie: [connector:token]
+        - sessionCookie: [superuser]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -1130,7 +1141,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/TokenPermissionRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
         "503":
@@ -1150,9 +1161,7 @@ paths:
         Permissions or the `permissions` given, and brings the OLD token's expiry
         forward to the end of the overlap window so an integration can be
         redeployed before its current credential stops working. The replacement's
-        Permissions — kept or new — must all be held by the calling administrator,
-        exactly as on issue: otherwise `403`, audited (`CONNECTOR_TOKEN_ROTATE`,
-        `FAILURE`, `PERMISSION_ESCALATION`) with the Permissions requested. A token
+        Permissions are validated as on issue. A token
         stored before tokens carried Permissions has none to keep and must be
         rotated with `permissions`.
 
@@ -1176,7 +1185,7 @@ paths:
         `Cache-Control: no-store`, exactly as issue does.
       operationId: rotateConnectorToken
       security:
-        - sessionCookie: [connector:token]
+        - sessionCookie: [superuser]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/TokenId"
@@ -1191,7 +1200,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/TokenPermissionRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
         "409":
@@ -1223,7 +1232,7 @@ paths:
         a revocation never writes back a token a concurrent rotation changed.
       operationId: revokeConnectorToken
       security:
-        - sessionCookie: [connector:token]
+        - sessionCookie: [superuser]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/TokenId"
@@ -2886,7 +2895,8 @@ components:
     PermissionRequired:
       description: |
         The session is valid and was accepted; the caller does not hold the
-        Permission this operation declares in its `security` requirement, so it
+        Permission this operation declares in its `security` requirement — or is
+        not the Superuser, for an operation declaring `superuser` — so it
         was refused. Distinct from 401, which means no usable session arrived at
         all — a client must not treat this as a signal to sign in again. A session
         confined by the change-required flag holds no Permission, so it receives
@@ -2896,19 +2906,6 @@ components:
         it never names the missing Permission, a Role or the rule that refused.
         The refusal is audited (`ACCESS_DENIED`) and logged at `WARN` with the
         caller, the operation and the reason `insufficient-permissions`.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ApiError"
-    TokenPermissionRequired:
-      description: |
-        Either the caller does not hold `connector:token` — the generic refusal
-        `PermissionRequired` describes, with its `ApiError` body — or it does, and
-        the token would carry a Permission the caller does not hold itself: no
-        administrator can mint a credential more powerful than itself. The second
-        is refused by the operation itself, with no body, and audited as a
-        `FAILURE` of the issue or rotation with `errorCode`
-        `PERMISSION_ESCALATION` and the Permissions requested.
       content:
         application/json:
           schema:
@@ -3201,7 +3198,13 @@ components:
     UserResponse:
       type: object
       required:
-        [username, permissions, passwordChangeRequired, idleTimeoutSeconds]
+        [
+          username,
+          permissions,
+          superuser,
+          passwordChangeRequired,
+          idleTimeoutSeconds,
+        ]
       properties:
         username:
           type: string
@@ -3212,8 +3215,6 @@ components:
             enum:
               - audit:read
               - connector:read
-              - connector:token
-              - connector:write
               - group:read
               - group:write
               - ops:read
@@ -3229,6 +3230,15 @@ components:
             empty while `passwordChangeRequired` is true.
             What the SPA shows is decided from this list; what the server allows is
             decided by each operation's own declaration, never by the SPA.
+            A Superuser's list includes every delegatable Permission.
+        superuser:
+          type: boolean
+          description: |
+            Whether this session is the Superuser's: its User was a direct member
+            of the Admin group when it signed in, by password or through Epic. Not
+            a Permission and never listed in `permissions`; no Group can carry it.
+            Connector creation and deletion and every token operation require it.
+            False while `passwordChangeRequired` is true.
         passwordChangeRequired:
           type: boolean
           description: |
@@ -3535,8 +3545,6 @@ components:
             enum:
               - audit:read
               - connector:read
-              - connector:token
-              - connector:write
               - group:read
               - group:write
               - ops:read
@@ -3799,10 +3807,9 @@ components:
           items:
             type: string
           description: |
-            The Permissions a `CONNECTOR_TOKEN_ISSUE` or `CONNECTOR_TOKEN_ROTATE`
-            granted the new token or — on a `FAILURE` with `errorCode`
-            `PERMISSION_ESCALATION` — that were asked for, sorted by name; empty
-            for every other event.
+            The Permissions a token was issued or rotated with by a
+            `CONNECTOR_TOKEN_ISSUE` or `CONNECTOR_TOKEN_ROTATE`, sorted by name;
+            empty for every other event.
         loginMethod:
           type: [string, "null"]
           enum: [password, sso, null]

@@ -20,6 +20,7 @@
 import type { ApiDecoder } from "@/lib/http";
 
 import type { Permission } from "./api";
+import type { Requirement } from "./permissions";
 
 /** How a hook is handed a declaration's arguments: omitted for an endpoint that takes none. */
 export type DeclarationArgs<A extends readonly unknown[]> = A extends readonly []
@@ -45,8 +46,11 @@ export interface ReadDeclaration<T, A extends readonly unknown[] = [], N extends
 }
 
 interface WriteTarget<A extends readonly unknown[]> {
-  /** The Permission the backend requires; without it the write is never sent. */
-  readonly permission: Permission;
+  /**
+   * The Permission — or the Superuser — the backend requires; without it the
+   * write is never sent.
+   */
+  readonly permission: Requirement;
   readonly method: "POST" | "DELETE";
   readonly path: (...args: A) => string;
   /** The JSON body, when the endpoint takes one; `apiFetch` adds the CSRF header itself. */

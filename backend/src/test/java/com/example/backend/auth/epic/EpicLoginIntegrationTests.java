@@ -100,8 +100,8 @@ class EpicLoginIntegrationTests {
 
     /** Every Permission the Superuser Role holds, sorted as {@code /api/auth/me} reports them. */
     private static final List<String> SUPERUSER_PERMISSIONS = List.of(
-            "audit:read", "connector:read", "connector:token", "connector:write", "group:read",
-            "group:write", "ops:read", "patient:read", "user:read", "user:write");
+            "audit:read", "connector:read", "group:read", "group:write", "ops:read",
+            "patient:read", "user:read", "user:write");
 
     /** When the change-required flag of a User provisioned flagged was set. */
     private static final Instant FLAGGED_SINCE = Instant.parse("2026-10-01T09:00:00Z");
@@ -210,7 +210,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(me(landing.signedIn()))
-                .isEqualTo(new Me(practitioner, SUPERUSER_PERMISSIONS));
+                .isEqualTo(new Me(practitioner, true, SUPERUSER_PERMISSIONS));
     }
 
     /**
@@ -227,6 +227,17 @@ class EpicLoginIntegrationTests {
         Set<String> byEpic = grantsOf(EPIC.signInFromEpic(practitioner, null).signedIn());
 
         assertThat(byEpic).isEqualTo(byPassword);
+    }
+
+    /** Superuser is a direct member of the Admin group, not any Epic Login. */
+    @Test
+    void anEpicLoginOutsideTheAdminGroupIsNotTheSuperuser() throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+
+        Landing landing = EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(me(landing.signedIn()))
+                .isEqualTo(new Me(practitioner, false, List.of("patient:read")));
     }
 
     @Test
@@ -332,7 +343,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(me(landing.signedIn()))
-                .isEqualTo(new Me(practitioner, SUPERUSER_PERMISSIONS));
+                .isEqualTo(new Me(practitioner, true, SUPERUSER_PERMISSIONS));
     }
 
     /** {@code /me} reports the session's confinement, and an Epic session is not confined. */
@@ -966,7 +977,7 @@ class EpicLoginIntegrationTests {
     // ---- helpers ------------------------------------------------------------------------------
 
     /** {@code /api/auth/me}'s account and Permissions. */
-    private record Me(String username, List<String> permissions) {
+    private record Me(String username, boolean superuser, List<String> permissions) {
     }
 
     /**
@@ -1032,7 +1043,8 @@ class EpicLoginIntegrationTests {
         tools.jackson.databind.JsonNode body = meBody(session);
         List<String> permissions = new ArrayList<>();
         body.get("permissions").forEach(permission -> permissions.add(permission.asText()));
-        return new Me(body.get("username").asText(), permissions);
+        return new Me(body.get("username").asText(), body.get("superuser").asBoolean(),
+                permissions);
     }
 
     /** {@code /api/auth/me}'s body, from a session it answers {@code 200} for. */

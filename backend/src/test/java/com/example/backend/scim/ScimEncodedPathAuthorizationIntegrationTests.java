@@ -245,7 +245,7 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
     }
 
     private String token(Set<Permission> permissions) {
-        return connectors.issueToken(connector, permissions, null, null, TokenPermissions.ALL)
+        return connectors.issueToken(connector, permissions, null, null)
                 .presentedValue();
     }
 

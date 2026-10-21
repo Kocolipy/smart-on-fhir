@@ -12,6 +12,7 @@
 
 import type { Permission } from "@/auth/api";
 import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
+import { SUPERUSER } from "@/auth/permissions";
 import { decodeArray, DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 
 /** A Group a User belongs to directly, as its row reports it. */
@@ -287,14 +288,14 @@ export const CREATE_CONNECTOR: WriteDeclaration<[displayName: string], Connector
   decode: jsonDecoder(decodeConnector),
   method: "POST",
   path: () => CONNECTORS_PATH,
-  permission: "connector:write",
+  permission: SUPERUSER,
 };
 
 /** Deletes a connector, revoking every token it held; answers no content. */
 export const DELETE_CONNECTOR: WriteDeclaration<[connectorId: string]> = {
   method: "DELETE",
   path: connectorPath,
-  permission: "connector:write",
+  permission: SUPERUSER,
 };
 
 /** Issues a token to a connector; answers the token, its plaintext shown this once. */
@@ -306,7 +307,7 @@ export const ISSUE_TOKEN: WriteDeclaration<
   decode: jsonDecoder(decodeIssuedToken),
   method: "POST",
   path: (connectorId) => tokensPath(connectorId),
-  permission: "connector:token",
+  permission: SUPERUSER,
 };
 
 /** Replaces a token, ending it at once; answers the replacement, its plaintext shown this once. */
@@ -315,14 +316,14 @@ export const ROTATE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: strin
   decode: jsonDecoder(decodeIssuedToken),
   method: "POST",
   path: (connectorId, tokenId) => tokenActionPath(connectorId, tokenId, "rotate"),
-  permission: "connector:token",
+  permission: SUPERUSER,
 };
 
 /** Revokes a token; answers no content. */
 export const REVOKE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: string]> = {
   method: "POST",
   path: (connectorId, tokenId) => tokenActionPath(connectorId, tokenId, "revoke"),
-  permission: "connector:token",
+  permission: SUPERUSER,
 };
 
 /**

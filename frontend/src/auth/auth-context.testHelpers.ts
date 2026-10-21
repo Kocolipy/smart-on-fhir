@@ -16,13 +16,14 @@ export const EVERY_PERMISSION: readonly Permission[] = PERMISSIONS;
 
 /**
  * The User `ada`, as the backend's `UserResponse` names her: unflagged, with a
- * 15-minute idle limit and no Permission, unless `overrides` says otherwise.
+ * 15-minute idle limit, no Permission and no Superuser standing, unless `overrides` says otherwise.
  */
 export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
     permissions: [],
+    superuser: false,
     username: "ada",
     ...overrides,
   };

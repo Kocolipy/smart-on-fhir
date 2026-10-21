@@ -11,7 +11,9 @@ app:
   authorization:
     # Roles: a name and the Permissions it holds. The Permission names are a
     # closed set defined in code (authorization.domain.Permission); an unknown
-    # name fails startup.
+    # name fails startup. The Superuser Role holds every Permission, token-only
+    # ones included: the Superuser session is that Role's Permissions plus
+    # ROLE_SUPERUSER plus every delegatable Permission, in code (ADR 0015).
     roles:
       - name: Superuser
         permissions:
@@ -21,8 +23,6 @@ app:
           - group:write
           - audit:read
           - connector:read
-          - connector:write
-          - connector:token
           - ops:read
           - patient:read
       - name: Account admin
@@ -30,16 +30,10 @@ app:
       - name: Auditor
         permissions: [audit:read]
       - name: Connector admin
-        # The four directory Permissions as well, because a connector token
-        # may carry only Permissions its creator holds.
-        permissions:
-          - connector:read
-          - connector:write
-          - connector:token
-          - user:read
-          - user:write
-          - group:read
-          - group:write
+        # Lists connectors and administers none: creating or deleting one and
+        # minting or rotating a token are the Superuser's alone (ADR 0015), so
+        # no Role can hold them and none lists them here.
+        permissions: [connector:read]
       - name: Monitoring
         permissions: [ops:read]
     # The DEVELOPMENT DEFAULT mapping: Group stable id -> Role. Exactly one entry

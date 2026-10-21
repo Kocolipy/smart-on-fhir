@@ -51,9 +51,9 @@ import java.util.UUID;
  * @param role          the Role a membership change on a mapped Group granted or revoked, by its
  *                      name in the deployment's role mapping — configuration, never a value a
  *                      caller submitted — or {@code null} for every other operation
- * @param permissions   the Permissions a connector token was issued or rotated with or, on a
- *                      refused escalation, was asked for — sorted wire spellings from the closed
- *                      vocabulary in code; empty for every other operation
+ * @param permissions   the Permissions a connector token was issued or rotated with — sorted
+ *                      wire spellings from the closed vocabulary in code; empty for every other
+ *                      operation
  * @param loginMethod   how a {@code LOGIN_SUCCESS} or {@code LOGIN_FAILURE} was attempted —
  *                      {@code password} or {@code sso}, rendered from {@link AuditLoginMethod}
  *                      (D15) — or {@code null} for every other operation

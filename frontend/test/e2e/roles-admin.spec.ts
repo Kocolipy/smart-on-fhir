@@ -13,13 +13,15 @@ test.describe("ADMIN route guards", () => {
 });
 
 test.describe("ADMIN Permissions", () => {
-  // The Bootstrap Admin is the Superuser Group's member, so its replayed session
-  // holds every Permission, sorted by name.
-  test("holds every Permission through the Superuser Group", async ({ page }) => {
+  // The Bootstrap Admin is a direct member of the Admin group, so its replayed
+  // session is the Superuser's and holds every delegatable Permission, sorted by
+  // name.
+  test("is the Superuser, holding every delegatable Permission", async ({ page }) => {
     const me = await page.request.get("/api/auth/me");
     expect(me.status()).toBe(200);
 
-    const body = (await me.json()) as { permissions: string[] };
+    const body = (await me.json()) as { permissions: string[]; superuser: boolean };
+    expect(body.superuser).toBe(true);
     expect(body.permissions).toEqual(DEV_ROLES.superuser.permissions);
   });
 });

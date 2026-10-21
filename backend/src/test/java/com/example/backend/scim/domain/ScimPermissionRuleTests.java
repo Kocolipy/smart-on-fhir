@@ -2,6 +2,7 @@ package com.example.backend.scim.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import java.util.EnumSet;
 import java.util.Set;
@@ -45,7 +46,7 @@ class ScimPermissionRuleTests {
     void a_resource_request_needs_exactly_its_permission(
             String method, String path, String permission) {
         Permission needed = Permission.fromValue(permission).orElseThrow();
-        Set<Permission> others = EnumSet.copyOf(ConnectorTokenPermissions.DIRECTORY);
+        Set<Permission> others = EnumSet.copyOf(TokenPermissions.ALL);
         others.remove(needed);
 
         assertThat(ScimPermissionRule.permits(method, path, holding(Set.of(needed)))).isTrue();
@@ -129,13 +130,13 @@ class ScimPermissionRuleTests {
     @ValueSource(strings = {"/scim/v2x/Users", "/scim", "/api/admin/accounts"})
     void a_path_outside_the_namespace_is_refused_whatever_the_token_holds(String path) {
         assertThat(ScimPermissionRule.permits("GET", path,
-                holding(ConnectorTokenPermissions.DIRECTORY))).isFalse();
+                holding(TokenPermissions.ALL))).isFalse();
     }
 
     @Test
     void a_missing_path_is_refused() {
         assertThat(ScimPermissionRule.permits("GET", null,
-                holding(ConnectorTokenPermissions.DIRECTORY))).isFalse();
+                holding(TokenPermissions.ALL))).isFalse();
     }
 
     private static ConnectorTokenPermissions holding(Set<Permission> permissions) {

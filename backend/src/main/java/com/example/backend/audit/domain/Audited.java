@@ -365,44 +365,6 @@ public sealed interface Audited {
     }
 
     /**
-     * A token issue refused because the administrator asked for a Permission it does not hold
-     * itself. Unlike an authorization refusal this one DOES name Permissions — the ones requested
-     * — because an attempt to mint a credential more powerful than oneself is exactly what an
-     * auditor looks for.
-     *
-     * @param requested every Permission the refused token would have carried
-     */
-    record ConnectorTokenIssueRefused(UUID actorId, UUID connectorId, Set<Permission> requested)
-            implements Refused {
-
-        @Override
-        public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.token(stamp, AuditRows.Change.refusal(
-                    AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId,
-                    AuditAdministrativeRefusal.PERMISSION_ESCALATION), AuditRows.Tokens.NONE,
-                    requested);
-        }
-    }
-
-    /**
-     * A rotation refused for the reason, and on the terms, an issue is.
-     *
-     * @param rotatedId the stable id of the token the rotation addressed
-     */
-    record ConnectorTokenRotateRefused(
-            UUID actorId, UUID connectorId, UUID rotatedId, Set<Permission> requested)
-            implements Refused {
-
-        @Override
-        public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.token(stamp, AuditRows.Change.refusal(
-                    AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId,
-                    AuditAdministrativeRefusal.PERMISSION_ESCALATION),
-                    AuditRows.Tokens.one(rotatedId), requested);
-        }
-    }
-
-    /**
      * A rotation refused because the token it addressed can no longer be rotated: it was revoked,
      * has expired, or was rotated already — the second of two concurrent rotations of one token
      * among them. Nothing was minted and nothing written; the caller is already receiving a

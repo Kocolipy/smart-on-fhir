@@ -903,7 +903,6 @@ class AuditTrailServiceTests {
     @Test
     void anEventAboutNoTokenNamesNone() {
         trail.append(new Audited.ConnectorCreated(ACTOR, GROUP));
-        trail.append(new Audited.ConnectorTokenIssueRefused(ACTOR, GROUP, Set.of()));
         trail.append(new Audited.Logout(SUBJECT));
 
         assertThat(events.appended)
@@ -933,55 +932,18 @@ class AuditTrailServiceTests {
         assertThat(refused.permissions()).isEmpty();
     }
 
-    /** A refused escalation names the connector and the Permissions requested, and changes nothing. */
+    /** The refusal is already the caller's 409: fail-open, with an alert, like every refusal. */
     @Test
-    void aRefusedEscalationRecordsThePermissionsRequested() {
-        trail.append(new Audited.ConnectorTokenIssueRefused(ACTOR, GROUP,
-                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ)));
-        trail.append(new Audited.ConnectorTokenRotateRefused(
-                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ)));
-
-        assertThat(events.appended).hasSize(2);
-        for (AuditEvent refused : events.appended) {
-            assertThat(refused.outcome()).isEqualTo(AuditOutcome.FAILURE);
-            assertThat(refused.actorId()).isEqualTo(ACTOR);
-            assertThat(refused.subjectId()).isEqualTo(GROUP);
-            assertThat(refused.resourceId()).isEqualTo(GROUP);
-            assertThat(refused.resourceType()).isEqualTo(AuditEvent.CONNECTOR_RESOURCE_TYPE);
-            assertThat(refused.errorCode()).isEqualTo("PERMISSION_ESCALATION");
-            assertThat(refused.statusClass()).isEqualTo("client_error");
-            assertThat(refused.changedPaths()).isEmpty();
-        }
-        assertThat(events.appended.get(0).operation())
-                .isEqualTo(AuditOperation.CONNECTOR_TOKEN_ISSUE);
-        assertThat(events.appended.get(0).permissions())
-                .containsExactly("group:read", "user:write");
-        assertThat(events.appended.get(1).operation())
-                .isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
-        assertThat(events.appended.get(1).permissions()).containsExactly("user:read");
-        assertThat(events.appended).extracting(AuditEvent::tokenId)
-                .as("a rotation addressed a token, an issue none")
-                .containsExactly(null, ISSUED);
-    }
-
-    /** The refusal is already the caller's 403: fail-open, with an alert, like every refusal. */
-    @Test
-    void aRefusedEscalationFailsOpenAndAGrantFailsClosed() {
+    void aRefusedRotationFailsOpenAndAGrantFailsClosed() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        trail.append(new Audited.ConnectorTokenIssueRefused(
-                ACTOR, GROUP, Set.of(Permission.USER_READ)));
-        trail.append(new Audited.ConnectorTokenRotateRefused(
-                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ)));
         trail.append(new Audited.ConnectorTokenNotRotatable(
                 ACTOR, GROUP, ISSUED, AuditAdministrativeRefusal.TOKEN_REVOKED));
         assertThatThrownBy(() -> trail.append(new Audited.ConnectorTokenIssued(
                 ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ))))
                 .isInstanceOf(IllegalStateException.class);
 
-        assertThat(alerts.raised).containsExactly(
-                AuditOperation.CONNECTOR_TOKEN_ISSUE, AuditOperation.CONNECTOR_TOKEN_ROTATE,
-                AuditOperation.CONNECTOR_TOKEN_ROTATE);
+        assertThat(alerts.raised).containsExactly(AuditOperation.CONNECTOR_TOKEN_ROTATE);
     }
 
     // Every recorder, field by field: an append removed or a field built wrong fails here
@@ -1254,8 +1216,6 @@ class AuditTrailServiceTests {
             Map.entry(Audited.ConnectorDeleted.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ConnectorTokenIssued.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ConnectorTokenRotated.class, Semantics.FAIL_CLOSED),
-            Map.entry(Audited.ConnectorTokenIssueRefused.class, Semantics.FAIL_OPEN),
-            Map.entry(Audited.ConnectorTokenRotateRefused.class, Semantics.FAIL_OPEN),
             // A rotation of a revoked, expired or already rotated token: already a 409.
             Map.entry(Audited.ConnectorTokenNotRotatable.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.ConnectorTokenRevoked.class, Semantics.FAIL_CLOSED),

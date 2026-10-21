@@ -133,10 +133,8 @@ public final class RecordingAuditTrail implements AuditTrail {
      */
     private static String detail(Audited event, AuditEvent row) {
         return switch (event) {
-            // A token's Permissions, comma-joined, after a refusal's reason: "PERMISSION_ESCALATION
-            // group:read,user:read".
-            case Audited.ConnectorTokenIssued _, Audited.ConnectorTokenRotated _,
-                    Audited.ConnectorTokenIssueRefused _, Audited.ConnectorTokenRotateRefused _ ->
+            // A token's Permissions, comma-joined, after a refusal's reason: "group:read,user:read".
+            case Audited.ConnectorTokenIssued _, Audited.ConnectorTokenRotated _ ->
                     (row.errorCode() == null ? "" : row.errorCode() + " ")
                             + String.join(",", row.permissions());
             // A bulk read's count and rendered shape, e.g. "2 userName eq ?".

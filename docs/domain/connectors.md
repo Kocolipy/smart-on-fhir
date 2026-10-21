@@ -1,11 +1,17 @@
 ---
 type: Domain Rules
 title: Connectors and their tokens
-description: SCIM connector tokens — format, Token Permissions, the no-escalation rule, lifetime and rotation, credential refusals — and what deleting a connector does.
+description: SCIM connector tokens — format, Token Permissions, who may mint one, lifetime and rotation, credential refusals — and what deleting a connector does.
 tags: [scim, connectors, tokens, credentials]
 ---
 
 # Connectors and their tokens
+
+**Only the Superuser administers connectors** (ADR 0015). Creating and deleting a
+connector, and issuing, rotating and revoking a token, are
+[Superuser](./authorization.md)-only: any other caller, a User holding every
+Permission included, gets the generic `403` that names no Permission or policy.
+`connector:read` still lists connectors and their tokens' state.
 
 **SCIM connector token** — a high-entropy opaque bearer credential restricted to
 the SCIM interface. The value is a non-secret lookup handle, a dot, and at least
@@ -16,10 +22,11 @@ no precedent for hashing a password that way.
 
 ## Token Permissions
 
-A token carries **Token Permissions** (ADR 0010): a non-empty set of `user:read`,
-`user:write`, `group:read` and `group:write`, and nothing else — every other
-Permission guards the application chain, which no token reaches, and is refused on
-a token with `400`, as are an empty list and a name that is no Permission.
+A token carries **Token Permissions** (ADR 0010, ADR 0015): a non-empty set of
+the token-grantable Permissions, `user:read`, `user:write`, `group:read` and
+`group:write`, and nothing else — every other Permission guards the application
+chain, which no token reaches, and is refused on a token with `400`, as are an
+empty list and a name that is no Permission.
 
 - Users reads (`GET`, and `POST /Users/.search`) need `user:read`; Users
   `POST`/`PUT`/`PATCH`/`DELETE` need `user:write`; Groups likewise with
@@ -40,23 +47,20 @@ request line it misreads cannot open an operation the handler holds. A refusal i
 `ACCESS_DENIED` naming the connector, the operation and the generic reason — never
 the missing Permission.
 
-**No escalation** — a token may carry only Permissions the administrator minting
-it holds itself, by the Permissions its session was issued with. A request for
-anything more is `403` and audited as a failed `CONNECTOR_TOKEN_ISSUE` (or
-`_ROTATE`) with `PERMISSION_ESCALATION` and the Permissions requested; the check
-runs after the request's own shape and after the connector is found. Rotation is
-minting, so it is held to the same rule whether it keeps the old token's
-Permissions or is given new ones: a token a Superuser issued cannot be renewed
-by a Connector admin lacking any of its Permissions. A successful issue or
-rotation is audited with the Permissions granted. Whoever holds `connector:token`
-together with `group:write` can therefore issue a credential that assigns Roles,
-because `group:write` on a mapped Group is [Role assignment](./authorization.md).
+**Who mints, and what a token is worth** — only a Superuser mints, so that gate
+replaces the earlier rule that a token may carry only what its minter holds: there
+is no further rule on what a Superuser may grant beyond the vocabulary. A token
+with a write Permission is Superuser-equivalent, because `group:write` on a mapped
+Group is [Role assignment](./authorization.md) and `user:write` sets a User's
+password. A read-only token is genuinely limited, which is why the token
+vocabulary stays separate from the session's. A successful issue or rotation is
+audited with the Permissions granted.
 
 ## Lifecycle
 
-A holder of `connector:token` may mint, inspect, overlap, rotate, and revoke
-tokens; plaintext is disclosed once, on the issue and rotation responses alone,
-under `Cache-Control: no-store`.
+The Superuser may mint, overlap, rotate, and revoke tokens, and any holder of
+`connector:read` may inspect their state; plaintext is disclosed once, on the issue
+and rotation responses alone, under `Cache-Control: no-store`.
 
 - **Lifetime.** A token expires at most 365 days after issue — RFC 7644 §7.4
   requires bearer tokens to have a limited lifetime the service provider can

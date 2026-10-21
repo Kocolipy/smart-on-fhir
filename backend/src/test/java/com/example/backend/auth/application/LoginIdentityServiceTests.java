@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
 import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
@@ -21,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -30,6 +32,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -636,19 +640,99 @@ class LoginIdentityServiceTests {
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
-    /** The Superuser Group confers every Permission, and no administrative role beside them. */
+    /**
+     * A direct member of the Superuser Group is the Superuser: {@code ROLE_SUPERUSER} beside
+     * baseline access and every Permission, and no {@code ROLE_ADMIN}.
+     */
     @Test
-    void theSuperuserGroupConfersEveryPermission() {
+    void aDirectMemberOfTheSuperuserGroupHoldsRoleSuperuserAndEveryPermission() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
-        groups.createReserved(ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
-                        List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW),
-                ReservedResourceName.ADMIN_GROUP);
+        givenSuperuserGroup(ada);
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .startsWith("ROLE_USER")
+                .contains("ROLE_USER", "ROLE_SUPERUSER")
                 .doesNotContain("ROLE_ADMIN")
-                .hasSize(1 + TestRoleMappings.EVERY_PERMISSION.size())
+                .hasSize(2 + TestRoleMappings.EVERY_PERMISSION.size())
                 .containsAll(TestRoleMappings.EVERY_PERMISSION);
+    }
+
+    /**
+     * The Superuser's Permissions are expanded in code, not read from the Role the mapping
+     * assigns: with a mapping that confers nothing, membership alone yields every delegatable one.
+     */
+    @Test
+    void theSuperuserHoldsEveryDelegatablePermissionEvenWhenTheMappingConfersNone() {
+        RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
+        Mockito.when(conferringNothing.superuserGroupId())
+                .thenReturn(TestRoleMappings.SUPERUSER_GROUP_ID);
+        Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
+                .thenReturn(Set.of());
+        LoginIdentityService bare = new LoginIdentityService(
+                users, groups, passwordEncoder, conferringNothing);
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenSuperuserGroup(ada);
+
+        assertThat(authoritiesOf(bare.loadUserByUsername("ada")))
+                .containsAll(Permission.allDelegatable().stream().map(Permission::value).toList());
+    }
+
+    /**
+     * Superuser is not any Permission, and no number of Permissions makes one: a User holding every
+     * delegatable Permission through Roles, not in the Superuser Group, holds no
+     * {@code ROLE_SUPERUSER}.
+     */
+    @Test
+    void holdingEveryDelegatablePermissionThroughARoleDoesNotMakeAUserASuperuser() {
+        UUID everything = UUID.fromString("00000000-0000-4000-8000-0000000000b3");
+        LoginIdentityService delegating = new LoginIdentityService(
+                users, groups, passwordEncoder, RoleMapping.of(
+                        List.of(
+                                new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
+                                new RoleDefinition("Delegated", List.of("user:read", "group:read",
+                                        "audit:read", "ops:read", "connector:read"))),
+                        List.of(
+                                new GroupAssignment(
+                                        TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
+                                new GroupAssignment(everything, "Delegated", false))));
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.given(ScimGroup.created(everything, "Delegated",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(delegating.loadUserByUsername("ada")))
+                .containsExactly("ROLE_USER", "audit:read", "connector:read", "group:read",
+                        "ops:read", "patient:read", "user:read");
+    }
+
+    /** Membership is direct only: a member of some other Group is not a Superuser. */
+    @Test
+    void aMemberOfAnotherGroupIsNotASuperuser() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenSuperuserGroup();
+        groups.given(ScimIdentities.group("Engineering", ada));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+    }
+
+    /** An Epic Login resolves the same authorities: a Superuser linked by Practitioner ID is one. */
+    @Test
+    void anEpicLoginOfASuperuserHoldsTheSuperuserAuthority() {
+        ScimUser ada = users.given(ScimIdentities.user("eABC"));
+        givenSuperuserGroup(ada);
+
+        assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
+                .contains("ROLE_SUPERUSER")
+                .containsAll(TestRoleMappings.EVERY_PERMISSION);
+    }
+
+    /** A confined password session is not yet a Superuser's: the change comes first. */
+    @Test
+    void aSuperuserRequiredToChangeItsPasswordHoldsOnlyTheConfinedAuthority() {
+        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
+                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
+        givenSuperuserGroup(grace);
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("grace")))
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
     /** The hash the session records is the mapping's own. */
@@ -668,6 +752,15 @@ class LoginIdentityServiceTests {
     private ScimGroup givenAdminGroup(ScimUser... members) {
         return groups.createReserved(
                 ScimIdentities.group("Admins", members), ReservedResourceName.ADMIN_GROUP);
+    }
+
+    /** The reserved Admin group under the id the mapping names as the Superuser Group's. */
+    private ScimGroup givenSuperuserGroup(ScimUser... members) {
+        return groups.createReserved(ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+                        Stream.of(members).map(member -> ScimGroupMember.reference(member.id()))
+                                .toList(),
+                        ScimIdentities.NOW),
+                ReservedResourceName.ADMIN_GROUP);
     }
 
     private ScimGroup addMember(ScimGroup group, ScimUser user) {

@@ -77,10 +77,10 @@ class ConnectorTokenRotationRaceIntegrationTests {
                     "Rotation race " + UUID.randomUUID().toString().substring(0, 8), null);
             created.add(connector.id());
             IssuedConnectorToken original = connectors.issueToken(connector.id(),
-                    TokenPermissions.READ, null, null, TokenPermissions.ALL);
+                    TokenPermissions.READ, null, null);
 
             Callable<String> rotation = () -> {
-                connectors.rotateToken(original.tokenId(), null, null, null, TokenPermissions.ALL);
+                connectors.rotateToken(original.tokenId(), null, null, null);
                 return ROTATED;
             };
             List<String> outcomes = race(rotation, rotation);
@@ -110,11 +110,11 @@ class ConnectorTokenRotationRaceIntegrationTests {
                 "Rotation trail " + UUID.randomUUID().toString().substring(0, 8), null);
         created.add(connector.id());
         IssuedConnectorToken original = connectors.issueToken(connector.id(),
-                TokenPermissions.READ, null, null, TokenPermissions.ALL);
+                TokenPermissions.READ, null, null);
         IssuedConnectorToken replacement = connectors.rotateToken(
-                original.tokenId(), null, null, null, TokenPermissions.ALL);
+                original.tokenId(), null, null, null);
         assertThatThrownBy(() -> connectors.rotateToken(
-                        original.tokenId(), null, null, null, TokenPermissions.ALL))
+                        original.tokenId(), null, null, null))
                 .isInstanceOf(ConnectorTokenNotRotatableException.class);
 
         List<AuditEvent> rotations = trail.find(new AuditEventQuery(

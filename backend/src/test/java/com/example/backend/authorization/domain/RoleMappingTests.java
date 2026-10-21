@@ -44,15 +44,14 @@ class RoleMappingTests {
     void thePermissionSetIsClosedAndSpelledAsSpecified() {
         assertThat(Arrays.stream(Permission.values()).map(Permission::value)).containsExactly(
                 "user:read", "user:write", "group:read", "group:write", "audit:read",
-                "connector:read", "connector:write", "connector:token", "ops:read",
-                "patient:read");
+                "connector:read", "ops:read", "patient:read");
     }
 
     @Test
     void aPermissionIsLookedUpByItsExactSpelling() {
-        assertThat(Permission.fromValue("connector:token")).contains(Permission.CONNECTOR_TOKEN);
-        assertThat(Permission.fromValue("CONNECTOR:TOKEN")).isEmpty();
-        assertThat(Permission.fromValue("CONNECTOR_TOKEN")).isEmpty();
+        assertThat(Permission.fromValue("connector:read")).contains(Permission.CONNECTOR_READ);
+        assertThat(Permission.fromValue("CONNECTOR:READ")).isEmpty();
+        assertThat(Permission.fromValue("CONNECTOR_READ")).isEmpty();
         assertThat(Permission.fromValue(null)).isEmpty();
     }
 

@@ -42,6 +42,31 @@ class OpenApiContractTests {
                 .contains("POST /scim/v2/Users", "GET /api/self", "GET /scim/v2/Me");
     }
 
+    /** {@code sessionCookie: [superuser]} is the Superuser, a requirement of its own — no Permission. */
+    @Test
+    void a_session_requirement_naming_the_superuser_is_read_as_the_superuser() {
+        assertThat(CONTRACT.operations())
+                .filteredOn(operation -> operation.toString().equals("POST /api/admin/connectors"))
+                .singleElement()
+                .satisfies(operation -> {
+                    assertThat(operation.requirement().access())
+                            .isEqualTo(OpenApiContract.Access.SUPERUSER);
+                    assertThat(operation.requirement().permission()).isNull();
+                });
+    }
+
+    @Test
+    void a_session_requirement_naming_a_permission_is_still_read_as_that_permission() {
+        assertThat(CONTRACT.operations())
+                .filteredOn(operation -> operation.toString().equals("GET /api/admin/connectors"))
+                .singleElement()
+                .satisfies(operation -> {
+                    assertThat(operation.requirement().access())
+                            .isEqualTo(OpenApiContract.Access.PERMISSION);
+                    assertThat(operation.requirement().permission()).isEqualTo("connector:read");
+                });
+    }
+
     @Test
     void a_conforming_response_has_no_violations_and_records_its_coverage() {
         OpenApiContract.Verdict verdict = CONTRACT.check("POST", "/scim/v2/Users",

@@ -9,29 +9,26 @@ import java.util.Set;
 /**
  * What a connector token may do: a set of Permissions from the shared vocabulary (ADR 0010).
  *
- * <p>The same names a User's Roles grant, so "this connector manages Groups but not Users" is
- * {@code group:read} and {@code group:write} and nothing else, and the no-escalation rule — a
- * token can carry only Permissions its creator holds — compares like with like. A token can carry
- * only the four {@link #DIRECTORY} Permissions: everything else in the vocabulary guards the
- * application chain, which no bearer token reaches, so granting it would mean nothing today and a
- * back door the day a route started honouring it.
+ * <p>The same names the session's vocabulary spells, so "this connector manages Groups but not
+ * Users" is {@code group:read} and {@code group:write} and nothing else. A token can carry only
+ * the {@linkplain Permission#tokenGrantable() token-grantable} Permissions: everything else in
+ * the vocabulary guards the application chain, which no bearer token reaches, so granting it
+ * would mean nothing today and a back door the day a route started honouring it. A token with a
+ * write Permission is Superuser-equivalent, which is why only the Superuser mints one; there is
+ * no further rule on what a minter may grant.
  *
  * <p>A token being issued goes through {@link #requested}, which refuses the empty set. The
  * constructor still admits one, so that loading a stored token with no Permissions never fails:
  * such a token authenticates and may do nothing but read discovery.
  *
- * @param values the Permissions, every one of them a {@link #DIRECTORY} Permission
+ * @param values the Permissions, every one of them {@linkplain Permission#tokenGrantable()
+ *               token-grantable}
  */
 public record ConnectorTokenPermissions(Set<Permission> values) {
 
-    /** The only Permissions a token can carry: the SCIM chain's. */
-    public static final Set<Permission> DIRECTORY = Set.copyOf(EnumSet.of(
-            Permission.USER_READ, Permission.USER_WRITE,
-            Permission.GROUP_READ, Permission.GROUP_WRITE));
-
     public ConnectorTokenPermissions {
         values = values == null ? Set.of() : Set.copyOf(values);
-        if (!DIRECTORY.containsAll(values)) {
+        if (!values.stream().allMatch(Permission::tokenGrantable)) {
             throw new InvalidConnectorTokenPermissionsException(
                     "A token can carry only user:read, user:write, group:read and group:write");
         }
@@ -39,7 +36,7 @@ public record ConnectorTokenPermissions(Set<Permission> values) {
 
     /**
      * The Permissions a token is being issued with, refused when there are none or when any of
-     * them is not a {@link #DIRECTORY} Permission.
+     * them is not {@linkplain Permission#tokenGrantable() token-grantable}.
      */
     public static ConnectorTokenPermissions requested(Collection<Permission> requested) {
         if (requested == null || requested.isEmpty()) {
@@ -68,11 +65,6 @@ public record ConnectorTokenPermissions(Set<Permission> values) {
             }
         }
         return Set.copyOf(readable);
-    }
-
-    /** Whether every Permission here is one {@code held} also contains. */
-    public boolean heldWithin(Set<Permission> held) {
-        return held.containsAll(values);
     }
 
     /** The Permissions spelled as the wire spells them, sorted by that spelling. */

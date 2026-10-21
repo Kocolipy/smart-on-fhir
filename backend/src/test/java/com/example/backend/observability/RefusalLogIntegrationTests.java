@@ -74,7 +74,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
     void setUp() {
         UUID connectorId = connectors.create("refusal-log-connector", null).id();
         writeToken = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

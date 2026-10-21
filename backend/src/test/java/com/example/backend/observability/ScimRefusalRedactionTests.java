@@ -86,7 +86,7 @@ class ScimRefusalRedactionTests {
                 .build();
         UUID connectorId = connectors.create("refusal-redaction", null).id();
         token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

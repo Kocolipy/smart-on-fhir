@@ -25,11 +25,12 @@ public final class TestRoleMappings {
             Arrays.stream(Permission.values()).map(Permission::value).toList();
 
     /**
-     * What a Superuser's session holds: baseline access and every Permission. For a test that
-     * builds a session by hand rather than signing in.
+     * What a Superuser's session holds: baseline access, {@code ROLE_SUPERUSER} and every
+     * Permission. For a test that builds a session by hand rather than signing in.
      */
     public static final String[] SUPERUSER_AUTHORITIES = java.util.stream.Stream.concat(
-                    java.util.stream.Stream.of("ROLE_USER"), EVERY_PERMISSION.stream())
+                    java.util.stream.Stream.of("ROLE_USER", "ROLE_SUPERUSER"),
+                    EVERY_PERMISSION.stream())
             .toArray(String[]::new);
 
     private TestRoleMappings() {

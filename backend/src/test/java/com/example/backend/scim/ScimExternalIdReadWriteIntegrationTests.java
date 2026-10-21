@@ -131,10 +131,10 @@ class ScimExternalIdReadWriteIntegrationTests {
                 .build();
         connectorA = connectors.create("Entra-extid", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         connectorB = connectors.create("Okta-extid", null).id();
         tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
     }
 
     /**

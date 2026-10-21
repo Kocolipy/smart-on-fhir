@@ -533,10 +533,8 @@ class LogEventTests {
             "UNLOCK | Administrative identity change refused",
             "FORCE_PASSWORD_CHANGE | Administrative identity change refused",
             "PASSWORD_CHANGE | Self-service change refused",
-            "CONNECTOR_TOKEN_ISSUE | SCIM connector issue refused: it would exceed the"
-                    + " requester's Permissions",
-            "CONNECTOR_TOKEN_ROTATE | SCIM connector issue refused: it would exceed the"
-                    + " requester's Permissions",
+            "CONNECTOR_TOKEN_ROTATE | SCIM connector token rotation refused: the token can no"
+                    + " longer be rotated",
             "SCIM_REFUSAL | SCIM request refused",
             "ACCESS_DENIED | Request refused: access denied",
             "UNAUTHENTICATED | Request refused: authentication required",

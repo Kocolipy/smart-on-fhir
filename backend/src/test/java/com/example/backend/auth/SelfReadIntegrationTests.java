@@ -105,7 +105,7 @@ class SelfReadIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("self-read-connector", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 

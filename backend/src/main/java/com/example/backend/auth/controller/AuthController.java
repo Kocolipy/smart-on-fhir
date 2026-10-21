@@ -134,8 +134,21 @@ public class AuthController {
         return new UserResponse(
                 authentication.getName(),
                 permissionsOf(authentication),
+                isSuperuser(authentication),
                 changeRequired,
                 session.getMaxInactiveInterval());
+    }
+
+    /**
+     * Whether the session is the Superuser's: it was issued {@code ROLE_SUPERUSER}, which the login
+     * gives a direct member of the Admin group and nothing else does. Reported beside the
+     * Permissions and never among them — the Superuser is not a Permission, and no number of
+     * Permissions makes one.
+     */
+    private static boolean isSuperuser(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .anyMatch(authority ->
+                        LoginIdentityService.SUPERUSER_AUTHORITY.equals(authority.getAuthority()));
     }
 
     /**
@@ -289,7 +302,11 @@ public class AuthController {
     /**
      * @param permissions            the Permissions the session was issued with, by name, sorted
      *                               by name; empty for a User in no mapped Group and while a
-     *                               password change is required
+     *                               password change is required. A Superuser's include every
+     *                               delegatable Permission
+     * @param superuser              whether the session is the Superuser's: its User is a direct
+     *                               member of the Admin group. Not a Permission, so never among
+     *                               {@code permissions}
      * @param passwordChangeRequired whether the session is confined to the change flow
      * @param idleTimeoutSeconds     the session's idle bound: how long it survives without a
      *                               request ({@code server.servlet.session.timeout}). The SPA signs
@@ -298,6 +315,7 @@ public class AuthController {
     public record UserResponse(
             String username,
             List<String> permissions,
+            boolean superuser,
             boolean passwordChangeRequired,
             int idleTimeoutSeconds) {
     }

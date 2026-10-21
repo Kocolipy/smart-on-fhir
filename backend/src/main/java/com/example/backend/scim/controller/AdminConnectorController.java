@@ -4,7 +4,6 @@ import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
-import com.example.backend.scim.application.ConnectorTokenEscalationException;
 import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.application.UnknownConnectorException;
@@ -18,16 +17,12 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,9 +38,11 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Under {@code /api/admin}, so it is on the APPLICATION chain — session
  * authenticated, CSRF protected, and each operation requires its own Permission
- * ({@code connector:read} to list, {@code connector:write} to create and delete,
- * {@code connector:token} to issue, rotate and revoke), declared on the handler with
- * method security and repeated by the chain as a backstop. That is deliberate and is
+ * ({@code connector:read} to list; the Superuser to create and delete, and to issue, rotate and
+ * revoke a token), declared on the handler with method security and repeated by the chain as a
+ * backstop. Only the Superuser administers connectors: a token with a write Permission is
+ * Superuser-equivalent, so no Permission, and no number of them, stands in for it. That is
+ * deliberate and is
  * the opposite of the namespace it manages credentials for: minting a SCIM token is
  * an administrator's browser action, not something a connector may do for itself, so
  * no bearer token reaches this controller and no connector can issue itself a wider
@@ -85,7 +82,7 @@ public class AdminConnectorController {
      *
      * @param permissions  what it is to carry: Permission names, at least one, each of
      *                     {@code user:read}, {@code user:write}, {@code group:read} and
-     *                     {@code group:write}, and each one the caller holds itself
+     *                     {@code group:write}
      * @param lifetimeDays how long it should live, or {@code null} for the default of
      *                     365 days; the policy refuses more, so a request for two
      *                     years is a {@code 400} rather than a silently shortened token
@@ -115,7 +112,7 @@ public class AdminConnectorController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('connector:write')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ConnectorSummary create(
             @Valid @RequestBody CreateConnectorRequest request, HttpServletRequest http) {
         return connectors.create(request.displayName(), RequestActor.userOf(http));
@@ -127,7 +124,7 @@ public class AdminConnectorController {
      */
     @DeleteMapping("/{connectorId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAuthority('connector:write')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public void delete(@PathVariable UUID connectorId, HttpServletRequest http) {
         connectors.delete(connectorId, RequestActor.userOf(http));
     }
@@ -137,18 +134,16 @@ public class AdminConnectorController {
      * exist — there is no endpoint that returns it again.
      */
     @PostMapping("/{connectorId}/tokens")
-    @PreAuthorize("hasAuthority('connector:token')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ResponseEntity<IssuedConnectorToken> issueToken(
             @PathVariable UUID connectorId,
             @Valid @RequestBody IssueTokenRequest request,
-            Authentication caller,
             HttpServletRequest http) {
         return disclosed(connectors.issueToken(
                 connectorId,
                 permissions(request.permissions()),
                 days(request.lifetimeDays()),
-                RequestActor.userOf(http),
-                held(caller)));
+                RequestActor.userOf(http)));
     }
 
     /**
@@ -156,12 +151,11 @@ public class AdminConnectorController {
      * old token's expiry only ever moves earlier.
      */
     @PostMapping("/{connectorId}/tokens/{tokenId}/rotate")
-    @PreAuthorize("hasAuthority('connector:token')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ResponseEntity<IssuedConnectorToken> rotateToken(
             @PathVariable UUID connectorId,
             @PathVariable UUID tokenId,
             @Valid @RequestBody(required = false) RotateTokenRequest request,
-            Authentication caller,
             HttpServletRequest http) {
         Integer overlapDays = request == null ? null : request.overlapDays();
         List<String> requested = request == null ? null : request.permissions();
@@ -169,14 +163,13 @@ public class AdminConnectorController {
                 tokenId,
                 requested == null ? null : permissions(requested),
                 days(overlapDays),
-                RequestActor.userOf(http),
-                held(caller)));
+                RequestActor.userOf(http)));
     }
 
     /** Revokes a token, effective immediately. */
     @PostMapping("/{connectorId}/tokens/{tokenId}/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAuthority('connector:token')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public void revokeToken(
             @PathVariable UUID connectorId, @PathVariable UUID tokenId, HttpServletRequest http) {
         connectors.revokeToken(tokenId, RequestActor.userOf(http));
@@ -215,19 +208,6 @@ public class AdminConnectorController {
         return permissions;
     }
 
-    /**
-     * The Permissions the caller's session was issued with — what the no-escalation rule compares
-     * a requested token against. Authorities that are not Permissions (the baseline
-     * {@code ROLE_USER}) are not Permissions and are not held as one.
-     */
-    private static Set<Permission> held(Authentication caller) {
-        Set<Permission> held = EnumSet.noneOf(Permission.class);
-        for (GrantedAuthority authority : caller.getAuthorities()) {
-            Permission.fromValue(authority.getAuthority()).ifPresent(held::add);
-        }
-        return held;
-    }
-
     @ExceptionHandler(UnknownConnectorException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public void unknownConnector() {
@@ -252,16 +232,6 @@ public class AdminConnectorController {
     @ExceptionHandler(InvalidConnectorTokenPermissionsException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public void invalidPermissions() {
-    }
-
-    /**
-     * A token carrying a Permission the caller does not hold. {@code 403}, with no body: the caller
-     * may mint tokens, but not this one. Already audited, with the Permissions requested, by the
-     * service.
-     */
-    @ExceptionHandler(ConnectorTokenEscalationException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public void escalation() {
     }
 
     /**

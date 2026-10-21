@@ -20,7 +20,7 @@ bodies, and the ADRs in `/docs/adr/` record the decisions.
 
 - [SCIM directory](directory.md) - Users, Groups, the Bootstrap Admin and Admin group, edge whitespace, deletion and tombstones, and when a resource version advances.
 - [SCIM protocol profile](scim-protocol.md) - Discovery, filtering and sorting with SQL Server's deviations, conditional writes, request bounds, and the release gate.
-- [Connectors and their tokens](connectors.md) - Token format and Permissions, no escalation, lifetime and rotation, credential refusals, and connector deletion.
+- [Connectors and their tokens](connectors.md) - Token format and Permissions, Superuser-only administration, lifetime and rotation, credential refusals, and connector deletion.
 
 # Authority and operations
 

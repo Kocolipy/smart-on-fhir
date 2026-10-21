@@ -44,8 +44,7 @@ public final class ScimConnectorClient {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         UUID connectorId = connectors.create(connectorName, null).id();
-        String token = connectors.issueToken(connectorId, TokenPermissions.ALL, null, null,
-                TokenPermissions.ALL).presentedValue();
+        String token = connectors.issueToken(connectorId, TokenPermissions.ALL, null, null).presentedValue();
         return new ScimConnectorClient(mvc, token);
     }
 

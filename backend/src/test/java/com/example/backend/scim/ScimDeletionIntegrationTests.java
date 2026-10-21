@@ -128,9 +128,9 @@ class ScimDeletionIntegrationTests {
                 .build();
         connectorA = connectors.create("Deleting Okta", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
     }
 
     @AfterEach

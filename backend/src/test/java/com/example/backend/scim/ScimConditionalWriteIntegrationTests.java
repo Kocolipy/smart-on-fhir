@@ -134,11 +134,11 @@ class ScimConditionalWriteIntegrationTests {
         connectorA = connectors.create("Okta", null).id();
         UUID connectorB = connectors.create("Entra", null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
     }
 
     @AfterEach

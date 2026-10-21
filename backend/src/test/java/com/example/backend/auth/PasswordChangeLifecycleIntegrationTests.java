@@ -163,7 +163,7 @@ class PasswordChangeLifecycleIntegrationTests {
         UUID connectorId = connectors.create("lifecycle-connector", null).id();
         this.connectorId = connectorId;
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 

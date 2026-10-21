@@ -231,6 +231,7 @@ class AuthControllerTests {
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("grace");
         assertThat(response.permissions()).hasSize(Permission.values().length);
+        assertThat(response.superuser()).isTrue();
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
         assertThat(savedContext.getAuthentication().getAuthorities())
@@ -818,6 +819,36 @@ class AuthControllerTests {
                 PasswordPolicy.Rule.CONTAINS_USER_NAME.message()));
     }
 
+    /** The session is the Superuser's exactly when it holds {@code ROLE_SUPERUSER}. */
+    @Test
+    void currentUserReportsASessionHoldingRoleSuperuserAsTheSuperuser() {
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("grace", null,
+                        "ROLE_USER", "ROLE_SUPERUSER", "user:read"),
+                session());
+
+        assertThat(response.superuser()).isTrue();
+        assertThat(response.permissions()).containsExactly("user:read");
+    }
+
+    /**
+     * No number of Permissions makes a session the Superuser's, and the Superuser role is never
+     * reported as a Permission.
+     */
+    @Test
+    void currentUserReportsASessionHoldingEveryPermissionButNotRoleSuperuserAsNotTheSuperuser() {
+        String[] authorities = java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of("ROLE_USER"),
+                        java.util.Arrays.stream(Permission.values()).map(Permission::value))
+                .toArray(String[]::new);
+
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("grace", null, authorities), session());
+
+        assertThat(response.superuser()).isFalse();
+        assertThat(response.permissions()).hasSize(Permission.values().length);
+    }
+
     /** A confined session holds no Permission, so it reports none, and says the change is due. */
     @Test
     void currentUserReportsAConfinedSessionWithNoRole() {
@@ -825,7 +856,7 @@ class AuthControllerTests {
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
         assertThat(response).isEqualTo(new AuthController.UserResponse(
-                "ada", List.of(), true, IDLE_TIMEOUT_SECONDS));
+                "ada", List.of(), false, true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -833,12 +864,12 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "ada", List.of(), false, IDLE_TIMEOUT_SECONDS));
+                        "ada", List.of(), false, false, IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("grace", null, "ROLE_USER", "user:read"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "grace", List.of("user:read"), false, IDLE_TIMEOUT_SECONDS));
+                        "grace", List.of("user:read"), false, false, IDLE_TIMEOUT_SECONDS));
     }
 
     /**

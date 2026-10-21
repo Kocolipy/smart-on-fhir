@@ -4,7 +4,13 @@ Date: 2026-10-03
 
 ## Status
 
-Accepted. It supersedes the original design's
+Superseded by ADR 0015 (Groups carry Permissions; a Superuser authority replaces
+Roles), which restates what survives from it. Until the steps of 0015 that remove
+Roles land (#156 to #159), the mechanism below still describes the running
+application, apart from the connector operations, which 0015 moved behind the
+Superuser (#155).
+
+It was accepted as superseding the original design's
 authorization matrix — reachability per authority (`ROLE_USER`, `ROLE_ADMIN`)
 declared as path and method rules in deployment configuration — replaces the earlier
 method-security plan, and closes App-Standards finding USR-2. The closed

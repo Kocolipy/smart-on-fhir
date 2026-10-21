@@ -139,7 +139,7 @@ class RolePropagationIntegrationTests {
                 .build();
         connectorId = connectors.create("Role propagation", null).id();
         token = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 
@@ -170,7 +170,9 @@ class RolePropagationIntegrationTests {
         });
 
         JsonNode superuser = role(roles, "Superuser");
-        assertThat(strings(superuser.get("permissions"))).hasSize(10);
+        assertThat(strings(superuser.get("permissions"))).containsExactly(
+                "audit:read", "connector:read", "group:read", "group:write", "ops:read",
+                "patient:read", "user:read", "user:write");
         assertThat(superuser.get("groups")).singleElement().satisfies(group -> {
             assertThat(group.get("id").asString()).isEqualTo(SUPERUSERS.toString());
             assertThat(group.get("displayName").asString()).isNotBlank();
