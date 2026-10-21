@@ -221,7 +221,7 @@ describe("SignedInShell's error line", () => {
 
   it("keeps a write the user left behind off the next page's line", async () => {
     const unlock = deferred();
-    await renderSignedIn("/accounts", holding(["user:read", "user:write"]), {
+    await renderSignedIn("/accounts", holding(["user:read", "account:unlock"]), {
       "POST /api/admin/accounts/00000000-0000-4000-8000-000000000001/unlock": unlock.answer,
       [USERS]: json([
         {

@@ -230,7 +230,9 @@ class AuthControllerTests {
         SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("grace");
-        assertThat(response.permissions()).hasSize(Permission.values().length);
+        assertThat(response.permissions()).containsExactly(
+                "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
+                "patient:read", "user:read");
         assertThat(response.superuser()).isTrue();
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
@@ -468,11 +470,12 @@ class AuthControllerTests {
     void currentUserReportsOnlyPermissionsSortedByName() {
         AuthController.UserResponse response = controller.currentUser(
                 new TestingAuthenticationToken("grace", null,
-                        "user:write", "ROLE_USER", "ROLE_ADMIN", "FACTOR_PASSWORD", "audit:read"),
+                        "account:unlock", "ROLE_USER", "ROLE_ADMIN", "FACTOR_PASSWORD",
+                        "audit:read"),
                 session());
 
         assertThat(response.username()).isEqualTo("grace");
-        assertThat(response.permissions()).containsExactly("audit:read", "user:write");
+        assertThat(response.permissions()).containsExactly("account:unlock", "audit:read");
     }
 
     /**
@@ -880,7 +883,7 @@ class AuthControllerTests {
     void currentUserReportsThePermissionAuthoritiesSortedByName() {
         AuthController.UserResponse ordinary = controller.currentUser(
                 new TestingAuthenticationToken(
-                        "ada", null, "user:write", "ROLE_USER", "audit:read", "user:read"),
+                        "ada", null, "user:read", "ROLE_USER", "audit:read", "account:unlock"),
                 session());
         AuthController.UserResponse admin = controller.currentUser(
                 new TestingAuthenticationToken(
@@ -888,7 +891,8 @@ class AuthControllerTests {
                         "audit:read"),
                 session());
 
-        assertThat(ordinary.permissions()).containsExactly("audit:read", "user:read", "user:write");
+        assertThat(ordinary.permissions())
+                .containsExactly("account:unlock", "audit:read", "user:read");
         assertThat(admin.permissions()).containsExactly("audit:read", "ops:read", "patient:read");
     }
 

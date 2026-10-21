@@ -13,7 +13,7 @@ import {
 } from "@/lib/fake-backend.testHelpers";
 import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
 
-import type { Permission } from "./api";
+import { PERMISSIONS, type Permission } from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { authState as buildAuthState, signedIn } from "./auth-context.testHelpers";
 import type { WriteDeclaration } from "./declarations";
@@ -35,14 +35,14 @@ const CHANGE: WriteDeclaration<[], number> = {
   decode: decodeExample,
   method: "POST",
   path: () => "/api/example/change",
-  permission: "user:write",
+  permission: "account:unlock",
 };
 
 /** A write answering no content, its path built from its argument. */
 const DELETE_EXAMPLE: WriteDeclaration<[id: string]> = {
   method: "DELETE",
   path: (id) => `/api/example/${id}`,
-  permission: "user:write",
+  permission: "account:unlock",
 };
 
 /** A write whose JSON body is built from its argument. */
@@ -51,7 +51,7 @@ const CREATE_EXAMPLE: WriteDeclaration<[displayName: string], number> = {
   decode: decodeExample,
   method: "POST",
   path: () => "/api/example",
-  permission: "user:write",
+  permission: "account:unlock",
 };
 
 /** A write sending an empty JSON object as its body. */
@@ -59,7 +59,7 @@ const ROTATE: WriteDeclaration = {
   body: () => ({}),
   method: "POST",
   path: () => "/api/example/rotate",
-  permission: "user:write",
+  permission: "account:unlock",
 };
 
 const expireSession = vi.fn();
@@ -87,7 +87,7 @@ const CHANGED = "POST /api/example/change";
  */
 function renderWrite(
   answers: Answers = {},
-  permissions: Permission[] = ["user:write"],
+  permissions: Permission[] = ["account:unlock"],
   superuser = false,
 ) {
   const backend = fakeBackend(answers);
@@ -239,7 +239,7 @@ describe("useGatedWrite", () => {
   };
 
   it("sends nothing for a session holding every Permission but not the Superuser", async () => {
-    const { backend, result } = renderWrite({}, ["user:read", "user:write", "group:write"]);
+    const { backend, result } = renderWrite({}, [...PERMISSIONS]);
 
     await act(() => result.current.run(SUPERUSER_ONLY));
 
@@ -269,7 +269,7 @@ describe("useGatedWrite", () => {
   });
 
   it("sends the write for a session holding its Permission", async () => {
-    const { result } = renderWrite({ [CHANGED]: json({ value: 5 }) }, ["user:write"]);
+    const { result } = renderWrite({ [CHANGED]: json({ value: 5 }) }, ["account:unlock"]);
     const onOk = vi.fn();
 
     await act(() => result.current.run(CHANGE, { onOk }));

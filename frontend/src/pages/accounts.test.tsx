@@ -614,17 +614,31 @@ describe("Accounts by Permission", () => {
   it("shows an Account admin the Users and Groups", async () => {
     await renderAccounts(
       { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
-      holding(["group:read", "user:read", "user:write"]),
+      holding(["group:read", "user:read", "account:unlock"]),
     );
 
     expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Connectors" })).not.toBeInTheDocument();
-    // The actions its user:write allows.
+    // The actions its account:unlock allows.
     expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
-  it("offers no Unlock or forced change without user:write", async () => {
+  it("shows a helpdesk the Users with Unlock and the forced change, and no Groups", async () => {
+    await renderAccounts(
+      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      holding(["user:read", "account:unlock"]),
+    );
+
+    expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
+    expect([
+      row("grace").getByRole("button", { name: "Unlock grace" }),
+      row("grace").getByRole("button", { name: "Force password change for grace" }),
+    ]).toHaveLength(2);
+  });
+
+  it("offers no Unlock or forced change without account:unlock", async () => {
     await renderAccounts(
       { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
       holding(["user:read"]),

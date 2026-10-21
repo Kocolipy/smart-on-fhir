@@ -30,9 +30,11 @@ import java.util.stream.Collectors;
  *
  * <p>{@link #of} refuses every mapping it cannot stand behind, and reports every problem it found
  * in one message rather than the first, so an operator fixing a deployment does not redeploy once
- * per typo. Refused: a Permission name outside {@link Permission}; a Role defined twice; a mapping
- * entry with no Group id, naming the same Group as another, or naming an undefined Role; anything
- * but exactly one Superuser Group; and a Superuser Group whose Role lacks any Permission. Whether
+ * per typo. Refused: a Permission name outside {@link Permission}; a {@linkplain
+ * Permission#tokenOnly() token-only} Permission, which no session may hold; a Role defined twice;
+ * a mapping entry with no Group id, naming the same Group as another, or naming an undefined Role;
+ * anything but exactly one Superuser Group; and a Superuser Group whose Role lacks any Permission a
+ * session may hold. Whether
  * each Group id RESOLVES to a Group is a question about the directory, which this class cannot
  * see; the startup step that seeds the directory asks it, against {@link #mappedGroupIds()}.
  *
@@ -110,7 +112,10 @@ public final class RoleMapping {
             for (String name : definition.permissions() == null
                     ? List.<String>of() : definition.permissions()) {
                 Optional<Permission> permission = Permission.fromValue(name);
-                if (permission.isPresent()) {
+                if (permission.isPresent() && permission.get().tokenOnly()) {
+                    problems.add("Role '" + definition.name() + "' names Permission '" + name
+                            + "', which only a connector token may carry");
+                } else if (permission.isPresent()) {
                     permissions.add(permission.get());
                 } else {
                     problems.add("Role '" + definition.name() + "' names unknown Permission '"
@@ -126,8 +131,9 @@ public final class RoleMapping {
     }
 
     /**
-     * Exactly one Superuser Group, whose Role holds every Permission: what guarantees the
-     * deployment always has an account able to administer it.
+     * Exactly one Superuser Group, whose Role holds every Permission a session may hold — all but
+     * the {@linkplain Permission#tokenOnly() token-only} ones: what guarantees the deployment
+     * always has an account able to administer it.
      */
     private static UUID superuserGroup(
             List<UUID> designated, Map<UUID, Role> roleByGroup, List<String> problems) {
@@ -144,6 +150,7 @@ public final class RoleMapping {
         Role role = roleByGroup.get(superuserGroupId);
         if (role != null) {
             Set<Permission> missing = EnumSet.allOf(Permission.class);
+            missing.removeIf(Permission::tokenOnly);
             missing.removeAll(role.permissions());
             if (!missing.isEmpty()) {
                 problems.add("Superuser Group " + superuserGroupId + "'s Role '" + role.name()
@@ -189,7 +196,7 @@ public final class RoleMapping {
         return roleByGroup;
     }
 
-    /** The one Group whose Role holds every Permission. */
+    /** The one Group whose Role holds every Permission a session may hold. */
     public UUID superuserGroupId() {
         return superuserGroupId;
     }

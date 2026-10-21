@@ -11,22 +11,25 @@ app:
   authorization:
     # Roles: a name and the Permissions it holds. The Permission names are a
     # closed set defined in code (authorization.domain.Permission); an unknown
-    # name fails startup. The Superuser Role holds every Permission, token-only
-    # ones included: the Superuser session is that Role's Permissions plus
-    # ROLE_SUPERUSER plus every delegatable Permission, in code (ADR 0015).
+    # name fails startup, and so does a token-only one (user:write, group:write):
+    # no session holds those, a Superuser's included. The Superuser Role holds
+    # every other Permission: the Superuser session is that Role's Permissions
+    # plus ROLE_SUPERUSER plus every delegatable Permission, in code (ADR 0015).
     roles:
       - name: Superuser
         permissions:
           - user:read
-          - user:write
+          - account:unlock
           - group:read
-          - group:write
           - audit:read
           - connector:read
           - ops:read
           - patient:read
       - name: Account admin
-        permissions: [user:read, user:write, group:read]
+        permissions: [user:read, account:unlock, group:read]
+      - name: Helpdesk
+        # The helpdesk power alone: see the Users and Unlock or force-change one.
+        permissions: [user:read, account:unlock]
       - name: Auditor
         permissions: [audit:read]
       - name: Connector admin
@@ -55,6 +58,8 @@ app:
         role: Connector admin
       - id: 00000000-0000-4000-8000-00000000a005
         role: Monitoring
+      - id: 00000000-0000-4000-8000-00000000a006
+        role: Helpdesk
 
   # One Group per non-Superuser Role above, each with one User in it, so local
   # runs and the e2e suite have a User per Role to sign in as, plus a User with
@@ -89,3 +94,6 @@ app:
       - id: 00000000-0000-4000-8000-00000000a005
         display-name: Monitoring
         member: monitoring
+      - id: 00000000-0000-4000-8000-00000000a006
+        display-name: Helpdesk
+        member: helpdesk

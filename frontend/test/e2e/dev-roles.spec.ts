@@ -56,6 +56,12 @@ const EXPECTED: Record<
     unlock: false,
   },
   monitoring: { accounts: null, audit: false, createConnector: false, unlock: false },
+  helpdesk: {
+    accounts: { connectors: false, groups: false, users: true },
+    audit: false,
+    createConnector: false,
+    unlock: true,
+  },
 };
 
 async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
@@ -145,7 +151,7 @@ test.describe("development Roles", () => {
         expect(status, `GET ${path} for ${username}`).toBe(held.includes(permission) ? 200 : 403);
       }
       // An action, with a valid CSRF token so the refusal is the Permission's: an
-      // unknown id answers 404 to a holder of user:write, and 403 to anyone else.
+      // unknown id answers 404 to a holder of account:unlock, and 403 to anyone else.
       const unlock = await postAdminAction(page, crypto.randomUUID(), "unlock");
       expect(unlock.status(), `unlock for ${username}`).toBe(expected.unlock ? 404 : 403);
       // Connector administration is the Superuser's alone: refused to every Role, with

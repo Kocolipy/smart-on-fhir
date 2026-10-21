@@ -2,19 +2,21 @@ import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 import { apiFetch, type ApiResult } from "@/lib/http";
 
 /**
- * Every Permission the backend grants: the closed set its `Permission` enum
- * defines, spelled as `/api/auth/me` reports them. A value outside this list is
- * refused, never passed through, because the guards read it.
+ * Every Permission the backend grants a session: the closed set its
+ * `Permission` enum defines, less `user:write` and `group:write`, which only a
+ * connector token carries. Spelled as `/api/auth/me` reports them. A value
+ * outside this list is refused, never passed through, because the guards read
+ * it. `account:unlock` is the helpdesk Permission: Unlock and the forced
+ * password change.
  */
 export const PERMISSIONS = [
+  "account:unlock",
   "audit:read",
   "connector:read",
   "group:read",
-  "group:write",
   "ops:read",
   "patient:read",
   "user:read",
-  "user:write",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

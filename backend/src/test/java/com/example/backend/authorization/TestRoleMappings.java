@@ -20,13 +20,18 @@ public final class TestRoleMappings {
     public static final UUID SUPERUSER_GROUP_ID =
             UUID.fromString("00000000-0000-4000-8000-00000000a001");
 
-    /** Every Permission's name, in declaration order. */
-    public static final List<String> EVERY_PERMISSION =
-            Arrays.stream(Permission.values()).map(Permission::value).toList();
+    /**
+     * Every Permission a session may hold — all but the token-only ones, which no Role may name —
+     * in declaration order.
+     */
+    public static final List<String> EVERY_PERMISSION = Arrays.stream(Permission.values())
+            .filter(permission -> !permission.tokenOnly())
+            .map(Permission::value)
+            .toList();
 
     /**
      * What a Superuser's session holds: baseline access, {@code ROLE_SUPERUSER} and every
-     * Permission. For a test that builds a session by hand rather than signing in.
+     * Permission a session may hold. For a test that builds a session by hand rather than signing in.
      */
     public static final String[] SUPERUSER_AUTHORITIES = java.util.stream.Stream.concat(
                     java.util.stream.Stream.of("ROLE_USER", "ROLE_SUPERUSER"),
@@ -36,7 +41,7 @@ public final class TestRoleMappings {
     private TestRoleMappings() {
     }
 
-    /** One Role holding every Permission, conferred by the Superuser Group alone. */
+    /** One Role holding every session Permission, conferred by the Superuser Group alone. */
     public static RoleMapping superuserOnly() {
         return RoleMapping.of(
                 List.of(new RoleDefinition("Superuser", EVERY_PERMISSION)),

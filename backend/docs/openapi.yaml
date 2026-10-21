@@ -30,8 +30,9 @@ info:
     `connectorBearer: []` a valid token alone; `sessionCookie: []` is
     self-service — any signed-in session with baseline access, no Permission;
     `sessionCookie: [<permission>]` names the one Permission the operation
-    requires, from the closed set `user:read`, `user:write`, `group:read`,
-    `group:write`, `audit:read`, `connector:read`, `ops:read`, `patient:read`;
+    requires, from the Permissions a session may hold: `user:read`,
+    `account:unlock`, `group:read`, `audit:read`, `connector:read`, `ops:read`,
+    `patient:read` (`user:write` and `group:write` are a connector token's alone);
     `sessionCookie: [superuser]` names the Superuser instead, which is not a
     Permission: connector creation and deletion and every token operation
     require it (ADR 0015). A session's Permissions are
@@ -859,7 +860,7 @@ paths:
         written and no change required.
       operationId: unlockUser
       security:
-        - sessionCookie: [user:write]
+        - sessionCookie: [account:unlock]
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -870,7 +871,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller does not hold `user:write` (see `PermissionRequired`, whose
+            The caller does not hold `account:unlock` (see `PermissionRequired`, whose
             `ApiError` body it carries), or the target is the caller's own account,
             whatever Permissions it holds: recovering from a self-inflicted lockout
             takes a second administrator, and the operation refuses it with no
@@ -899,7 +900,7 @@ paths:
         Idempotent — an account already flagged is answered 200 unchanged.
       operationId: forcePasswordChange
       security:
-        - sessionCookie: [user:write]
+        - sessionCookie: [account:unlock]
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -910,7 +911,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller does not hold `user:write` (see `PermissionRequired`, whose
+            The caller does not hold `account:unlock` (see `PermissionRequired`, whose
             `ApiError` body it carries); or the target is the caller's own account,
             whatever Permissions it holds — the Bootstrap Admin's included; or the
             target is the Bootstrap Admin, whose password change nobody may force.
@@ -3221,14 +3222,13 @@ components:
           items:
             type: string
             enum:
+              - account:unlock
               - audit:read
               - connector:read
               - group:read
-              - group:write
               - ops:read
               - patient:read
               - user:read
-              - user:write
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
             are the baseline `patient:read`, which every active User holds, together with the union of the Roles of every mapped Group the User was a
@@ -3551,14 +3551,13 @@ components:
           items:
             type: string
             enum:
+              - account:unlock
               - audit:read
               - connector:read
               - group:read
-              - group:write
               - ops:read
               - patient:read
               - user:read
-              - user:write
         groups:
           type: array
           description: |
@@ -3932,8 +3931,8 @@ components:
         type: string
         enum: [user:read, user:write, group:read, group:write]
       description: |
-        What the token may do over SCIM, from the same Permission vocabulary a
-        User's Roles grant (ADR 0010): `user:read` for Users reads, `user:write`
+        What the token may do over SCIM, from a token's own vocabulary
+        (ADR 0010, ADR 0015): `user:read` for Users reads, `user:write`
         for Users `POST`/`PUT`/`PATCH`/`DELETE`, `group:read` / `group:write`
         likewise for Groups. Write does NOT imply read. Only these four can be
         carried by a token; any other Permission, an unknown name or an empty list

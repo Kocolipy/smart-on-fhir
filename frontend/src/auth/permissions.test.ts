@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { PERMISSIONS } from "./api";
 import { holds, holdsAny, mayOpen, requirementOf, SUPERUSER } from "./permissions";
 
 describe("holds", () => {
@@ -7,7 +8,7 @@ describe("holds", () => {
     const user = { permissions: ["audit:read", "user:read"] as const };
     expect(holds(user, "user:read")).toBe(true);
     expect(holds(user, "audit:read")).toBe(true);
-    expect(holds(user, "user:write")).toBe(false);
+    expect(holds(user, "account:unlock")).toBe(false);
   });
 
   it("is false for a session with no Permission, and for no session at all", () => {
@@ -28,8 +29,7 @@ describe("holds the Superuser", () => {
   });
 
   it("is not conferred by holding every Permission", () => {
-    const everyPermission = ["audit:read", "group:read", "user:read", "user:write"] as const;
-    expect(holds({ permissions: everyPermission, superuser: false }, SUPERUSER)).toBe(false);
+    expect(holds({ permissions: [...PERMISSIONS], superuser: false }, SUPERUSER)).toBe(false);
   });
 
   it("is false for no session, and for one whose standing is not known yet", () => {

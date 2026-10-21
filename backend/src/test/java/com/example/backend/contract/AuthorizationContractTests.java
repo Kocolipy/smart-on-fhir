@@ -255,6 +255,33 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         assertThat(failures).isEmpty();
     }
 
+    /**
+     * The helpdesk power: Unlock and the forced password change, and nothing else, are declared
+     * under {@code account:unlock}, a Permission a Group may carry and a token may not.
+     */
+    @Test
+    void unlock_and_the_forced_change_are_declared_under_account_unlock() {
+        assertThat(withAccess(Access.PERMISSION))
+                .filteredOn(operation -> "account:unlock".equals(
+                        operation.requirement().permission()))
+                .extracting(Operation::toString)
+                .containsExactlyInAnyOrder(
+                        "POST /api/admin/accounts/{id}/unlock",
+                        "POST /api/admin/accounts/{id}/force-password-change");
+    }
+
+    /** No session holds a token-only Permission, so no session operation may require one. */
+    @Test
+    void no_session_operation_declares_a_token_only_permission() {
+        List<String> tokenOnly = Arrays.stream(Permission.values())
+                .filter(Permission::tokenOnly)
+                .map(Permission::value)
+                .toList();
+        assertThat(withAccess(Access.PERMISSION))
+                .extracting(operation -> operation.requirement().permission())
+                .doesNotContainAnyElementsOf(tokenOnly);
+    }
+
     @Test
     void self_service_needs_no_permission() throws Exception {
         List<Operation> selfService = withAccess(Access.SELF_SERVICE);

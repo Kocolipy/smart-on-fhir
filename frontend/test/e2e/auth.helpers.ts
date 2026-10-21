@@ -39,7 +39,9 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fi
  * Superuser's User is the Bootstrap Admin, on the password `auth.setup.ts`
  * settles; its session holds the Role's Permissions and every delegatable one.
  * The Connector admin holds `connector:read` and nothing else: it lists
- * connectors and administers none, which only a Superuser does.
+ * connectors and administers none, which only a Superuser does. The Helpdesk
+ * holds `user:read` and the helpdesk Permission `account:unlock`: it lists the
+ * Users and Unlocks or forces a password change on one, and nothing more.
  */
 export const DEV_ROLES = {
   superuser: {
@@ -47,21 +49,20 @@ export const DEV_ROLES = {
     password: ADMIN_PASSWORD,
     superuser: true,
     permissions: [
+      "account:unlock",
       "audit:read",
       "connector:read",
       "group:read",
-      "group:write",
       "ops:read",
       "patient:read",
       "user:read",
-      "user:write",
     ],
   },
   accountAdmin: {
     username: "account-admin",
     password: FIXTURE_PASSWORD,
     superuser: false,
-    permissions: ["group:read", "patient:read", "user:read", "user:write"],
+    permissions: ["account:unlock", "group:read", "patient:read", "user:read"],
   },
   auditor: {
     username: "auditor",
@@ -80,6 +81,12 @@ export const DEV_ROLES = {
     password: FIXTURE_PASSWORD,
     superuser: false,
     permissions: ["ops:read", "patient:read"],
+  },
+  helpdesk: {
+    username: "helpdesk",
+    password: FIXTURE_PASSWORD,
+    superuser: false,
+    permissions: ["account:unlock", "patient:read", "user:read"],
   },
 } as const;
 

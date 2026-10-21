@@ -65,7 +65,7 @@ class ScimGroupServiceTests {
     /** The Superuser Group, as the test configuration maps it, plus one ordinary mapped Group. */
     private static final RoleMapping ROLE_MAPPING = RoleMapping.of(
             List.of(new RoleMapping.RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                    new RoleMapping.RoleDefinition("Helpdesk", List.of("user:read", "user:write"))),
+                    new RoleMapping.RoleDefinition("Helpdesk", List.of("user:read", "account:unlock"))),
             List.of(new RoleMapping.GroupAssignment(
                             TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
                     new RoleMapping.GroupAssignment(HELPDESK_GROUP_ID, "Helpdesk", false)));

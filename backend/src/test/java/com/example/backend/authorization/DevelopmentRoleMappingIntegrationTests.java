@@ -10,6 +10,7 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -38,6 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -68,9 +70,10 @@ class DevelopmentRoleMappingIntegrationTests {
     private static final UUID ACCOUNT_ADMINS =
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
 
+    /** Every Permission a session may hold, sorted: no session holds the token-only writes. */
     private static final List<String> EVERY_PERMISSION_SORTED = List.of(
-            "audit:read", "connector:read", "group:read", "group:write", "ops:read",
-            "patient:read", "user:read", "user:write");
+            "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
+            "patient:read", "user:read");
 
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -122,13 +125,15 @@ class DevelopmentRoleMappingIntegrationTests {
     @Test
     void eachDevelopmentRolesUserSignsInHoldingThatRolesPermissions() throws Exception {
         assertThat(permissionsOnMe(logIn("account-admin", FIXTURE_PASSWORD)))
-                .containsExactly("group:read", "patient:read", "user:read", "user:write");
+                .containsExactly("account:unlock", "group:read", "patient:read", "user:read");
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
                 .containsExactly("audit:read", "patient:read");
         assertThat(permissionsOnMe(logIn("connector-admin", FIXTURE_PASSWORD)))
                 .containsExactly("connector:read", "patient:read");
         assertThat(permissionsOnMe(logIn("monitoring", FIXTURE_PASSWORD)))
                 .containsExactly("ops:read", "patient:read");
+        assertThat(permissionsOnMe(logIn("helpdesk", FIXTURE_PASSWORD)))
+                .containsExactly("account:unlock", "patient:read", "user:read");
     }
 
     /** The Superuser Group is the seeded Admin group, so the Bootstrap Admin holds everything. */
@@ -143,7 +148,8 @@ class DevelopmentRoleMappingIntegrationTests {
     void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
         assertThat(me(logIn("test-admin", "test-admin-password")).get("superuser").asBoolean())
                 .isTrue();
-        for (String fixture : List.of("account-admin", "auditor", "connector-admin", "monitoring")) {
+        for (String fixture : List.of(
+                "account-admin", "auditor", "connector-admin", "monitoring", "helpdesk")) {
             assertThat(me(logIn(fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
                     .as("%s is not the Superuser", fixture).isFalse();
         }
@@ -156,8 +162,8 @@ class DevelopmentRoleMappingIntegrationTests {
         addMember(ACCOUNT_ADMINS, auditor);
         try {
             assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                    .containsExactly("audit:read", "group:read", "patient:read", "user:read",
-                            "user:write");
+                    .containsExactly("account:unlock", "audit:read", "group:read",
+                            "patient:read", "user:read");
         } finally {
             removeMember(ACCOUNT_ADMINS, auditor);
         }
@@ -197,8 +203,50 @@ class DevelopmentRoleMappingIntegrationTests {
         SecurityContext security = session.getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(security.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .contains("group:read", "user:read", "user:write")
+                .contains("account:unlock", "group:read", "user:read")
                 .doesNotContain("audit:read", "ops:read");
+    }
+
+    /**
+     * The helpdesk power through a Group: the Helpdesk fixture's Group confers {@code
+     * account:unlock}, and with it its member Unlocks another User and forces its password change.
+     */
+    @Test
+    void aMemberOfAGroupCarryingAccountUnlockUnlocksAndForcesAChangeOnAnotherUser()
+            throws Exception {
+        UUID other = anotherUser("helpdesk-target");
+        Cookie helpdesk = logIn("helpdesk", FIXTURE_PASSWORD);
+
+        assertThat(List.of(
+                        status(post("/api/admin/accounts/{id}/unlock", other), helpdesk),
+                        status(post("/api/admin/accounts/{id}/force-password-change", other),
+                                helpdesk)))
+                .containsExactly(200, 200);
+    }
+
+    /** A User whose Groups carry no {@code account:unlock} is refused both, with the bare 403. */
+    @Test
+    void aUserWithoutAccountUnlockIsRefusedUnlockAndTheForcedChange() throws Exception {
+        UUID other = anotherUser("helpdesk-refused-target");
+        Cookie auditor = logIn("auditor", FIXTURE_PASSWORD);
+
+        assertThat(List.of(
+                        status(post("/api/admin/accounts/{id}/unlock", other), auditor),
+                        status(post("/api/admin/accounts/{id}/force-password-change", other),
+                                auditor)))
+                .containsExactly(403, 403);
+    }
+
+    private int status(MockHttpServletRequestBuilder action, Cookie session) throws Exception {
+        return mvc.perform(SessionCsrf.withCsrf(mvc, action.cookie(session)))
+                .andReturn().getResponse().getStatus();
+    }
+
+    /** A User of this test's own, with a password and in no Group, so no other test depends on it. */
+    private UUID anotherUser(String prefix) {
+        String userName = prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
+        return new TransactionTemplate(transactions).execute(
+                status -> users.create(ScimIdentities.user(userName)).id());
     }
 
     private List<String> permissionsOnMe(Cookie session) throws Exception {

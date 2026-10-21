@@ -10,7 +10,7 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
-import com.example.backend.authorization.domain.Permission;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
 import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
@@ -77,9 +77,8 @@ class DormancyServiceTests {
 
     private static final RoleMapping MAPPING = RoleMapping.of(
             List.of(
-                    new RoleDefinition("Superuser",
-                            Arrays.stream(Permission.values()).map(Permission::value).toList()),
-                    new RoleDefinition("Account admin", List.of("user:read", "user:write"))),
+                    new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
+                    new RoleDefinition("Account admin", List.of("user:read", "account:unlock"))),
             List.of(
                     new GroupAssignment(SUPERUSER_GROUP, "Superuser", true),
                     new GroupAssignment(ACCOUNT_ADMINS, "Account admin", false)));

@@ -10,7 +10,8 @@ shipped a lockout that lifted on a timer; and the dormancy lockout and Role
 revocation (2026-10-03), which added a second cause under the same rule. The
 Accounts page's Unlock, the password-change lifecycle (ADR 0008) and the
 change-required confinement build on them. ADR 0010 replaced the Admin authority
-with Permissions: Unlock requires `user:write`.
+with Permissions: Unlock required `user:write`, and since 2026-10-21 requires
+`account:unlock` (see Amendments).
 
 ## Context
 
@@ -146,3 +147,13 @@ with the standard's soft-delete and tombstone requirements.
   `failed_login_attempts` equal to the limit. The Bootstrap Admin's run is
   serialized the same way and still never locks.
   `LoginStateSerializationIntegrationTests` proves it against a real database.
+- 2026-10-21 (#157, ADR 0015): Unlock requires `account:unlock` (previously
+  `user:write`), and so does the forced password change. `user:write` meant two
+  different powers: over SCIM it sets any User's password, which is
+  Superuser-equivalent, while on the session side it guarded only these two
+  actions, which cannot escalate. `account:unlock` is the helpdesk Permission: a
+  Group may carry it and a connector token may not, and `user:write` is now a
+  token's alone. Who may be unlocked is unchanged: any User but the caller itself,
+  Superusers included, and the forced change also refuses the Bootstrap Admin.
+  There is no rule refusing a target that holds more than the caller. Refusals
+  stay a generic `403`.

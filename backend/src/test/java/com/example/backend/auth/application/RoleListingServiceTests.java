@@ -31,7 +31,7 @@ class RoleListingServiceTests {
 
     private final RoleMapping mapping = RoleMapping.of(
             List.of(new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                    new RoleDefinition("Helpdesk", List.of("user:write", "group:read", "user:read")),
+                    new RoleDefinition("Helpdesk", List.of("user:read", "group:read", "account:unlock")),
                     new RoleDefinition("Auditor", List.of("audit:read")),
                     new RoleDefinition("Unassigned", List.of())),
             List.of(new GroupAssignment(SUPERUSERS, "Superuser", true),
@@ -53,7 +53,7 @@ class RoleListingServiceTests {
                 .containsExactly("Auditor", "Helpdesk", "Superuser", "Unassigned");
         assertThat(roles.get(1).permissions())
                 .as("sorted by name, whatever order configuration gave")
-                .containsExactly("group:read", "user:read", "user:write");
+                .containsExactly("account:unlock", "group:read", "user:read");
         assertThat(roles.get(1).groups()).as("in mapping order").containsExactly(
                 new RoleSummary.MappedGroup(SERVICE_DESK, "Service desk", false),
                 new RoleSummary.MappedGroup(HELPDESK, "Helpdesk", false));

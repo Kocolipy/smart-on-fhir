@@ -102,10 +102,13 @@ class EpicLoginIntegrationTests {
     /** The Admin group, which the test role mapping maps to the Superuser Role. */
     private static final UUID ADMIN_GROUP = UUID.fromString("00000000-0000-4000-8000-00000000a001");
 
-    /** Every Permission the Superuser Role holds, sorted as {@code /api/auth/me} reports them. */
+    /**
+     * Every Permission the Superuser Role holds — every one a session may hold, the token-only
+     * writes never — sorted as {@code /api/auth/me} reports them.
+     */
     private static final List<String> SUPERUSER_PERMISSIONS = List.of(
-            "audit:read", "connector:read", "group:read", "group:write", "ops:read",
-            "patient:read", "user:read", "user:write");
+            "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
+            "patient:read", "user:read");
 
     /** When the change-required flag of a User provisioned flagged was set. */
     private static final Instant FLAGGED_SINCE = Instant.parse("2026-10-01T09:00:00Z");

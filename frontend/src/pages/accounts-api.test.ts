@@ -311,7 +311,7 @@ describe("the listing reads", () => {
 
 describe("the User actions", () => {
   it.each(["unlock", "force-password-change"] as const)(
-    "posts %s, with no body, to the User's own path under user:write",
+    "posts %s, with no body, to the User's own path under account:unlock",
     (action) => {
       expect({
         body: USER_ACTION.body,
@@ -322,7 +322,7 @@ describe("the User actions", () => {
         body: undefined,
         method: "POST",
         path: `/api/admin/accounts/u-1/${action}`,
-        permission: "user:write",
+        permission: "account:unlock",
       });
     },
   );

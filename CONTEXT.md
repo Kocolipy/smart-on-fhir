@@ -217,19 +217,22 @@ also holds every delegatable Permission, and `/api/auth/me` reports it as
 _Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
 
 **Delegatable Permission**:
-A Permission a Group may carry: `user:read`, `group:read`, `audit:read`,
-`ops:read` and `connector:read`.
+A Permission a Group may carry: `user:read`, `account:unlock`, `group:read`,
+`audit:read`, `ops:read` and `connector:read`. `account:unlock` is the helpdesk
+Permission: Unlock and the forced password change.
 
 **Token-grantable Permission**:
 A Permission a connector token may carry: `user:read`, `user:write`, `group:read`
-and `group:write`. The write halves are token-only.
+and `group:write`. The write halves are token-only: no session holds `user:write`
+or `group:write`, a Superuser's included.
 
 **Superuser Group**:
-The one mapped Group whose Role holds every Permission: the Admin group.
+The one mapped Group whose Role holds every Permission a session may hold: the
+Admin group.
 
 **Superuser Role**:
 The Role the Superuser Group confers, required at startup to hold every
-Permission.
+Permission a session may hold, and refused one that is token-only.
 
 **Deny by default**:
 The rule that every operation of the application chain declares what it needs —

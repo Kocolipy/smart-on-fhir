@@ -8,8 +8,9 @@ tags: [authorization, permissions, roles, superuser]
 # Authorization
 
 **Permission** and **Role** — a Permission is one fine-grained power from a
-closed set defined in code (`user:read`, `user:write`, `group:read`,
-`group:write`, `audit:read`, `connector:read`, `ops:read`, `patient:read`); a
+closed set defined in code (`user:read`, `user:write`, `account:unlock`,
+`group:read`, `group:write`, `audit:read`, `connector:read`, `ops:read`,
+`patient:read`); a
 new one is a code change, because it means something only once a protected
 action declares it. A Role is a named set of them, defined in deployment
 configuration. Neither is stored in the database, and nothing at runtime creates
@@ -17,11 +18,13 @@ or changes one.
 
 **Delegatable** and **token-grantable** — the two flags the vocabulary carries
 (ADR 0015). A delegatable Permission is what a Group may carry: `user:read`,
-`group:read`, `audit:read`, `ops:read` and `connector:read`. A token-grantable
+`account:unlock`, `group:read`, `audit:read`, `ops:read` and `connector:read`. A token-grantable
 one is what a connector token may carry: `user:read`, `user:write`, `group:read`
 and `group:write` ([connectors](./connectors.md)). `user:read` and `group:read`
-carry both; the write halves are token-only; `patient:read` is neither — it is
-the baseline Permission below. The two vocabularies are enforced separately: a
+carry both; the write halves are token-only — no session holds them, a
+Superuser's included, and a Role that lists one fails startup; `patient:read` is
+neither — it is the baseline Permission below. `account:unlock` is delegatable
+only: it is the helpdesk Permission, and over SCIM there is no Unlock. The two vocabularies are enforced separately: a
 session never reaches the SCIM chain and a token never reaches the application
 chain.
 
@@ -46,7 +49,9 @@ self-service away.
 **Admin** — a User holding at least one administrative Permission through its
 Roles. Apart from the Superuser there is no administrative authority of its own:
 what an Admin may do is exactly its Permissions — a helpdesk operator holding
-`user:read` and `user:write` sees and unlocks Users, and nothing more.
+`user:read` and `account:unlock` sees, unlocks and forces a password change on
+Users, and nothing more. Its reach is every User but itself, a Superuser included;
+there is no rule refusing a target that holds more than the caller.
 
 ## Deny by default
 
@@ -61,7 +66,7 @@ declares nothing is refused. Four kinds of operation:
   request, so there is no caller-supplied id to check ownership against.
 - **One Permission** — every other operation requires exactly one, declared on
   its handler with method security and repeated by the chain as a backstop:
-  `user:read` lists Users; `user:write` unlocks and forces a password change;
+  `user:read` lists Users; `account:unlock` unlocks and forces a password change;
   `group:read` lists Groups and reads the Roles and the role mapping; `audit:read`
   lists audit events; `connector:read` lists connectors; `ops:read` reaches every
   actuator endpoint but health, on whichever port actuator is served.
@@ -141,7 +146,8 @@ for its shape. The rules:
   so reordering configuration lists does not change it and any change of meaning
   does.
 
-**Superuser Group** — the one mapped Group whose Role holds every Permission. A
+**Superuser Group** — the one mapped Group whose Role holds every Permission a
+session may hold (all but the token-only writes). A
 direct member of it is the Superuser, whose session holds what its Role confers
 and `ROLE_SUPERUSER` and every delegatable Permission beside it. It
 is the [Admin group](./directory.md): seeding creates the Admin group under the
@@ -150,8 +156,8 @@ before it exists. An Admin group seeded earlier under another id keeps that id,
 and startup then refuses the mapping rather than rewriting the id. Over SCIM it
 cannot be renamed or deleted, and the Bootstrap Admin's membership of it cannot
 change; its other members can all be removed. That frozen membership, together
-with startup's refusal of a Superuser Role missing any Permission, is what
-guarantees a User holding every Permission (see
+with startup's refusal of a Superuser Role missing any Permission a session may
+hold, is what guarantees a User holding every one (see
 [Recovery guard](./authentication.md)).
 
 **Role assignment** — holding a Role is being a direct member of a mapped
@@ -175,10 +181,11 @@ itself: no endpoint creates, changes or deletes a Role or a mapping entry. The
 SPA has no view of it.
 
 **Development fixtures** — the shipped mapping (`authorization.yaml`) is a
-development default: Superuser, Account admin, Auditor, Connector admin and
-Monitoring, each Role but Superuser conferred by a Group with one User in it.
-The Connector admin holds `connector:read` and nothing else: it lists connectors
-and administers none.
+development default: Superuser, Account admin, Auditor, Connector admin,
+Monitoring and Helpdesk, each Role but Superuser conferred by a Group with one User
+in it. The Connector admin holds `connector:read` and nothing else: it lists
+connectors and administers none. The Helpdesk holds `user:read` and
+`account:unlock`: it lists Users and unlocks or forces a password change on one.
 With `APP_DEV_FIXTURES_ENABLED=true` startup seeds those Groups under the
 mapping's ids and their Users with `APP_DEV_FIXTURES_PASSWORD`, never
 overwriting one that exists, together with two Users in no Group: `user`, holding

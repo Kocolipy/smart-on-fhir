@@ -332,7 +332,7 @@ class SecurityConfigTests {
     @Test
     void anotherPermissionCannotReachTheAccountsListing() throws Exception {
         mvc.perform(get("/api/admin/accounts")
-                        .session(authenticatedSession("ROLE_USER", "audit:read", "user:write")))
+                        .session(authenticatedSession("ROLE_USER", "audit:read", "account:unlock")))
                 .andExpect(status().isForbidden());
     }
 

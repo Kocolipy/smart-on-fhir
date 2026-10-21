@@ -157,12 +157,12 @@ class RolePropagationIntegrationTests {
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
         JsonNode roles = json.readTree(listed.getResponse().getContentAsString());
         assertThat(roles.valueStream().map(role -> role.get("name").asString()).toList())
-                .containsExactly("Account admin", "Auditor", "Connector admin", "Monitoring",
-                        "Superuser");
+                .containsExactly("Account admin", "Auditor", "Connector admin", "Helpdesk",
+                        "Monitoring", "Superuser");
 
         JsonNode accountAdmin = role(roles, "Account admin");
         assertThat(strings(accountAdmin.get("permissions")))
-                .containsExactly("group:read", "user:read", "user:write");
+                .containsExactly("account:unlock", "group:read", "user:read");
         assertThat(accountAdmin.get("groups")).singleElement().satisfies(group -> {
             assertThat(group.get("id").asString()).isEqualTo(ACCOUNT_ADMINS.toString());
             assertThat(group.get("displayName").asString()).isEqualTo("Account admins");
@@ -171,8 +171,8 @@ class RolePropagationIntegrationTests {
 
         JsonNode superuser = role(roles, "Superuser");
         assertThat(strings(superuser.get("permissions"))).containsExactly(
-                "audit:read", "connector:read", "group:read", "group:write", "ops:read",
-                "patient:read", "user:read", "user:write");
+                "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
+                "patient:read", "user:read");
         assertThat(superuser.get("groups")).singleElement().satisfies(group -> {
             assertThat(group.get("id").asString()).isEqualTo(SUPERUSERS.toString());
             assertThat(group.get("displayName").asString()).isNotBlank();
@@ -317,7 +317,7 @@ class RolePropagationIntegrationTests {
             assertRoleChange("ROLE_GRANT", auditor, ACCOUNT_ADMINS, "Account admin");
 
             Cookie next = logIn("auditor");
-            assertThat(permissions(next)).contains("audit:read", "user:read", "user:write");
+            assertThat(permissions(next)).contains("account:unlock", "audit:read", "user:read");
             assertThat(status(get("/api/admin/accounts").cookie(next))).isEqualTo(200);
         } finally {
             scimPatch(ACCOUNT_ADMINS, """

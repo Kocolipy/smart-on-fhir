@@ -43,7 +43,7 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
   test.setTimeout(120_000);
   const returning = await freshBrowser(browser);
   try {
-    // An Account admin — the Role holding user:write, not the Superuser — reads the list.
+    // An Account admin — a Role holding account:unlock, not the Superuser — reads the list.
     await loginAsRole(page, "accountAdmin");
     await page.goto("/accounts");
     const row = rowOf(page, usersTable(page), DORMANT);

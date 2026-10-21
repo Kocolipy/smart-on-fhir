@@ -57,9 +57,8 @@ app:
       - name: Superuser
         permissions:
           - user:read
-          - user:write
+          - account:unlock
           - group:read
-          - group:write
           - audit:read
           - connector:read
           - ops:read

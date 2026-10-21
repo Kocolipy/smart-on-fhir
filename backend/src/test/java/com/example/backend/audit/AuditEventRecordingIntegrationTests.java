@@ -484,7 +484,8 @@ class AuditEventRecordingIntegrationTests {
 
         assertThat(rowsContaining("INSUFFICIENT_PERMISSIONS")).isEqualTo(2);
         for (String disclosed : List.of(
-                "audit:read", "user:write", "ROLE_", "Superuser", "Account admin", "Auditor",
+                "audit:read", "account:unlock", "user:write", "ROLE_", "Superuser",
+                "Account admin", "Auditor",
                 "hasAuthority", "permission:")) {
             assertThat(rowsContaining(disclosed)).as("a row naming %s", disclosed).isZero();
         }

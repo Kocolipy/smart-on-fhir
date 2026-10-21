@@ -19,7 +19,7 @@ app:
   authorization:
     roles:
       - name: Account admin
-        permissions: [user:read, user:write, group:read]
+        permissions: [user:read, account:unlock, group:read]
       # ...
     groups:
       - id: 00000000-0000-4000-8000-00000000a001 # a Group's SCIM stable id
@@ -35,12 +35,16 @@ The Permission names are a closed set defined in code, in
 `patient:read` is also a **baseline Permission**: every active User holds it at
 sign-in whatever its Groups, so no Role needs to list it for its members to read
 a patient. A session confined by a required password change does not hold it.
-The Superuser Role must still list it, as it must list every Permission.
+The Superuser Role must still list it, as it must list every Permission a
+session may hold. The token-only `user:write` and `group:write` are the
+exception: no session holds them, a Superuser's included, so no Role may list
+them (ADR 0015).
 
-Startup fails, naming every problem in one message, on: an unknown Permission; a Role defined
+Startup fails, naming every problem in one message, on: an unknown Permission; a
+token-only Permission (`user:write`, `group:write`) in any Role; a Role defined
 twice or without a name; an entry with no Group id, mapping a Group id twice, or
 naming an undefined Role; anything but exactly one `superuser: true` entry; a
-Superuser Role missing any Permission; and a mapped Group id that does not
+Superuser Role missing any Permission a session may hold; and a mapped Group id that does not
 resolve to a Group, or a Superuser Group that is not the reserved Admin group.
 The Superuser Group IS the Admin group: seeding creates the Admin group under
 that entry's id, so give the Superuser entry the id the Admin group should have —
@@ -69,9 +73,10 @@ never overwrite a User or Group that already exists.
 | `APP_DEV_FIXTURES_PASSWORD` | none    | Every fixture User's password; required when enabled, with no fallback   |
 
 Each development Role's Permissions are in `authorization.yaml`; the Superuser
-Role holds every one. The Connector admin Role holds `connector:read` only: creating
+Role holds every one a session may. The Connector admin Role holds `connector:read` only: creating
 and deleting connectors and minting their tokens are the Superuser's alone, not a
-Permission any Role holds.
+Permission any Role holds. The Helpdesk Role holds `user:read` and the helpdesk
+Permission `account:unlock`, which Unlock and the forced password change require.
 
 | Role            | Fixture Group      | Fixture User        |
 | --------------- | ------------------ | ------------------- |
@@ -80,6 +85,7 @@ Permission any Role holds.
 | Auditor         | `Auditors`         | `auditor`           |
 | Connector admin | `Connector admins` | `connector-admin`   |
 | Monitoring      | `Monitoring`       | `monitoring`        |
+| Helpdesk        | `Helpdesk`         | `helpdesk`          |
 
 A session records the hash of the mapping its Permissions were resolved under,
 and startup ends every authenticated session issued under a different hash, so a
