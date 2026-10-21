@@ -203,6 +203,23 @@ class ScimSeedServiceTests {
     }
 
     /**
+     * With the development fixtures on, the Bootstrap Admin owes no change, so a local run signs
+     * straight in. Only the flag differs: it is still the reserved Admin, on its configured
+     * password.
+     */
+    @Test
+    void the_bootstrap_admin_is_seeded_with_no_change_required_for_development() {
+        seeding.seed(RECOVERY, false);
+
+        ScimUser bootstrapAdmin =
+                users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
+        assertThat(bootstrapAdmin.login().isPasswordChangeRequired()).isFalse();
+        assertThat(passwordEncoder.matches(
+                        RECOVERY.password(), bootstrapAdmin.login().passwordHash()))
+                .isTrue();
+    }
+
+    /**
      * A restart does not re-impose the change on a Bootstrap Admin that already completed it:
      * that would force a fresh credential on every boot.
      */

@@ -20,8 +20,10 @@ change was last required. There is no deadline for the change; see
   one an attacker was guessing — by a reactivation of a User that has a password,
   since a credential that sat unused across a deactivation is not trusted on
   return, and by seeding the Bootstrap Admin, whose first password comes from
-  deployment configuration. A credentialless User is unlocked or reactivated
-  without it, having no password to replace.
+  deployment configuration — except with the development fixtures on
+  (`APP_DEV_FIXTURES_ENABLED`), which are never on in a deployment. A
+  credentialless User is unlocked or reactivated without it, having no password
+  to replace.
 - It is **cleared** only by a successful self-service change; a connector write
   never clears it.
 

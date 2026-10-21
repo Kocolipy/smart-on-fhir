@@ -6,6 +6,7 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.InvalidRoleMappingException;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -121,10 +122,23 @@ public class ScimSeedService {
      */
     @Transactional
     public void seed(SeededIdentity recovery) {
+        seed(recovery, true);
+    }
+
+    /**
+     * {@link #seed(SeededIdentity)}, choosing whether a newly seeded Bootstrap Admin owes a
+     * password change. Only the development fixtures pass {@code false}, so a local run signs
+     * straight in; a Bootstrap Admin that already exists keeps its flag either way.
+     *
+     * @param recovery               the Bootstrap Admin's configured credentials
+     * @param passwordChangeRequired whether a newly seeded Bootstrap Admin owes a change
+     */
+    @Transactional
+    public void seed(SeededIdentity recovery, boolean passwordChangeRequired) {
         seedLock.acquire();
         Instant now = clock.instant();
         ScimUser bootstrapAdmin = users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)
-                .orElseGet(() -> seedBootstrapAdmin(recovery, now));
+                .orElseGet(() -> seedBootstrapAdmin(recovery, passwordChangeRequired, now));
         seedAdminGroup(bootstrapAdmin, now);
     }
 
@@ -290,21 +304,27 @@ public class ScimSeedService {
      * default credential known outside the User, which must be replaced before it is used for
      * anything else. Login confines the session until it is. The reserved User is exempt from
      * dormancy, so an unchanged recovery credential never locks the recovery path.
+     *
+     * <p>The development fixtures skip the flag: their deployment is a developer's machine, and
+     * {@code app.dev-fixtures.enabled} is never set anywhere else.
      */
-    private ScimUser seedBootstrapAdmin(SeededIdentity recovery, Instant now) {
+    private ScimUser seedBootstrapAdmin(
+            SeededIdentity recovery, boolean passwordChangeRequired, Instant now) {
         ScimUser seeded = newUser(recovery, now);
+        LoginStateChange imposed = loginStates.created(seeded.login().passwordHash(), now);
         // Built whole rather than by copying the new User's fields: it is a new User — version 1,
-        // created and last modified now — whose credential is already marked for replacement, by
-        // the login-state module's rule for a credential somebody else chose.
-        ScimUser flagged = new ScimUser(
+        // created and last modified now — whose credential is marked for replacement by the
+        // login-state module's rule for a credential somebody else chose, unless the caller
+        // declined the flag.
+        ScimUser bootstrapAdmin = new ScimUser(
                 seeded.id(),
                 seeded.profile(),
-                loginStates.created(seeded.login().passwordHash(), now).after(),
+                passwordChangeRequired ? imposed.after() : imposed.before(),
                 null,
                 ScimUser.INITIAL_VERSION,
                 now,
                 now);
-        ScimUser created = users.createReserved(flagged, ReservedResourceName.BOOTSTRAP_ADMIN);
+        ScimUser created = users.createReserved(bootstrapAdmin, ReservedResourceName.BOOTSTRAP_ADMIN);
         audit.append(new Audited.ReservedResourceSeeded(created.id(), AuditSeededResource.USER));
         return created;
     }

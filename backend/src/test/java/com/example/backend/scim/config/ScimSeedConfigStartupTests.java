@@ -103,6 +103,30 @@ class ScimSeedConfigStartupTests {
         assertThat(groups.findAllOrderedByNormalizedDisplayName()).noneMatch(group -> group.hasMember(baseline.id()));
     }
 
+    /** Fixtures off: the Bootstrap Admin owes its first-login change, as in a deployment. */
+    @Test
+    void withTheFixturesOffTheBootstrapAdminOwesAPasswordChange() {
+        contexts.run(context -> assertThatThrownBy(
+                () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
+                .isInstanceOf(InvalidRoleMappingException.class));
+
+        assertThat(users.require("admin").login().isPasswordChangeRequired()).isTrue();
+    }
+
+    /** Fixtures on: a developer's Bootstrap Admin signs straight in. */
+    @Test
+    void withTheFixturesOnTheBootstrapAdminOwesNoPasswordChange() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.require("admin").login().isPasswordChangeRequired()).isFalse();
+    }
+
     /** Fixtures off: the Helpdesk Group was never created, so startup refuses, naming it. */
     @Test
     void aMappedGroupThatDoesNotResolveFailsStartup() {

@@ -45,7 +45,9 @@ The service listens on `http://localhost:8080`; its health endpoint is
 The identity that logs in is a **SCIM User** — there is no separate account
 table. Startup seeds the **Bootstrap Admin** (`APP_BOOTSTRAP_USERNAME` /
 `APP_BOOTSTRAP_PASSWORD`, development default `admin` / `P@ssw0rd`, never for
-production) and the **Admin group**. With the development fixtures on, there is
+production) and the **Admin group**. With the development fixtures on, a freshly
+seeded Bootstrap Admin owes no first-login password change; an existing one keeps
+whatever flag it has. With the development fixtures on, there is
 also a User per development Role, all with `APP_DEV_FIXTURES_PASSWORD`
 ([Role mapping](docs/configuration/role-mapping.md)). Lockout (the threshold is
 `APP_LOCKOUT_MAX_ATTEMPTS`), session windows and their defaults are in

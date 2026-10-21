@@ -47,7 +47,10 @@ public class ScimSeedConfig {
             @Value("${app.auth.bootstrap-username}") String recoveryUserName,
             @Value("${app.auth.bootstrap-password}") String recoveryPassword) {
         return arguments -> {
-            seeding.seed(new SeededIdentity(recoveryUserName, recoveryPassword));
+            // Development fixtures are never on in a deployment, so the Bootstrap Admin's
+            // first-login change is waived only on a developer's machine.
+            seeding.seed(new SeededIdentity(recoveryUserName, recoveryPassword),
+                    !devFixtures.enabled());
             if (devFixtures.enabled()) {
                 seeding.seedDevFixtures(
                         devFixtures.groups() == null ? List.of() : devFixtures.groups().stream()

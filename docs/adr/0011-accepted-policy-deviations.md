@@ -39,7 +39,8 @@ unrecorded, each looks like a gap and invites someone to re-litigate it in code.
 ac-6 (default credentials) is met: every imposed credential — the seeded Bootstrap
 Admin, a connector password write, an Unlock, a forced change — sets the
 change-required flag, and a password session stays confined until the User
-replaces it (ADR 0008). An Epic Login, which presents no password of ours, is
+replaces it (ADR 0008). The one waiver is the seeded Bootstrap Admin with the
+development fixtures on, which only a developer's machine enables. An Epic Login, which presents no password of ours, is
 not confined by the flag (ADR 0008's 2026-10-09 addendum).
 
 ### Standalone User Access Control standard
