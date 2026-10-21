@@ -5,7 +5,7 @@ import com.example.backend.auth.domain.EpicInputBounds;
 import com.example.backend.auth.domain.EpicInputField;
 import com.example.backend.auth.domain.EpicInputRule;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.auth.epic.EpicLaunchContext;
+import com.example.backend.auth.epic.EpicLaunchValue;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicRoutes;
@@ -78,7 +78,7 @@ public class EpicLaunchController {
         if (previous != null) {
             previous.invalidate();
         }
-        EpicLaunchContext.hold(request.getSession(true), launch);
+        EpicLaunchValue.hold(request.getSession(true), launch);
         response.sendRedirect(request.getContextPath() + EpicRoutes.AUTHORIZE);
     }
 
