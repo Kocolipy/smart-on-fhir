@@ -49,7 +49,7 @@ class EpicMfaEvidenceIntegrationTests {
 
         EpicBrowser.Landing landing = EPIC.signIn(practitioner, null);
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("otp");
     }
 

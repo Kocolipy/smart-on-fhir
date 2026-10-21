@@ -352,7 +352,7 @@ class EpicTokensIntegrationTests {
     private Cookie signInFromEpic() throws Exception {
         Landing landing = EPIC.signInFromEpic(EPIC.practitioners().provision(), null);
         assertThat(landing.callback().getResponse().getRedirectedUrl()).as("signed in")
-                .isEqualTo("/");
+                .isEqualTo(EPIC.fake().defaultHome());
         return landing.signedIn();
     }
 

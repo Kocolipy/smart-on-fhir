@@ -62,7 +62,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Its token response carries an access token and patient and encounter context, as Epic's
  * does, and a refresh token once asked to, under values unique to this instance, so a test can
  * show where each is kept and where none of them is: the tokens for the signed-in session alone,
- * the launch context nowhere (ADR 0012, D29).
+ * the launch context nowhere, only passed to the browser in the landing's fragment (ADR 0012, D8,
+ * D29). A test can replace the launch context, or leave either member out
+ * ({@link #launchContext}).
  *
  * <p>It can also be Epic on a bad day: any of discovery, the JWKS and {@code /token} can be made
  * to stall past our read timeout, answer {@code 503}, or answer {@code 200} with a body that is
@@ -184,11 +186,17 @@ public final class FakeEpic implements AutoCloseable {
 
     private volatile boolean issuingRefreshTokens;
 
-    /** The patient context of the token response, which nothing on our side may keep. */
+    /**
+     * The patient context of the token response unless {@link #launchContext} replaced it, which
+     * our side passes to the browser and keeps nowhere.
+     */
     public final String patient = "epic-patient-" + UUID.randomUUID();
 
-    /** The encounter context of the token response, which nothing on our side may keep. */
+    /** The encounter context of the token response, passed on and kept as the patient is. */
     public final String encounter = "epic-encounter-" + UUID.randomUUID();
+
+    /** The launch context members the token response carries, in order. */
+    private volatile Map<String, Object> launchContext = launchContextOf(patient, encounter);
 
     /** Every {@code id_token} this instance minted, in order. */
     public final List<String> idTokens = Collections.synchronizedList(new ArrayList<>());
@@ -255,6 +263,35 @@ public final class FakeEpic implements AutoCloseable {
         discoveryChanges.put(member, Optional.ofNullable(value));
     }
 
+    /**
+     * From now on the token response carries {@code patient} and {@code encounter} as its launch
+     * context — any JSON value, as Epic could send — or lacks the member for {@code null}.
+     */
+    public void launchContext(Object patient, Object encounter) {
+        this.launchContext = launchContextOf(patient, encounter);
+    }
+
+    /**
+     * Where a Login with this instance's default launch context lands: Home, carrying
+     * {@link #patient} and {@link #encounter} in the fragment. It does not follow a
+     * {@link #launchContext} override; a test that replaces the launch context names its own
+     * expected landing.
+     */
+    public String defaultHome() {
+        return "/#patient=" + patient + "&encounter=" + encounter;
+    }
+
+    private static Map<String, Object> launchContextOf(Object patient, Object encounter) {
+        Map<String, Object> members = new LinkedHashMap<>();
+        if (patient != null) {
+            members.put("patient", patient);
+        }
+        if (encounter != null) {
+            members.put("encounter", encounter);
+        }
+        return Collections.unmodifiableMap(members);
+    }
+
     /** From now on {@code endpoint} answers as Epic does on a good day. */
     public void answering(Endpoint endpoint) {
         failures.remove(endpoint);
@@ -318,6 +355,7 @@ public final class FakeEpic implements AutoCloseable {
         }
         for (String idToken : List.copyOf(idTokens)) {
             seen.add("id_token", idToken).add("access_token", accessToken);
+            launchContext.forEach((member, value) -> seen.add(member, String.valueOf(value)));
             if (issuingRefreshTokens) {
                 seen.add("refresh_token", refreshToken);
             }
@@ -521,8 +559,7 @@ public final class FakeEpic implements AutoCloseable {
         if (issuingRefreshTokens) {
             response.put("refresh_token", refreshToken);
         }
-        response.put("patient", patient);
-        response.put("encounter", encounter);
+        response.putAll(launchContext);
         respond(exchange, 200, JSON.writeValueAsString(response));
     }
 

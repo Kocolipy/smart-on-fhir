@@ -177,9 +177,12 @@ a test states the day it runs on and the age never depends on the viewer's zone.
 
 ## The patient in context and the seeding
 
-Home's **Patient card** shows the patient in context, and only that patient: with
-none in context it shows "No patient in context" and reads nothing. The SPA holds
-no patient id of its own.
+Home's **Patient card** shows the patient in context, and only that patient: the
+patient of the tab's **Launch context**, which an EHR launch passes to the SPA
+([Epic Login](./epic-login.md)). With none in context it shows "No patient in
+context" and reads nothing, and a `404` for the id in context shows the same. The
+SPA holds no patient id beyond the Launch context, and the read is not bound to
+it: `patient:read` reads any id.
 
 Patients are **development fixtures** only. The patient module's own seeder runs at
 startup **only when `APP_DEV_FIXTURES_ENABLED` is set**, so no dummy Patient

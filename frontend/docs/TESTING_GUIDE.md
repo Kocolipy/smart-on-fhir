@@ -23,7 +23,8 @@ under "Testing".
 ## Unit tests
 
 Vitest with happy-dom and Testing Library; `test/setup.ts` pulls in
-`@testing-library/jest-dom`.
+`@testing-library/jest-dom` and clears `sessionStorage` after every test, since
+one window serves a whole file and the tab's Launch context lives there.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside
 `home.tsx` — and type-checked through `tsconfig.test.json`, which is the only

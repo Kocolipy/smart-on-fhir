@@ -86,12 +86,14 @@ FAST_GATE=(
   com/example/backend/auth/domain/SignedInSessionTests
   com/example/backend/auth/epic/EcP384PrivateKeyPemTests
   com/example/backend/auth/epic/EnvironmentKeyClientAssertionSignerTests
+  com/example/backend/auth/epic/EpicIdentityTests
   com/example/backend/auth/epic/EpicJwksTests
   com/example/backend/auth/epic/EpicLoginPropertiesTests
   com/example/backend/auth/epic/EpicLoginTests
   com/example/backend/auth/epic/EpicProviderMetadataTests
   com/example/backend/auth/epic/EpicSigningKeyTests
   com/example/backend/auth/epic/FhirUserReferenceTests
+  com/example/backend/auth/epic/LaunchContextTests
   com/example/backend/auth/epic/config/EpicCallMetricsTests
   com/example/backend/auth/epic/config/EpicIdTokenChecksTests
   com/example/backend/auth/epic/config/EpicIdentityClaimsTests

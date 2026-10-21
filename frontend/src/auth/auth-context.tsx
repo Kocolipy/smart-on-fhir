@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import * as authApi from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { IdleSignOut } from "./idle-sign-out";
+import { clearLaunchContext } from "./launch-context";
 import { useSessionTransitions } from "./session-transitions";
 import { sessionEndReasonFor } from "./sign-in-reason";
 
@@ -84,8 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const outcome = await authApi.login(username, password);
         // A refused login ends whatever session the browser held, so the
         // Guest's token goes with it and a retry fetches the next session's.
-        // Any other outcome reached no verdict and changes nothing.
-        if (outcome.kind === "signed-in") signIn(outcome.user);
+        // Any other outcome reached no verdict and changes nothing. A password
+        // Login puts no patient in context, so it forgets any an earlier EHR
+        // launch in this tab left (`launch-context.ts`).
+        if (outcome.kind === "signed-in") {
+          clearLaunchContext();
+          signIn(outcome.user);
+        }
         if (outcome.kind === "refused") end(null);
         return outcome;
       },

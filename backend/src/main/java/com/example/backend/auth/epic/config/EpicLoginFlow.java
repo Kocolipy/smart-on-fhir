@@ -3,12 +3,14 @@ package com.example.backend.auth.epic.config;
 import com.example.backend.auth.domain.PendingAuthorizations;
 import com.example.backend.auth.epic.CauseChain;
 import com.example.backend.auth.epic.ClientAssertionSigner;
+import com.example.backend.auth.epic.EpicIdentity;
 import com.example.backend.auth.epic.EpicJwkSource;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicOutboundCall;
 import com.example.backend.auth.epic.EpicOutboundException;
 import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.auth.epic.EpicTokenHandOff;
+import com.example.backend.auth.epic.LaunchContext;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -33,7 +35,6 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
-import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -75,7 +76,9 @@ import org.springframework.web.client.RestClientException;
  *       nor saves a security context, so nothing from Epic reaches the pre-login session. The
  *       success handler establishes the session from our own Login instead, and only then keeps
  *       the access token, refresh token and {@code id_token} on it (ADR 0012, D29, superseding D8
- *       for those three); the launch context is still dropped.
+ *       for those three). The token response's launch context rides on the identity alone
+ *       ({@link EpicIdentity}), which the success handler passes to the browser in the landing's
+ *       fragment and keeps nowhere (D8).
  * </ul>
  *
  * <p>Any OAuth error or failed check, and any Epic call that failed — discovery at the authorize
@@ -257,8 +260,12 @@ final class EpicLoginFlow {
         return decoder;
     }
 
-    /** The validated {@code id_token} as the identity, with no user-info call to Epic. */
+    /**
+     * The validated {@code id_token} as the identity, with no user-info call to Epic, carrying the
+     * token response's launch context to the success handler ({@link EpicIdentity}).
+     */
     private static OidcUser identityOnly(OidcUserRequest request) {
-        return new DefaultOidcUser(List.of(), request.getIdToken());
+        return new EpicIdentity(request.getIdToken(),
+                LaunchContext.of(request.getAdditionalParameters()));
     }
 }

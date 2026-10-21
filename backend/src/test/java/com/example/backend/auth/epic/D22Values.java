@@ -61,6 +61,20 @@ final class D22Values {
         return add(kind, EpicTestKeys.base64Url48(((ECPrivateKey) pair.getPrivate()).getS()));
     }
 
+    /**
+     * These values but {@code kinds}: for an output some values are meant to reach, as the
+     * launch context reaches the browser in the callback's landing (D8).
+     */
+    D22Values without(String... kinds) {
+        D22Values rest = new D22Values();
+        byKind.forEach((kind, values) -> {
+            if (!Set.of(kinds).contains(kind)) {
+                rest.byKind.put(kind, values);
+            }
+        });
+        return rest;
+    }
+
     /** The kinds of value the Login handled. */
     Set<String> kinds() {
         return byKind.keySet();

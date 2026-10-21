@@ -277,9 +277,17 @@ _Avoid_: sign-on, authenticate (as a noun for the operation), database login
 **EHR launch**:
 Epic opening this application in the clinician's system browser, which signs the
 clinician in through the Epic issuer instead of a password — the User whose
-`userName` is exactly the Practitioner ID Epic proved. Recorded as login method
-`sso`.
+`userName` is exactly the Practitioner ID Epic proved — and lands on Home with
+its Launch context. Recorded as login method `sso`.
 _Avoid_: SSO, sign-on
+
+**Launch context**:
+The patient and encounter an EHR launch put in context, each a FHIR id, either
+possibly absent. Passed to the SPA in the landing's fragment and kept by the
+browser tab alone, never server-side: every EHR launch replaces it, a reload
+keeps it, and the session ending or a password Login clears it.
+_Avoid_: SMART context, patient context (for the pair), `launch` (Epic's opaque
+launch parameter, a different value)
 
 **Epic issuer**:
 The one Epic organisation a deployment trusts to sign clinicians in, named by its
@@ -394,9 +402,9 @@ birth, never held.
 _Avoid_: patient record, demographics, subject (a Patient is no User)
 
 **Patient card**:
-Home's card showing the patient in context's name, NRIC, gender, date of birth
-and age, or "No patient in context" when there is none. With no patient in
-context it reads nothing.
+Home's card showing the Launch context's patient — name, NRIC, gender, date of
+birth and age — or "No patient in context" when the Launch context names none or
+no Patient is held under its id. With no patient in context it reads nothing.
 
 ### Database
 

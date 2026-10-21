@@ -4,6 +4,11 @@ import { expect, test } from "@playwright/test";
 
 import { DEV_ROLES } from "./auth.helpers";
 import {
+  expectNoPatientInContext,
+  expectPatientInContext,
+  recordPatientRequests,
+} from "./patient.helpers";
+import {
   deprovisionUser,
   E2E_PREFIX,
   freshBrowser,
@@ -19,7 +24,9 @@ import {
  * Epic: a provider EHR launch for a Practitioner whose ID is the `userName` of a
  * provisioned User opens our launch route, passes the launcher's authorization
  * and our callback, and lands on Home (`/`) signed in as that User with the
- * Permissions its Groups confer; a launch for a Practitioner no User is
+ * Permissions its Groups confer, the Patient card showing the patient the
+ * launch put in context — or "No patient in context" for a launch that put
+ * none; a launch for a Practitioner no User is
  * provisioned for lands on the login page's refused notice instead, as does a
  * launch whose `iss` is not exactly the configured FHIR base (D10), and a
  * launch whose token call the launcher cannot answer lands on the unavailable
@@ -57,8 +64,12 @@ test.describe.configure({ mode: "default" });
 
 /** The Practitioner ID, and so the `userName` of the User it links to (D2, D3). */
 const PRACTITIONER = `${E2E_PREFIX}epic-${runId()}`;
-/** Any patient: the launcher puts it in the launch context, which Epic Login drops (D8). */
-const PATIENT = "e2e-epic-patient";
+/**
+ * Tan Wei Ming's Epic id, one of the dev profile's patient fixtures: the
+ * launcher puts it in the token response's `patient`, the backend passes it to
+ * the SPA in the landing's fragment (D8), and Home's Patient card reads him.
+ */
+const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
 
 const directory = workerConnector("epic");
 
@@ -67,12 +78,29 @@ const directory = workerConnector("epic");
  * provider EHR launch (its `src/isomorphic/codec.ts`): a base64url JSON array.
  * The login and approval screens are skipped and no encounter is picked, so
  * the launcher's authorize answers at once; the client is asymmetric, so the
- * launcher verifies our `private_key_jwt` against our published JWKS.
+ * launcher verifies our `private_key_jwt` against our published JWKS. The
+ * patient, the token response's `patient`, is Tan Wei Ming.
  */
 function launchOptions(practitioner: string): string {
+  return encodedLaunch(0 /* provider-ehr */, practitioner, TAN_WEI_MING);
+}
+
+/**
+ * A launch whose token response names no patient. The launcher shows its
+ * patient picker for any provider EHR launch without one (its
+ * `needToPickPatient`), so this encodes its `provider-standalone` type, under
+ * which it asks for no patient while we ask for no `launch/patient` scope, and
+ * names none. The browser still opens our EHR launch route with it as `launch`,
+ * and the launcher signs the same Practitioner in.
+ */
+function launchOptionsWithNoPatient(practitioner: string): string {
+  return encodedLaunch(2 /* provider-standalone */, practitioner, "");
+}
+
+function encodedLaunch(launchType: number, practitioner: string, patient: string): string {
   const options = [
-    0, // launch_type: provider-ehr
-    PATIENT,
+    launchType, // launch_type, an index into the launcher's `launchTypes`
+    patient, // patient: the token response's `patient`; empty for none
     practitioner, // provider: the user the id_token's fhirUser names
     "NONE", // encounter: none, so nothing is looked up
     1, // skip_login
@@ -121,6 +149,7 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
     const page = await clinician.newPage();
     await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
 
+    // The landing's fragment is read and stripped, so the address bar is Home's alone.
     await expect(page).toHaveURL("/");
     await expect(page.getByText(`Signed in as ${PRACTITIONER}`)).toBeVisible();
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
@@ -133,6 +162,11 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
         username: PRACTITIONER,
       }),
     );
+    await expectPatientInContext(page, "Tan Wei Ming");
+
+    // A reload keeps the tab's Launch context, though the URL no longer carries it.
+    await page.reload();
+    await expectPatientInContext(page, "Tan Wei Ming");
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
@@ -166,6 +200,33 @@ test("a provider EHR launch for a User with the change-required flag lands on Ho
     );
   } finally {
     await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("a launch whose token response names no patient lands on Home with no patient in context", async ({
+  browser,
+}) => {
+  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
+  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+
+  const clinician = `${E2E_PREFIX}epic-no-patient-${runId()}`;
+  const id = await provisionUser(directory.scim, clinician);
+  const browserContext = await freshBrowser(browser);
+  try {
+    const launch = new URLSearchParams({
+      iss: FHIR_BASE,
+      launch: launchOptionsWithNoPatient(clinician),
+    });
+    const page = await browserContext.newPage();
+    const patientRequests = recordPatientRequests(page);
+    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+
+    await expect(page).toHaveURL("/");
+    await expectNoPatientInContext(page);
+    expect(patientRequests()).toEqual([]);
+  } finally {
+    await browserContext.close();
     await deprovisionUser(directory.scim, id);
   }
 });

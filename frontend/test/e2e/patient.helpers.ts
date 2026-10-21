@@ -17,9 +17,14 @@ export function recordPatientRequests(page: Page): () => string[] {
 }
 
 /**
- * Home's Patient card as a password login sees it: nothing puts a patient in
- * context, so it says so.
+ * Home's Patient card as a password login sees it — or an EHR launch that put
+ * no patient in context: nothing is in context, so it says so.
  */
 export async function expectNoPatientInContext(page: Page): Promise<void> {
   await expect(cardTitled(page, "Patient").getByText("No patient in context")).toBeVisible();
+}
+
+/** Home's Patient card showing the patient in context, by the name it lists. */
+export async function expectPatientInContext(page: Page, name: string): Promise<void> {
+  await expect(cardTitled(page, "Patient").getByText(name, { exact: true })).toBeVisible();
 }
