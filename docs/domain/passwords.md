@@ -36,7 +36,7 @@ flag clear (ADR 0008's 2026-10-09 addendum). A User who only ever signs in
 through Epic therefore never has to replace the imposed password; that password
 still buys only a confined session.
 
-**Forced password change** — an action of a holder of `user:write`, setting the
+**Forced password change** — an action of a holder of `account:unlock`, setting the
 change-required flag on another User and ending every session it holds. The Admin
 never sees, chooses or transports the password. Refused (`403`) on the caller
 itself whatever Permissions it holds — the Bootstrap Admin's included, which

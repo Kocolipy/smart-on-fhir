@@ -47,13 +47,16 @@ through `PUT /api/admin/groups/{id}/permissions`, never over SCIM. Otherwise
 
 The closed set of Permissions stays in code, with two flags:
 
-- **`delegatable()`** is what a Group may carry: `user:read`, `group:read`,
-  `audit:read`, `ops:read` and `connector:read`. The helpdesk Permission
-  `account:unlock` joins it in a later ticket (#157).
+- **`delegatable()`** is what a Group may carry: `user:read`, `account:unlock`,
+  `group:read`, `audit:read`, `ops:read` and `connector:read`. `account:unlock`
+  is the helpdesk Permission: Unlock and the forced password change, neither of
+  which can escalate. It is not token-grantable.
 - **`tokenGrantable()`** is what a connector token may carry: `user:read`,
   `user:write`, `group:read` and `group:write`.
 
-`user:read` and `group:read` carry both flags. The write halves are token-only.
+`user:read` and `group:read` carry both flags. The write halves are token-only:
+no session holds them, a Superuser's included, and a Role or Group that would give
+one to a session fails startup.
 `patient:read` is neither: it stays the baseline Permission, which every active User
 holds and a confined session holds none of. `connector:write` and `connector:token`
 leave the vocabulary.
@@ -198,8 +201,8 @@ method security.
   Permission a Group may carry that is not delegatable.
 - **Landing order.** This ticket (#155) adds the Superuser and moves connector
   administration behind it while Roles still exist: the Superuser's session is
-  additive to whatever the role mapping confers, and Unlock and the forced password
-  change stay guarded by `user:write` until `account:unlock` replaces it (#157).
-  Dormancy and the audit Permissions (#156), Groups carrying Permissions from the
-  database with Roles removed (#158) and `PUT /api/admin/groups/{id}/permissions`
-  (#159) follow.
+  additive to whatever the role mapping confers. `account:unlock` then replaced
+  `user:write` as the guard on Unlock and the forced password change (#157), and
+  `user:write` became token-only. Dormancy and the audit Permissions (#156), Groups
+  carrying Permissions from the database with Roles removed (#158) and `PUT
+  /api/admin/groups/{id}/permissions` (#159) follow.
