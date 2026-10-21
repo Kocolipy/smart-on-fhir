@@ -91,9 +91,14 @@ fixed sentence per code:
 
 An outcome never contains an exception message, SQL, a stack trace or the
 submitted id — markup or a line break in the id included. Malformed covers an id
-over 64 characters, markup, a line break and an empty segment (`a//b`); the last
-two never reach the dispatcher, since the request firewall refuses them, and are
-answered with the same outcome. A well-formed id that names no patient —
+over 64 characters, markup, a line break, an empty segment (`a//b`) and an
+encoded slash (`a%2F%2Fb`); the last three never reach the dispatcher, since the
+request firewall refuses them, and are answered with the same outcome. An
+encoded slash reaches the firewall at all because Tomcat passes `%2F` through,
+still encoded, rather than refusing it with its own HTML error page
+(`web.EncodedSlashPassthrough`): passed through, it is never decoded into a path
+separator, and the firewall refuses it on every path, so path security is
+unchanged and only the answer becomes the outcome. A well-formed id that names no patient —
 `not-a-uuid` is one — is the `404`. The SPA reads the `404` as "No patient in
 context", an ordinary answer rather than a failure; every other error is the
 Patient card's failed state.

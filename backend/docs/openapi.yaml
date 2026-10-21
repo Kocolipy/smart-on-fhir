@@ -743,10 +743,11 @@ paths:
         "400":
           description: |
             `id` is outside FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}` — over 64
-            characters, markup, an encoded line break, an empty segment, anything
-            else: `code: invalid`, `diagnostics` "The request is not valid.". A
-            line break or an empty segment is refused by the request firewall
-            before the dispatcher, in the same outcome.
+            characters, markup, an encoded line break, an empty segment, an
+            encoded slash (`%2F`), anything else: `code: invalid`, `diagnostics`
+            "The request is not valid.". A line break, an empty segment or an
+            encoded slash is refused by the request firewall before the
+            dispatcher, in the same outcome.
           content:
             application/fhir+json:
               schema:

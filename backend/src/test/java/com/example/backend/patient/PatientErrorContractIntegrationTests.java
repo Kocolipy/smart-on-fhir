@@ -110,13 +110,15 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     // ---- the error contract --------------------------------------------------------------
 
     /**
-     * One character past FHIR's 64, markup, an encoded line break and an empty segment in place of
-     * the id. The line break and the empty segment never reach the dispatcher — the request
-     * firewall refuses them — and are answered with the same outcome.
+     * One character past FHIR's 64, markup, an encoded line break, an empty segment and encoded
+     * slashes in place of the id. The line break, the empty segment and the encoded slashes never
+     * reach the dispatcher — the request firewall refuses them — and are answered with the same
+     * outcome. The encoded slashes reach the firewall at all only because Tomcat passes them
+     * through rather than refusing them with its own error page ({@code EncodedSlashPassthrough}).
      */
     @ParameterizedTest
     @ValueSource(strings = {TOO_LONG, "%3Cimg%20src=x%20onerror=alert(1)%3E",
-        "1%0D%0Aforged:%20S1234567A", "a//b"})
+        "1%0D%0Aforged:%20S1234567A", "a//b", "a%2F%2Fb", "a%2fb"})
     void aMalformedIdIsAnInvalidOutcome(String id) throws Exception {
         HttpResponse<String> response = send(signedIn(), patient(id).GET());
 
