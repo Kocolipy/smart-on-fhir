@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Dormancy and scheduled jobs
-description: The dormancy basis and windows, the dormancy job's lockout and role revocation, the audit retention job, and how scheduled jobs are serialized.
+description: The dormancy basis and windows, the dormancy job's lockout and membership revocation, the audit retention job, and how scheduled jobs are serialized.
 tags: [dormancy, scheduled-jobs, retention]
 ---
 
@@ -21,9 +21,9 @@ not a SCIM attribute, absent from `/Schemas`, and writing it moves no version.
 **Dormant User** — a User whose dormancy basis is further in the past than a
 dormancy window. Dormancy is relative to a window, not a stored state: the same
 User can be dormant for the lockout (90 days by default,
-`APP_DORMANCY_LOCKOUT_WINDOW`) and not yet for role revocation (180 days,
-`APP_DORMANCY_ROLE_REVOCATION_WINDOW`). Startup fails on a non-positive window, or
-on a role-revocation window not longer than the lockout window. The Bootstrap
+`APP_DORMANCY_LOCKOUT_WINDOW`) and not yet for membership revocation (180 days,
+`APP_DORMANCY_ROLE_REVOCATION_WINDOW`, which keeps its name). Startup fails on a
+non-positive window, or on a revocation window not longer than the lockout window. The Bootstrap
 Admin is never treated as dormant, by its reservation marker, for the reason it is
 exempt from lockout.
 
@@ -31,17 +31,20 @@ exempt from lockout.
 
 The scheduled job that enforces dormancy (ADR 0007), daily at 04:00
 `Asia/Singapore` on its own scheduled job lock row. What it owes each User is that
-User's **dormancy verdict** — not due, Lockout, or Lockout + Role revocation —
+User's **dormancy verdict** — not due, Lockout, or Lockout + Membership revocation —
 which owns the basis choice and both cutoffs, answers not due for the Bootstrap
 Admin, and is the only place the job compares a basis with a window. Two steps:
 
-- **Role revocation.** A User past the role-revocation window — active or not,
-  locked or not — loses its direct membership of every mapped Group. Each affected
-  Group's version and the User's advance, the User's sessions are revoked after
-  commit, and one actorless `DORMANCY_ROLE_REVOCATION` event names the User and
-  the Roles lost. Unmapped memberships confer nothing and are untouched. A
-  connector may re-add a membership; while the User stays dormant the next run
-  removes it again.
+- **Membership revocation.** A User past the revocation window — active or not,
+  locked or not — loses its direct membership of **every** Group: the Admin
+  group's included, and a Group that confers nothing included (ADR 0007,
+  2026-10-21 addendum; "a user inactive for 180 days loses all roles"). Each
+  affected Group's version and the User's advance, the User's sessions are revoked
+  after commit, and one actorless `DORMANCY_MEMBERSHIP_REVOCATION` event names the
+  User, lists every Group removed by id, and records the User's effective
+  Permissions before and after with the Superuser marker — the record an
+  unexpected mass removal is reversed from by hand. A connector may re-add a
+  membership; while the User stays dormant the next run removes it again.
 - **Lockout.** An unlocked User past the lockout window — active or not — is
   locked with lock cause `DORMANCY`, its sessions revoked after commit, and an
   actorless `DORMANCY_LOCKOUT` event recorded and logged at `WARN` (inactivity,
@@ -54,10 +57,12 @@ The job never writes `active`, which stays the directory's, and never deletes:
 deprovisioning stays with SCIM `DELETE`. A connector re-asserting `active=true`
 resets nothing and lifts no lock. The Bootstrap Admin is exempt from both steps.
 Its runs are counted (`app.job.runs{job="dormancy"}`) and so are their changes
-(`app.dormancy.users.locked`, `app.dormancy.users.roles.revoked`), so a mass
-lockout or revocation shows as a spike. With the development fixtures on
-(`APP_DEV_FIXTURES_ENABLED=true`), the job also runs once at startup, so the
-backdated `dormant` fixture is locked without waiting for 04:00.
+(`app.dormancy.users.locked`, and `app.dormancy.users.roles.revoked` counting Users
+whose memberships were revoked), so a mass lockout or revocation shows as a
+spike. With the development fixtures on (`APP_DEV_FIXTURES_ENABLED=true`), the job
+also runs once at startup, so the `dormant` fixture — backdated past the
+revocation window and put back into the Groups `dormant-groups` names — is locked
+and stripped of those memberships without waiting for 04:00.
 
 ## Audit retention job
 

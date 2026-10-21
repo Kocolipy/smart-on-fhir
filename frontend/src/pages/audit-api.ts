@@ -44,12 +44,12 @@ export const AUDIT_OPERATIONS = [
   "SCIM_RESOURCE_LIST",
   "SCIM_RESOURCE_SEED",
   "DORMANCY_LOCKOUT",
-  "DORMANCY_ROLE_REVOCATION",
+  "DORMANCY_MEMBERSHIP_REVOCATION",
   "PASSWORD_CHANGE_REQUIRE",
   "PASSWORD_CHANGE",
   "ACCESS_DENIED",
-  "ROLE_GRANT",
-  "ROLE_REVOKE",
+  "PERMISSION_GRANT",
+  "PERMISSION_REVOKE",
 ] as const;
 
 export type AuditOperation = (typeof AUDIT_OPERATIONS)[number];
@@ -90,10 +90,23 @@ export interface AuditEvent {
   requestId: string | null;
   resultCount: number | null;
   filterShape: string | null;
-  role: string | null;
   permissions: string[];
   /** How a login was attempted; `null` for every event that is not a login. */
   loginMethod: AuditLoginMethod | null;
+  /**
+   * A membership change's subject's effective Permissions before it, sorted;
+   * empty for every other event.
+   */
+  permissionsBefore: string[];
+  /** The same User's effective Permissions after the change; empty otherwise. */
+  permissionsAfter: string[];
+  /**
+   * Whether a membership change granted or removed the Superuser; `null` for
+   * every event that is no membership change.
+   */
+  superuserChanged: boolean | null;
+  /** Every Group a dormancy revocation removed the User from; empty otherwise. */
+  groupIds: string[];
 }
 
 /** One page of the listing, newest first, and where it sits in the whole. */
@@ -136,9 +149,12 @@ const decodeAuditEvent = (value: unknown): AuditEvent => {
     requestId: event.nullableString("requestId"),
     resultCount: event.nullableInteger("resultCount"),
     filterShape: event.nullableString("filterShape"),
-    role: event.nullableString("role"),
     permissions: event.array("permissions", decodeStringElement),
     loginMethod: event.nullableOneOf("loginMethod", AUDIT_LOGIN_METHODS),
+    permissionsBefore: event.array("permissionsBefore", decodeStringElement),
+    permissionsAfter: event.array("permissionsAfter", decodeStringElement),
+    superuserChanged: event.nullableBoolean("superuserChanged"),
+    groupIds: event.array("groupIds", decodeStringElement),
   };
 };
 

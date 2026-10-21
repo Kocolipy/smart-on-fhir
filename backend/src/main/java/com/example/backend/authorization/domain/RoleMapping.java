@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * hash it was issued under, which is how a later startup can tell a session minted under a
  * different mapping.
  */
-public final class RoleMapping {
+public final class RoleMapping implements GroupPermissions {
 
     private final List<Role> roles;
     private final Map<UUID, Role> roleByGroup;
@@ -167,6 +167,7 @@ public final class RoleMapping {
      * The union of the Permissions of the Roles these Groups confer. A Group the mapping does not
      * name confers nothing, so a User in no mapped Group holds none.
      */
+    @Override
     public Set<Permission> permissionsOf(Collection<UUID> groupIds) {
         Set<Permission> held = EnumSet.noneOf(Permission.class);
         for (UUID groupId : groupIds) {
@@ -176,6 +177,12 @@ public final class RoleMapping {
             }
         }
         return Collections.unmodifiableSet(held);
+    }
+
+    /** Whether these Groups include the Superuser Group, which startup requires be the Admin group. */
+    @Override
+    public boolean confersSuperuser(Collection<UUID> groupIds) {
+        return groupIds.contains(superuserGroupId);
     }
 
     /**

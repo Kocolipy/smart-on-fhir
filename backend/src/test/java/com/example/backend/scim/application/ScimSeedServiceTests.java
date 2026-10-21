@@ -595,7 +595,7 @@ class ScimSeedServiceTests {
      */
     @Test
     void the_dormant_fixture_is_created_backdated_and_unlocked() {
-        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91));
+        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91), List.of());
 
         ScimUser dormant = users.require("dormant");
         assertThat(dormant.login().lastAuthenticatedAt())
@@ -621,7 +621,7 @@ class ScimSeedServiceTests {
                 .withDormancyLock(ScimIdentities.NOW)
                 .withPasswordChangeRequired(ScimIdentities.NOW)));
 
-        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91));
+        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91), List.of());
 
         ScimUser dormant = users.require("dormant");
         assertThat(dormant.login().isLocked()).isFalse();
@@ -634,12 +634,39 @@ class ScimSeedServiceTests {
         assertThat(users.size()).isEqualTo(1);
     }
 
+    /**
+     * Put back into each of its Groups that exists on every run, once, so the startup dormancy run
+     * has memberships to remove whatever the previous run removed; a Group that does not exist is
+     * skipped rather than created.
+     */
+    @Test
+    void the_dormant_fixture_is_put_back_into_its_groups_on_every_run() {
+        UUID auditors = UUID.fromString("00000000-0000-4000-8000-00000000a003");
+        UUID absent = UUID.fromString("00000000-0000-4000-8000-00000000a0ff");
+        ScimUser auditor = users.create(ScimIdentities.user("auditor"));
+        groups.create(ScimGroup.created(auditors, "Auditors",
+                List.of(ScimGroupMember.reference(auditor.id())), ScimIdentities.NOW));
+
+        seeding.seedDormantDevFixture(
+                "dormant", "fixture-password", Duration.ofDays(181), List.of(auditors, absent));
+        seeding.seedDormantDevFixture(
+                "dormant", "fixture-password", Duration.ofDays(181), List.of(auditors, absent));
+
+        UUID dormant = users.require("dormant").id();
+        assertThat(groups.findById(auditors).orElseThrow().members())
+                .extracting(ScimGroupMember::userId)
+                .containsExactly(auditor.id(), dormant);
+        assertThat(groups.findById(absent)).isEmpty();
+        assertThat(writeLocks.requests()).as("the Groups and the User, together, on each run")
+                .containsExactly(Set.of(auditors, absent, dormant), Set.of(auditors, absent, dormant));
+    }
+
     @Test
     void the_dormant_fixture_is_refused_without_a_password() {
-        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", " ", Duration.ofDays(91)))
+        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", " ", Duration.ofDays(91), List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
-        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", null, Duration.ofDays(91)))
+        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", null, Duration.ofDays(91), List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(users.size()).isZero();
     }

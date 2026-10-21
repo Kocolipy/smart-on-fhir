@@ -75,7 +75,8 @@ class ScimSearchServiceTests {
             groups, new InMemoryScimWriteLocks(), users, aliases,
             (connectorId, userId, causes) -> { },
             new InMemoryScimTombstoneRepository(), audit, clock,
-            defaultQueries, com.example.backend.authorization.TestRoleMappings.superuserOnly());
+            defaultQueries, com.example.backend.authorization.TestRoleMappings.superuserOnly(),
+            () -> { });
 
     private ScimSearchService search(ScimQueryRepository queries) {
         return new ScimSearchService(queries, userService, groupService, audit);

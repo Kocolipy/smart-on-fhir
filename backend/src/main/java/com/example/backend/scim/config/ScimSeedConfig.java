@@ -57,9 +57,13 @@ public class ScimSeedConfig {
                         devFixtures.baselineMember(),
                         devFixtures.password());
                 if (devFixtures.dormantMember() != null) {
-                    // A day past the window, so the startup dormancy run locks it.
+                    // A day past the revocation window, so the startup dormancy run locks it
+                    // and removes every membership it was put back into.
                     seeding.seedDormantDevFixture(devFixtures.dormantMember(),
-                            devFixtures.password(), dormancy.lockoutWindow().plusDays(1));
+                            devFixtures.password(),
+                            dormancy.membershipRevocationWindow().plusDays(1),
+                            devFixtures.dormantGroups() == null
+                                    ? List.of() : devFixtures.dormantGroups());
                 }
             }
             seeding.verifyMappedGroups();

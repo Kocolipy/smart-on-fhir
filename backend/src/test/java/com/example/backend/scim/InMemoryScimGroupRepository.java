@@ -254,18 +254,16 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /**
-     * Memberships of these Groups held by unreserved Users whose dormancy basis is before the
+     * Memberships of every Group held by unreserved Users whose dormancy basis is before the
      * cutoff, by User then Group — or, once {@link #answerDormantMemberCandidatesWith} has been
      * called, exactly the memberships given.
      */
     @Override
-    public List<ScimGroupMembership> findDormantMemberships(
-            Collection<UUID> groupIds, Instant cutoff) {
+    public List<ScimGroupMembership> findDormantMemberships(Instant cutoff) {
         if (staleDormantMemberCandidates != null) {
             return staleDormantMemberCandidates;
         }
         return stored.values().stream()
-                .filter(group -> groupIds.contains(group.id()))
                 .flatMap(group -> group.members().stream()
                         .map(member -> new ScimGroupMembership(member.userId(), group.id())))
                 .filter(membership -> users.findById(membership.userId())

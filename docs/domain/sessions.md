@@ -103,7 +103,7 @@ id, never its `userName`, so a rename cannot hide one. The triggers in force:
 - its own successful Login, which ends every other session it holds — one
   session per User;
 - its own successful self-service password change;
-- the dormancy job's lockout and role revocation — recorded with no actor,
+- the dormancy job's lockout and membership revocation — recorded with no actor,
   because the job is not a principal.
 
 Every one of those triggers but the startup sweep goes through one Session revocation

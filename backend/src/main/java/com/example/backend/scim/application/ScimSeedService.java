@@ -22,9 +22,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -179,17 +181,22 @@ public class ScimSeedService {
      * User unlocked and holding a password it chose, so a fixture that kept that state would be
      * usable once per database. Each startup therefore puts back the fixture password — with no
      * change required — clears any lock, and backdates the basis; that reset is the login-state
-     * module's ({@link ScimUserLoginState#dormantFixtureReset}). It belongs to no Group, so the
-     * Role it would lose at the role-revocation window is nobody's concern. Called only when
+     * module's ({@link ScimUserLoginState#dormantFixtureReset}). It is also put back into each of
+     * {@code groupIds} that exists, so the startup run has direct memberships to remove once its
+     * basis is past the revocation window, and the e2e suite can show every one of them gone.
+     * Like the rest of the development seeding the rejoin is not audited. Called only when
      * {@code app.dev-fixtures.enabled} is set and a dormant fixture is named.
      *
      * @param userName   the fixture User's name
      * @param password   its password, refused when blank for the reason {@link #seedDevFixtures}
      *                   gives
-     * @param dormantFor how long before now its basis is put — past the lockout window
+     * @param dormantFor how long before now its basis is put — past the lockout window, and past
+     *                   the revocation window for its memberships to be removed
+     * @param groupIds   the Groups it is put back into; one that does not exist is skipped
      */
     @Transactional
-    public void seedDormantDevFixture(String userName, String password, Duration dormantFor) {
+    public void seedDormantDevFixture(
+            String userName, String password, Duration dormantFor, List<UUID> groupIds) {
         if (password == null || password.isBlank()) {
             throw new IllegalStateException(
                     "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
@@ -200,6 +207,28 @@ public class ScimSeedService {
         ScimUser dormant = findOrCreate(userName, password, now);
         loginStates.dormantFixtureReset(
                 dormant, passwordEncoder.encode(password), now, dormantFor);
+        rejoin(dormant, groupIds, now);
+    }
+
+    /**
+     * Puts the dormant fixture back into each of these Groups that exists. The Groups and the User
+     * are locked together first, through the lock module and in its one order, as any Group write
+     * locks them: a replacement that adds the User advances the Group's version and the User's. A
+     * Group already holding it is replaced with the membership it has — a Group's members are
+     * distinct, so the reference adds nothing — and an unchanged replacement advances nothing.
+     */
+    private void rejoin(ScimUser dormant, List<UUID> groupIds, Instant now) {
+        Set<UUID> resources = new LinkedHashSet<>(groupIds);
+        resources.add(dormant.id());
+        writeLocks.lock(resources);
+        for (UUID groupId : groupIds) {
+            groups.findById(groupId)
+                    .ifPresent(group -> {
+                        List<ScimGroupMember> members = new ArrayList<>(group.members());
+                        members.add(ScimGroupMember.reference(dormant.id()));
+                        groups.replace(group.replacedWith(group.displayName(), members, now));
+                    });
+        }
     }
 
     /**

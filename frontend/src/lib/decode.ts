@@ -35,6 +35,7 @@ export interface ObjectReader {
   string(key: string): string;
   nullableString(key: string): string | null;
   boolean(key: string): boolean;
+  nullableBoolean(key: string): boolean | null;
   integer(key: string): number;
   nullableInteger(key: string): number | null;
   /** A string that must be one of `allowed`; anything else is refused, not passed through. */
@@ -64,6 +65,10 @@ export function readObject(value: unknown, what: string): ObjectReader {
     const field = string(key);
     return allowed.find((candidate) => candidate === field) ?? fail(key, allowed.join(" | "));
   };
+  const boolean = (key: string): boolean => {
+    const field = value[key];
+    return typeof field === "boolean" ? field : fail(key, "a boolean");
+  };
   const integer = (key: string): number => {
     const field = value[key];
     return isInteger(field) ? field : fail(key, "an integer");
@@ -72,10 +77,8 @@ export function readObject(value: unknown, what: string): ObjectReader {
   return {
     string,
     nullableString: (key) => (value[key] === null ? null : string(key)),
-    boolean: (key) => {
-      const field = value[key];
-      return typeof field === "boolean" ? field : fail(key, "a boolean");
-    },
+    boolean,
+    nullableBoolean: (key) => (value[key] === null ? null : boolean(key)),
     integer,
     nullableInteger: (key) => (value[key] === null ? null : integer(key)),
     oneOf,

@@ -69,8 +69,9 @@ class AuditEventReadAdapter implements AuditEventReader {
     private static final String PAGE = """
             SELECT id, occurred_at, operation, outcome, actor_id, subject_id, resource_type,
                    resource_id, changed_paths, status_class, error_code, http_method, http_path,
-                   request_id, result_count, filter_shape, role_name, permissions, login_method,
-                   mfa_factor, token_id, replacement_token_id
+                   request_id, result_count, filter_shape, permissions, login_method, mfa_factor,
+                   token_id, replacement_token_id, permissions_before, permissions_after,
+                   superuser_changed, group_ids
               FROM audit_events
             """ + FILTER + """
              ORDER BY occurred_at DESC, id DESC
@@ -162,12 +163,15 @@ class AuditEventReadAdapter implements AuditEventReader {
                 row.getString("request_id"),
                 row.getObject("result_count", Integer.class),
                 row.getString("filter_shape"),
-                row.getString("role_name"),
                 paths(row.getString("permissions")),
                 row.getString("login_method"),
                 row.getString("mfa_factor"),
                 row.getObject("token_id", UUID.class),
-                row.getObject("replacement_token_id", UUID.class));
+                row.getObject("replacement_token_id", UUID.class),
+                paths(row.getString("permissions_before")),
+                paths(row.getString("permissions_after")),
+                row.getObject("superuser_changed", Boolean.class),
+                paths(row.getString("group_ids")).stream().map(UUID::fromString).toList());
     }
 
     /** The persistence adapter stores "nothing changed" as null, so null reads back as empty. */

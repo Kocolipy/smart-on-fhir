@@ -7,7 +7,6 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.authorization.domain.Role;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -150,17 +149,26 @@ public final class RecordingAuditTrail implements AuditTrail {
             // OUTCOME:PATHS:CAUSES, each list sorted by name and comma-joined.
             case Audited.UserSessionsRevoked e ->
                     row.outcome() + ":" + joined(e.paths()) + ":" + joined(e.causes());
-            // The Roles lost, by name, in the order given: "Account admin,Superuser".
-            case Audited.DormancyRoleRevocation e ->
-                    e.roles().stream().map(Role::name).collect(Collectors.joining(","));
-            // The Group then the Role: "<groupId>:Account admin".
-            case Audited.RoleGranted _, Audited.RoleRevoked _ ->
-                    row.resourceId() + ":" + row.role();
+            // The Groups removed, then the Permissions before and after and the Superuser
+            // marker: "<groupId>,<groupId>:audit:read,user:read>:false".
+            case Audited.DormancyMembershipRevocation _ ->
+                    row.groupIds().stream().map(UUID::toString).collect(Collectors.joining(","))
+                            + ":" + permissionChange(row);
+            // The Group, then the Permissions before and after and the Superuser marker:
+            // "<groupId>:user:read>audit:read,user:read:false".
+            case Audited.PermissionGranted _, Audited.PermissionRevoked _ ->
+                    row.resourceId() + ":" + permissionChange(row);
             // The refused request's method and route template.
             case Audited.AccessDenied _, Audited.ConnectorAccessDenied _ ->
                     row.httpMethod() + " " + row.httpPath();
             default -> row.errorCode();
         };
+    }
+
+    /** "BEFORE>AFTER:MARKER", each side's Permissions sorted and comma-joined. */
+    private static String permissionChange(AuditEvent row) {
+        return String.join(",", row.permissionsBefore()) + ">"
+                + String.join(",", row.permissionsAfter()) + ":" + row.superuserChanged();
     }
 
     private static String joined(Set<? extends Enum<?>> values) {

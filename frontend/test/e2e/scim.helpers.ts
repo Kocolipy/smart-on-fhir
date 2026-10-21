@@ -35,6 +35,17 @@ const PATCH_OP_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 /** What every User and connector a spec creates is named with. */
 export const E2E_PREFIX = "e2e-";
 
+/**
+ * The development fixture Groups the specs name, by stable id — the ids
+ * `backend/src/main/resources/authorization.yaml` maps — spelled once here.
+ */
+export const FIXTURE_GROUPS = {
+  /** Auditors, conferring `audit:read`. */
+  auditors: "00000000-0000-4000-8000-00000000a003",
+  /** Monitoring, conferring `ops:read`. */
+  monitoring: "00000000-0000-4000-8000-00000000a005",
+} as const;
+
 /** What a connector provisions; the connector write itself flags a change. */
 const PROVISIONED_PASSWORD = "Provisioned-Secret-9x";
 /** What each User sets for itself, clearing that flag, before a spec acts on it. */
@@ -220,6 +231,11 @@ export function workerConnector(label: string) {
   });
 
   return {
+    /** The connector's stable id, as the audit trail names it; only valid inside a test. */
+    get id(): string {
+      expect(connector, "workerConnector's beforeAll has run").toBeTruthy();
+      return connector!.id;
+    },
     /** The SCIM client; only valid inside a test. */
     get scim(): APIRequestContext {
       expect(client, "workerConnector's beforeAll has run").toBeTruthy();

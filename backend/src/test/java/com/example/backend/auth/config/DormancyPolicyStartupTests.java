@@ -35,7 +35,7 @@ class DormancyPolicyStartupTests {
             assertThat(context).hasNotFailed();
             DormancyPolicy policy = context.getBean(DormancyPolicy.class);
             assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(90));
-            assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
+            assertThat(policy.membershipRevocationWindow()).isEqualTo(Duration.ofDays(180));
         });
     }
 
@@ -48,7 +48,7 @@ class DormancyPolicyStartupTests {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
                     assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(60));
-                    assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(120));
+                    assertThat(policy.membershipRevocationWindow()).isEqualTo(Duration.ofDays(120));
                 });
     }
 
@@ -63,7 +63,7 @@ class DormancyPolicyStartupTests {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
                     assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(30));
-                    assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(45));
+                    assertThat(policy.membershipRevocationWindow()).isEqualTo(Duration.ofDays(45));
                 });
     }
 

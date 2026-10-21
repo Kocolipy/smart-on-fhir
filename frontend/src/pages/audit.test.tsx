@@ -35,9 +35,12 @@ const EVENT_1 = {
   requestId: "req-1",
   resultCount: null,
   filterShape: null,
-  role: null,
   permissions: [],
   loginMethod: "password",
+  permissionsBefore: [],
+  permissionsAfter: [],
+  superuserChanged: null,
+  groupIds: [],
 };
 
 const EVENT_2 = {
@@ -57,16 +60,22 @@ const EVENT_2 = {
   requestId: "req-2",
   resultCount: 3,
   filterShape: "userName eq ?",
-  role: null,
   permissions: [],
   loginMethod: null,
+  permissionsBefore: [],
+  permissionsAfter: [],
+  superuserChanged: null,
+  groupIds: [],
 };
 
-/** A membership change: multiple changed paths, a Role and Permissions, no triggering request. */
-const EVENT_ROLE_CHANGE = {
+/**
+ * A membership change: multiple changed paths, the Permissions before and
+ * after, no triggering request.
+ */
+const EVENT_PERMISSION_GRANT = {
   id: "e-3",
   occurredAt: "2026-01-04T09:08:07Z",
-  operation: "ROLE_GRANT",
+  operation: "PERMISSION_GRANT",
   outcome: "SUCCESS",
   actorId: "00000000-0000-4000-8000-0000000000c1",
   subjectId: "00000000-0000-4000-8000-000000000009",
@@ -80,9 +89,12 @@ const EVENT_ROLE_CHANGE = {
   requestId: "req-3",
   resultCount: null,
   filterShape: null,
-  role: "Engineering",
-  permissions: ["user:read", "group:read"],
+  permissions: [],
   loginMethod: null,
+  permissionsBefore: [],
+  permissionsAfter: ["group:read", "user:read"],
+  superuserChanged: false,
+  groupIds: [],
 };
 
 /**
@@ -107,9 +119,12 @@ const EVENT_BARE = {
   requestId: null,
   resultCount: null,
   filterShape: null,
-  role: null,
   permissions: [],
   loginMethod: null,
+  permissionsBefore: [],
+  permissionsAfter: [],
+  superuserChanged: null,
+  groupIds: [],
 };
 
 function pageOf(events: object[], overrides: Partial<Record<string, unknown>> = {}) {
@@ -282,7 +297,7 @@ describe("Audit", () => {
   });
 
   it("names only the correlation id when the event names no triggering request", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_ROLE_CHANGE], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalElements: 1 })));
 
     await findTable();
     expect(within(table()).getByText("req-3")).toBeInTheDocument();
@@ -300,7 +315,9 @@ describe("Audit", () => {
   });
 
   it("joins changed paths, and shows an em dash when there are none", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_ROLE_CHANGE], { totalElements: 2 })));
+    await renderAudit(
+      everyRead(answerPage([EVENT_1, EVENT_PERMISSION_GRANT], { totalElements: 2 })),
+    );
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -318,11 +335,83 @@ describe("Audit", () => {
     expect(within(table()).getByText("3 result(s) · userName eq ?")).toBeInTheDocument();
   });
 
-  it("joins a membership change's Role and Permissions in Details", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_ROLE_CHANGE], { totalElements: 1 })));
+  it("shows a membership change's Permissions before and after in Details", async () => {
+    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalElements: 1 })));
 
     await findTable();
-    expect(within(table()).getByText("Engineering · user:read, group:read")).toBeInTheDocument();
+    expect(
+      within(table()).getByText("permissions: none → group:read, user:read"),
+    ).toBeInTheDocument();
+  });
+
+  it("names the Superuser granted by a grant and removed by a revocation", async () => {
+    await renderAudit(
+      everyRead(
+        answerPage([
+          { ...EVENT_PERMISSION_GRANT, permissionsAfter: ["ops:read"], superuserChanged: true },
+          {
+            ...EVENT_PERMISSION_GRANT,
+            id: "e-6",
+            operation: "PERMISSION_REVOKE",
+            permissionsBefore: ["ops:read"],
+            permissionsAfter: [],
+            superuserChanged: true,
+          },
+        ]),
+      ),
+    );
+
+    await findTable();
+    expect(
+      within(table()).getByText("permissions: none → ops:read · Superuser granted"),
+    ).toBeInTheDocument();
+    expect(
+      within(table()).getByText("permissions: ops:read → none · Superuser removed"),
+    ).toBeInTheDocument();
+  });
+
+  it("lists the Groups a dormancy revocation removed in Details", async () => {
+    await renderAudit(
+      everyRead(
+        answerPage([
+          {
+            ...EVENT_PERMISSION_GRANT,
+            operation: "DORMANCY_MEMBERSHIP_REVOCATION",
+            permissionsBefore: ["audit:read"],
+            permissionsAfter: [],
+            groupIds: [
+              "00000000-0000-4000-8000-0000000000a1",
+              "00000000-0000-4000-8000-0000000000a2",
+            ],
+          },
+        ]),
+      ),
+    );
+
+    await findTable();
+    expect(
+      within(table()).getByText(
+        "permissions: audit:read → none · groups: 00000000-0000-4000-8000-0000000000a1, " +
+          "00000000-0000-4000-8000-0000000000a2",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("joins the Permissions a token event carried in Details", async () => {
+    await renderAudit(
+      everyRead(
+        answerPage([
+          {
+            ...EVENT_BARE,
+            operation: "CONNECTOR_TOKEN_ISSUE",
+            permissions: ["group:read", "user:read"],
+          },
+        ]),
+      ),
+    );
+
+    await findTable();
+    expect(within(table()).getByText("group:read, user:read")).toBeInTheDocument();
   });
 
   it("names a login's method in Details", async () => {

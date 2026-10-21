@@ -40,6 +40,8 @@ describe("readObject", () => {
     expect(body().nullableString("nickname")).toBeNull();
     expect(body().nullableString("name")).toBe("ada");
     expect(body().boolean("admin")).toBe(false);
+    expect(body().nullableBoolean("nickname")).toBeNull();
+    expect(body().nullableBoolean("admin")).toBe(false);
     expect(body().integer("count")).toBe(3);
     expect(body().nullableInteger("maybeCount")).toBeNull();
     expect(body().nullableInteger("count")).toBe(3);
@@ -63,6 +65,7 @@ describe("readObject", () => {
     expect(refusal(() => body().string("missing"))).toBe("Body.missing is not a string");
     expect(refusal(() => body().nullableString("missing"))).toBe("Body.missing is not a string");
     expect(refusal(() => body().boolean("missing"))).toBe("Body.missing is not a boolean");
+    expect(refusal(() => body().nullableBoolean("missing"))).toBe("Body.missing is not a boolean");
     expect(refusal(() => body().integer("missing"))).toBe("Body.missing is not an integer");
     expect(refusal(() => body().nullableInteger("missing"))).toBe("Body.missing is not an integer");
     expect(refusal(() => body().oneOf("missing", SCOPES))).toBe("Body.missing is not a string");
@@ -78,6 +81,7 @@ describe("readObject", () => {
     expect(refusal(() => body().nullableString("admin"))).toBe("Body.admin is not a string");
     expect(refusal(() => body().boolean("name"))).toBe("Body.name is not a boolean");
     expect(refusal(() => body().boolean("nickname"))).toBe("Body.nickname is not a boolean");
+    expect(refusal(() => body().nullableBoolean("name"))).toBe("Body.name is not a boolean");
     expect(refusal(() => body().integer("name"))).toBe("Body.name is not an integer");
     expect(refusal(() => body().nullableInteger("name"))).toBe("Body.name is not an integer");
     expect(refusal(() => body().array("name", asString))).toBe("Body.name is not an array");

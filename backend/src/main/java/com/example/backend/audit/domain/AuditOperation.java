@@ -189,13 +189,14 @@ public enum AuditOperation {
     DORMANCY_LOCKOUT,
 
     /**
-     * The dormancy job removed a User's direct membership of every mapped Group it held, because
-     * it had gone longer than the role-revocation window without authenticating. Recorded against
-     * the affected USER, with no actor, the changed path {@code groups} and the Roles lost in
-     * {@code role}, comma-joined: the event is about whose power ended, and one event per User is
-     * what reconciling the directory's memberships needs.
+     * The dormancy job removed every direct Group membership of a User that had gone longer than
+     * the revocation window without authenticating — the Admin group's included, the Bootstrap
+     * Admin's exempt. Recorded against the affected USER, with no actor, the changed path
+     * {@code groups}, every removed Group by id, and the User's effective Permissions before and
+     * after with the Superuser marker: one event per User, which is what an unexpected mass removal
+     * is reversed by hand from.
      */
-    DORMANCY_ROLE_REVOCATION,
+    DORMANCY_MEMBERSHIP_REVOCATION,
 
     /**
      * A password change was required of a User by an administrator — directly, or by lifting a
@@ -225,18 +226,20 @@ public enum AuditOperation {
     ACCESS_DENIED,
 
     /**
-     * A connector's write added a User to a mapped Group, so the User gained that Group's Role.
-     * Recorded against the USER, with the connector as the actor, the Group as the resource and
-     * the Role's name — a membership change of a mapped Group is a change of power, and the
-     * event says which power. The User's live sessions are untouched: it holds the Role from its
-     * next sign-in.
+     * A connector's write added a User to a Group that confers Permissions, or to the Admin group.
+     * Recorded against the USER, with the connector as the actor, the Group as the resource, and
+     * the User's effective Permissions before and after with the Superuser marker — a membership
+     * change of such a Group is a change of power, and the event says which. The User's live
+     * sessions are untouched: it holds the Permissions from its next sign-in. A Group that confers
+     * nothing records no such event.
      */
-    ROLE_GRANT,
+    PERMISSION_GRANT,
 
     /**
-     * A User lost a mapped Group's Role: a connector's write removed it from the Group, by PATCH,
-     * PUT or the Group's DELETE. Recorded like {@link #ROLE_GRANT}; the User's sessions are then
-     * revoked after the commit, recorded as {@link #USER_SESSIONS_REVOKE}.
+     * A User lost direct membership of a Group that confers Permissions, or of the Admin group: a
+     * connector's write removed it, by PATCH, PUT or the Group's DELETE. Recorded like
+     * {@link #PERMISSION_GRANT}; the User's sessions are then revoked after the commit, recorded as
+     * {@link #USER_SESSIONS_REVOKE}.
      */
-    ROLE_REVOKE
+    PERMISSION_REVOKE
 }

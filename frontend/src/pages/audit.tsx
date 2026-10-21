@@ -15,6 +15,7 @@ import {
   parseAuditFilters,
   type AuditEvent,
   type AuditEventPage,
+  type AuditOperation,
   type AuditFilters,
   UNFILTERED_AUDIT_QUERY,
   type AuditQuery,
@@ -57,19 +58,45 @@ function requestCell(event: AuditEvent): string {
   return event.requestId ?? "—";
 }
 
+/** The operations that change a User's power through its Group memberships. */
+const MEMBERSHIP_OPERATIONS: readonly AuditOperation[] = [
+  "PERMISSION_GRANT",
+  "PERMISSION_REVOKE",
+  "DORMANCY_MEMBERSHIP_REVOCATION",
+];
+
+const listed = (values: readonly string[]): string =>
+  values.length === 0 ? "none" : values.join(", ");
+
+/**
+ * A membership change's part of Details: the User's effective Permissions
+ * before and after, whether it granted or removed the Superuser, and the
+ * Groups a dormancy revocation removed. Nothing for any other operation.
+ */
+function membershipParts(event: AuditEvent): (string | null)[] {
+  if (!MEMBERSHIP_OPERATIONS.includes(event.operation)) return [];
+  const superuser =
+    event.operation === "PERMISSION_GRANT" ? "Superuser granted" : "Superuser removed";
+  return [
+    `permissions: ${listed(event.permissionsBefore)} → ${listed(event.permissionsAfter)}`,
+    event.superuserChanged === true ? superuser : null,
+    event.groupIds.length === 0 ? null : `groups: ${event.groupIds.join(", ")}`,
+  ];
+}
+
 /**
  * Everything else a reader may need, as plain text joined by " · ": a login's
- * method, a bulk read's result count and filter shape, a membership change's
- * Role, and the Permissions a token event carried. Empty when the operation
- * names none of these.
+ * method, a bulk read's result count and filter shape, the Permissions a token
+ * event carried, and a membership change's Permissions before and after. Empty
+ * when the operation names none of these.
  */
 function detailsCell(event: AuditEvent): string {
   const parts = [
     event.loginMethod === null ? null : `login method: ${event.loginMethod}`,
     event.resultCount === null ? null : `${event.resultCount} result(s)`,
     event.filterShape,
-    event.role,
     event.permissions.length === 0 ? null : event.permissions.join(", "),
+    ...membershipParts(event),
   ].filter((part): part is string => part !== null);
   return parts.length === 0 ? "—" : parts.join(" · ");
 }

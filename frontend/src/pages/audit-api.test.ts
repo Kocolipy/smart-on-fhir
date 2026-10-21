@@ -33,9 +33,12 @@ const AUDIT_EVENT = {
   requestId: "req-1",
   resultCount: null,
   filterShape: null,
-  role: null,
   permissions: [],
   loginMethod: "password",
+  permissionsBefore: [],
+  permissionsAfter: [],
+  superuserChanged: null,
+  groupIds: [],
 };
 
 const AUDIT_EVENT_PAGE = {
@@ -107,6 +110,9 @@ describe("decodeAuditEventPage", () => {
       ["statusClass", "a string"],
       ["changedPaths", "an array"],
       ["permissions", "an array"],
+      ["permissionsBefore", "an array"],
+      ["permissionsAfter", "an array"],
+      ["groupIds", "an array"],
     ])("refuses an event missing %s", (key, expected) => {
       refusal(
         () => decodeOneEvent(without(AUDIT_EVENT, key)),
@@ -122,9 +128,9 @@ describe("decodeAuditEventPage", () => {
       ["httpMethod", "a string"],
       ["httpPath", "a string"],
       ["filterShape", "a string"],
-      ["role", "a string"],
       ["requestId", "a string"],
       ["loginMethod", "a string"],
+      ["superuserChanged", "a boolean"],
     ])("refuses an event missing the nullable field %s", (key, expected) => {
       refusal(
         () => decodeOneEvent(without(AUDIT_EVENT, key)),
@@ -182,9 +188,12 @@ describe("decodeAuditEventPage", () => {
       ["httpMethod", 7, "a string"],
       ["httpPath", 7, "a string"],
       ["filterShape", 7, "a string"],
-      ["role", 7, "a string"],
       ["changedPaths", "password", "an array"],
       ["permissions", "user:read", "an array"],
+      ["permissionsBefore", "user:read", "an array"],
+      ["permissionsAfter", "user:read", "an array"],
+      ["groupIds", "00000000-0000-4000-8000-0000000000a1", "an array"],
+      ["superuserChanged", "true", "a boolean"],
     ])("refuses a wrong-typed %s", (key, badValue, expected) => {
       refusal(
         () => decodeOneEvent({ ...AUDIT_EVENT, [key]: badValue }),
@@ -241,6 +250,51 @@ describe("decodeAuditEventPage", () => {
         () => decodeOneEvent({ ...AUDIT_EVENT, permissions: ["user:read", 7] }),
         "is not a string",
       );
+    });
+
+    it("decodes a membership change's Permissions before and after, its marker and its Groups", () => {
+      const change = {
+        ...AUDIT_EVENT,
+        operation: "DORMANCY_MEMBERSHIP_REVOCATION",
+        permissionsBefore: ["audit:read", "user:read"],
+        permissionsAfter: ["user:read"],
+        superuserChanged: true,
+        groupIds: ["00000000-0000-4000-8000-0000000000a1"],
+      };
+
+      expect(decodeOneEvent(change)).toStrictEqual(change);
+    });
+
+    it("decodes each Superuser marker, and none for an event that is no membership change", () => {
+      expect(
+        [true, false, null].map(
+          (superuserChanged) =>
+            decodeOneEvent({ ...AUDIT_EVENT, superuserChanged }).superuserChanged,
+        ),
+      ).toEqual([true, false, null]);
+    });
+
+    it.each(["permissionsBefore", "permissionsAfter", "groupIds"])(
+      "refuses a %s entry that is not a string",
+      (key) => {
+        refusal(
+          () => decodeOneEvent({ ...AUDIT_EVENT, [key]: ["user:read", 7] }),
+          "is not a string",
+        );
+      },
+    );
+
+    it("lists the operations the trail now speaks in, and none of the Role ones", () => {
+      expect(AUDIT_OPERATIONS).toEqual(
+        expect.arrayContaining([
+          "PERMISSION_GRANT",
+          "PERMISSION_REVOKE",
+          "DORMANCY_MEMBERSHIP_REVOCATION",
+        ]),
+      );
+      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["ROLE_GRANT"]));
+      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["ROLE_REVOKE"]));
+      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["DORMANCY_ROLE_REVOCATION"]));
     });
   });
 });

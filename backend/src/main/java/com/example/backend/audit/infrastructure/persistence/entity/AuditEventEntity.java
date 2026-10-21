@@ -86,10 +86,6 @@ public class AuditEventEntity {
     @Column(updatable = false)
     private String filterShape;
 
-    /** The Role a mapped-Group membership change granted or revoked; null for anything else. */
-    @Column(name = "role_name", updatable = false)
-    private String roleName;
-
     /**
      * The Permissions a token was issued, rotated or refused with, comma-separated as
      * {@code changedPaths} is; null for anything else.
@@ -113,6 +109,25 @@ public class AuditEventEntity {
     @Column(name = "replacement_token_id", updatable = false)
     private UUID replacementTokenId;
 
+    /**
+     * A membership change's subject's effective Permissions before it, comma-separated as
+     * {@code permissions} is; null for anything else.
+     */
+    @Column(name = "permissions_before", updatable = false)
+    private String permissionsBefore;
+
+    /** The same User's effective Permissions after the change; null for anything else. */
+    @Column(name = "permissions_after", updatable = false)
+    private String permissionsAfter;
+
+    /** Whether a membership change granted or removed the Superuser; null for anything else. */
+    @Column(name = "superuser_changed", updatable = false)
+    private Boolean superuserChanged;
+
+    /** The Groups a dormancy revocation removed, comma-separated ids; null for anything else. */
+    @Column(name = "group_ids", updatable = false)
+    private String groupIds;
+
     protected AuditEventEntity() {
     }
 
@@ -133,12 +148,12 @@ public class AuditEventEntity {
             String requestId,
             Integer resultCount,
             String filterShape,
-            String roleName,
             String permissions,
             String loginMethod,
             String mfaFactor,
             UUID tokenId,
-            UUID replacementTokenId) {
+            UUID replacementTokenId,
+            MembershipColumns membership) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -155,12 +170,26 @@ public class AuditEventEntity {
         this.requestId = requestId;
         this.resultCount = resultCount;
         this.filterShape = filterShape;
-        this.roleName = roleName;
         this.permissions = permissions;
         this.loginMethod = loginMethod;
         this.mfaFactor = mfaFactor;
         this.tokenId = tokenId;
         this.replacementTokenId = replacementTokenId;
+        this.permissionsBefore = membership.permissionsBefore();
+        this.permissionsAfter = membership.permissionsAfter();
+        this.superuserChanged = membership.superuserChanged();
+        this.groupIds = membership.groupIds();
+    }
+
+    /**
+     * The four columns a membership change fills, as stored: each list comma-joined, or null when
+     * empty, and the marker null for every event that is no membership change.
+     */
+    public record MembershipColumns(
+            String permissionsBefore,
+            String permissionsAfter,
+            Boolean superuserChanged,
+            String groupIds) {
     }
 
     /*

@@ -203,7 +203,7 @@ members.
 **Role assignment**:
 Membership of a mapped Group, which is the only way a User holds a Role; so
 `group:write` on a mapped Group is Role assignment, not a harmless Permission.
-_Avoid_: role grant (for anything but the audited `ROLE_GRANT` event)
+_Avoid_: role grant (the audited event is a `PERMISSION_GRANT`)
 
 **Role-change propagation**:
 How a change of Role reaches live sessions: losing one ends them, gaining one
@@ -368,21 +368,23 @@ password change, reactivation or Unlock, or else its creation.
 
 **Dormant User**:
 A User whose dormancy basis is older than one of the dormancy windows: the
-lockout window or the longer role-revocation window.
+lockout window or the longer revocation window.
 _Avoid_: inactive User (that is a deactivated one)
 
 **Dormancy verdict**:
 What the dormancy job owes one User at one instant, decided from its dormancy
-basis and "now" alone: not due, Lockout, or Lockout + Role revocation. The only
-place the job compares a basis with a window.
+basis and "now" alone: not due, Lockout, or Lockout + Membership revocation. The
+only place the job compares a basis with a window.
 
-**Role revocation**:
-The dormancy job's second step: removing every mapped-Group membership of a User
-past the role-revocation window.
+**Membership revocation**:
+The dormancy job's second step: removing every direct Group membership — the
+Admin group's included, the Bootstrap Admin's exempt — of a User past the
+revocation window, recorded as one `DORMANCY_MEMBERSHIP_REVOCATION`.
+_Avoid_: role revocation (it removed only mapped-Group memberships)
 
 **Dormancy job**:
-The daily scheduled job that locks dormant Users and revokes the Roles of those
-dormant for longer. It never writes `active` and never deletes.
+The daily scheduled job that locks dormant Users and revokes every Group
+membership of those dormant for longer. It never writes `active` and never deletes.
 _Avoid_: inactivity deactivation, dormant-authority revocation (the two jobs it
 replaced)
 
@@ -473,6 +475,14 @@ _Avoid_: log (the application log is a different stream)
 
 **Audit listing**:
 The read of the audit trail, by a holder of `audit:read`.
+
+**Permission change**:
+An audit event of a User gaining or losing direct membership of a Group that
+confers Permissions, or of the Admin group: `PERMISSION_GRANT` or
+`PERMISSION_REVOKE`, recording the User's effective Permissions before and after
+and whether the change granted or removed the Superuser. A Group that confers
+nothing records none.
+_Avoid_: role change (the trail no longer speaks in Roles)
 
 **Audit page**:
 The SPA screen at `/audit` showing the Audit listing, for a holder of

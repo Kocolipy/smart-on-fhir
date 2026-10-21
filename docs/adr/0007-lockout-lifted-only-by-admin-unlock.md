@@ -157,3 +157,18 @@ with the standard's soft-delete and tombstone requirements.
   Superusers included, and the forced change also refuses the Bootstrap Admin.
   There is no rule refusing a target that holds more than the caller. Refusals
   stay a generic `403`.
+- 2026-10-21 (#156, ADR 0015): **dormancy revocation strips every Group
+  membership**, previously role-mapped Groups only. Past the revocation window
+  (`APP_DORMANCY_ROLE_REVOCATION_WINDOW`, 180 days, the variable keeping its name)
+  the User's direct membership of every Group is removed — the Admin group's
+  included, a Group conferring nothing included — each Group's version and the
+  User's advance, and its sessions are revoked after commit as before. This
+  follows the Standalone User Access Control App-Standard's "Revoke roles from
+  long-inactive accounts" and its recipe's "a user inactive for 180 days loses all
+  roles": with Groups carrying Permissions, a Group's membership is the role, and a
+  membership the job left alone could be given Permissions later. The Bootstrap
+  Admin stays exempt and its Admin-group membership frozen. The audit event becomes
+  `DORMANCY_MEMBERSHIP_REVOCATION`: one actorless row per User listing every
+  removed Group id and the User's effective Permissions before and after, with the
+  Superuser marker — the record that makes an unexpected mass removal reversible
+  by hand. The 90-day lockout and its behaviour are unchanged.

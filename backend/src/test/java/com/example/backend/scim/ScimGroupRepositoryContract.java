@@ -641,7 +641,7 @@ public abstract class ScimGroupRepositoryContract {
     /**
      * Exactly the memberships of unreserved Users whose dormancy basis — the last authentication,
      * or the creation when there has been none — is strictly before the cutoff, locked or active
-     * or not.
+     * or not. Read for this case's Group alone, since a shared store holds other cases' too.
      */
     @Test
     void the_dormant_memberships_are_exactly_those_of_unreserved_users_dormant_before_the_cutoff() {
@@ -662,7 +662,8 @@ public abstract class ScimGroupRepositoryContract {
                 neverAuthenticated, locked, inactive, recent, atTheCutoff, createdRecently,
                 reserved));
 
-        assertThat(groups().findDormantMemberships(List.of(group.id()), CUTOFF))
+        assertThat(groups().findDormantMemberships(CUTOFF))
+                .filteredOn(membership -> membership.groupId().equals(group.id()))
                 .containsExactlyInAnyOrder(
                         new ScimGroupMembership(dormant.id(), group.id()),
                         new ScimGroupMembership(neverAuthenticated.id(), group.id()),
@@ -670,22 +671,17 @@ public abstract class ScimGroupRepositoryContract {
                         new ScimGroupMembership(inactive.id(), group.id()));
     }
 
+    /** Every Group a dormant User belongs to, whatever the Group confers. */
     @Test
-    void the_dormant_memberships_are_only_of_the_groups_asked_about() {
+    void the_dormant_memberships_are_of_every_group_the_user_belongs_to() {
         ScimUser dormant = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-        ScimGroup asked = groups().create(ScimIdentities.group(unique(), dormant));
-        groups().create(ScimIdentities.group(unique(), dormant));
+        ScimGroup first = groups().create(ScimIdentities.group(unique(), dormant));
+        ScimGroup second = groups().create(ScimIdentities.group(unique(), dormant));
 
-        assertThat(groups().findDormantMemberships(List.of(asked.id()), CUTOFF))
-                .containsExactly(new ScimGroupMembership(dormant.id(), asked.id()));
-    }
-
-    @Test
-    void the_dormant_memberships_of_no_group_are_none() {
-        ScimUser dormant = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-        groups().create(ScimIdentities.group(unique(), dormant));
-
-        assertThat(groups().findDormantMemberships(List.of(), CUTOFF)).isEmpty();
+        assertThat(groups().findDormantMemberships(CUTOFF))
+                .filteredOn(membership -> membership.userId().equals(dormant.id()))
+                .containsExactlyInAnyOrder(new ScimGroupMembership(dormant.id(), first.id()),
+                        new ScimGroupMembership(dormant.id(), second.id()));
     }
 
     /**
@@ -705,8 +701,9 @@ public abstract class ScimGroupRepositoryContract {
         ScimGroup groupFirst = groups().create(groupWithId(
                 UUID.fromString("7fffff00" + groupTail), engineSecond, engineFirst));
 
-        assertThat(groups().findDormantMemberships(
-                        List.of(groupSecond.id(), groupFirst.id()), CUTOFF))
+        assertThat(groups().findDormantMemberships(CUTOFF))
+                .filteredOn(membership -> membership.groupId().equals(groupFirst.id())
+                        || membership.groupId().equals(groupSecond.id()))
                 .containsExactly(
                         new ScimGroupMembership(engineFirst.id(), groupFirst.id()),
                         new ScimGroupMembership(engineFirst.id(), groupSecond.id()),

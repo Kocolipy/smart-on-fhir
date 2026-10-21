@@ -130,11 +130,32 @@ class ScimSeedConfigStartupTests {
     }
 
     /**
-     * A configured dormant fixture is seeded with the fixture password and backdated one day past
-     * the lockout window, so the startup dormancy run that follows locks it.
+     * A configured dormant fixture is seeded with the fixture password, backdated one day past
+     * the revocation window and put into the Groups configured for it, so the startup dormancy
+     * run that follows locks it and removes every one of those memberships.
      */
     @Test
-    void theDormantFixtureIsSeededADayPastTheLockoutWindow() {
+    void theDormantFixtureIsSeededADayPastTheRevocationWindowInItsGroups() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.dormant-member=dormant",
+                        "app.dev-fixtures.dormant-groups[0]=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        ScimUser dormant = users.require("dormant");
+        assertThat(dormant.login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(dormant.dormancyBasis()).isEqualTo(ScimIdentities.NOW
+                .minus(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1)));
+        assertThat(groups.findById(HELPDESK).orElseThrow().hasMember(dormant.id())).isTrue();
+    }
+
+    /** A dormant fixture with no Groups configured for it is seeded in none. */
+    @Test
+    void aDormantFixtureWithNoGroupsConfiguredJoinsNone() {
         contexts.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
@@ -144,10 +165,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.groups[0].member=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        ScimUser dormant = users.require("dormant");
-        assertThat(dormant.login().passwordHash()).isEqualTo("encoded:fixture-password");
-        assertThat(dormant.dormancyBasis()).isEqualTo(ScimIdentities.NOW
-                .minus(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1)));
+        assertThat(groups.findGroupsOfUser(users.require("dormant").id())).isEmpty();
     }
 
     /** No dormant fixture configured: none is seeded. */

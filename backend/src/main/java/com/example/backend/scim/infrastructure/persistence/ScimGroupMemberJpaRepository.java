@@ -132,19 +132,17 @@ interface ScimGroupMemberJpaRepository
     int deleteMembership(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
 
     /**
-     * The direct memberships of these Groups held by unreserved Users whose dormancy basis — the
+     * The direct memberships, of every Group, held by unreserved Users whose dormancy basis — the
      * last authentication, or creation when there has been none — is strictly before the cutoff.
-     * Active or locked or not: Roles are revoked from a dormant User whatever its standing.
+     * Active or locked or not: memberships are revoked from a dormant User whatever its standing.
      */
     @Query("""
             select new com.example.backend.scim.domain.ScimGroupMembership(
                        u.resourceId, m.id.groupId)
               from ScimGroupMemberEntity m
               join ScimUserEntity u on u.resourceId = m.id.userId
-             where m.id.groupId in :groupIds
-               and u.resource.reservedName is null
+             where u.resource.reservedName is null
                and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
              order by u.resourceId, m.id.groupId""")
-    List<ScimGroupMembership> findDormantMemberships(
-            @Param("groupIds") Collection<UUID> groupIds, @Param("cutoff") Instant cutoff);
+    List<ScimGroupMembership> findDormantMemberships(@Param("cutoff") Instant cutoff);
 }

@@ -48,9 +48,6 @@ import java.util.UUID;
  *                      {@code ?} for every value — or {@code null} when it had none or the
  *                      operation is not a read. Rendered from {@link AuditFilterShape}, so
  *                      no literal can be in it
- * @param role          the Role a membership change on a mapped Group granted or revoked, by its
- *                      name in the deployment's role mapping — configuration, never a value a
- *                      caller submitted — or {@code null} for every other operation
  * @param permissions   the Permissions a connector token was issued or rotated with — sorted
  *                      wire spellings from the closed vocabulary in code; empty for every other
  *                      operation
@@ -67,6 +64,17 @@ import java.util.UUID;
  *                      none. An id, never the token's value or digest
  * @param replacementTokenId the stable id of the token a rotation minted to replace
  *                      {@code tokenId}, or {@code null} for every other event
+ * @param permissionsBefore the subject User's effective Permissions before a membership change —
+ *                      a {@code PERMISSION_GRANT}, {@code PERMISSION_REVOKE} or
+ *                      {@code DORMANCY_MEMBERSHIP_REVOCATION} — as sorted wire spellings from the
+ *                      closed vocabulary in code; empty for every other event
+ * @param permissionsAfter the same User's effective Permissions after the change; empty for every
+ *                      other event
+ * @param superuserChanged whether a membership change granted or removed the Superuser, or
+ *                      {@code null} for every event that is no membership change
+ * @param groupIds      every Group a {@code DORMANCY_MEMBERSHIP_REVOCATION} removed the User
+ *                      from, by stable id, sorted and distinct; empty for every other event — a
+ *                      connector's membership change names its one Group as the resource
  */
 public record AuditEvent(
         UUID id,
@@ -85,12 +93,15 @@ public record AuditEvent(
         String requestId,
         Integer resultCount,
         String filterShape,
-        String role,
         List<String> permissions,
         String loginMethod,
         String mfaFactor,
         UUID tokenId,
-        UUID replacementTokenId) {
+        UUID replacementTokenId,
+        List<String> permissionsBefore,
+        List<String> permissionsAfter,
+        Boolean superuserChanged,
+        List<UUID> groupIds) {
 
     /**
      * A SCIM connector, as the audit trail names it.
@@ -146,11 +157,14 @@ public record AuditEvent(
     public AuditEvent {
         changedPaths = changedPaths == null ? List.of() : List.copyOf(changedPaths);
         permissions = permissions == null ? List.of() : List.copyOf(permissions);
+        permissionsBefore = permissionsBefore == null ? List.of() : List.copyOf(permissionsBefore);
+        permissionsAfter = permissionsAfter == null ? List.of() : List.copyOf(permissionsAfter);
+        groupIds = groupIds == null ? List.of() : List.copyOf(groupIds);
     }
 
     /**
-     * An event that names no Permissions, no login method and no token, which is every event
-     * but a token's and a login's.
+     * An event that names no Permissions, no login method, no token and no membership change,
+     * which is every event but a token's, a login's and a membership change's.
      */
     public AuditEvent(
             UUID id,
@@ -168,10 +182,10 @@ public record AuditEvent(
             String httpPath,
             String requestId,
             Integer resultCount,
-            String filterShape,
-            String role) {
+            String filterShape) {
         this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
                 changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
-                filterShape, role, List.of(), null, null, null, null);
+                filterShape, List.of(), null, null, null, null, List.of(), List.of(), null,
+                List.of());
     }
 }

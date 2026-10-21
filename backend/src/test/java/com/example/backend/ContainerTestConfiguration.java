@@ -116,7 +116,8 @@ public class ContainerTestConfiguration {
      */
     public static final String OWNER_PASSWORD = UUID.randomUUID().toString();
 
-    static final String APP_PASSWORD = UUID.randomUUID().toString();
+    /** The app login's, generated as the owner's is; for a test that connects as the service. */
+    public static final String APP_PASSWORD = UUID.randomUUID().toString();
 
     static final String RETENTION_PASSWORD = UUID.randomUUID().toString();
 

@@ -81,6 +81,11 @@ app:
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks
     # it: the e2e suite's dormancy journey signs in as it.
     dormant-member: dormant
+    # Put back into these at every startup, so the startup dormancy run has
+    # memberships to remove (Auditors and Monitoring, each conferring a Permission).
+    dormant-groups:
+      - 00000000-0000-4000-8000-00000000a003
+      - 00000000-0000-4000-8000-00000000a005
     groups:
       - id: 00000000-0000-4000-8000-00000000a002
         display-name: Account admins

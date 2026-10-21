@@ -157,7 +157,7 @@ class ScheduledJobScheduleTests {
                 assertThat(record.at("/dormancy/lockout/window").asText())
                         .isEqualTo(dormancy.lockoutWindow().toString());
                 assertThat(record.at("/dormancy/role_revocation/window").asText())
-                        .isEqualTo(dormancy.roleRevocationWindow().toString());
+                        .isEqualTo(dormancy.membershipRevocationWindow().toString());
             });
 
             for (CronTask cron : crons) {

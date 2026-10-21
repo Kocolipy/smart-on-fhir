@@ -663,10 +663,13 @@ class LoginIdentityServiceTests {
     @Test
     void theSuperuserHoldsEveryDelegatablePermissionEvenWhenTheMappingConfersNone() {
         RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
-        Mockito.when(conferringNothing.superuserGroupId())
-                .thenReturn(TestRoleMappings.SUPERUSER_GROUP_ID);
+        Mockito.when(conferringNothing.confersSuperuser(ArgumentMatchers.anyCollection()))
+                .thenAnswer(call -> call.<java.util.Collection<?>>getArgument(0)
+                        .contains(TestRoleMappings.SUPERUSER_GROUP_ID));
         Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
                 .thenReturn(Set.of());
+        Mockito.when(conferringNothing.effectivePermissionsOf(ArgumentMatchers.anyCollection()))
+                .thenCallRealMethod();
         LoginIdentityService bare = new LoginIdentityService(
                 users, groups, passwordEncoder, conferringNothing);
         ScimUser ada = users.given(ScimIdentities.user("ada"));
@@ -683,10 +686,13 @@ class LoginIdentityServiceTests {
     @Test
     void theSuperuserHoldsAccountUnlockAndNoTokenOnlyWrite() {
         RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
-        Mockito.when(conferringNothing.superuserGroupId())
-                .thenReturn(TestRoleMappings.SUPERUSER_GROUP_ID);
+        Mockito.when(conferringNothing.confersSuperuser(ArgumentMatchers.anyCollection()))
+                .thenAnswer(call -> call.<java.util.Collection<?>>getArgument(0)
+                        .contains(TestRoleMappings.SUPERUSER_GROUP_ID));
         Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
                 .thenReturn(Set.of());
+        Mockito.when(conferringNothing.effectivePermissionsOf(ArgumentMatchers.anyCollection()))
+                .thenCallRealMethod();
         LoginIdentityService bare = new LoginIdentityService(
                 users, groups, passwordEncoder, conferringNothing);
         ScimUser ada = users.given(ScimIdentities.user("ada"));

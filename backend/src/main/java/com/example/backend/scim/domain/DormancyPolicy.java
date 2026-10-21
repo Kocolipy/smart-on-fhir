@@ -29,28 +29,30 @@ import java.time.Instant;
  * it is locked at all — which is a configuration mistake rather than a stricter policy, so it
  * stops startup like a non-positive window does.
  *
- * @param lockoutWindow        how long without authenticating before the dormancy lockout
- * @param roleRevocationWindow how long without authenticating before every mapped Group
- *                             membership is removed
+ * @param lockoutWindow              how long without authenticating before the dormancy lockout
+ * @param membershipRevocationWindow how long without authenticating before every direct Group
+ *                                   membership is removed — configured, like its log fields,
+ *                                   under its earlier name, {@code role revocation}
  */
-public record DormancyPolicy(Duration lockoutWindow, Duration roleRevocationWindow) {
+public record DormancyPolicy(Duration lockoutWindow, Duration membershipRevocationWindow) {
 
     /** Ninety days, applied when a deployment configures nothing. */
     public static final Duration DEFAULT_LOCKOUT_WINDOW = Duration.ofDays(90);
 
     /** One hundred and eighty days, applied when a deployment configures nothing. */
-    public static final Duration DEFAULT_ROLE_REVOCATION_WINDOW = Duration.ofDays(180);
+    public static final Duration DEFAULT_MEMBERSHIP_REVOCATION_WINDOW = Duration.ofDays(180);
 
     public DormancyPolicy {
         lockoutWindow = lockoutWindow == null
                 ? DEFAULT_LOCKOUT_WINDOW
                 : requirePositive(lockoutWindow, "lockout");
-        roleRevocationWindow = roleRevocationWindow == null
-                ? DEFAULT_ROLE_REVOCATION_WINDOW
-                : requirePositive(roleRevocationWindow, "role revocation");
-        if (roleRevocationWindow.compareTo(lockoutWindow) <= 0) {
+        membershipRevocationWindow = membershipRevocationWindow == null
+                ? DEFAULT_MEMBERSHIP_REVOCATION_WINDOW
+                : requirePositive(membershipRevocationWindow, "role revocation");
+        if (membershipRevocationWindow.compareTo(lockoutWindow) <= 0) {
             throw new IllegalArgumentException(
-                    "The dormancy role revocation window is configured at " + roleRevocationWindow
+                    "The dormancy role revocation window is configured at "
+                            + membershipRevocationWindow
                             + " and the lockout window at " + lockoutWindow
                             + "; the role revocation window must be longer than the lockout"
                             + " window.");
@@ -84,7 +86,7 @@ public record DormancyPolicy(Duration lockoutWindow, Duration roleRevocationWind
      */
     public DormancyVerdict verdict(Instant createdAt, Instant lastAuthenticatedAt, Instant now) {
         Instant basis = basis(createdAt, lastAuthenticatedAt);
-        if (basis.isBefore(roleRevocationCutoff(now))) {
+        if (basis.isBefore(membershipRevocationCutoff(now))) {
             return DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION;
         }
         if (basis.isBefore(lockoutCutoff(now))) {
@@ -117,11 +119,11 @@ public record DormancyPolicy(Duration lockoutWindow, Duration roleRevocationWind
     }
 
     /**
-     * The instant a User's dormancy basis must lie before for its mapped Group memberships to be
+     * The instant a User's dormancy basis must lie before for its direct Group memberships to be
      * removed at {@code now}. Exposed, like {@link #lockoutCutoff}, for the candidate query only.
      */
-    public Instant roleRevocationCutoff(Instant now) {
-        return now.minus(roleRevocationWindow);
+    public Instant membershipRevocationCutoff(Instant now) {
+        return now.minus(membershipRevocationWindow);
     }
 
     /**

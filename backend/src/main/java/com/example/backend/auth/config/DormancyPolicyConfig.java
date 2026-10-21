@@ -31,7 +31,7 @@ public class DormancyPolicyConfig {
     public DormancyPolicy dormancyPolicy(
             @Value("${app.dormancy.lockout.window:#{null}}") Duration lockoutWindow,
             @Value("${app.dormancy.role.revocation.window:#{null}}")
-                    Duration roleRevocationWindow) {
-        return new DormancyPolicy(lockoutWindow, roleRevocationWindow);
+                    Duration membershipRevocationWindow) {
+        return new DormancyPolicy(lockoutWindow, membershipRevocationWindow);
     }
 }

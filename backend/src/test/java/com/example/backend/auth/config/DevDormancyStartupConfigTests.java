@@ -22,7 +22,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.application.ScimRoleRevocationService;
+import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ScimUser;
@@ -56,13 +56,13 @@ class DevDormancyStartupConfigTests {
             users,
             groups,
             new InMemoryScimWriteLocks(),
-            new ScimRoleRevocationService(
-                    users, groups, sessions, audit, TestRoleMappings.superuserOnly()),
+            new ScimMembershipRevocationService(users, groups, sessions, audit,
+                    TestRoleMappings.superuserOnly(), () -> {
+                    }),
             sessions,
             LoginStateModules.over(users, clock),
             new ScheduledJobRunService(lock, new RecordingTransactionManager()),
             DormancyPolicy.defaults(),
-            TestRoleMappings.superuserOnly(),
             audit,
             clock);
 
