@@ -28,8 +28,8 @@ no Deactivate or Activate: `active` is the directory's, and the backend has no
 endpoint that would accept a write to any directory-owned field. Each view and
 action is shown by its own Permission — the Users projection by `user:read`, its
 Unlock and forced change by `user:write`, the Groups projection by `group:read`,
-connectors by `connector:read` (create and delete by `connector:write`, tokens by
-`connector:token`) — and the page renders for a User who may see at least one view;
+connectors by `connector:read` (create, delete and every token action are shown
+only to a Superuser) — and the page renders for a User who may see at least one view;
 a deep link from anyone else is routed to Home. The page never decides
 authorization: the backend refuses each operation to a caller lacking its
 Permission regardless.

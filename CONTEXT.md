@@ -128,8 +128,8 @@ How a Group's rendered members name each User: its `displayName`, or its
 `userName` when it has none.
 
 **Admin group**:
-The server-seeded Group that is the Superuser Group; membership confers nothing
-of its own beyond the Superuser Role.
+The server-seeded Group that is the Superuser Group; a direct member is the
+Superuser.
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
@@ -183,8 +183,8 @@ Rules: [authorization](docs/domain/authorization.md).
 
 **Permission**:
 One named, fine-grained power a protected action requires, such as
-`user:read` or `connector:token`; the set is closed and defined in code, not
-configuration.
+`user:read` or `ops:read`; the set is closed and defined in code, not
+configuration. The Superuser is not one.
 _Avoid_: scope, right, privilege
 
 **Role**:
@@ -209,6 +209,21 @@ _Avoid_: role grant (for anything but the audited `ROLE_GRANT` event)
 How a change of Role reaches live sessions: losing one ends them, gaining one
 waits for the next Login.
 
+**Superuser**:
+The session authority, spelled `ROLE_SUPERUSER`, of a User who is a direct member
+of the Admin group. It is not a Permission, so no Group can carry it; its session
+also holds every delegatable Permission, and `/api/auth/me` reports it as
+`superuser`. Only the Superuser administers connectors and their tokens.
+_Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
+
+**Delegatable Permission**:
+A Permission a Group may carry: `user:read`, `group:read`, `audit:read`,
+`ops:read` and `connector:read`.
+
+**Token-grantable Permission**:
+A Permission a connector token may carry: `user:read`, `user:write`, `group:read`
+and `group:write`. The write halves are token-only.
+
 **Superuser Group**:
 The one mapped Group whose Role holds every Permission: the Admin group.
 
@@ -218,18 +233,14 @@ Permission.
 
 **Deny by default**:
 The rule that every operation of the application chain declares what it needs —
-public, self-service or one Permission — and whatever declares nothing is
-refused.
+public, self-service, one Permission or the Superuser — and whatever declares
+nothing is refused.
 
 **Token Permissions**:
-The Permissions a connector token carries: the four directory ones, `user:read`,
-`user:write`, `group:read` and `group:write`, from the same vocabulary a Role
-grants.
+The Permissions a connector token carries: only Token-grantable Permissions, from
+the same vocabulary a Role grants. A token with a write Permission is Superuser-equivalent, which is why only
+the Superuser mints one.
 _Avoid_: scope, `scim.read`, `scim.write` (they no longer exist)
-
-**No escalation**:
-The rule that a token may carry only Permissions its creator holds itself, on
-issue and on rotation alike.
 
 **Baseline access**:
 What every active User holds without any Role and without a required password

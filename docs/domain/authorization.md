@@ -1,19 +1,40 @@
 ---
 type: Domain Rules
 title: Authorization
-description: Permissions, Roles and the role mapping — baseline access, deny by default, authorization refusals, the Superuser Group, Role assignment, and the development fixtures.
-tags: [authorization, permissions, roles]
+description: Permissions, the Superuser, Roles and the role mapping — baseline access, deny by default, authorization refusals, the Superuser Group, Role assignment, and the development fixtures.
+tags: [authorization, permissions, roles, superuser]
 ---
 
 # Authorization
 
 **Permission** and **Role** — a Permission is one fine-grained power from a
 closed set defined in code (`user:read`, `user:write`, `group:read`,
-`group:write`, `audit:read`, `connector:read`, `connector:write`,
-`connector:token`, `ops:read`, `patient:read`); a new one is a
-code change, because it means something only once a protected action declares
-it. A Role is a named set of them, defined in deployment configuration. Neither
-is stored in the database, and nothing at runtime creates or changes one.
+`group:write`, `audit:read`, `connector:read`, `ops:read`, `patient:read`); a
+new one is a code change, because it means something only once a protected
+action declares it. A Role is a named set of them, defined in deployment
+configuration. Neither is stored in the database, and nothing at runtime creates
+or changes one.
+
+**Delegatable** and **token-grantable** — the two flags the vocabulary carries
+(ADR 0015). A delegatable Permission is what a Group may carry: `user:read`,
+`group:read`, `audit:read`, `ops:read` and `connector:read`. A token-grantable
+one is what a connector token may carry: `user:read`, `user:write`, `group:read`
+and `group:write` ([connectors](./connectors.md)). `user:read` and `group:read`
+carry both; the write halves are token-only; `patient:read` is neither — it is
+the baseline Permission below. The two vocabularies are enforced separately: a
+session never reaches the SCIM chain and a token never reaches the application
+chain.
+
+**Superuser** — the one session authority that is not a Permission, so it can
+never be put on a Group. A User is a Superuser when it is a _direct_ member of
+the [Admin group](./directory.md), by password Login or Epic Login alike. At
+sign-in such a session gets `ROLE_SUPERUSER` plus every delegatable Permission,
+expanded in code — no Spring `RoleHierarchy`, no stored list — added to
+whatever its Roles confer. `GET /api/auth/me` reports it as `superuser`, beside
+`permissions`, which for a Superuser include the full delegatable set. Holding
+every Permission does not make a session the Superuser. It is not split into
+`user:write` and `group:write` for people, so no deployment configures it
+differently.
 
 **Baseline access** — every active User with a session holds self-service:
 `GET /api/auth/me`, its own password change, logout and `/api/self` — and nothing
@@ -23,14 +44,14 @@ flag, whatever Roles it holds or lacks, so a misconfigured mapping can never tak
 self-service away.
 
 **Admin** — a User holding at least one administrative Permission through its
-Roles. There is no administrative authority of its own: what an Admin may do is
-exactly its Permissions — a helpdesk operator holding `user:read` and
-`user:write` sees and unlocks Users, and nothing more.
+Roles. Apart from the Superuser there is no administrative authority of its own:
+what an Admin may do is exactly its Permissions — a helpdesk operator holding
+`user:read` and `user:write` sees and unlocks Users, and nothing more.
 
 ## Deny by default
 
 Every operation of the application chain declares what it needs, and whatever
-declares nothing is refused. Three kinds of operation:
+declares nothing is refused. Four kinds of operation:
 
 - **Public** — `POST /api/auth/login`, `GET /api/auth/csrf`,
   `/actuator/health`, and, while Epic Login is on, its JWKS and three browser
@@ -42,11 +63,16 @@ declares nothing is refused. Three kinds of operation:
   its handler with method security and repeated by the chain as a backstop:
   `user:read` lists Users; `user:write` unlocks and forces a password change;
   `group:read` lists Groups and reads the Roles and the role mapping; `audit:read`
-  lists audit events; `connector:read` lists connectors, `connector:write` creates
-  and deletes them, `connector:token` issues, rotates and revokes their tokens;
-  `ops:read` reaches every actuator endpoint but health, on whichever port
-  actuator is served.
+  lists audit events; `connector:read` lists connectors; `ops:read` reaches every
+  actuator endpoint but health, on whichever port actuator is served.
   `patient:read` reads a Patient (`GET /api/patient/{id}`, [patient](patient.md)).
+- **Superuser only** — connector creation and deletion, and issuing, rotating and
+  revoking a token, declared as `hasRole('SUPERUSER')` on the handler, repeated by
+  the chain as a backstop, and as `sessionCookie: [superuser]` in the API
+  document. **Rule:** any endpoint that changes Group Permissions, Admin-group
+  state, or connector existence or credentials is Superuser-only. Minting a token
+  is the gate that matters: a token carrying a write Permission is
+  Superuser-equivalent ([connectors](./connectors.md)).
 
 Beside the operations the chain admits two things that are not operations: any
 `GET` outside the reserved server paths, which is the SPA shell or a file
@@ -60,14 +86,14 @@ API document declares each operation's requirement in its `security` field, and 
 contract test proves every declaration against the running application.
 
 **Authorization refusal** — the `403` a signed-in caller gets when the operation
-does not admit it: a Permission it lacks, a route nothing declares, or a confined
-session. Generic on purpose: the response carries the generic `request-refused`
+does not admit it: a Permission it lacks, the Superuser it is not, a route
+nothing declares, or a confined session. Generic on purpose: the response carries the generic `request-refused`
 `ApiError` (an `OperationOutcome` under `/api/patient`), and the refusal is audited
 (`ACCESS_DENIED`) and logged at `WARN` with the caller, the operation (method and
 route template) and one reason (`INSUFFICIENT_PERMISSIONS` /
 `insufficient-permissions`), never naming the Permission, a Role or the rule. The
-missing Permission is recoverable from the operation's declaration in the API
-document, since each requires exactly one. A missing or stale CSRF token is a
+missing Permission, or the Superuser, is recoverable from the operation's
+declaration in the API document, since each requires exactly one. A missing or stale CSRF token is a
 `403` too, but it is not an authorization decision and is neither audited nor
 reasoned as one.
 
@@ -115,7 +141,9 @@ for its shape. The rules:
   so reordering configuration lists does not change it and any change of meaning
   does.
 
-**Superuser Group** — the one mapped Group whose Role holds every Permission. It
+**Superuser Group** — the one mapped Group whose Role holds every Permission. A
+direct member of it is the Superuser, whose session holds what its Role confers
+and `ROLE_SUPERUSER` and every delegatable Permission beside it. It
 is the [Admin group](./directory.md): seeding creates the Admin group under the
 Superuser Group's configured stable id, so a deployment's mapping can name it
 before it exists. An Admin group seeded earlier under another id keeps that id,
@@ -131,7 +159,8 @@ Group, and nothing else assigns one. So **`group:write` on a mapped Group is
 Role assignment**: whoever holds it — over SCIM, a connector token carrying it —
 decides who holds that Role, the Superuser Role's included. It is not split into
 a separate `role:assign` Permission, because an identity provider sync has to
-manage every Group. Every membership change of a mapped Group is audited as a
+manage every Group. That is bounded by who may mint a token: only the Superuser,
+and a write token is Superuser-equivalent. Every membership change of a mapped Group is audited as a
 change of power: a `ROLE_GRANT` or `ROLE_REVOKE` event naming the connector, the
 User, the Group and the Role, beside an `INFO` log record classified
 `user-administration` / `change` / `success` with `user.target.id`, `group.id` and
@@ -148,6 +177,8 @@ SPA has no view of it.
 **Development fixtures** — the shipped mapping (`authorization.yaml`) is a
 development default: Superuser, Account admin, Auditor, Connector admin and
 Monitoring, each Role but Superuser conferred by a Group with one User in it.
+The Connector admin holds `connector:read` and nothing else: it lists connectors
+and administers none.
 With `APP_DEV_FIXTURES_ENABLED=true` startup seeds those Groups under the
 mapping's ids and their Users with `APP_DEV_FIXTURES_PASSWORD`, never
 overwriting one that exists, together with two Users in no Group: `user`, holding
