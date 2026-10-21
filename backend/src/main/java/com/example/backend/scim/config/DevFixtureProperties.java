@@ -14,9 +14,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param baselineMember the userName of a User in no Group, holding only the baseline
  *                       Permissions; {@code null} for none
  * @param groups         one Group per non-Superuser Role, each with one User in it
- * @param dormantMember  the userName of a User in no Group whose dormancy basis is backdated past
- *                       the lockout window at every startup, so the development profile's startup
- *                       dormancy run locks it; {@code null} for none
+ * @param dormantMember  the userName of a User whose dormancy basis is backdated past the
+ *                       revocation window at every startup, so the development profile's startup
+ *                       dormancy run locks it and removes its memberships; {@code null} for none
+ * @param dormantGroups  the Groups the dormant member is put back into at every startup, for that
+ *                       run to remove; {@code null} or empty for none
  */
 @ConfigurationProperties("app.dev-fixtures")
 public record DevFixtureProperties(
@@ -24,7 +26,8 @@ public record DevFixtureProperties(
         String password,
         String baselineMember,
         List<GroupFixture> groups,
-        String dormantMember) {
+        String dormantMember,
+        List<UUID> dormantGroups) {
 
     /**
      * One Group fixture.

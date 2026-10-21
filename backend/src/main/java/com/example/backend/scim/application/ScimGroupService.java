@@ -3,7 +3,8 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.authorization.domain.AuthorizationChangeCounts;
+import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -54,11 +55,11 @@ import org.springframework.transaction.annotation.Transactional;
  * whole of their protection on this surface:
  *
  * <ul>
- *   <li>The <strong>Admin group</strong> — the Superuser Group, whose Role holds every
- *       Permission — may not be renamed and may not be deleted. Its ordinary membership stays
- *       writable, because granting and revoking access is exactly what external provisioning is
- *       for. Every other mapped Group is an ordinary Group on this surface: renamable,
- *       deletable, its membership writable.
+ *   <li>The <strong>Admin group</strong> — whose direct members are the Superuser — may not be
+ *       renamed and may not be deleted. Its ordinary membership stays writable, because granting
+ *       and revoking access is exactly what external provisioning is for. Every other Group is an
+ *       ordinary Group on this surface, whatever it confers: renamable, deletable, its membership
+ *       writable.
  *   <li>The <strong>Bootstrap Admin's</strong> membership is frozen — it cannot be removed
  *       from the Admin group, and it cannot be added to or removed from any other Group.
  *       The glossary's rule is that no SCIM operation may mutate that User, and a membership
@@ -79,25 +80,25 @@ import org.springframework.transaction.annotation.Transactional;
  * transaction back, so an append that joined it would be rolled back with it, and an attempt to
  * provision the recovery authority away would leave no trace.
  *
- * <h2>A mapped Group's membership is Role assignment</h2>
+ * <h2>A membership of a Group that confers Permissions is a change of power</h2>
  *
- * <p>A Group the role mapping names confers its Role on every direct member, so writing its
- * membership is assigning that Role — which is why {@code group:write} on a mapped Group is as
- * powerful as the Role itself. Every write that moves a mapped Group's membership is therefore
- * also recorded as a change of power: a {@code ROLE_GRANT} for each User it added and a
- * {@code ROLE_REVOKE} for each User it removed, naming the User, the Group and the Role, and a
- * matching {@code INFO} record in the application log.
+ * <p>A Group that confers Permissions — or the Admin group, which confers the Superuser — confers
+ * them on every direct member, so writing its membership is granting them, which is why
+ * {@code group:write} on such a Group is as powerful as what it confers. Every write that moves
+ * such a Group's membership is therefore also recorded as a change of power: a
+ * {@code PERMISSION_GRANT} for each User it added and a {@code PERMISSION_REVOKE} for each User it
+ * removed, naming the User, the Group and the User's effective Permissions before and after, and
+ * a matching {@code INFO} record in the application log. A grant of the Superuser is counted too.
  *
- * <p>A session carries the Permissions it was issued with, so a User removed from a mapped Group
- * would otherwise keep that Role's Permissions for the rest of its lifetime. Every write that drops
- * a direct member of a mapped Group — a PATCH {@code remove}, a PATCH {@code replace} of the
+ * <p>A session carries the Permissions it was issued with, so a User removed from such a Group
+ * would otherwise keep them for the rest of its lifetime. Every write that drops a direct member
+ * of a Group that confers Permissions — a PATCH {@code remove}, a PATCH {@code replace} of the
  * members, a PUT whose member list leaves the User out, or the Group's DELETE — therefore ends that
  * User's sessions through {@link ScimUserSessions}, which does so only once the write commits. A
- * refused, stale or rolled-back write revokes nothing; neither does a removal from a Group the
- * mapping does not name, which confers nothing, nor an ADDITION to a mapped Group, whose Role
- * the User holds from its next sign-in.
+ * refused, stale or rolled-back write revokes nothing; neither does a removal from a Group that
+ * confers nothing, nor an ADDITION, whose Permissions the User holds from its next sign-in.
  *
- * <p>Which Users gain or lose a Role, and whose Sessions end, is decided by
+ * <p>Which Users gain or lose Permissions, and whose Sessions end, is decided by
  * {@link ScimWriteEffects} from the membership before and after, and carried out by the apply
  * step every SCIM write shares ({@link ScimWriteEffectsApplier}), which also advances the version
  * of a write that moved only the calling connector's alias.
@@ -112,7 +113,7 @@ public class ScimGroupService {
     private final AuditTrail audit;
     private final Clock clock;
     private final ScimQueryRepository queries;
-    private final RoleMapping roleMapping;
+    private final GroupPermissions permissions;
     private final ScimWriteEffectsApplier effects;
     private final ScimWriteLocks writeLocks;
 
@@ -126,7 +127,8 @@ public class ScimGroupService {
             AuditTrail audit,
             Clock clock,
             ScimQueryRepository queries,
-            RoleMapping roleMapping) {
+            GroupPermissions permissions,
+            AuthorizationChangeCounts counts) {
         this.queries = queries;
         this.groups = groups;
         this.writeLocks = writeLocks;
@@ -135,8 +137,9 @@ public class ScimGroupService {
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
-        this.roleMapping = roleMapping;
-        this.effects = new ScimWriteEffectsApplier(users, groups, sessions, audit);
+        this.permissions = permissions;
+        this.effects = new ScimWriteEffectsApplier(
+                users, groups, sessions, audit, permissions, counts);
     }
 
     /**
@@ -312,10 +315,9 @@ public class ScimGroupService {
      * removed. An ordinary Group containing the Bootstrap Admin needs no special case: such a
      * Group cannot exist, because no write that would have added the User to it is accepted.
      *
-     * <p>Any other mapped Group can be: deleting it removes every member's Role, so each member
-     * is recorded as losing it and has its sessions ended after the commit, exactly as removing
-     * them one by one would. The mapping still names the Group's id afterwards, but no Group
-     * answers to it, so it confers nothing until the deployment replaces its mapping.
+     * <p>Any other Group can be: deleting one that confers Permissions removes them from every
+     * member, so each member is recorded as losing them and has its sessions ended after the
+     * commit, exactly as removing them one by one would.
      *
      * <p>The Group and every member are locked first, through the lock module and in its order:
      * each member's version advances.
@@ -351,7 +353,8 @@ public class ScimGroupService {
         audit.append(new Audited.ScimGroupDeleted(connector.connectorId(), id));
         if (deleted) {
             effects.apply(ScimWriteEffectsApplier.Writer.connector(connector.connectorId()),
-                    ScimWriteEffects.ofGroupDeletion(id, memberIdSet(group), roleMapping.roleOf(id)),
+                    ScimWriteEffects.ofGroupDeletion(
+                            id, memberIdSet(group), permissions.confersPermissions(id)),
                     now);
         }
         return deleted;
@@ -423,7 +426,7 @@ public class ScimGroupService {
                         current.displayName(), memberIdSet(current), currentAlias),
                 new ScimWriteEffects.GroupState(
                         written.displayName(), memberIdSet(written), edit.externalId()),
-                roleMapping.roleOf(id));
+                permissions.confersPermissions(id));
         if (implied.stored().alias()) {
             writeAlias(connectorId, id, edit.externalId());
         }

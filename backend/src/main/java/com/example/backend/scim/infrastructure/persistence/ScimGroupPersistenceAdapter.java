@@ -224,12 +224,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     }
 
     @Override
-    public List<ScimGroupMembership> findDormantMemberships(
-            Collection<UUID> groupIds, Instant cutoff) {
-        // An empty IN list is not portable SQL; nothing can match it anyway.
-        return groupIds.isEmpty()
-                ? List.of()
-                : memberships.findDormantMemberships(groupIds, cutoff);
+    public List<ScimGroupMembership> findDormantMemberships(Instant cutoff) {
+        return memberships.findDormantMemberships(cutoff);
     }
 
     /**

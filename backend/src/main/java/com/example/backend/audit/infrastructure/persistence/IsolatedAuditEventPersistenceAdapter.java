@@ -2,6 +2,7 @@ package com.example.backend.audit.infrastructure.persistence;
 
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.IsolatedAuditEventRepository;
+import com.example.backend.audit.infrastructure.persistence.entity.AuditEventEntity;
 import com.example.backend.database.ConnectionQualifiers;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -36,9 +37,10 @@ class IsolatedAuditEventPersistenceAdapter implements IsolatedAuditEventReposito
             INSERT INTO audit_events (
                 id, occurred_at, operation, outcome, actor_id, subject_id, resource_type,
                 resource_id, changed_paths, status_class, error_code, http_method, http_path,
-                request_id, result_count, filter_shape, role_name, permissions, login_method,
-                mfa_factor, token_id, replacement_token_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                request_id, result_count, filter_shape, permissions, login_method, mfa_factor,
+                token_id, replacement_token_id, permissions_before, permissions_after,
+                superuser_changed, group_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private final JdbcTemplate pool;
@@ -55,6 +57,8 @@ class IsolatedAuditEventPersistenceAdapter implements IsolatedAuditEventReposito
 
     @Override
     public void append(AuditEvent event) {
+        AuditEventEntity.MembershipColumns membership =
+                AuditEventPersistenceAdapter.membership(event);
         pool.update(INSERT,
                 event.id(),
                 OffsetDateTime.ofInstant(event.occurredAt(), ZoneOffset.UTC),
@@ -72,11 +76,14 @@ class IsolatedAuditEventPersistenceAdapter implements IsolatedAuditEventReposito
                 event.requestId(),
                 event.resultCount(),
                 event.filterShape(),
-                event.role(),
                 AuditEventPersistenceAdapter.joinPaths(event.permissions()),
                 event.loginMethod(),
                 event.mfaFactor(),
                 event.tokenId(),
-                event.replacementTokenId());
+                event.replacementTokenId(),
+                membership.permissionsBefore(),
+                membership.permissionsAfter(),
+                membership.superuserChanged(),
+                membership.groupIds());
     }
 }

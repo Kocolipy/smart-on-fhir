@@ -1,7 +1,7 @@
 package com.example.backend.audit.domain;
 
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.Role;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -23,8 +23,8 @@ final class AuditRows {
     static final String INSUFFICIENT_PERMISSIONS = "INSUFFICIENT_PERMISSIONS";
 
     /**
-     * What a change of a Group's membership records as changed — a connector's write, a Role
-     * moving with it, a Group's deletion, a restored reserved membership — spelled once.
+     * What a change of a Group's membership records as changed — a connector's write, the
+     * Permissions moving with it, a Group's deletion, a restored reserved membership — spelled once.
      */
     static final List<String> MEMBERSHIP_PATHS = List.of(AuditGroupAttribute.MEMBERS.path());
 
@@ -93,24 +93,46 @@ final class AuditRows {
     }
 
     /**
-     * The fields only some events fill: a bulk read's count and filter shape, a Role, a token's
-     * Permissions and ids, and a Login's method and MFA factor.
+     * What a membership change did to a User's power: the Permissions before and after, the
+     * Superuser marker, and — on the dormancy job's revocation — the Groups removed.
+     *
+     * @param superuserChanged {@code null} for every event that is no membership change
+     */
+    private record Membership(
+            List<String> permissionsBefore,
+            List<String> permissionsAfter,
+            Boolean superuserChanged,
+            List<UUID> groupIds) {
+
+        /** What every event but a membership change fills: nothing. */
+        static final Membership NONE = new Membership(List.of(), List.of(), null, List.of());
+
+        static Membership of(AuditPermissionChange change, List<UUID> groupIds) {
+            return new Membership(change.beforeValues(), change.afterValues(),
+                    change.superuserChanged(), groupIds);
+        }
+    }
+
+    /**
+     * The fields only some events fill: a bulk read's count and filter shape, a token's
+     * Permissions and ids, a Login's method and MFA factor, and a membership change's Permissions.
      */
     private record Particulars(
             Integer resultCount,
             String filterShape,
-            String role,
             List<String> permissions,
             String loginMethod,
             String mfaFactor,
-            Tokens tokens) {
+            Tokens tokens,
+            Membership membership) {
 
         /** What every other event fills: nothing. */
-        static final Particulars NONE =
-                new Particulars(null, null, null, NO_PERMISSIONS, null, null, Tokens.NONE);
+        static final Particulars NONE = new Particulars(
+                null, null, NO_PERMISSIONS, null, null, Tokens.NONE, Membership.NONE);
 
-        static Particulars role(String role) {
-            return new Particulars(null, null, role, NO_PERMISSIONS, null, null, Tokens.NONE);
+        static Particulars membership(Membership membership) {
+            return new Particulars(
+                    null, null, NO_PERMISSIONS, null, null, Tokens.NONE, membership);
         }
     }
 
@@ -164,8 +186,9 @@ final class AuditRows {
     static AuditEvent login(
             Audited.Stamp stamp, Change change, AuditLoginMethod method, AuditMfaFactor factor) {
         return row(stamp, stamp.requests().current(), change, AuditEvent.USER_RESOURCE_TYPE,
-                change.subjectId(), new Particulars(null, null, null, NO_PERMISSIONS,
-                        method.value(), factor == null ? null : factor.value(), Tokens.NONE));
+                change.subjectId(), new Particulars(null, null, NO_PERMISSIONS,
+                        method.value(), factor == null ? null : factor.value(), Tokens.NONE,
+                        Membership.NONE));
     }
 
     /**
@@ -194,10 +217,10 @@ final class AuditRows {
     static AuditEvent token(
             Audited.Stamp stamp, Change change, Tokens tokens, Set<Permission> permissions) {
         return row(stamp, stamp.requests().current(), change, AuditEvent.CONNECTOR_RESOURCE_TYPE,
-                change.subjectId(), new Particulars(null, null, null,
+                change.subjectId(), new Particulars(null, null,
                         permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value)
                                 .toList(),
-                        null, null, tokens));
+                        null, null, tokens, Membership.NONE));
     }
 
     /**
@@ -213,39 +236,42 @@ final class AuditRows {
             AuditFilterShape filter) {
         return row(stamp, stamp.requests().current(),
                 Change.success(operation, connectorId, null, Audited.NO_PATHS), resourceType, null,
-                new Particulars(resultCount, filter == null ? null : filter.render(), null,
-                        NO_PERMISSIONS, null, null, Tokens.NONE));
+                new Particulars(resultCount, filter == null ? null : filter.render(),
+                        NO_PERMISSIONS, null, null, Tokens.NONE, Membership.NONE));
     }
 
     /**
-     * A change of power through a mapped Group's membership: the subject is the User whose power
-     * changed, the resource the Group whose membership moved, and the Role is named — the one event
-     * whose subject and resource differ, because it is about both.
+     * A change of power through a Group's membership: the subject is the User whose power changed,
+     * the resource the Group whose membership moved, and the User's effective Permissions before
+     * and after are named — the one event whose subject and resource differ, because it is about
+     * both.
      */
-    static AuditEvent role(
+    static AuditEvent permissionChange(
             Audited.Stamp stamp,
             AuditOperation operation,
             UUID connectorId,
             UUID userId,
             UUID groupId,
-            Role role) {
+            AuditPermissionChange change) {
         return row(stamp, stamp.requests().current(),
                 Change.success(operation, connectorId, userId, MEMBERSHIP_PATHS),
-                AuditEvent.GROUP_RESOURCE_TYPE, groupId, Particulars.role(role.name()));
+                AuditEvent.GROUP_RESOURCE_TYPE, groupId,
+                Particulars.membership(Membership.of(change, List.of())));
     }
 
     /**
-     * The dormancy job's Role revocation: the User as subject and resource, {@code groups} as the
-     * changed path, and the Roles lost in {@code role}, sorted, distinct and comma-joined — the one
-     * actorless User event that names a Role.
+     * The dormancy job's membership revocation: the User as subject and resource, {@code groups}
+     * as the changed path, every Group removed — by id, sorted and distinct — and the User's
+     * effective Permissions before and after.
      */
-    static AuditEvent dormancyRoleRevocation(Audited.Stamp stamp, UUID userId, List<Role> roles) {
+    static AuditEvent dormancyMembershipRevocation(
+            Audited.Stamp stamp, UUID userId, List<UUID> groupIds, AuditPermissionChange change) {
         return row(stamp, stamp.requests().current(),
-                Change.success(AuditOperation.DORMANCY_ROLE_REVOCATION, null, userId,
+                Change.success(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, userId,
                         AuditAttribute.paths(Set.of(AuditUserAttribute.GROUPS))),
                 AuditEvent.USER_RESOURCE_TYPE, userId,
-                Particulars.role(roles.stream().map(Role::name).distinct().sorted()
-                        .collect(Collectors.joining(","))));
+                Particulars.membership(Membership.of(change, groupIds.stream().distinct()
+                        .sorted(Comparator.comparing(UUID::toString)).toList())));
     }
 
     /**
@@ -298,11 +324,14 @@ final class AuditRows {
                 request.requestId(),
                 particulars.resultCount(),
                 particulars.filterShape(),
-                particulars.role(),
                 particulars.permissions(),
                 particulars.loginMethod(),
                 particulars.mfaFactor(),
                 particulars.tokens().concerned(),
-                particulars.tokens().replacement());
+                particulars.tokens().replacement(),
+                particulars.membership().permissionsBefore(),
+                particulars.membership().permissionsAfter(),
+                particulars.membership().superuserChanged(),
+                particulars.membership().groupIds());
     }
 }

@@ -18,6 +18,7 @@ import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUserRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
@@ -118,6 +119,9 @@ class RolePropagationIntegrationTests {
 
     @Autowired
     private RoleMapping roleMapping;
+
+    @Autowired
+    private MeterRegistry meters;
 
     @Autowired
     @Qualifier("revokeSessionsIssuedUnderAnotherMapping")
@@ -261,7 +265,7 @@ class RolePropagationIntegrationTests {
         assertThat(scim(delete(GROUPS + MONITORING))).isEqualTo(204);
 
         assertThat(status(get("/api/auth/me").cookie(monitoring))).isEqualTo(401);
-        assertRoleChange("ROLE_REVOKE", member, MONITORING, "Monitoring");
+        assertPermissionChange("PERMISSION_REVOKE", member, MONITORING, "ops:read", null, false);
         assertSessionsRevokedForGroups(member);
     }
 
@@ -278,7 +282,8 @@ class RolePropagationIntegrationTests {
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}"""
                     .formatted(accountAdmin))).isEqualTo(200);
             assertThat(status(get("/api/auth/me").cookie(session))).isEqualTo(401);
-            assertRoleChange("ROLE_REVOKE", accountAdmin, ACCOUNT_ADMINS, "Account admin");
+            assertPermissionChange("PERMISSION_REVOKE", accountAdmin, ACCOUNT_ADMINS,
+                    "account:unlock,group:read,user:read", null, false);
             assertSessionsRevokedForGroups(accountAdmin);
 
             // Signed in again, the User no longer holds the Role.
@@ -314,7 +319,8 @@ class RolePropagationIntegrationTests {
             assertThat(status(get("/api/auth/me").cookie(live))).isEqualTo(200);
             assertThat(permissions(live)).doesNotContain("user:read");
             assertThat(status(get("/api/admin/accounts").cookie(live))).isEqualTo(403);
-            assertRoleChange("ROLE_GRANT", auditor, ACCOUNT_ADMINS, "Account admin");
+            assertPermissionChange("PERMISSION_GRANT", auditor, ACCOUNT_ADMINS, "audit:read",
+                    "account:unlock,audit:read,group:read,user:read", false);
 
             Cookie next = logIn("auditor");
             assertThat(permissions(next)).contains("account:unlock", "audit:read", "user:read");
@@ -322,6 +328,29 @@ class RolePropagationIntegrationTests {
         } finally {
             scimPatch(ACCOUNT_ADMINS, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(auditor));
+        }
+    }
+
+    /**
+     * Adding a User to the Admin group makes it the Superuser: the grant's audit row says so, and
+     * the {@code superuser-grant} count rises by exactly one.
+     */
+    @Test
+    void addition_to_the_admin_group_is_a_counted_superuser_grant() throws Exception {
+        UUID monitoring = userId("monitoring");
+        double before = superuserGrants();
+        try {
+            assertThat(scimPatch(SUPERUSERS, """
+                    {"op":"add","path":"members","value":[{"value":"%s"}]}"""
+                    .formatted(monitoring))).isEqualTo(200);
+
+            assertThat(superuserGrants()).isEqualTo(before + 1);
+            assertPermissionChange("PERMISSION_GRANT", monitoring, SUPERUSERS, "ops:read",
+                    "account:unlock,audit:read,connector:read,group:read,ops:read,patient:read,"
+                            + "user:read", true);
+        } finally {
+            scimPatch(SUPERUSERS, """
+                    {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(monitoring));
         }
     }
 
@@ -369,17 +398,30 @@ class RolePropagationIntegrationTests {
         }
     }
 
-    /** The change of power is in the trail: the connector, the User, the Group and the Role. */
-    private void assertRoleChange(String operation, UUID userId, UUID groupId, String role) {
+    /** How many Superuser grants the {@code authorization.changes} counter has seen. */
+    private double superuserGrants() {
+        return meters.get("authorization.changes").tag("operation", "superuser-grant").counter()
+                .count();
+    }
+
+    /**
+     * The change of power is in the trail: the connector, the User, the Group, the User's
+     * effective Permissions before and after — {@code null} for none — and the Superuser marker.
+     */
+    private void assertPermissionChange(String operation, UUID userId, UUID groupId,
+            String before, String after, boolean superuser) {
         List<Map<String, Object>> rows = jdbc.query("""
-                SELECT actor_id, resource_type, resource_id, role_name, outcome
+                SELECT actor_id, resource_type, resource_id, permissions_before, permissions_after,
+                       superuser_changed, outcome
                   FROM audit_events
                  WHERE operation = ? AND subject_id = ? AND actor_id = ?""",
                 UuidColumnRows.ROWS, operation, userId, connectorId);
         assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.get("resource_type")).isEqualTo("Group");
             assertThat(row.get("resource_id")).isEqualTo(groupId);
-            assertThat(row.get("role_name")).isEqualTo(role);
+            assertThat(row.get("permissions_before")).isEqualTo(before);
+            assertThat(row.get("permissions_after")).isEqualTo(after);
+            assertThat(row.get("superuser_changed")).isEqualTo(superuser);
             assertThat(row.get("outcome")).isEqualTo("SUCCESS");
         });
     }

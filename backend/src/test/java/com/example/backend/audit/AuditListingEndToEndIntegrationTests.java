@@ -13,6 +13,7 @@ import com.example.backend.auth.DormancyTestClockConfiguration;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormancyService;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -216,7 +217,8 @@ class AuditListingEndToEndIntegrationTests {
         // ---- #18 the dormancy job, past both windows ----
         // The two fixtures' basis — their creation, since neither ever authenticated — is
         // backdated rather than the clock moved, so no other User in the database is dormant.
-        backdateCreation(dormantAdmin, DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+        backdateCreation(dormantAdmin,
+                DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
         backdateCreation(dormant, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
         DormancyRun run = dormancy.run();
         assertThat(run.rolesRevoked()).contains(dormantAdmin);
@@ -286,10 +288,13 @@ class AuditListingEndToEndIntegrationTests {
         assertThat(lift.get("errorCode").asText()).as("the cause of the lock lifted")
                 .isEqualTo("FAILURES");
 
-        JsonNode roleRevocation = single(listAll(reader, "resourceId=" + dormantAdmin, listed),
-                "DORMANCY_ROLE_REVOCATION", "SUCCESS");
-        expect(roleRevocation, null, "User", dormantAdmin, "groups");
-        assertThat(roleRevocation.get("role").asText()).isEqualTo("Superuser");
+        JsonNode revocation = single(listAll(reader, "resourceId=" + dormantAdmin, listed),
+                "DORMANCY_MEMBERSHIP_REVOCATION", "SUCCESS");
+        expect(revocation, null, "User", dormantAdmin, "groups");
+        assertThat(revocation.get("superuserChanged").asBoolean()).isTrue();
+        assertThat(revocation.get("permissionsAfter")).isEmpty();
+        assertThat(revocation.get("groupIds")).extracting(JsonNode::asText)
+                .contains(TestRoleMappings.SUPERUSER_GROUP_ID.toString());
         expect(single(listAll(reader, "resourceId=" + dormant, listed),
                 "DORMANCY_LOCKOUT", "SUCCESS"), null, "User", dormant, "lockedAt", "lockCause");
 

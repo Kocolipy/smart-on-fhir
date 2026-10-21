@@ -35,9 +35,11 @@ class FeatureLogFieldsTests {
     }
 
     @Test
-    void theRoleFieldsKeepTheirSpellings() {
-        assertThat(List.of(RoleLogFields.ROLE_NAME, RoleLogFields.ROLE_MAPPING_HASH))
-                .containsExactly("app.authorization.role", "app.authorization.mapping_hash");
+    void theAuthorizationFieldsKeepTheirSpellings() {
+        assertThat(List.of(RoleLogFields.GROUP_PERMISSIONS, RoleLogFields.PERMISSIONS_LOST,
+                        RoleLogFields.ROLE_MAPPING_HASH))
+                .containsExactly("app.authorization.group_permissions",
+                        "app.authorization.permissions_lost", "app.authorization.mapping_hash");
     }
 
     @Test

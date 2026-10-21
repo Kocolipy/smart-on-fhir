@@ -381,8 +381,9 @@ public class ArchitectureTest {
                     "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.patient.application.PatientSeedService#seedDevFixtures",
                     "startup seeding of the development patient fixtures: the next start seeds"),
-            Map.entry("com.example.backend.scim.application.ScimRoleRevocationService#revokeRoles",
-                    "the dormancy job's Role revocation, joining the run's batch transaction: a"
+            Map.entry("com.example.backend.scim.application.ScimMembershipRevocationService"
+                            + "#revokeMemberships",
+                    "the dormancy job's membership revocation, joining the run's batch transaction: a"
                             + " scheduled path, which the next run covers"),
             Map.entry("com.example.backend.audit.infrastructure.persistence.AuditEventRetentionAdapter"
                             + "#deleteBatchOccurredBefore",

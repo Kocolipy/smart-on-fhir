@@ -3729,6 +3729,9 @@ components:
           changedPaths,
           statusClass,
           permissions,
+          permissionsBefore,
+          permissionsAfter,
+          groupIds,
         ]
       properties:
         id:
@@ -3755,9 +3758,10 @@ components:
           type: [string, "null"]
           format: uuid
           description: |
-            The resource acted on; equal to `resourceId`, except on `ROLE_GRANT`
-            and `ROLE_REVOKE`, whose subject is the User whose Role changed and
-            whose resource is the mapped Group whose membership moved.
+            The resource acted on; equal to `resourceId`, except on
+            `PERMISSION_GRANT` and `PERMISSION_REVOKE`, whose subject is the User
+            whose Permissions changed and whose resource is the Group whose
+            membership moved.
         resourceType:
           type: string
           enum: [User, Group, ScimConnector, "User,Group"]
@@ -3802,13 +3806,6 @@ components:
           description: |
             A bulk read's filter with every literal replaced by `?`
             (`userName eq ?`); `null` when it had none or is not a bulk read.
-        role:
-          type: [string, "null"]
-          description: |
-            The Role a `ROLE_GRANT` or `ROLE_REVOKE` gained or lost, by its name in
-            the deployment's role mapping when the change happened — or, on a
-            `DORMANCY_ROLE_REVOCATION`, every Role lost, sorted and comma-joined;
-            `null` for every other operation.
         permissions:
           type: array
           items:
@@ -3868,6 +3865,42 @@ components:
           description: |
             The token a successful `CONNECTOR_TOKEN_ROTATE` minted to replace
             `tokenId`, by its stable id. `null` for every other event.
+        permissionsBefore:
+          type: array
+          items:
+            type: string
+          description: |
+            On a membership change — `PERMISSION_GRANT`, `PERMISSION_REVOKE` or
+            `DORMANCY_MEMBERSHIP_REVOCATION` — the subject User's effective
+            Permissions before it: what its direct Group memberships conferred,
+            every delegatable Permission included for the Superuser, the baseline
+            `patient:read` not; sorted by name. Empty for every other event. An
+            event recorded under a Role, before the trail spoke in Permissions,
+            carries the Role's name here when the change took it away.
+        permissionsAfter:
+          type: array
+          items:
+            type: string
+          description: |
+            The same User's effective Permissions after the membership change,
+            sorted by name. Empty for every other event. An event recorded under a
+            Role carries the Role's name here when the change granted it.
+        superuserChanged:
+          type: [boolean, "null"]
+          description: |
+            On a membership change, whether it granted or removed the Superuser —
+            a direct membership of the Admin group gained or lost. `null` for every
+            other event, and for one recorded before the marker was.
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: |
+            Every Group a `DORMANCY_MEMBERSHIP_REVOCATION` removed the User from, by
+            stable id, sorted — the record an unexpected mass removal is reversed
+            from by hand. Empty for every other event: a connector's membership
+            change names its one Group as `resourceId`.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]
@@ -3899,20 +3932,21 @@ components:
         - SCIM_RESOURCE_LIST
         - SCIM_RESOURCE_SEED
         - DORMANCY_LOCKOUT
-        - DORMANCY_ROLE_REVOCATION
+        - DORMANCY_MEMBERSHIP_REVOCATION
         - PASSWORD_CHANGE_REQUIRE
         - PASSWORD_CHANGE
         - ACCESS_DENIED
-        - ROLE_GRANT
-        - ROLE_REVOKE
+        - PERMISSION_GRANT
+        - PERMISSION_REVOKE
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
         the cause of the lock it lifted (`FAILURES` or `DORMANCY`), or `null` when
-        the User was not locked. `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION`
-        are the dormancy job's, with no actor: the first locked the User, the
-        second removed its direct membership of every mapped Group and names the
-        Roles lost in `role`, comma-joined. `ACCESS_DENIED` is an
+        the User was not locked. `DORMANCY_LOCKOUT` and
+        `DORMANCY_MEMBERSHIP_REVOCATION` are the dormancy job's, with no actor: the
+        first locked the User, the second removed its direct membership of every
+        Group, the Admin group's included, listing them in `groupIds` with the
+        Permissions before and after. `ACCESS_DENIED` is an
         authorization refusal on the application chain: the refused User as actor
         and subject, the operation as `httpMethod` and `httpPath` (the route
         template, `unmatched` for a route nothing declares) and the one generic
@@ -3920,10 +3954,13 @@ components:
         that refused, which the operation's own `security` declaration names. On
         the SCIM chain the same event names the refused token's CONNECTOR as actor,
         subject and resource (`resourceType` `ScimConnector`).
-        `ROLE_GRANT` and `ROLE_REVOKE` are a change of power through a mapped
-        Group's membership — a connector adding a User to the Group, or removing
-        it by `PATCH`, `PUT` or the Group's `DELETE` — with the connector as
-        actor, the User as subject, the Group as resource and the Role as `role`.
+        `PERMISSION_GRANT` and `PERMISSION_REVOKE` are a change of power through
+        the membership of a Group that confers Permissions, or of the Admin group —
+        a connector adding a User to the Group, or removing it by `PATCH`, `PUT` or
+        the Group's `DELETE` — with the connector as actor, the User as subject,
+        the Group as resource, the User's effective Permissions in
+        `permissionsBefore` and `permissionsAfter`, and `superuserChanged`. A Group
+        that confers nothing records neither.
     ConnectorTokenPermissions:
       type: array
       minItems: 1

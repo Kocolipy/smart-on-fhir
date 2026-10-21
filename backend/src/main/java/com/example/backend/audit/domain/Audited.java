@@ -1,7 +1,6 @@
 package com.example.backend.audit.domain;
 
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.Role;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -689,7 +688,7 @@ public sealed interface Audited {
         }
     }
 
-    // ---- Sessions, dormancy and Roles -----------------------------------------------------------
+    // ---- Sessions, dormancy and membership ------------------------------------------------------
 
     /**
      * The outcome of a Session revocation — ending a User's sessions after a committed change,
@@ -744,56 +743,66 @@ public sealed interface Audited {
     }
 
     /**
-     * The dormancy job removing a dormant User's direct membership of every mapped Group it held,
-     * as one event naming the User and the Roles it lost — sorted, distinct and comma-joined.
-     * Fail-closed and actorless, for the reasons {@link DormancyLockout} is.
+     * The dormancy job removing every direct Group membership of a dormant User, as one event
+     * naming the User, every Group it was removed from — sorted by id and distinct — and its
+     * effective Permissions before and after. Fail-closed and actorless, for the reasons
+     * {@link DormancyLockout} is.
      *
-     * @param roles the Roles the removed memberships conferred; never empty
-     * @throws IllegalArgumentException when {@code roles} is empty
+     * @param groupIds the Groups the User was removed from; never empty
+     * @param change   the User's effective Permissions before and after the removals
+     * @throws IllegalArgumentException when {@code groupIds} is empty
      */
-    record DormancyRoleRevocation(UUID userId, List<Role> roles) implements Accepted {
+    record DormancyMembershipRevocation(
+            UUID userId, List<UUID> groupIds, AuditPermissionChange change) implements Accepted {
 
-        public DormancyRoleRevocation {
-            if (roles.isEmpty()) {
-                throw new IllegalArgumentException("a role revocation names the Roles lost");
+        public DormancyMembershipRevocation {
+            if (groupIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "a membership revocation names the Groups removed");
             }
-            roles = List.copyOf(roles);
+            groupIds = List.copyOf(groupIds);
         }
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.dormancyRoleRevocation(stamp, userId, roles);
+            return AuditRows.dormancyMembershipRevocation(stamp, userId, groupIds, change);
         }
     }
 
     /**
-     * A User gaining a mapped Group's Role because a connector's write added it to the Group: a
-     * change of power this service cannot account for does not happen.
+     * A User gaining direct membership of a Group that confers Permissions, or of the Admin group,
+     * because a connector's write added it: a change of power this service cannot account for does
+     * not happen.
      *
      * @param connectorId the connector whose write added the User
-     * @param userId      the User that gained the Role, recorded as the subject
-     * @param groupId     the mapped Group, recorded as the resource
-     * @param role        the Role, recorded by its name in the role mapping
+     * @param userId      the User whose power changed, recorded as the subject
+     * @param groupId     the Group, recorded as the resource
+     * @param change      the User's effective Permissions before and after
      */
-    record RoleGranted(UUID connectorId, UUID userId, UUID groupId, Role role) implements Accepted {
+    record PermissionGranted(
+            UUID connectorId, UUID userId, UUID groupId, AuditPermissionChange change)
+            implements Accepted {
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.role(stamp, AuditOperation.ROLE_GRANT, connectorId, userId, groupId,
-                    role);
+            return AuditRows.permissionChange(stamp, AuditOperation.PERMISSION_GRANT, connectorId,
+                    userId, groupId, change);
         }
     }
 
     /**
-     * A User losing a mapped Group's Role because a connector's write removed it from the Group —
-     * a PATCH, a PUT, or the Group's deletion — recorded for the reason {@link RoleGranted} is.
+     * A User losing direct membership of a Group that confers Permissions, or of the Admin group,
+     * because a connector's write removed it — a PATCH, a PUT, or the Group's deletion — recorded
+     * for the reason {@link PermissionGranted} is.
      */
-    record RoleRevoked(UUID connectorId, UUID userId, UUID groupId, Role role) implements Accepted {
+    record PermissionRevoked(
+            UUID connectorId, UUID userId, UUID groupId, AuditPermissionChange change)
+            implements Accepted {
 
         @Override
         public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.role(stamp, AuditOperation.ROLE_REVOKE, connectorId, userId, groupId,
-                    role);
+            return AuditRows.permissionChange(stamp, AuditOperation.PERMISSION_REVOKE, connectorId,
+                    userId, groupId, change);
         }
     }
 

@@ -58,7 +58,7 @@ class ScimGroupServiceTests {
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
             UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
-    /** An ordinary mapped Group: writable and deletable, its membership conferring a Role. */
+    /** An ordinary Group that confers Permissions: writable and deletable. */
     private static final UUID HELPDESK_GROUP_ID =
             UUID.fromString("00000000-0000-4000-8000-0000000b0002");
 
@@ -119,6 +119,9 @@ class ScimGroupServiceTests {
 
     private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
 
+    /** How many Superuser grants the service counted. */
+    private int superuserGrants;
+
     private final ScimGroupService service = new ScimGroupService(
             groups,
             writeLocks,
@@ -129,7 +132,8 @@ class ScimGroupServiceTests {
             audit,
             clock,
             queries,
-            ROLE_MAPPING);
+            ROLE_MAPPING,
+            () -> superuserGrants++);
 
     private ScimUser alice;
 
@@ -684,9 +688,16 @@ class ScimGroupServiceTests {
         assertThat(groups.findById(adminGroup.id()).orElseThrow().hasMember(alice.id())).isTrue();
     }
 
-    // ---- every mapped Group: its membership is Role assignment --------------------------------
+    // ---- a membership of a Group that confers Permissions is a change of power -------------------
 
-    /** The ordinary mapped Group, stored under the id the mapping names, with these members. */
+    /** What the Helpdesk Role holds, sorted by name. */
+    private static final String HELPDESK_PERMISSIONS = "account:unlock,user:read";
+
+    /** What the Superuser Role holds — every Permission a session can hold — sorted by name. */
+    private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
+            + "group:read,ops:read,patient:read,user:read";
+
+    /** The Group conferring Permissions, stored under the id the mapping names, with these members. */
     private ScimGroup helpdeskWith(ScimUser... members) {
         return groups.create(ScimGroup.created(
                 HELPDESK_GROUP_ID,
@@ -697,58 +708,123 @@ class ScimGroupServiceTests {
                 ScimIdentities.NOW));
     }
 
-    /** The revocation a removal from a mapped Group asks for, on behalf of this connector. */
+    /** The revocation a removal from a conferring Group asks for, on behalf of this connector. */
     private Revocation roleRevocation(ScimUser user) {
         return new Revocation(CONNECTOR.connectorId(), user.id(),
                 Set.of(ScimUserSessions.Cause.ROLE_REVOKED));
     }
 
-    /** One recorded change of power: the connector, the User, then Group and Role as detail. */
-    private static RecordingAuditTrail.Recorded roleChange(
-            AuditOperation operation, ScimUser user, UUID groupId, String role) {
-        return new RecordingAuditTrail.Recorded(
-                operation, CONNECTOR.connectorId(), user.id(), groupId + ":" + role);
+    /**
+     * One recorded change of power: the connector, the User, then as detail the Group, the User's
+     * effective Permissions before and after, and the Superuser marker.
+     */
+    private static RecordingAuditTrail.Recorded permissionChange(AuditOperation operation,
+            ScimUser user, UUID groupId, String before, String after, boolean superuser) {
+        return new RecordingAuditTrail.Recorded(operation, CONNECTOR.connectorId(), user.id(),
+                groupId + ":" + before + ">" + after + ":" + superuser);
     }
 
     /**
-     * The use case hands the module the stored and the written membership, and the Role the
-     * mapping names for this Group, and carries out what comes back. The rules themselves —
-     * unmapped Groups, unchanged memberships, order — are pinned in {@code ScimWriteEffectsTests}.
+     * The use case hands the module the stored and the written membership, and whether the Group
+     * confers Permissions, and carries out what comes back. The rules themselves — Groups
+     * conferring nothing, unchanged memberships, order — are pinned in
+     * {@code ScimWriteEffectsTests}.
      */
     @Test
-    void a_patch_removing_a_member_of_a_mapped_group_revokes_its_sessions_and_its_role() {
+    void a_patch_removing_a_member_of_a_conferring_group_revokes_its_sessions_and_its_permissions() {
         helpdeskWith(alice, bob);
 
         service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
                 List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
 
         assertThat(revocations).containsExactly(roleRevocation(alice));
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactly(
-                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"));
-        assertThat(audit.of(AuditOperation.ROLE_GRANT)).isEmpty();
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(permissionChange(
+                AuditOperation.PERMISSION_REVOKE, alice, HELPDESK_GROUP_ID,
+                HELPDESK_PERMISSIONS, "", false));
+        assertThat(audit.of(AuditOperation.PERMISSION_GRANT)).isEmpty();
     }
 
-    /** The Superuser Group's membership is Role assignment too, and names its own Role. */
+    /**
+     * The Admin group's membership is a change of power too: joining it grants the Superuser, and
+     * leaving it removes it, which the marker says.
+     */
     @Test
-    void a_superuser_group_membership_change_records_the_superuser_role() {
+    void an_admin_group_membership_change_records_the_superuser_granted_and_removed() {
         ScimGroup adminGroup = adminGroupWithAliceAndBob();
 
         service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
                 List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
 
-        assertThat(audit.of(AuditOperation.ROLE_GRANT)).containsExactlyInAnyOrder(
-                roleChange(AuditOperation.ROLE_GRANT, alice, adminGroup.id(), "Superuser"),
-                roleChange(AuditOperation.ROLE_GRANT, bob, adminGroup.id(), "Superuser"));
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactly(
-                roleChange(AuditOperation.ROLE_REVOKE, alice, adminGroup.id(), "Superuser"));
+        assertThat(audit.of(AuditOperation.PERMISSION_GRANT)).containsExactlyInAnyOrder(
+                permissionChange(AuditOperation.PERMISSION_GRANT, alice, adminGroup.id(),
+                        "", EVERY_PERMISSION, true),
+                permissionChange(AuditOperation.PERMISSION_GRANT, bob, adminGroup.id(),
+                        "", EVERY_PERMISSION, true));
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(
+                permissionChange(AuditOperation.PERMISSION_REVOKE, alice, adminGroup.id(),
+                        EVERY_PERMISSION, "", true));
     }
 
     /**
-     * Unlike the Superuser Group, every other mapped Group can be renamed and deleted — and
-     * deleting it takes the Role from every member, so each is revoked as a removal would be.
+     * Before and after are the User's EFFECTIVE Permissions, from every Group it is a direct member
+     * of: leaving one Group while another confers the same leaves them unchanged, and moves no
+     * Superuser.
      */
     @Test
-    void a_mapped_group_other_than_the_superuser_group_can_be_renamed_and_deleted() {
+    void the_permissions_before_and_after_are_what_every_membership_confers() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+        helpdeskWith(alice);
+        audit.reset();
+
+        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
+
+        assertThat(groups.findById(adminGroup.id()).orElseThrow().hasMember(alice.id())).isTrue();
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(permissionChange(
+                AuditOperation.PERMISSION_REVOKE, alice, HELPDESK_GROUP_ID,
+                EVERY_PERMISSION, EVERY_PERMISSION, false));
+    }
+
+    /** A Group that confers nothing moves nobody's Permissions: no event, no session ended. */
+    @Test
+    void a_membership_change_of_a_group_conferring_nothing_records_no_change_of_power() {
+        ScimGroup plain = groups.create(ScimIdentities.group("Book club", alice));
+
+        service.patch(CONNECTOR, plain.id(), current(plain.id()),
+                List.of(new ScimGroupPatchOperation.ReplaceMembers(List.of(bob.id()))));
+
+        assertThat(audit.of(AuditOperation.PERMISSION_GRANT)).isEmpty();
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).isEmpty();
+        assertThat(revocations).isEmpty();
+    }
+
+    /** Each User added to the Admin group is a Superuser grant, and counted as one. */
+    @Test
+    void each_admin_group_grant_counts_one_superuser_grant() {
+        adminGroupWithAliceAndBob();
+
+        assertThat(superuserGrants).isEqualTo(2);
+    }
+
+    /** Joining a Group that confers Permissions but not the Superuser counts no Superuser grant. */
+    @Test
+    void a_grant_of_any_other_group_counts_no_superuser_grant() {
+        helpdeskWith();
+
+        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id()))));
+
+        assertThat(audit.of(AuditOperation.PERMISSION_GRANT)).hasSize(1);
+        assertThat(superuserGrants).isZero();
+    }
+
+    /**
+     * Unlike the Admin group, every other Group that confers Permissions can be renamed and
+     * deleted — and deleting it takes them from every member, so each is revoked as a removal
+     * would be.
+     */
+    @Test
+    void a_conferring_group_other_than_the_admin_group_can_be_renamed_and_deleted() {
         helpdeskWith(alice, bob);
 
         ScimGroupResource renamed = service.patch(CONNECTOR, HELPDESK_GROUP_ID,
@@ -762,19 +838,21 @@ class ScimGroupServiceTests {
 
         assertThat(groups.findById(HELPDESK_GROUP_ID)).isEmpty();
         assertThat(revocations).containsExactlyInAnyOrder(roleRevocation(alice), roleRevocation(bob));
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactlyInAnyOrder(
-                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"),
-                roleChange(AuditOperation.ROLE_REVOKE, bob, HELPDESK_GROUP_ID, "Helpdesk"));
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactlyInAnyOrder(
+                permissionChange(AuditOperation.PERMISSION_REVOKE, alice, HELPDESK_GROUP_ID,
+                        HELPDESK_PERMISSIONS, "", false),
+                permissionChange(AuditOperation.PERMISSION_REVOKE, bob, HELPDESK_GROUP_ID,
+                        HELPDESK_PERMISSIONS, "", false));
     }
 
     /**
-     * A mapped Group another transaction deleted between the read and this delete records no
-     * Role change: that transaction removed the row, and with it the members' Role, so it is the
-     * one that revoked and audited them. A second set here would double every {@code ROLE_REVOKE}
-     * in the trail and end sessions for a delete that removed nothing.
+     * A conferring Group another transaction deleted between the read and this delete records no
+     * change of power: that transaction removed the row, and with it the members' Permissions, so
+     * it is the one that revoked and audited them. A second set here would double every
+     * {@code PERMISSION_REVOKE} in the trail and end sessions for a delete that removed nothing.
      */
     @Test
-    void a_mapped_group_removed_between_the_read_and_the_delete_records_no_role_change() {
+    void a_conferring_group_removed_between_the_read_and_the_delete_records_no_change_of_power() {
         helpdeskWith(alice, bob);
         groups.vanishBeforeNextDelete(HELPDESK_GROUP_ID);
 
@@ -782,16 +860,16 @@ class ScimGroupServiceTests {
                 .isFalse();
 
         assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).isEmpty();
     }
 
     /**
      * Each change of power is one {@code INFO} record classified {@code user-administration} /
-     * {@code change} / {@code success}, naming the User, the Group by id and the Role — and never
-     * a {@code userName} or the Group's {@code displayName}.
+     * {@code change} / {@code success}, naming the User, the Group by id and the Permissions the
+     * Group confers — and never a {@code userName} or the Group's {@code displayName}.
      */
     @Test
-    void each_role_change_is_logged_at_info_with_the_user_the_group_and_the_role() {
+    void each_change_of_power_is_logged_at_info_with_the_user_the_group_and_its_permissions() {
         helpdeskWith(alice);
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -800,10 +878,10 @@ class ScimGroupServiceTests {
 
             List<JsonNode> changes = ecs.records().stream()
                     .filter(record -> record.at("/app/event/action").asText()
-                            .startsWith("identity.role_"))
+                            .startsWith("identity.permission_"))
                     .toList();
             assertThat(changes).extracting(record -> record.at("/app/event/action").asText())
-                    .containsExactly("identity.role_revoke", "identity.role_grant");
+                    .containsExactly("identity.permission_revoke", "identity.permission_grant");
             assertThat(changes).extracting(record -> record.at("/user/target/id").asText())
                     .containsExactly(alice.id().toString(), bob.id().toString());
             assertThat(changes).allSatisfy(record -> {
@@ -813,7 +891,8 @@ class ScimGroupServiceTests {
                 assertThat(record.at("/event/type")).hasSize(1);
                 assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
                 assertThat(record.at("/group/id").asText()).isEqualTo(HELPDESK_GROUP_ID.toString());
-                assertThat(record.at("/app/authorization/role").asText()).isEqualTo("Helpdesk");
+                assertThat(record.at("/app/authorization/group_permissions").asText())
+                        .isEqualTo(HELPDESK_PERMISSIONS);
                 assertThat(record.toString()).doesNotContain("alice", "bob");
             });
         }

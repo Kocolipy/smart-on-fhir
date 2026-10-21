@@ -100,7 +100,7 @@ class LogEventTests {
     }
 
     /**
-     * The mapping #95 changed: the dormancy role revocation is administration of a User's
+     * The mapping #95 changed: the dormancy membership revocation is administration of a User's
      * standing, and a connector and its tokens are the provisioning channel's lifecycle —
      * except issuing and rotating a token, which grant Permissions and so are user
      * administration (#117, ADR 0003). {@code access-control} is left to
@@ -108,7 +108,7 @@ class LogEventTests {
      */
     @Test
     void eachOperationCarriesItsNearestStandardAction() {
-        assertThat(Operation.DORMANCY_ROLE_REVOCATION.action())
+        assertThat(Operation.DORMANCY_MEMBERSHIP_REVOCATION.action())
                 .isEqualTo(Action.USER_ADMINISTRATION);
         assertThat(List.of(Operation.CONNECTOR_CREATE, Operation.CONNECTOR_DELETE,
                         Operation.CONNECTOR_TOKEN_REVOKE))
@@ -491,15 +491,15 @@ class LogEventTests {
             "PASSWORD_CHANGE | Self-service change completed",
             "DORMANCY | Dormancy job run at startup for the development fixtures",
             "DORMANCY_LOCKOUT | User locked for dormancy",
-            "DORMANCY_ROLE_REVOCATION | Roles revoked for dormancy",
+            "DORMANCY_MEMBERSHIP_REVOCATION | Group memberships revoked for dormancy",
             "CONNECTOR_CREATE | SCIM connector lifecycle change applied",
             "CONNECTOR_DELETE | SCIM connector lifecycle change applied",
             "CONNECTOR_TOKEN_ISSUE | SCIM connector lifecycle change applied",
             "CONNECTOR_TOKEN_ROTATE | SCIM connector lifecycle change applied",
             "CONNECTOR_TOKEN_REVOKE | SCIM connector lifecycle change applied",
             "LOGOUT | Logout completed",
-            "ROLE_GRANT | Role granted by a mapped Group's membership",
-            "ROLE_REVOKE | Role revoked by a mapped Group's membership",
+            "PERMISSION_GRANT | Permissions granted by a Group's membership",
+            "PERMISSION_REVOKE | Permissions revoked by a Group's membership",
             "ROLE_MAPPING_STARTUP | Role mapping validated",
             "SESSION_START | Session started",
             "SESSION_END | Session ended",
@@ -523,8 +523,8 @@ class LogEventTests {
                 .isEqualTo("Role mapping validated");
         assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP))
                 .isEqualTo("Role mapping validated");
-        assertThat(LogEvent.successMessage(Operation.ROLE_GRANT, Type.CHANGE))
-                .isEqualTo("Role granted by a mapped Group's membership");
+        assertThat(LogEvent.successMessage(Operation.PERMISSION_GRANT, Type.CHANGE))
+                .isEqualTo("Permissions granted by a Group's membership");
     }
 
     @ParameterizedTest

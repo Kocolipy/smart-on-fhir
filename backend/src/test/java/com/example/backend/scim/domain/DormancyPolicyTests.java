@@ -21,7 +21,7 @@ class DormancyPolicyTests {
         DormancyPolicy policy = new DormancyPolicy(null, null);
 
         assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(90));
-        assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
+        assertThat(policy.membershipRevocationWindow()).isEqualTo(Duration.ofDays(180));
         assertThat(DormancyPolicy.defaults()).isEqualTo(policy);
     }
 
@@ -32,7 +32,8 @@ class DormancyPolicyTests {
     @Test
     void theDocumentedDefaultsAreTheOnesTheRuleUses() {
         assertThat(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW).isEqualTo(Duration.ofDays(90));
-        assertThat(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW).isEqualTo(Duration.ofDays(180));
+        assertThat(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW)
+                .isEqualTo(Duration.ofDays(180));
     }
 
     /** Asserted against literals: comparing two constructions would pass if both defaulted. */
@@ -40,11 +41,11 @@ class DormancyPolicyTests {
     void configuredWindowsAreKeptAsGivenAndIndependently() {
         DormancyPolicy onlyLockout = new DormancyPolicy(Duration.ofDays(30), null);
         assertThat(onlyLockout.lockoutWindow()).isEqualTo(Duration.ofDays(30));
-        assertThat(onlyLockout.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
+        assertThat(onlyLockout.membershipRevocationWindow()).isEqualTo(Duration.ofDays(180));
 
         DormancyPolicy onlyRoles = new DormancyPolicy(null, Duration.ofDays(120));
         assertThat(onlyRoles.lockoutWindow()).isEqualTo(Duration.ofDays(90));
-        assertThat(onlyRoles.roleRevocationWindow()).isEqualTo(Duration.ofDays(120));
+        assertThat(onlyRoles.membershipRevocationWindow()).isEqualTo(Duration.ofDays(120));
     }
 
     @Test
@@ -52,7 +53,8 @@ class DormancyPolicyTests {
         DormancyPolicy policy = new DormancyPolicy(Duration.ofDays(10), Duration.ofDays(20));
 
         assertThat(policy.lockoutCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(10)));
-        assertThat(policy.roleRevocationCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(20)));
+        assertThat(policy.membershipRevocationCutoff(NOW))
+                .isEqualTo(NOW.minus(Duration.ofDays(20)));
     }
 
     /**
@@ -80,7 +82,7 @@ class DormancyPolicyTests {
 
         DormancyPolicy smallest = new DormancyPolicy(Duration.ofNanos(1), Duration.ofNanos(2));
         assertThat(smallest.lockoutWindow()).isEqualTo(Duration.ofNanos(1));
-        assertThat(smallest.roleRevocationWindow()).isEqualTo(Duration.ofNanos(2));
+        assertThat(smallest.membershipRevocationWindow()).isEqualTo(Duration.ofNanos(2));
     }
 
     /**
@@ -102,6 +104,6 @@ class DormancyPolicyTests {
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThat(new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(90).plusNanos(1))
-                .roleRevocationWindow()).isEqualTo(Duration.ofDays(90).plusNanos(1));
+                .membershipRevocationWindow()).isEqualTo(Duration.ofDays(90).plusNanos(1));
     }
 }

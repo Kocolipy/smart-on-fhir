@@ -40,6 +40,7 @@ FAST_GATE=(
   com/example/backend/audit/controller/AdminAuditControllerTests
   com/example/backend/audit/domain/AuditEventPageTests
   com/example/backend/audit/domain/AuditEventQueryTests
+  com/example/backend/audit/domain/AuditEventTests
   com/example/backend/audit/domain/AuditRetentionPolicyTests
   com/example/backend/audit/infrastructure/alert/LoggingOperationalAlertsAdapterTests
   com/example/backend/audit/infrastructure/persistence/AuditEventRetentionAdapterTests
@@ -104,7 +105,9 @@ FAST_GATE=(
   com/example/backend/auth/infrastructure/session/EpicTokensAdapterTests
   com/example/backend/auth/infrastructure/session/SpringSessionAttributesTests
   com/example/backend/auth/infrastructure/transaction/AfterCommitAdapterTests
+  com/example/backend/authorization/config/AuthorizationChangeMetricsTests
   com/example/backend/authorization/config/RoleMappingStartupTests
+  com/example/backend/authorization/domain/GroupPermissionsTests
   com/example/backend/authorization/domain/PermissionTests
   com/example/backend/authorization/domain/RoleMappingTests
   com/example/backend/contract/OpenApiContractTests

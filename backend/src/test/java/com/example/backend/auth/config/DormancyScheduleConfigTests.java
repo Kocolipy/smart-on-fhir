@@ -22,7 +22,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.application.ScimRoleRevocationService;
+import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -70,13 +70,13 @@ class DormancyScheduleConfigTests {
                 users,
                 groups,
                 new InMemoryScimWriteLocks(),
-                new ScimRoleRevocationService(
-                        users, groups, sessions, audit, TestRoleMappings.superuserOnly()),
+                new ScimMembershipRevocationService(users, groups, sessions, audit,
+                        TestRoleMappings.superuserOnly(), () -> {
+                        }),
                 sessions,
                 LoginStateModules.over(users, clock),
                 new ScheduledJobRunService(lock, new RecordingTransactionManager()),
                 DormancyPolicy.defaults(),
-                TestRoleMappings.superuserOnly(),
                 audit,
                 clock);
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
@@ -115,7 +115,7 @@ class DormancyScheduleConfigTests {
                 ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
                         List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW),
                 ReservedResourceName.ADMIN_GROUP);
-        clock.advanceBy(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+        clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
 
         scheduled.run();
 
@@ -133,7 +133,7 @@ class DormancyScheduleConfigTests {
     void aSkippedRunCountsNothing() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenAdmins(ada);
-        clock.advanceBy(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+        clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
         lock.holdElsewhere(ScheduledJob.DORMANCY);
 
         scheduled.run();
@@ -174,7 +174,7 @@ class DormancyScheduleConfigTests {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         users.given(ScimIdentities.user("bob"));
         givenAdmins(ada);
-        clock.advanceBy(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+        clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
 
         try (EcsLogCapture logs = EcsLogCapture.attach(new StandardEnvironment())) {
             scheduled.run();

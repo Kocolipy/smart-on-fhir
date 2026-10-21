@@ -166,12 +166,18 @@ Role assignment**: whoever holds it — over SCIM, a connector token carrying it
 decides who holds that Role, the Superuser Role's included. It is not split into
 a separate `role:assign` Permission, because an identity provider sync has to
 manage every Group. That is bounded by who may mint a token: only the Superuser,
-and a write token is Superuser-equivalent. Every membership change of a mapped Group is audited as a
-change of power: a `ROLE_GRANT` or `ROLE_REVOKE` event naming the connector, the
-User, the Group and the Role, beside an `INFO` log record classified
-`user-administration` / `change` / `success` with `user.target.id`, `group.id` and
-`app.authorization.role`. A membership change of an unmapped Group is none of
-this.
+and a write token is Superuser-equivalent. Every membership change of a Group that
+confers Permissions, or of the Admin group, is audited as a change of power: a
+`PERMISSION_GRANT` or `PERMISSION_REVOKE` event naming the connector, the User and
+the Group, and recording the User's effective Permissions before and after — what
+its direct memberships confer, the Superuser's expansion included, the baseline
+not — with a Superuser marker set when the change grants or removes the
+Superuser. Beside it is an `INFO` log record classified `user-administration` /
+`change` / `success` with `user.target.id`, `group.id` and
+`app.authorization.group_permissions`, and a grant of the Superuser is counted on
+`authorization.changes{operation="superuser-grant"}`. While Roles exist, the
+Permissions recorded are what the role mapping confers (ADR 0015). A membership
+change of a Group that confers nothing is none of this.
 
 **Roles listing** — `GET /api/admin/roles`, by a holder of `group:read`: every
 Role the mapping defines, sorted by name, with its Permissions and the Groups

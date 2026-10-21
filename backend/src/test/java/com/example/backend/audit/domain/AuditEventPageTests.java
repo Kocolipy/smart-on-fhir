@@ -17,7 +17,7 @@ class AuditEventPageTests {
             AuditOperation.LOGIN_SUCCESS,
             AuditOutcome.SUCCESS,
             null, null, AuditEvent.USER_RESOURCE_TYPE, null, List.of(),
-            AuditEvent.STATUS_OK, null, null, null, null, null, null, null);
+            AuditEvent.STATUS_OK, null, null, null, null, null, null);
 
     @Test
     void carriesThePageTheQueryAskedForAndTheTotal() {

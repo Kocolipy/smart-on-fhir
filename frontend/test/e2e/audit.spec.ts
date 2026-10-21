@@ -5,9 +5,11 @@ import {
   anonymousApi,
   deprovisionUser,
   E2E_PREFIX,
+  FIXTURE_GROUPS,
   provisionUser,
   rowOf,
   runId,
+  scimPatch,
   settlePassword,
   workerConnector,
 } from "./scim.helpers";
@@ -18,7 +20,8 @@ import {
  *
  * `dev-roles.spec.ts` proves who may reach the page. What this spec adds is
  * that the page shows the trail itself — the event an Admin's forced change
- * recorded, a refused login's failure, and a filter the page refuses locally.
+ * recorded, a refused login's failure, a connector's membership grant with the
+ * Permissions it conferred, and a filter the page refuses locally.
  *
  * Every filter is pinned to the Resource id of a User this spec provisions, so
  * the rows are this run's own whatever the shared trail holds; the User is
@@ -110,6 +113,41 @@ test("an Admin's forced change and a refused login are found on the audit page",
     await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
   });
+});
+
+/** The development mapping's Monitoring Group, conferring `ops:read`. */
+const MONITORING_GROUP = FIXTURE_GROUPS.monitoring;
+
+test("a connector adding a User to a Group that confers Permissions shows as a PERMISSION_GRANT", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const userName = `${E2E_PREFIX}audit-grant-${runId()}`;
+  const id = await provisionUser(connector.scim, userName);
+  const group = `/scim/v2/Groups/${MONITORING_GROUP}`;
+  try {
+    const added = await scimPatch(connector.scim, group, [
+      { op: "add", path: "members", value: [{ value: id }] },
+    ]);
+    expect(added.status(), "adding the User to Monitoring").toBe(200);
+
+    await page.goto("/audit");
+    await applyFilters(page, {
+      actorId: connector.id,
+      operation: "PERMISSION_GRANT",
+      resourceId: MONITORING_GROUP,
+    });
+    await expect(eventRows(page)).toHaveCount(1);
+    const grant = eventRows(page).first();
+    await expect(grant.getByRole("cell").nth(0)).toHaveText("PERMISSION_GRANT");
+    await expect(grant.getByRole("cell").nth(1)).toHaveText("SUCCESS");
+    await expect(grant.getByRole("cell").nth(2)).toHaveText(connector.id);
+    await expect(grant.getByRole("cell").nth(3)).toHaveText(`Group ${MONITORING_GROUP}`);
+    await expect(grant.getByRole("cell").last()).toHaveText("permissions: none → ops:read");
+  } finally {
+    await scimPatch(connector.scim, group, [{ op: "remove", path: `members[value eq "${id}"]` }]);
+    await deprovisionUser(connector.scim, id);
+  }
 });
 
 /**

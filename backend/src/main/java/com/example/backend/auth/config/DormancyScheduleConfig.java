@@ -68,7 +68,7 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
                 .startupField(DormancyLogFields.DORMANCY_LOCKOUT_WINDOW,
                         policy.lockoutWindow().toString())
                 .startupField(DormancyLogFields.DORMANCY_ROLE_REVOCATION_WINDOW,
-                        policy.roleRevocationWindow().toString())
+                        policy.membershipRevocationWindow().toString())
                 .countedAs(DormancyLogFields.DORMANCY_LOCKED_COUNT, LOCKED_USERS,
                         "Users the dormancy job locked")
                 .countedAs(DormancyLogFields.DORMANCY_ROLES_REVOKED_COUNT, ROLES_REVOKED_USERS,

@@ -1,7 +1,7 @@
 ---
 type: Configuration Reference
 title: Audit trail
-description: The audit retention period and schedule, what each retention run logs, and the separate pool fail-open audit appends commit on.
+description: The audit retention period and schedule, what each retention run logs, the separate pool fail-open audit appends commit on, and the membership operations the trail records.
 tags: [audit, retention, configuration]
 ---
 
@@ -64,3 +64,24 @@ It starts lazily, on the first fail-open append. An append that
 cannot get a connection within the timeout is lost behind the `ERROR`
 `audit.append` alert, as any failed fail-open append is. The pool is named
 `audit-append` in Hikari's log lines.
+
+## Membership operations
+
+The trail speaks in Permissions, not Roles (ADR 0015). Three operations record a
+change of a User's power through its Group memberships; nothing here configures
+them, but they are what an operator searches the trail for:
+
+| Operation                        | Recorded when                                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `PERMISSION_GRANT`               | A connector adds a User to a Group that confers Permissions, or to the Admin group                  |
+| `PERMISSION_REVOKE`              | A connector removes it — `PATCH`, `PUT` or the Group's `DELETE`                                       |
+| `DORMANCY_MEMBERSHIP_REVOCATION` | The [dormancy job](dormancy.md) removes every direct Group membership of a User past its window      |
+
+Each carries `permissions_before` and `permissions_after` (the User's effective
+Permissions, comma-joined) and `superuser_changed`, set when the change granted or
+removed the Superuser; the dormancy event also lists every Group removed in
+`group_ids`. A Group that confers nothing records neither of the first two.
+Migration V5 rewrote the rows recorded before as `ROLE_GRANT`, `ROLE_REVOKE` and
+`DORMANCY_ROLE_REVOCATION`, moving each Role's name into the column on its side of
+the change, and dropped `role_name` — a one-off deviation from the audit-integrity
+rule, recorded in ADR 0015.

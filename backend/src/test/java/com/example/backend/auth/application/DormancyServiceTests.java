@@ -24,7 +24,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.application.ScimRoleRevocationService;
+import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -63,17 +63,26 @@ class DormancyServiceTests {
 
     private static final Duration LOCKOUT = DormancyPolicy.DEFAULT_LOCKOUT_WINDOW;
 
-    private static final Duration ROLE_REVOCATION = DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW;
+    private static final Duration ROLE_REVOCATION =
+            DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW;
 
     /** When the job runs: far enough past {@link #CREATED} that a creation basis is long dormant. */
     private static final Instant RUN_AT = CREATED.plus(ROLE_REVOCATION.multipliedBy(10));
 
-    /** Sorts before {@link #SUPERUSER_GROUP}, so the Roles lost read in a fixed order. */
+    /** Sorts before {@link #SUPERUSER_GROUP}, so the Groups removed read in a fixed order. */
     private static final UUID ACCOUNT_ADMINS =
             UUID.fromString("00000000-0000-4000-8000-00000000a000");
 
     private static final UUID SUPERUSER_GROUP =
             UUID.fromString("00000000-0000-4000-8000-00000000a001");
+
+    /** A Group the mapping does not name, which confers nothing; sorts after the other two. */
+    private static final UUID ENGINEERING =
+            UUID.fromString("00000000-0000-4000-8000-00000000a002");
+
+    /** What the Superuser Role holds — every Permission a session can hold — sorted by name. */
+    private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
+            + "group:read,ops:read,patient:read,user:read";
 
     private static final RoleMapping MAPPING = RoleMapping.of(
             List.of(
@@ -234,22 +243,23 @@ class DormancyServiceTests {
                 .containsExactly(Set.of(ada.id()));
     }
 
-    // ---- the role-revocation step ----------------------------------------------------------
+    // ---- the membership-revocation step ----------------------------------------------------
 
     /**
-     * The demo oracle: past 180 days a User loses its direct membership of every mapped Group,
-     * keeps its unmapped one, and is locked. Each mapped Group's version and the User's advance; an
-     * unmapped Group's does not. One actorless event names the Roles lost, and the sessions end
-     * after the commit.
+     * The demo oracle: past 180 days a User loses its direct membership of EVERY Group — the
+     * Admin group's, a Group conferring Permissions and one conferring nothing alike — and is
+     * locked. Each Group's version and the User's advance. One actorless event lists the Groups
+     * removed and the Permissions before and after, and the sessions end after the commit.
      */
     @Test
-    void aUserPastTheRoleRevocationWindowLosesEveryMappedMembershipAndOnlyThose() {
+    void aUserPastTheRevocationWindowLosesEveryMembership() {
         ScimUser ada = users.given(
                 ScimIdentities.userAuthenticatedAt("ada", ago(ROLE_REVOCATION.plusSeconds(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
         ScimGroup accountAdmins = groups.create(
                 ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
-        ScimGroup engineering = groups.create(ScimIdentities.group("Engineering", ada));
+        ScimGroup engineering = groups.create(
+                ScimGroup.created(ENGINEERING, "Engineering", members(ada), CREATED));
         long adaVersion = users.require("ada").version();
         accountSessions.open(ada.id(), "ada-session");
 
@@ -265,20 +275,22 @@ class DormancyServiceTests {
         assertThat(accountAdminsAfter.hasMember(ada.id())).isFalse();
         assertThat(accountAdminsAfter.version()).isEqualTo(accountAdmins.version() + 1);
         ScimGroup engineeringAfter = groups.findById(engineering.id()).orElseThrow();
-        assertThat(engineeringAfter.hasMember(ada.id())).as("unmapped: untouched").isTrue();
-        assertThat(engineeringAfter.version()).isEqualTo(engineering.version());
-        assertThat(users.require("ada").version()).isEqualTo(adaVersion + 2);
+        assertThat(engineeringAfter.hasMember(ada.id())).as("confers nothing: removed too")
+                .isFalse();
+        assertThat(engineeringAfter.version()).isEqualTo(engineering.version() + 1);
+        assertThat(users.require("ada").version()).isEqualTo(adaVersion + 3);
         assertThat(audit.recorded()).containsExactly(
-                new Recorded(AuditOperation.DORMANCY_ROLE_REVOCATION, null, ada.id(),
-                        "Account admin,Superuser"),
+                new Recorded(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
+                        ACCOUNT_ADMINS + "," + SUPERUSER_GROUP + "," + ENGINEERING + ":"
+                                + EVERY_PERMISSION + ">:true"),
                 new Recorded(AuditOperation.DORMANCY_LOCKOUT, null, ada.id(), null));
         assertThat(accountSessions.sessionsOf(ada.id())).containsExactly("ada-session");
 
         transaction.commit();
 
         assertThat(accountSessions.sessionsOf(ada.id())).isEmpty();
-        // The role revocation ended the session, so the lockout's revocation that follows it
-        // ended none and is not on record.
+        // The membership revocation ended the session, so the lockout's revocation that follows
+        // it ended none and is not on record.
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
                 AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS:ROLE_REVOKED"));
     }
@@ -327,12 +339,13 @@ class DormancyServiceTests {
         assertThat(second.locked()).as("already locked").isEmpty();
         assertThat(groups.findById(superusers.id()).orElseThrow().hasMember(ada.id())).isFalse();
         assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.DORMANCY_ROLE_REVOCATION, null, ada.id(), "Superuser"));
+                AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
+                SUPERUSER_GROUP + ":" + EVERY_PERMISSION + ">:true"));
     }
 
-    /** Roles are revoked from a dormant User whether or not it is active or already locked. */
+    /** Memberships are revoked from a dormant User whether or not it is active or locked. */
     @Test
-    void aLockedInactiveUserStillLosesItsRoles() {
+    void aLockedInactiveUserStillLosesItsMemberships() {
         ScimUser gone = users.given(ScimIdentities.userWithLoginState(
                 "gone", new ScimLoginState("hash", 5, CREATED, CREATED)));
         superuserGroupOf(bootstrap, gone);
@@ -344,18 +357,62 @@ class DormancyServiceTests {
         assertThat(users.require("gone").login().lockCause()).isEqualTo(LockCause.FAILURES);
     }
 
-    /** A User in no mapped Group has no Role to lose: no event, no Group touched. */
+    /**
+     * A User only in Groups that confer nothing loses those memberships too: its Permissions do
+     * not change, but the record of what was removed still is the one to restore it from.
+     */
     @Test
-    void aUserInOnlyUnmappedGroupsHasNothingRevoked() {
+    void aUserInOnlyGroupsConferringNothingStillLosesThem() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        ScimGroup engineering = groups.create(ScimIdentities.group("Engineering", ada));
+        ScimGroup engineering = groups.create(
+                ScimGroup.created(ENGINEERING, "Engineering", members(ada), CREATED));
+
+        DormancyRun run = job.run();
+
+        assertThat(run.rolesRevoked()).containsExactly(ada.id());
+        assertThat(groups.findById(engineering.id()).orElseThrow().hasMember(ada.id())).isFalse();
+        assertThat(audit.of(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION)).containsExactly(
+                new Recorded(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
+                        ENGINEERING + ":>:false"));
+    }
+
+    /**
+     * A membership the candidate query did not see — added since, say — is not one this run
+     * removes: the User keeps it, so the Permissions it confers are on both sides of the event,
+     * and the log names only what was lost, here nothing.
+     */
+    @Test
+    void aMembershipThatIsNoCandidateIsKeptAndNotLoggedAsLost() {
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        groups.create(ScimGroup.created(ENGINEERING, "Engineering", members(ada), CREATED));
+        groups.create(ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
+        groups.answerDormantMemberCandidatesWith(List.of(
+                new ScimGroupMembership(ada.id(), ENGINEERING)));
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            job.run();
+            JsonNode revocation = onThisThread(ecs).get(0);
+
+            assertThat(revocation.at("/app/event/action").asText())
+                    .isEqualTo("identity.dormancy_membership_revocation");
+            assertThat(revocation.at("/app/authorization/permissions_lost").stringValue())
+                    .isEmpty();
+        }
+        assertThat(groups.findById(ACCOUNT_ADMINS).orElseThrow().hasMember(ada.id())).isTrue();
+        assertThat(audit.of(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION)).containsExactly(
+                new Recorded(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
+                        ENGINEERING + ":account:unlock,user:read>account:unlock,user:read:false"));
+    }
+
+    /** A User in no Group at all has nothing to lose: no event. */
+    @Test
+    void aUserInNoGroupHasNothingRevoked() {
+        users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
 
         DormancyRun run = job.run();
 
         assertThat(run.rolesRevoked()).isEmpty();
-        assertThat(groups.findById(engineering.id()).orElseThrow().version())
-                .isEqualTo(engineering.version());
-        assertThat(audit.of(AuditOperation.DORMANCY_ROLE_REVOCATION)).isEmpty();
+        assertThat(audit.of(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION)).isEmpty();
     }
 
     /**
@@ -377,7 +434,7 @@ class DormancyServiceTests {
     }
 
     /**
-     * A role-revocation candidate that is no lockout candidate — already locked, say — is locked
+     * A membership-revocation candidate that is no lockout candidate — already locked, say — is locked
      * with its Group all the same: removing the membership advances its version too.
      */
     @Test
@@ -502,8 +559,9 @@ class DormancyServiceTests {
     // ---- logging ---------------------------------------------------------------------------
 
     /**
-     * Inside a run the only records are one per User changed: a lockout at WARN, a role revocation
-     * at INFO naming the Roles lost, both classified user-administration / change / success.
+     * Inside a run the only records are one per User changed: a lockout at WARN, a membership
+     * revocation at INFO naming the Permissions lost, both classified user-administration /
+     * change / success.
      */
     @Test
     void eachChangeIsLoggedOnceAtItsLevel() {
@@ -516,10 +574,12 @@ class DormancyServiceTests {
 
             assertThat(records).extracting(record -> record.at("/app/event/action").asText())
                     .containsExactly(
-                            "identity.dormancy_role_revocation", "identity.dormancy_lockout");
+                            "identity.dormancy_membership_revocation",
+                            "identity.dormancy_lockout");
             JsonNode revocation = records.get(0);
             assertThat(revocation.at("/log/level").asText()).isEqualTo("INFO");
-            assertThat(revocation.at("/app/authorization/role").asText()).isEqualTo("Superuser");
+            assertThat(revocation.at("/app/authorization/permissions_lost").asText())
+                    .isEqualTo(EVERY_PERMISSION);
             JsonNode lockout = records.get(1);
             assertThat(lockout.at("/log/level").asText())
                     .as("inactivity, not an attack: never ERROR").isEqualTo("WARN");
@@ -535,16 +595,16 @@ class DormancyServiceTests {
     }
 
     /**
-     * The revocation's log names every Role lost sorted and distinct, whatever order the Groups
-     * were removed in: here the Superuser Group's membership is removed first.
+     * The revocation's log names the Permissions lost — held before and not after — sorted by
+     * name, whatever order the Groups were removed in: here the Group conferring nothing first.
      */
     @Test
-    void theRevocationLogNamesTheRolesLostSorted() {
+    void theRevocationLogNamesThePermissionsLostSorted() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        superuserGroupOf(bootstrap, ada);
+        groups.create(ScimGroup.created(ENGINEERING, "Engineering", members(ada), CREATED));
         groups.create(ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
         groups.answerDormantMemberCandidatesWith(List.of(
-                new ScimGroupMembership(ada.id(), SUPERUSER_GROUP),
+                new ScimGroupMembership(ada.id(), ENGINEERING),
                 new ScimGroupMembership(ada.id(), ACCOUNT_ADMINS)));
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -552,9 +612,9 @@ class DormancyServiceTests {
             JsonNode revocation = onThisThread(ecs).get(0);
 
             assertThat(revocation.at("/app/event/action").asText())
-                    .isEqualTo("identity.dormancy_role_revocation");
-            assertThat(revocation.at("/app/authorization/role").asText())
-                    .isEqualTo("Account admin,Superuser");
+                    .isEqualTo("identity.dormancy_membership_revocation");
+            assertThat(revocation.at("/app/authorization/permissions_lost").asText())
+                    .isEqualTo("account:unlock,user:read");
         }
     }
 
@@ -574,7 +634,7 @@ class DormancyServiceTests {
             List<JsonNode> records = onThisThread(ecs);
 
             assertThat(records).extracting(record -> record.at("/message").asText()).containsExactly(
-                    "Scheduled job started", "Roles revoked for dormancy",
+                    "Scheduled job started", "Group memberships revoked for dormancy",
                     "User locked for dormancy", "User locked for dormancy",
                     "Scheduled job completed");
             String runId = records.getFirst().at("/batch/job/run/id").asText();
@@ -629,12 +689,13 @@ class DormancyServiceTests {
                 users,
                 groups,
                 writeLocks,
-                new ScimRoleRevocationService(users, groups, sessions, audit, MAPPING),
+                new ScimMembershipRevocationService(users, groups, sessions, audit, MAPPING,
+                        () -> {
+                        }),
                 sessions,
                 LoginStateModules.over(users, clock),
                 new ScheduledJobRunService(lock, new RecordingTransactionManager()),
                 policy,
-                MAPPING,
                 audit,
                 clock);
     }

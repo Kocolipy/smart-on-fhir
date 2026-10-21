@@ -2,7 +2,6 @@ package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditUserAttribute;
-import com.example.backend.authorization.domain.Role;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserSessions;
@@ -11,18 +10,17 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Everything a SCIM write implies, decided from its before and after state alone: the attributes
- * to audit, the Session revocations it causes, and the Role changes it makes.
+ * to audit, the Session revocations it causes, and the membership changes of power it makes.
  *
- * <p>This is the one place that says which edits end Sessions and which change Roles. The User
- * and Group write use cases, and the dormancy job's Role revocation, keep their locking,
+ * <p>This is the one place that says which edits end Sessions and which change a User's
+ * Permissions. The User and Group write use cases, and the dormancy job's membership revocation,
+ * keep their locking,
  * preconditions and persistence; they hand the stored state and the written state here, and hand
  * what comes back to the one apply step, {@link ScimWriteEffectsApplier}, which carries it out
  * over the ports. Nothing here performs an effect: a revocation is requested through
@@ -44,7 +42,8 @@ import java.util.UUID;
  * @param audited     the attributes the write moved, for its audit event; empty when it moved
  *                    nothing a client can read
  * @param revocations the Users whose Sessions end, and why, in the order to request them
- * @param roleChanges the Roles the write granted and revoked, revocations first
+ * @param membershipChanges the memberships of power the write granted and revoked, revocations
+ *                    first
  * @param stored      what the write changed in storage: the resource's own columns, the calling
  *                    connector's alias, both, or neither
  * @param <A>         the audit slice's attribute vocabulary for the resource written
@@ -53,14 +52,14 @@ record ScimWriteEffects<A extends Enum<A>>(
         Resource written,
         Set<A> audited,
         List<SessionRevocation> revocations,
-        List<RoleChange> roleChanges,
+        List<MembershipChange> membershipChanges,
         Stored stored) {
 
     ScimWriteEffects {
         Objects.requireNonNull(written, "written");
         audited = Collections.unmodifiableSet(new LinkedHashSet<>(audited));
         revocations = List.copyOf(revocations);
-        roleChanges = List.copyOf(roleChanges);
+        membershipChanges = List.copyOf(membershipChanges);
         Objects.requireNonNull(stored, "stored");
     }
 
@@ -115,8 +114,11 @@ record ScimWriteEffects<A extends Enum<A>>(
         }
     }
 
-    /** A User gaining or losing a mapped Group's Role through that Group's membership. */
-    record RoleChange(Kind kind, UUID userId, UUID groupId, Role role) {
+    /**
+     * A User gaining or losing direct membership of a Group that confers Permissions — or of the
+     * Admin group — or, on the dormancy job's revocation, of any Group at all.
+     */
+    record MembershipChange(Kind kind, UUID userId, UUID groupId) {
 
         enum Kind {
             GRANTED,
@@ -154,8 +156,8 @@ record ScimWriteEffects<A extends Enum<A>>(
      * {@code /docs/domain/sessions.md}): {@code active} going from true to false, the credential changing,
      * and {@code userName} changing — once, with every cause that applied. Reactivation, staying
      * inactive, and a profile, email or alias change are not among them: none is something a
-     * Session was issued against. A User write changes no Role: a Role is conferred by a mapped
-     * Group's membership, and a User write cannot move a membership.
+     * Session was issued against. A User write changes no Permission: Permissions are conferred
+     * by Group membership, and a User write cannot move a membership.
      */
     static ScimWriteEffects<AuditUserAttribute> ofUserWrite(
             UUID userId, UserState before, UserState after) {
@@ -192,7 +194,8 @@ record ScimWriteEffects<A extends Enum<A>>(
 
     /**
      * What deleting a User implies: its Sessions end. The deletion's audit event names no
-     * attribute, and the User's memberships go with it without being Role changes of a Group.
+     * attribute, and the User's memberships go with it without being membership changes of a
+     * Group.
      */
     static ScimWriteEffects<AuditUserAttribute> ofUserDeletion(UUID userId) {
         return new ScimWriteEffects<>(
@@ -209,17 +212,18 @@ record ScimWriteEffects<A extends Enum<A>>(
      * <p>The attributes are compared rather than inferred from the verb, so a PUT resending the
      * stored state audits none.
      *
-     * <p>A Group the role mapping names confers its Role on every direct member, so when
-     * {@code mappedRole} is present, a membership change is a change of power: a grant for each
-     * User added, a revocation for each User removed — and each removed User's Sessions end, since
-     * a Session carries the Permissions it was issued with. An addition ends no Session: the User
-     * holds the Role from its next sign-in. Decided from the membership before and after, so PUT
-     * and every PATCH shape are one rule, a User removed and added back keeps its Role and its
-     * Sessions, and a removal naming a non-member changes nothing. An unmapped Group confers no
-     * Role, so its membership changes are none of this.
+     * <p>A Group that confers Permissions — or the Admin group, which confers the Superuser —
+     * confers them on every direct member, so when {@code confersPermissions}, a membership change
+     * is a change of power: a grant for each User added, a revocation for each User removed — and
+     * each removed User's Sessions end, since a Session carries the Permissions it was issued
+     * with. An addition ends no Session: the User holds the Permissions from its next sign-in.
+     * Decided from the membership before and after, so PUT and every PATCH shape are one rule, a
+     * User removed and added back keeps its Permissions and its Sessions, and a removal naming a
+     * non-member changes nothing. A Group that confers nothing moves nobody's Permissions, so its
+     * membership changes are none of this.
      */
     static ScimWriteEffects<AuditGroupAttribute> ofGroupWrite(
-            UUID groupId, GroupState before, GroupState after, Optional<Role> mappedRole) {
+            UUID groupId, GroupState before, GroupState after, boolean confersPermissions) {
         boolean displayNameChanged = !before.displayName().equals(after.displayName());
         boolean membersChanged = !before.memberIds().equals(after.memberIds());
         boolean aliasChanged = !Objects.equals(before.externalId(), after.externalId());
@@ -229,44 +233,44 @@ record ScimWriteEffects<A extends Enum<A>>(
         addIf(audited, AuditGroupAttribute.MEMBERS, membersChanged);
         addIf(audited, AuditGroupAttribute.EXTERNAL_ID, aliasChanged);
         return membershipEffects(
-                audited, groupId, before.memberIds(), after.memberIds(), mappedRole,
+                audited, groupId, before.memberIds(), after.memberIds(), confersPermissions,
                 new Stored(displayNameChanged || membersChanged, aliasChanged));
     }
 
     /**
-     * What deleting a Group implies: every member leaves it at once, so a mapped Group's members
-     * each lose its Role and their Sessions, exactly as removing them one by one would. The
-     * deletion's audit event names no attribute.
+     * What deleting a Group implies: every member leaves it at once, so the members of a Group
+     * that confers Permissions each lose them and their Sessions, exactly as removing them one by
+     * one would. The deletion's audit event names no attribute.
      */
     static ScimWriteEffects<AuditGroupAttribute> ofGroupDeletion(
-            UUID groupId, Set<UUID> memberIds, Optional<Role> mappedRole) {
+            UUID groupId, Set<UUID> memberIds, boolean confersPermissions) {
         return membershipEffects(
-                EnumSet.noneOf(AuditGroupAttribute.class), groupId, memberIds, Set.of(), mappedRole,
-                Stored.NOTHING);
+                EnumSet.noneOf(AuditGroupAttribute.class), groupId, memberIds, Set.of(),
+                confersPermissions, Stored.NOTHING);
     }
 
     /**
-     * What the dormancy job's Role revocation implies (ADR 0007): the User has already been removed
-     * from each of these mapped Groups, so it loses each one's Role, in the order given, and its
-     * Sessions end — once, with the one cause, however many Groups it left. Nothing is audited as
-     * an attribute and nothing more is stored: the removals advanced the versions as they were
-     * made.
+     * What the dormancy job's membership revocation implies (ADR 0007): the User has already been
+     * removed from each of these Groups — every direct membership it held, whatever each confers —
+     * so each removal is a membership change, in the order given, and its Sessions end — once, with
+     * the one cause, however many Groups it left. Nothing is audited as an attribute and nothing
+     * more is stored: the removals advanced the versions as they were made.
      *
-     * @param lostByGroup each mapped Group the User was removed from, and the Role it conferred
+     * @param removedGroupIds each Group the User was removed from
      */
-    static ScimWriteEffects<AuditUserAttribute> ofRoleRevocation(
-            UUID userId, Map<UUID, Role> lostByGroup) {
-        List<RoleChange> roleChanges = new ArrayList<>();
-        lostByGroup.forEach((groupId, role) ->
-                roleChanges.add(new RoleChange(RoleChange.Kind.REVOKED, userId, groupId, role)));
-        Set<ScimUserSessions.Cause> causes = roleChanges.isEmpty()
+    static ScimWriteEffects<AuditUserAttribute> ofMembershipRevocation(
+            UUID userId, List<UUID> removedGroupIds) {
+        List<MembershipChange> changes = new ArrayList<>();
+        removedGroupIds.forEach(groupId -> changes.add(
+                new MembershipChange(MembershipChange.Kind.REVOKED, userId, groupId)));
+        Set<ScimUserSessions.Cause> causes = changes.isEmpty()
                 ? EnumSet.noneOf(ScimUserSessions.Cause.class)
                 : EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED);
         return new ScimWriteEffects<>(
                 Resource.user(userId),
                 EnumSet.noneOf(AuditUserAttribute.class),
                 revocationOf(userId, causes),
-                roleChanges,
+                changes,
                 Stored.NOTHING);
     }
 
@@ -275,29 +279,28 @@ record ScimWriteEffects<A extends Enum<A>>(
             UUID groupId,
             Set<UUID> before,
             Set<UUID> after,
-            Optional<Role> mappedRole,
+            boolean confersPermissions,
             Stored stored) {
-        if (mappedRole.isEmpty()) {
+        if (!confersPermissions) {
             return new ScimWriteEffects<>(
                     Resource.group(groupId), audited, List.of(), List.of(), stored);
         }
-        Role role = mappedRole.get();
-        List<RoleChange> roleChanges = new ArrayList<>();
+        List<MembershipChange> changes = new ArrayList<>();
         List<SessionRevocation> revocations = new ArrayList<>();
         for (UUID userId : before) {
             if (!after.contains(userId)) {
-                roleChanges.add(new RoleChange(RoleChange.Kind.REVOKED, userId, groupId, role));
+                changes.add(new MembershipChange(MembershipChange.Kind.REVOKED, userId, groupId));
                 revocations.add(new SessionRevocation(
                         userId, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED)));
             }
         }
         for (UUID userId : after) {
             if (!before.contains(userId)) {
-                roleChanges.add(new RoleChange(RoleChange.Kind.GRANTED, userId, groupId, role));
+                changes.add(new MembershipChange(MembershipChange.Kind.GRANTED, userId, groupId));
             }
         }
         return new ScimWriteEffects<>(
-                Resource.group(groupId), audited, revocations, roleChanges, stored);
+                Resource.group(groupId), audited, revocations, changes, stored);
     }
 
     private static List<SessionRevocation> revocationOf(

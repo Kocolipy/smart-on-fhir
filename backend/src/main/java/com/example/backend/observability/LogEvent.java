@@ -96,8 +96,8 @@ public final class LogEvent {
     public static final String USER_TARGET_ID = "user.target.id";
 
     /**
-     * The stable SCIM id of the Group a record is about — the mapped Group whose membership change
-     * granted or revoked a Role. ECS {@code group.id}. Never a {@code displayName}.
+     * The stable SCIM id of the Group a record is about — the Group whose membership change
+     * granted or revoked Permissions. ECS {@code group.id}. Never a {@code displayName}.
      */
     public static final String GROUP_ID = "group.id";
 
@@ -653,8 +653,9 @@ public final class LogEvent {
                 onSchedule("Dormancy job scheduled")),
         DORMANCY_LOCKOUT(Action.USER_ADMINISTRATION, "identity.dormancy_lockout",
                 onSuccess("User locked for dormancy")),
-        DORMANCY_ROLE_REVOCATION(Action.USER_ADMINISTRATION, "identity.dormancy_role_revocation",
-                onSuccess("Roles revoked for dormancy")),
+        DORMANCY_MEMBERSHIP_REVOCATION(Action.USER_ADMINISTRATION,
+                "identity.dormancy_membership_revocation",
+                onSuccess("Group memberships revoked for dormancy")),
         CONNECTOR_CREATE(Action.USER_PROVISIONING, "scim.connector.create",
                 onSuccess(CONNECTOR_CHANGE_APPLIED)),
         CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete",
@@ -675,10 +676,10 @@ public final class LogEvent {
                 onRefusal("Request refused: authentication required")),
         LOGOUT(Action.USER_LOGOUT, null,
                 onSuccess("Logout completed")),
-        ROLE_GRANT(Action.USER_ADMINISTRATION, "identity.role_grant",
-                onSuccess("Role granted by a mapped Group's membership")),
-        ROLE_REVOKE(Action.USER_ADMINISTRATION, "identity.role_revoke",
-                onSuccess("Role revoked by a mapped Group's membership")),
+        PERMISSION_GRANT(Action.USER_ADMINISTRATION, "identity.permission_grant",
+                onSuccess("Permissions granted by a Group's membership")),
+        PERMISSION_REVOKE(Action.USER_ADMINISTRATION, "identity.permission_revoke",
+                onSuccess("Permissions revoked by a Group's membership")),
         ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping",
                 onSuccess("Role mapping validated"),
                 onChange("Sessions issued under another role mapping ended")),

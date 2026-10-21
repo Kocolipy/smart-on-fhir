@@ -166,41 +166,41 @@ holds this list to the code.
 
 #### The full mapping
 
-| `Operation`                | `event.action`                | `app.event.action`                  |
-| -------------------------- | ----------------------------- | ----------------------------------- |
-| `LOGIN`                    | `user-authentication`         | —                                   |
-| `EPIC_LOGIN`               | `user-authentication`         | `epic.login`                        |
-| `EPIC_OUTBOUND`            | `user-authentication`         | `epic.outbound`                     |
-| `EPIC_JWKS_REFETCH`        | `user-authentication`         | `epic.jwks_refetch`                 |
-| `UNLOCK`                   | `access-control`              | `identity.unlock`                   |
-| `FORCE_PASSWORD_CHANGE`    | `password-change-enforcement` | —                                   |
-| `PASSWORD_CHANGE`          | `user-administration`         | `identity.password_change`          |
-| `DORMANCY`                 | `user-administration`         | `identity.dormancy`                 |
-| `DORMANCY_LOCKOUT`         | `user-administration`         | `identity.dormancy_lockout`         |
-| `DORMANCY_ROLE_REVOCATION` | `user-administration`         | `identity.dormancy_role_revocation` |
-| `CONNECTOR_CREATE`         | `user-provisioning`           | `scim.connector.create`             |
-| `CONNECTOR_DELETE`         | `user-provisioning`           | `scim.connector.delete`             |
-| `CONNECTOR_TOKEN_ISSUE`    | `user-administration`         | `scim.connector.token.issue`        |
-| `CONNECTOR_TOKEN_ROTATE`   | `user-administration`         | `scim.connector.token.rotate`       |
-| `CONNECTOR_TOKEN_REVOKE`   | `user-provisioning`           | `scim.connector.token.revoke`       |
-| `SCIM_WRITE`               | `user-provisioning`           | `scim.write`                        |
-| `SCIM_REFUSAL`             | `user-provisioning`           | `scim.refusal`                      |
-| `ACCESS_DENIED`            | `access-control`              | `access.denied`                     |
-| `UNAUTHENTICATED`          | `access-control`              | `access.unauthenticated`            |
-| `LOGOUT`                   | `user-logout`                 | —                                   |
-| `ROLE_GRANT`               | `user-administration`         | `identity.role_grant`               |
-| `ROLE_REVOKE`              | `user-administration`         | `identity.role_revoke`              |
-| `ROLE_MAPPING_STARTUP`     | `application-startup`         | `authorization.role_mapping`        |
-| `PATIENT_SEED`             | `application-startup`         | `patient.seed`                      |
-| `SESSION_START`            | `session-start`               | —                                   |
-| `SESSION_END`              | `session-end`                 | —                                   |
-| `AUDIT_RETENTION`          | — (exception, above)          | `audit.retention`                   |
-| `AUDIT_APPEND`             | — (exception, above)          | `audit.append`                      |
-| `HTTP_REQUEST`             | — (exception, above)          | `http.request`                      |
-| `HTTP_REQUEST_REFUSAL`     | — (exception, above)          | `http.request.refusal`              |
-| `HTTP_REQUEST_FAULT`       | — (exception, above)          | `http.request.fault`                |
-| `APPLICATION_STARTUP`      | `application-startup`         | —                                   |
-| `APPLICATION_SHUTDOWN`     | `application-shutdown`        | —                                   |
+| `Operation`                      | `event.action`                | `app.event.action`                        |
+| -------------------------------- | ----------------------------- | ----------------------------------------- |
+| `LOGIN`                          | `user-authentication`         | —                                         |
+| `EPIC_LOGIN`                     | `user-authentication`         | `epic.login`                              |
+| `EPIC_OUTBOUND`                  | `user-authentication`         | `epic.outbound`                           |
+| `EPIC_JWKS_REFETCH`              | `user-authentication`         | `epic.jwks_refetch`                       |
+| `UNLOCK`                         | `access-control`              | `identity.unlock`                         |
+| `FORCE_PASSWORD_CHANGE`          | `password-change-enforcement` | —                                         |
+| `PASSWORD_CHANGE`                | `user-administration`         | `identity.password_change`                |
+| `DORMANCY`                       | `user-administration`         | `identity.dormancy`                       |
+| `DORMANCY_LOCKOUT`               | `user-administration`         | `identity.dormancy_lockout`               |
+| `DORMANCY_MEMBERSHIP_REVOCATION` | `user-administration`         | `identity.dormancy_membership_revocation` |
+| `CONNECTOR_CREATE`               | `user-provisioning`           | `scim.connector.create`                   |
+| `CONNECTOR_DELETE`               | `user-provisioning`           | `scim.connector.delete`                   |
+| `CONNECTOR_TOKEN_ISSUE`          | `user-administration`         | `scim.connector.token.issue`              |
+| `CONNECTOR_TOKEN_ROTATE`         | `user-administration`         | `scim.connector.token.rotate`             |
+| `CONNECTOR_TOKEN_REVOKE`         | `user-provisioning`           | `scim.connector.token.revoke`             |
+| `SCIM_WRITE`                     | `user-provisioning`           | `scim.write`                              |
+| `SCIM_REFUSAL`                   | `user-provisioning`           | `scim.refusal`                            |
+| `ACCESS_DENIED`                  | `access-control`              | `access.denied`                           |
+| `UNAUTHENTICATED`                | `access-control`              | `access.unauthenticated`                  |
+| `LOGOUT`                         | `user-logout`                 | —                                         |
+| `PERMISSION_GRANT`               | `user-administration`         | `identity.permission_grant`               |
+| `PERMISSION_REVOKE`              | `user-administration`         | `identity.permission_revoke`              |
+| `ROLE_MAPPING_STARTUP`           | `application-startup`         | `authorization.role_mapping`              |
+| `PATIENT_SEED`                   | `application-startup`         | `patient.seed`                            |
+| `SESSION_START`                  | `session-start`               | —                                         |
+| `SESSION_END`                    | `session-end`                 | —                                         |
+| `AUDIT_RETENTION`                | — (exception, above)          | `audit.retention`                         |
+| `AUDIT_APPEND`                   | — (exception, above)          | `audit.append`                            |
+| `HTTP_REQUEST`                   | — (exception, above)          | `http.request`                            |
+| `HTTP_REQUEST_REFUSAL`           | — (exception, above)          | `http.request.refusal`                    |
+| `HTTP_REQUEST_FAULT`             | — (exception, above)          | `http.request.fault`                      |
+| `APPLICATION_STARTUP`            | `application-startup`         | —                                         |
+| `APPLICATION_SHUTDOWN`           | `application-shutdown`        | —                                         |
 
 `event.kind` is `event` on every record.
 
@@ -616,18 +616,22 @@ afterwards. There is no line per batch. A run skipped on a held lock is the one
 `skipped` line.
 `AuditRetentionRunLogTests` holds each case as the scheduler runs it.
 
-**Dormancy** (ADR 0007). `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION` are one
-record per User, naming it as `user.target.id`. A revocation also names the Roles
-lost as `app.authorization.role`, comma-joined. The run's `job-end` carries
+**Dormancy** (ADR 0007). `DORMANCY_LOCKOUT` and `DORMANCY_MEMBERSHIP_REVOCATION`
+are one record per User, naming it as `user.target.id`. A revocation also names the Permissions the User lost — held before the
+removals and not after — as `app.authorization.permissions_lost`, sorted and
+comma-joined; the Groups removed are the audit event's to list. The run's `job-end` carries
 `dormancy.locked_count` and `dormancy.roles_revoked_count`, and the schedule record
 carries both windows. A dormancy lockout is `WARN`, not the `ERROR` the
 authentication recipe gives a lockout, because it signals inactivity rather than an
 attack.
 
-**Role changes and the role mapping** (ADR 0010). A Role gained or lost through a
-mapped Group is one `INFO` `change` record. It names the User as `user.target.id`,
-the Group as `group.id` (never its `displayName`) and the Role as
-`app.authorization.role`. Naming a Role is allowed here and only here: an
+**Membership changes of power and the role mapping** (ADR 0010, ADR 0015). A User
+gaining or losing direct membership of a Group that confers Permissions, or of the
+Admin group, is one `INFO` `change` record (`identity.permission_grant` or
+`identity.permission_revoke`). It names the User as `user.target.id`, the Group as
+`group.id` (never its `displayName`) and the Permissions the Group confers as
+`app.authorization.group_permissions` (formerly `app.authorization.role`, the
+Role's name), sorted and comma-joined. Naming them is allowed here and only here: an
 authorization refusal still names no Permission, Role or rule. At startup,
 `authorization.role_mapping` writes an `info` record with the mapping's SHA-256 as
 `app.authorization.mapping_hash`. When sessions issued under another mapping were
@@ -733,4 +737,3 @@ adjust Boot's output instead.
 
 **Setting the JVM default zone to `Asia/Singapore`.** Rejected: it moves every
 time the service handles, not just the log's.
-

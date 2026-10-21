@@ -247,8 +247,9 @@ public class LoginIdentityService implements UserDetailsService {
      * <p>A direct member of the Admin group — the Group the mapping designates as the Superuser
      * Group, which startup requires to be the reserved Admin group — is the Superuser (ADR 0015):
      * {@code ROLE_SUPERUSER} and every {@linkplain Permission#delegatable() delegatable}
-     * Permission, expanded here in code beside whatever the mapping confers, never from a stored
-     * list or a role hierarchy. It is additive: the Role the mapping assigns the Group still
+     * Permission, expanded in code beside whatever the mapping confers
+     * ({@link com.example.backend.authorization.domain.GroupPermissions#effectivePermissionsOf}),
+     * never from a stored list or a role hierarchy. It is additive: the Role the mapping assigns the Group still
      * applies. Every other protected operation requires its own Permission (ADR 0010), and
      * connector administration requires the Superuser. Membership is direct only.
      */
@@ -259,10 +260,9 @@ public class LoginIdentityService implements UserDetailsService {
                 .map(ScimGroupReference::id)
                 .toList();
         Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
-        permissions.addAll(roleMapping.permissionsOf(memberOf));
-        if (memberOf.contains(roleMapping.superuserGroupId())) {
+        permissions.addAll(roleMapping.effectivePermissionsOf(memberOf));
+        if (roleMapping.confersSuperuser(memberOf)) {
             authorities.add(new SimpleGrantedAuthority(SUPERUSER_AUTHORITY));
-            permissions.addAll(Permission.allDelegatable());
         }
         permissions.stream()
                 .map(permission -> new SimpleGrantedAuthority(permission.value()))

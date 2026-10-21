@@ -65,8 +65,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * The dormancy job end to end (ADR 0007), against a real SQL Server, the real seeded identities,
  * the real role mapping and the real job lock: the lockout at the lockout window with
- * {@code DORMANCY}, every mapped Group membership removed at the role-revocation window and the
- * unmapped ones kept, a re-added membership removed again, the Bootstrap Admin's exemption, an
+ * {@code DORMANCY}, every direct Group membership removed at the revocation window, a re-added
+ * membership removed again, the Bootstrap Admin's exemption, an
  * existing {@code FAILURES} cause surviving, Unlock restarting the window, {@code active} never
  * written, the audit events, and serialization.
  *
@@ -87,7 +87,7 @@ class DormancyIntegrationTests {
             DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1);
 
     private static final Duration PAST_ROLE_REVOCATION =
-            DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1);
+            DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1);
 
     private static final String PASSWORD = "first-correct-horse";
 
@@ -250,7 +250,8 @@ class DormancyIntegrationTests {
         Instant now = clock.instant();
         Duration microsecond = Duration.ofNanos(1_000);
         List<UUID> fixtures = new ArrayList<>();
-        for (Duration window : List.of(policy.lockoutWindow(), policy.roleRevocationWindow())) {
+        for (Duration window
+                : List.of(policy.lockoutWindow(), policy.membershipRevocationWindow())) {
             for (Duration offset : List.of(microsecond.negated(), Duration.ZERO, microsecond)) {
                 Duration ago = window.plus(offset);
                 UUID authenticated = createSettledUser("dormancy-sql-" + fixtures.size());
@@ -274,8 +275,9 @@ class DormancyIntegrationTests {
                 .filter(fixtures::contains)
                 .toList();
         List<UUID> roleRevocationCandidates = read.execute(status ->
-                groups.findDormantMemberships(List.of(group), policy.roleRevocationCutoff(now)))
+                groups.findDormantMemberships(policy.membershipRevocationCutoff(now)))
                 .stream()
+                .filter(membership -> membership.groupId().equals(group))
                 .map(ScimGroupMembership::userId)
                 .toList();
 
@@ -357,17 +359,18 @@ class DormancyIntegrationTests {
         assertThat(lockCause(ada)).as("the directory cannot lift the lock").isEqualTo("DORMANCY");
     }
 
-    // ---- the role-revocation step ---------------------------------------------------------
+    // ---- the membership-revocation step ---------------------------------------------------
 
     /**
-     * Past the role-revocation window a User loses its direct membership of the mapped Group —
-     * here the Superuser Group, the one the test mapping names — and keeps its unmapped one, whose
-     * version does not move. The mapped Group's and the User's versions advance, its session ends,
-     * and one actorless {@code DORMANCY_ROLE_REVOCATION} names the Role lost. A connector that then
-     * re-adds the membership sees it removed again on the next run while the User stays dormant.
+     * Past the revocation window a User loses its direct membership of every Group — here the
+     * Admin group and an ordinary Group that confers nothing. Each Group's and the User's versions
+     * advance, its session ends, and one actorless {@code DORMANCY_MEMBERSHIP_REVOCATION} lists
+     * both Groups and the Permissions before and after, with the Superuser removed. A connector
+     * that then re-adds a membership sees it removed again on the next run while the User stays
+     * dormant.
      */
     @Test
-    void aUserPastTheRoleRevocationWindowLosesItsMappedMembershipAndAReAddIsRemovedAgain() {
+    void aUserPastTheRevocationWindowLosesEveryMembershipAndAReAddIsRemovedAgain() {
         UUID ada = createSettledUser("dormancy-roles");
         UUID ordinary = createGroup("Dormancy Engineering", ada);
         UUID adminGroup = adminGroupId();
@@ -384,19 +387,23 @@ class DormancyIntegrationTests {
         assertThat(run.locked()).contains(ada);
         assertThat(isMember(adminGroup, ada)).isFalse();
         assertThat(isMember(adminGroup, bootstrapAdmin())).isTrue();
-        assertThat(isMember(ordinary, ada)).as("unmapped membership intact").isTrue();
-        assertThat(version(ordinary)).isEqualTo(ordinaryVersion);
+        assertThat(isMember(ordinary, ada)).as("a Group conferring nothing too").isFalse();
+        assertThat(version(ordinary)).isEqualTo(ordinaryVersion + 1);
         assertThat(version(adminGroup)).isEqualTo(adminGroupVersion + 1);
-        assertThat(version(ada)).isEqualTo(userVersion + 1);
+        assertThat(version(ada)).isEqualTo(userVersion + 2);
         assertThat(active(ada)).isTrue();
         assertThat(sessions.sessionsOf(ada)).isEmpty();
-        assertThat(auditRows("DORMANCY_ROLE_REVOCATION", ada)).singleElement()
+        assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", ada)).singleElement()
                 .satisfies(row -> assertThat(row)
                         .containsEntry("outcome", "SUCCESS")
                         .containsEntry("actor_id", null)
                         .containsEntry("resource_type", "User")
                         .containsEntry("changed_paths", "groups")
-                        .containsEntry("role_name", "Superuser"));
+                        .containsEntry("group_ids", sortedIds(adminGroup, ordinary))
+                        .containsEntry("permissions_before", "account:unlock,audit:read,"
+                                + "connector:read,group:read,ops:read,patient:read,user:read")
+                        .containsEntry("permissions_after", null)
+                        .containsEntry("superuser_changed", true));
 
         addToAdminGroup(ada);
         assertThat(isMember(adminGroup, ada)).as("the connector re-added it").isTrue();
@@ -406,14 +413,13 @@ class DormancyIntegrationTests {
         assertThat(second.rolesRevoked()).contains(ada);
         assertThat(second.locked()).as("already locked").doesNotContain(ada);
         assertThat(isMember(adminGroup, ada)).isFalse();
-        assertThat(isMember(ordinary, ada)).isTrue();
-        assertThat(auditRows("DORMANCY_ROLE_REVOCATION", ada)).hasSize(2);
+        assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", ada)).hasSize(2);
         assertThat(auditRows("DORMANCY_LOCKOUT", ada)).hasSize(1);
     }
 
-    /** Between the two windows a User is locked but keeps its Roles. */
+    /** Between the two windows a User is locked but keeps its memberships. */
     @Test
-    void aUserBetweenTheWindowsIsLockedButKeepsItsRoles() {
+    void aUserBetweenTheWindowsIsLockedButKeepsItsMemberships() {
         UUID ada = createSettledUser("dormancy-between");
         addToAdminGroup(ada);
         backdateBasis(ada, PAST_LOCKOUT);
@@ -486,7 +492,7 @@ class DormancyIntegrationTests {
             assertThat(version(adminGroupId())).isEqualTo(adminGroupVersion);
             assertThat(sessions.sessionsOf(bootstrap)).containsExactly("bootstrap-session");
             assertThat(auditRows("DORMANCY_LOCKOUT", bootstrap)).isEmpty();
-            assertThat(auditRows("DORMANCY_ROLE_REVOCATION", bootstrap)).isEmpty();
+            assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", bootstrap)).isEmpty();
         } finally {
             sessions.revokeAll(bootstrap);
             jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?",
@@ -518,7 +524,7 @@ class DormancyIntegrationTests {
             assertThat(runs.stream().filter(run -> run.rolesRevoked().contains(user)).count())
                     .as("runs that revoked %s", user).isEqualTo(1);
             assertThat(auditRows("DORMANCY_LOCKOUT", user)).hasSize(1);
-            assertThat(auditRows("DORMANCY_ROLE_REVOCATION", user)).hasSize(1);
+            assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", user)).hasSize(1);
             assertThat(isMember(adminGroupId(), user)).isFalse();
         }
     }
@@ -855,9 +861,16 @@ class DormancyIntegrationTests {
                 Integer.class, group, user) == 1;
     }
 
+    /** Two Group ids as the trail lists them: by their text, comma-joined. */
+    private static String sortedIds(UUID first, UUID second) {
+        return java.util.stream.Stream.of(first, second).map(UUID::toString).sorted()
+                .collect(Collectors.joining(","));
+    }
+
     private List<Map<String, Object>> auditRows(String operation, UUID subject) {
         return jdbc.query("""
-                SELECT outcome, actor_id, resource_type, changed_paths, role_name, error_code
+                SELECT outcome, actor_id, resource_type, changed_paths, group_ids,
+                       permissions_before, permissions_after, superuser_changed, error_code
                   FROM audit_events
                  WHERE operation = ? AND subject_id = ?
                  ORDER BY occurred_at""", UuidColumnRows.ROWS, operation, subject);

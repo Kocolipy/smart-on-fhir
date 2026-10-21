@@ -1,7 +1,6 @@
 package com.example.backend.scim.domain;
 
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -162,16 +161,16 @@ public interface ScimGroupRepository {
     boolean isMemberOfReservedGroup(UUID userId, ReservedResourceName reservedName);
 
     /**
-     * Every direct membership of one of these Groups held by an unreserved User whose dormancy
-     * basis lies strictly before {@code cutoff}, ordered by User id and then Group id — active or
-     * not, locked or not.
+     * Every direct membership, of any Group, held by an unreserved User whose dormancy basis lies
+     * strictly before {@code cutoff}, ordered by User id and then Group id — active or not, locked
+     * or not.
      *
-     * <p>The dormancy job's role-revocation candidates, on the same basis as
+     * <p>The dormancy job's membership-revocation candidates, on the same basis as
      * {@link ScimLoginStateRepository#findDormantUnlockedUserIds}: {@code lastAuthenticatedAt}, or
      * the creation time for a User that has never authenticated. Candidates only; the job re-reads
-     * each User under its lock and decides again. An empty {@code groupIds} matches nothing.
+     * each User under its lock and decides again.
      */
-    List<ScimGroupMembership> findDormantMemberships(Collection<UUID> groupIds, Instant cutoff);
+    List<ScimGroupMembership> findDormantMemberships(Instant cutoff);
 
     /**
      * Removes one User's direct membership of one Group and advances the version of both, exactly

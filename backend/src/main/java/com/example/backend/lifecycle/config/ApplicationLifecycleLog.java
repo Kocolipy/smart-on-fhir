@@ -107,7 +107,7 @@ public class ApplicationLifecycleLog {
                 .addKeyValue(DORMANCY_LOCKOUT_WINDOW,
                         dormancy.lockoutWindow().toString())
                 .addKeyValue(DORMANCY_ROLE_REVOCATION_WINDOW,
-                        dormancy.roleRevocationWindow().toString())
+                        dormancy.membershipRevocationWindow().toString())
                 .addKeyValue(AUDIT_RETENTION_PERIOD, retention.period().toString());
         epicLogin.addStartupFields(record).log();
     }

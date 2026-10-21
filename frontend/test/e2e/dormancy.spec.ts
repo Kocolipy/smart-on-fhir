@@ -1,18 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { FIXTURE_PASSWORD, loginAsRole, submitLogin } from "./auth.helpers";
-import { freshBrowser, rowOf } from "./scim.helpers";
+import { FIXTURE_PASSWORD, loginAsRole, submitLogin, userIdOf } from "./auth.helpers";
+import { FIXTURE_GROUPS, freshBrowser, rowOf } from "./scim.helpers";
 
 /**
- * The dormancy lockout end to end (ADR 0007), through the `dormant`
- * development fixture.
+ * The dormancy lockout and membership revocation end to end (ADR 0007), through
+ * the `dormant` development fixture.
  *
  * The dormancy job runs nightly and has no HTTP surface, so this spec relies on
  * the development profile the e2e backend runs with: seeding backdates the
- * fixture's dormancy basis a day past the lockout window — and resets its
- * password and lock — at every startup, and `DevDormancyStartupConfig` then
- * runs the real job once. By the time this spec runs, the job has locked the
- * fixture for dormancy.
+ * fixture's dormancy basis a day past the revocation window — resets its
+ * password and lock, and puts it back into the Auditors and Monitoring Groups —
+ * at every startup, and `DevDormancyStartupConfig` then runs the real job once.
+ * By the time this spec runs, the job has locked the fixture for dormancy and
+ * removed every Group membership it held.
  *
  * The journey consumes that state: once the fixture has been unlocked and has
  * chosen a password, it is locked again only by the next backend start. So
@@ -28,6 +29,12 @@ const DORMANT = "dormant";
 const CHOSEN = `Returned-After-Absence-${Date.now().toString(36)}`;
 
 const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
+
+/** The Users table's Groups column, among a row's cells (the User is its row header). */
+const GROUPS_COLUMN = 7;
+
+/** The two Groups seeding puts the fixture back into (`dormant-groups` in `authorization.yaml`). */
+const { auditors: AUDITORS, monitoring: MONITORING } = FIXTURE_GROUPS;
 
 async function changePassword(page: Page, current: string, next: string) {
   await page.getByLabel("Current password").fill(current);
@@ -52,6 +59,28 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
       "the dormant fixture is re-armed only by a backend restart; restart it before rerunning",
     ).toBeVisible();
     await expect(row.getByText("Locked: failed logins")).toHaveCount(0);
+    // Past the revocation window too: every direct Group membership is gone.
+    await expect(row.getByRole("cell").nth(GROUPS_COLUMN)).toHaveText("—");
+
+    // The trail lists both Groups removed and what the User held before.
+    const dormantId = await userIdOf(page, DORMANT);
+    // In a browser of its own: the dormant User signs in through `returning` below.
+    const auditing = await freshBrowser(browser);
+    const reader = await auditing.newPage();
+    await loginAsRole(reader, "auditor");
+    await reader.goto("/audit");
+    await reader.getByLabel("Operation").selectOption("DORMANCY_MEMBERSHIP_REVOCATION");
+    await reader.getByLabel("Resource id").fill(dormantId);
+    await reader.getByRole("button", { name: "Apply filters" }).click();
+    const newest = reader
+      .getByRole("table", { name: "Audit events" })
+      .getByRole("row")
+      .filter({ has: reader.getByRole("cell") })
+      .first();
+    await expect(newest.getByRole("cell").last()).toHaveText(
+      `permissions: audit:read, ops:read → none · groups: ${AUDITORS}, ${MONITORING}`,
+    );
+    await auditing.close();
 
     // The dormant User cannot sign in: the same refusal a wrong password gets.
     const own = await returning.newPage();

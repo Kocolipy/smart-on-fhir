@@ -67,7 +67,7 @@ class PatientIdMigrationIntegrationTests {
 
     @Test
     void theUpgradeAppliesV4AloneOverTheRecordedMigrations() {
-        flyway(url, "latest").migrate();
+        flyway(url, "4").migrate();
 
         assertThat(asOwner.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank",

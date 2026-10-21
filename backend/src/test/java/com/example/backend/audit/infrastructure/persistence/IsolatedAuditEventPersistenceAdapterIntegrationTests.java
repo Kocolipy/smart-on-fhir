@@ -57,12 +57,16 @@ class IsolatedAuditEventPersistenceAdapterIntegrationTests {
                 "req-4f81",
                 7,
                 "displayName eq ?",
-                "Account admin",
                 List.of("user:read", "group:write"),
                 "sso",
                 "otp",
                 UUID.fromString("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"),
-                UUID.fromString("01234567-89ab-4cde-8f01-23456789abcd"));
+                UUID.fromString("01234567-89ab-4cde-8f01-23456789abcd"),
+                List.of("audit:read", "user:read"),
+                List.of("user:read"),
+                true,
+                List.of(UUID.fromString("0aaaaaaa-0000-4000-8000-000000000001"),
+                        UUID.fromString("0bbbbbbb-0000-4000-8000-000000000002")));
 
         new IsolatedAuditEventPersistenceAdapter(auditPool).append(event);
 

@@ -16,6 +16,7 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.audit.domain.AuditPermissionChange;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
@@ -28,7 +29,6 @@ import com.example.backend.audit.domain.IsolatedAuditEventRepository;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.Role;
 import java.lang.reflect.RecordComponent;
 import java.time.Clock;
 import java.time.Instant;
@@ -412,7 +412,9 @@ class AuditTrailServiceTests {
     static Stream<Arguments> eventsBuiltFromEqualValues() {
         Set<AuditLoginStateAttribute> run = new LinkedHashSet<>(RUN);
         Set<AuditLoginStateAttribute> unlock = new LinkedHashSet<>(FULL_UNLOCK);
-        List<Role> roles = new ArrayList<>(List.of(new Role("Superuser", Set.of())));
+        List<UUID> removed = new ArrayList<>(List.of(GROUP));
+        AuditPermissionChange lost = new AuditPermissionChange(
+                EnumSet.of(Permission.AUDIT_READ), Set.of(), false);
         return Stream.of(
                 Arguments.of(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
                                 AuditLoginMethod.PASSWORD, RUN),
@@ -426,8 +428,10 @@ class AuditTrailServiceTests {
                                 ACTOR, SUBJECT, AuditLockCause.FAILURES, unlock)),
                 Arguments.of(new Audited.DormancyLockout(SUBJECT, RUN_AND_LOCK),
                         new Audited.DormancyLockout(SUBJECT, EnumSet.copyOf(RUN_AND_LOCK))),
-                Arguments.of(new Audited.DormancyRoleRevocation(SUBJECT, roles),
-                        new Audited.DormancyRoleRevocation(SUBJECT, List.copyOf(roles))),
+                Arguments.of(new Audited.DormancyMembershipRevocation(SUBJECT, removed, lost),
+                        new Audited.DormancyMembershipRevocation(SUBJECT, List.copyOf(removed),
+                                new AuditPermissionChange(Set.of(Permission.AUDIT_READ),
+                                        EnumSet.noneOf(Permission.class), false))),
                 Arguments.of(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK),
                         new Audited.PasswordChangeRequired(ACTOR, SUBJECT, unlock)),
                 Arguments.of(new Audited.PasswordChanged(SUBJECT, FULL_UNLOCK),
@@ -440,7 +444,7 @@ class AuditTrailServiceTests {
 
     /**
      * An event is a value: two built from equal values are one event, whatever kind of set or
-     * list the caller held its attributes or Roles in.
+     * list the caller held its attributes, Group ids or Permissions in.
      */
     @ParameterizedTest
     @MethodSource("eventsBuiltFromEqualValues")
@@ -1075,22 +1079,19 @@ class AuditTrailServiceTests {
 
     /**
      * The dormancy job acts as nobody: no actor, the User as subject and resource, what it
-     * changed — and the role revocation names every Role lost, sorted, distinct and comma-joined.
+     * changed.
      */
     @Test
     void theDormancyJobRecordsNoActor() {
         trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(
                 AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE)));
-        trail.append(new Audited.DormancyRoleRevocation(SUBJECT, List.of(
-                new Role("Superuser", Set.of()), new Role("Account admin", Set.of()),
-                new Role("Superuser", Set.of()))));
+        trail.append(new Audited.DormancyMembershipRevocation(SUBJECT, List.of(GROUP),
+                new AuditPermissionChange(Set.of(Permission.AUDIT_READ), Set.of(), false)));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
-                AuditOperation.DORMANCY_LOCKOUT, AuditOperation.DORMANCY_ROLE_REVOCATION);
+                AuditOperation.DORMANCY_LOCKOUT, AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION);
         assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
                 List.of("lockedAt", "lockCause"), List.of("groups"));
-        assertThat(events.appended).extracting(AuditEvent::role)
-                .containsExactly(null, "Account admin,Superuser");
         assertThat(events.appended).allSatisfy(event -> {
             assertThat(event.id()).isNotNull();
             assertThat(event.occurredAt()).isEqualTo(NOW);
@@ -1111,12 +1112,46 @@ class AuditTrailServiceTests {
         assertThat(events.appended.get(0).id()).isNotEqualTo(events.appended.get(1).id());
     }
 
+    /**
+     * The membership revocation lists every Group the User was removed from — sorted by id and
+     * distinct, whatever order they were left in — and the User's effective Permissions before and
+     * after, sorted by name: the record an unexpected mass removal is reversed by hand from.
+     */
     @Test
-    void aDormancyRoleRevocationNamingNoRoleIsRefused() {
-        assertThatThrownBy(() -> trail.append(new Audited.DormancyRoleRevocation(
-                SUBJECT, List.of())))
+    void aDormancyMembershipRevocationListsTheGroupsRemovedAndThePermissionsBeforeAndAfter() {
+        UUID first = UUID.fromString("0aaaaaaa-0000-4000-8000-000000000001");
+        UUID second = UUID.fromString("0bbbbbbb-0000-4000-8000-000000000002");
+
+        trail.append(new Audited.DormancyMembershipRevocation(SUBJECT,
+                List.of(second, first, second),
+                new AuditPermissionChange(
+                        EnumSet.of(Permission.USER_READ, Permission.AUDIT_READ, Permission.OPS_READ),
+                        EnumSet.of(Permission.OPS_READ), true)));
+
+        assertThat(events.only())
+                .extracting(AuditEvent::groupIds, AuditEvent::permissionsBefore,
+                        AuditEvent::permissionsAfter, AuditEvent::superuserChanged)
+                .containsExactly(List.of(first, second),
+                        List.of("audit:read", "ops:read", "user:read"), List.of("ops:read"), true);
+    }
+
+    @Test
+    void aDormancyMembershipRevocationNamingNoGroupIsRefused() {
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyMembershipRevocation(
+                SUBJECT, List.of(), new AuditPermissionChange(Set.of(), Set.of(), false))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(events.appended).isEmpty();
+    }
+
+    /** An event that is no membership change names no Permissions before or after, and no Group. */
+    @Test
+    void anEventThatIsNoMembershipChangeCarriesNoneOfItsFields() {
+        trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(AuditLoginStateAttribute.LOCKED_AT)));
+
+        assertThat(events.only())
+                .extracting(AuditEvent::groupIds, AuditEvent::permissionsBefore,
+                        AuditEvent::permissionsAfter, AuditEvent::superuserChanged)
+                .containsExactly(List.of(), List.of(), List.of(), null);
     }
 
     /** Both dormancy events are fail-closed: the job's change rolls back with a lost append. */
@@ -1127,8 +1162,8 @@ class AuditTrailServiceTests {
         assertThatThrownBy(() -> trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(
                 AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE))))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.append(new Audited.DormancyRoleRevocation(
-                        SUBJECT, List.of(new Role("Superuser", Set.of())))))
+        assertThatThrownBy(() -> trail.append(new Audited.DormancyMembershipRevocation(
+                        SUBJECT, List.of(GROUP), new AuditPermissionChange(Set.of(), Set.of(), false))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -1161,15 +1196,28 @@ class AuditTrailServiceTests {
         assertThat(requirement.errorCode()).isEqualTo("SELF_TARGET");
     }
 
-    /** A Role change names the User as subject, the Group as resource, and the Role by name. */
+    /**
+     * A membership change of power names the User as subject and the Group as resource, and records
+     * the User's effective Permissions before and after it, sorted by name, with the Superuser
+     * marker: set when the change granted or removed the Superuser.
+     */
     @Test
-    void aRoleChangeNamesTheUserTheGroupAndTheRole() {
-        Role role = new Role("Account admin", Set.of(Permission.USER_READ));
-        trail.append(new Audited.RoleGranted(ACTOR, SUBJECT, GROUP, role));
-        trail.append(new Audited.RoleRevoked(ACTOR, SUBJECT, GROUP, role));
+    void aPermissionChangeNamesTheUserTheGroupAndThePermissionsBeforeAndAfter() {
+        trail.append(new Audited.PermissionGranted(ACTOR, SUBJECT, GROUP, new AuditPermissionChange(
+                EnumSet.of(Permission.USER_READ),
+                EnumSet.of(Permission.USER_READ, Permission.GROUP_READ, Permission.AUDIT_READ),
+                false)));
+        trail.append(new Audited.PermissionRevoked(ACTOR, SUBJECT, GROUP, new AuditPermissionChange(
+                EnumSet.of(Permission.OPS_READ), Set.of(), true)));
 
         assertThat(events.appended).extracting(AuditEvent::operation)
-                .containsExactly(AuditOperation.ROLE_GRANT, AuditOperation.ROLE_REVOKE);
+                .containsExactly(AuditOperation.PERMISSION_GRANT, AuditOperation.PERMISSION_REVOKE);
+        assertThat(events.appended).extracting(AuditEvent::permissionsBefore)
+                .containsExactly(List.of("user:read"), List.of("ops:read"));
+        assertThat(events.appended).extracting(AuditEvent::permissionsAfter)
+                .containsExactly(List.of("audit:read", "group:read", "user:read"), List.of());
+        assertThat(events.appended).extracting(AuditEvent::superuserChanged)
+                .containsExactly(false, true);
         assertThat(events.appended).allSatisfy(event -> {
             assertThat(event.id()).isNotNull();
             assertThat(event.occurredAt()).isEqualTo(NOW);
@@ -1179,7 +1227,8 @@ class AuditTrailServiceTests {
             assertThat(event.resourceId()).isEqualTo(GROUP);
             assertThat(event.resourceType()).isEqualTo(AuditEvent.GROUP_RESOURCE_TYPE);
             assertThat(event.changedPaths()).containsExactly("members");
-            assertThat(event.role()).isEqualTo("Account admin");
+            assertThat(event.groupIds()).isEmpty();
+            assertThat(event.permissions()).isEmpty();
             assertThat(event.httpMethod()).isEqualTo("POST");
             assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
             assertThat(event.requestId()).isEqualTo("req-1");
@@ -1239,9 +1288,9 @@ class AuditTrailServiceTests {
             // After the commit, even on success: fail-open (the 2026-10-10 addendum).
             Map.entry(Audited.UserSessionsRevoked.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.DormancyLockout.class, Semantics.FAIL_CLOSED),
-            Map.entry(Audited.DormancyRoleRevocation.class, Semantics.FAIL_CLOSED),
-            Map.entry(Audited.RoleGranted.class, Semantics.FAIL_CLOSED),
-            Map.entry(Audited.RoleRevoked.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.DormancyMembershipRevocation.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.PermissionGranted.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.PermissionRevoked.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PasswordChangeRequired.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PasswordChangeRequirementRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.PasswordChanged.class, Semantics.FAIL_CLOSED),
@@ -1323,10 +1372,10 @@ class AuditTrailServiceTests {
             return Set.of();
         }
         if (type == List.class) {
-            return List.of(new Role("Superuser", Set.of()));
+            return List.of(SUBJECT);
         }
-        if (type == Role.class) {
-            return new Role("Superuser", Set.of());
+        if (type == AuditPermissionChange.class) {
+            return new AuditPermissionChange(Set.of(), Set.of(), false);
         }
         if (type == AuditRequest.class) {
             return new AuditRequest("GET", "/api/admin/accounts", "req-sample");

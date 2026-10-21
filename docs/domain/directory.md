@@ -118,8 +118,8 @@ Deletion advances the version of every former member, then removes its membershi
 explicitly, in the same transaction and before the Group itself, exactly as for a
 Deleted User; it then makes the Group unavailable through SCIM and leaves a SCIM
 tombstone. A deleted mapped Group takes its Role from every member, each
-recorded as a `ROLE_REVOKE` and signed out after commit, exactly as removing them
-one by one would; the mapping still names its id, but it confers nothing until
+recorded as a `PERMISSION_REVOKE` and signed out after commit, exactly as removing
+them one by one would; the mapping still names its id, but it confers nothing until
 the deployment replaces the mapping. The Admin group cannot be deleted.
 
 ## Resource version

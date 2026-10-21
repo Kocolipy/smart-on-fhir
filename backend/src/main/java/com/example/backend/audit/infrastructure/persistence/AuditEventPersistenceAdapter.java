@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.infrastructure.persistence.entity.AuditEventEntity;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /** Maps the append-only audit port onto JPA. */
@@ -49,12 +50,21 @@ class AuditEventPersistenceAdapter implements AuditEventRepository {
                 event.requestId(),
                 event.resultCount(),
                 event.filterShape(),
-                event.role(),
                 joinPaths(event.permissions()),
                 event.loginMethod(),
                 event.mfaFactor(),
                 event.tokenId(),
-                event.replacementTokenId()));
+                event.replacementTokenId(),
+                membership(event)));
+    }
+
+    /** A membership change's four columns, in the shapes the listing reads back. */
+    static AuditEventEntity.MembershipColumns membership(AuditEvent event) {
+        return new AuditEventEntity.MembershipColumns(
+                joinPaths(event.permissionsBefore()),
+                joinPaths(event.permissionsAfter()),
+                event.superuserChanged(),
+                joinPaths(event.groupIds().stream().map(UUID::toString).toList()));
     }
 
     /** An empty list is stored as null, so "nothing changed" — or "none named" — is one value. */

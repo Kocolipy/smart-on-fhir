@@ -5,10 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditUserAttribute;
-import com.example.backend.authorization.domain.Role;
 import com.example.backend.scim.application.ScimWriteEffects.GroupState;
+import com.example.backend.scim.application.ScimWriteEffects.MembershipChange;
 import com.example.backend.scim.application.ScimWriteEffects.Resource;
-import com.example.backend.scim.application.ScimWriteEffects.RoleChange;
 import com.example.backend.scim.application.ScimWriteEffects.SessionRevocation;
 import com.example.backend.scim.application.ScimWriteEffects.Stored;
 import com.example.backend.scim.application.ScimWriteEffects.UserState;
@@ -19,11 +18,8 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserSessions.Cause;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
@@ -35,7 +31,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Which SCIM edits are audited, which end Sessions and which change Roles — decided on plain
+ * Which SCIM edits are audited, which end Sessions and which change Permissions — decided on plain
  * values, with no repository, session or audit fake. The use cases that carry these effects out
  * are covered by {@code ScimUserServiceTests} and {@code ScimGroupServiceTests}.
  */
@@ -51,7 +47,11 @@ class ScimWriteEffectsTests {
 
     private static final UUID CAROL = UUID.randomUUID();
 
-    private static final Role HELPDESK = new Role("Helpdesk", Set.of());
+    /** A Group whose membership confers Permissions, or the Admin group. */
+    private static final boolean CONFERS = true;
+
+    /** A Group whose membership confers nothing. */
+    private static final boolean CONFERS_NOTHING = false;
 
     private static final ScimUserProfile ADA = new ScimUserProfile(
             "ada", new ScimName(null, "King", "Ada", null, null, null),
@@ -142,7 +142,7 @@ class ScimWriteEffectsTests {
 
         assertThat(effects.audited()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
     }
 
     // ---- User writes: which edits end Sessions -------------------------------------------------
@@ -246,15 +246,15 @@ class ScimWriteEffectsTests {
         assertThat(effects.revocations()).isEmpty();
     }
 
-    /** A Role is conferred by a mapped Group's membership, which no User write can move. */
+    /** Permissions are conferred by a Group's membership, which no User write can move. */
     @Test
-    void a_user_write_changes_no_role_whatever_it_moves() {
+    void a_user_write_changes_no_permission_whatever_it_moves() {
         var effects = ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, new UserState(
                 with("ada2", ScimName.NONE, null, null, null, null, false, List.of()),
                 null, null));
 
         assertThat(effects.revocations()).isNotEmpty();
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
     }
 
     @Test
@@ -263,7 +263,7 @@ class ScimWriteEffectsTests {
 
         assertThat(effects.revocations()).isEqualTo(userRevocation(Cause.DELETED));
         assertThat(effects.audited()).isEmpty();
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
     }
 
     // ---- Group writes: what is audited ----------------------------------------------------------
@@ -273,15 +273,15 @@ class ScimWriteEffectsTests {
     }
 
     @Test
-    void a_group_write_restating_the_stored_state_has_no_effect_even_when_mapped() {
+    void a_group_write_restating_the_stored_state_has_no_effect_even_when_it_confers_permissions() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", "ext", ALICE, BOB),
                 group("Helpdesk", "ext", BOB, ALICE),
-                Optional.of(HELPDESK));
+                CONFERS);
 
         assertThat(effects.audited()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
     }
 
     static Stream<Arguments> groupAttributeMoves() {
@@ -296,7 +296,7 @@ class ScimWriteEffectsTests {
     void a_group_write_audits_exactly_the_attribute_that_moved(
             AuditGroupAttribute attribute, GroupState after) {
         var effects = ScimWriteEffects.ofGroupWrite(
-                GROUP_ID, group("Engineering", "ext", ALICE), after, Optional.empty());
+                GROUP_ID, group("Engineering", "ext", ALICE), after, CONFERS_NOTHING);
 
         assertThat(effects.audited()).containsExactly(attribute);
     }
@@ -304,19 +304,19 @@ class ScimWriteEffectsTests {
     @Test
     void a_group_write_moving_every_attribute_audits_all_three() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
-                group("Engineering", "ext"), group("Platform", "ext-2", ALICE), Optional.empty());
+                group("Engineering", "ext"), group("Platform", "ext-2", ALICE), CONFERS_NOTHING);
 
         assertThat(effects.audited()).isEqualTo(EnumSet.allOf(AuditGroupAttribute.class));
     }
 
-    // ---- Group writes: a mapped Group's membership is Role assignment ---------------------------
+    // ---- Group writes: a membership of a Group that confers Permissions is a change of power ----
 
-    private static RoleChange granted(UUID userId) {
-        return new RoleChange(RoleChange.Kind.GRANTED, userId, GROUP_ID, HELPDESK);
+    private static MembershipChange granted(UUID userId) {
+        return new MembershipChange(MembershipChange.Kind.GRANTED, userId, GROUP_ID);
     }
 
-    private static RoleChange revoked(UUID userId) {
-        return new RoleChange(RoleChange.Kind.REVOKED, userId, GROUP_ID, HELPDESK);
+    private static MembershipChange revoked(UUID userId) {
+        return new MembershipChange(MembershipChange.Kind.REVOKED, userId, GROUP_ID);
     }
 
     private static SessionRevocation roleRevocation(UUID userId) {
@@ -324,45 +324,45 @@ class ScimWriteEffectsTests {
     }
 
     @Test
-    void removing_a_member_of_a_mapped_group_revokes_its_role_and_only_its_sessions() {
+    void removing_a_member_of_a_conferring_group_revokes_its_membership_and_only_its_sessions() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, ALICE, BOB), group("Helpdesk", null, BOB),
-                Optional.of(HELPDESK));
+                CONFERS);
 
-        assertThat(effects.roleChanges()).containsExactly(revoked(ALICE));
+        assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE));
         assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
     }
 
-    /** Gaining a Role leaves live sessions alone: the Permissions arrive at the next sign-in. */
+    /** Gaining Permissions leaves live sessions alone: the Permissions arrive at the next sign-in. */
     @Test
-    void adding_a_member_to_a_mapped_group_grants_its_role_and_ends_no_session() {
+    void adding_a_member_to_a_conferring_group_grants_and_ends_no_session() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, ALICE), group("Helpdesk", null, ALICE, BOB),
-                Optional.of(HELPDESK));
+                CONFERS);
 
-        assertThat(effects.roleChanges()).containsExactly(granted(BOB));
+        assertThat(effects.membershipChanges()).containsExactly(granted(BOB));
         assertThat(effects.revocations()).isEmpty();
     }
 
     /** Every User dropped is revoked, in the stored order, before any User added is granted. */
     @Test
-    void replacing_a_mapped_groups_members_revokes_those_dropped_before_granting_those_added() {
+    void replacing_a_conferring_groups_members_revokes_those_dropped_before_granting_those_added() {
         UUID dave = UUID.randomUUID();
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, ALICE, BOB, CAROL), group("Helpdesk", null, CAROL, BOB, dave),
-                Optional.of(HELPDESK));
+                CONFERS);
 
-        assertThat(effects.roleChanges()).containsExactly(revoked(ALICE), granted(dave));
+        assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE), granted(dave));
         assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
     }
 
     @Test
-    void emptying_a_mapped_group_revokes_every_member_in_the_stored_order() {
+    void emptying_a_conferring_group_revokes_every_member_in_the_stored_order() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, BOB, ALICE), group("Helpdesk", null),
-                Optional.of(HELPDESK));
+                CONFERS);
 
-        assertThat(effects.roleChanges()).containsExactly(revoked(BOB), revoked(ALICE));
+        assertThat(effects.membershipChanges()).containsExactly(revoked(BOB), revoked(ALICE));
         assertThat(effects.revocations())
                 .containsExactly(roleRevocation(BOB), roleRevocation(ALICE));
     }
@@ -372,95 +372,92 @@ class ScimWriteEffectsTests {
      * or a removal naming a non-member, reaches here as an unchanged membership.
      */
     @Test
-    void a_mapped_group_write_that_leaves_the_membership_as_it_was_changes_no_role() {
+    void a_conferring_group_write_that_leaves_the_membership_as_it_was_changes_nothing() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, ALICE), group("Helpdesk", "ext", ALICE),
-                Optional.of(HELPDESK));
+                CONFERS);
 
         assertThat(effects.audited()).containsExactly(AuditGroupAttribute.EXTERNAL_ID);
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
     }
 
     @Test
-    void renaming_a_mapped_group_changes_no_role() {
+    void renaming_a_conferring_group_changes_no_membership() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", null, ALICE), group("Service desk", null, ALICE),
-                Optional.of(HELPDESK));
+                CONFERS);
 
         assertThat(effects.audited()).containsExactly(AuditGroupAttribute.DISPLAY_NAME);
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
     }
 
     /** A Group the mapping does not name confers nothing, so its membership is not power. */
     @Test
-    void an_unmapped_groups_membership_change_changes_no_role_and_ends_no_session() {
+    void a_membership_change_of_a_group_conferring_nothing_ends_no_session() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Engineering", null, ALICE, BOB), group("Engineering", null, CAROL),
-                Optional.empty());
+                CONFERS_NOTHING);
 
         assertThat(effects.audited()).containsExactly(AuditGroupAttribute.MEMBERS);
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
     }
 
     // ---- Group deletion ---------------------------------------------------------------------------
 
-    /** Deleting a mapped Group takes its Role from every member, as removing each would. */
+    /** Deleting a conferring Group takes its Permissions from every member, as removing each would. */
     @Test
-    void deleting_a_mapped_group_revokes_every_members_role_and_sessions() {
+    void deleting_a_conferring_group_revokes_every_membership_and_session() {
         var effects = ScimWriteEffects.ofGroupDeletion(
-                GROUP_ID, new LinkedHashSet<>(List.of(ALICE, BOB)), Optional.of(HELPDESK));
+                GROUP_ID, new LinkedHashSet<>(List.of(ALICE, BOB)), CONFERS);
 
         assertThat(effects.audited()).isEmpty();
-        assertThat(effects.roleChanges()).containsExactly(revoked(ALICE), revoked(BOB));
+        assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE), revoked(BOB));
         assertThat(effects.revocations())
                 .containsExactly(roleRevocation(ALICE), roleRevocation(BOB));
     }
 
     @Test
-    void deleting_an_unmapped_or_empty_group_has_no_effect() {
-        var unmapped = ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(ALICE), Optional.empty());
-        var empty = ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(), Optional.of(HELPDESK));
+    void deleting_a_group_conferring_nothing_or_an_empty_one_has_no_effect() {
+        var conferringNothing = ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(ALICE), CONFERS_NOTHING);
+        var empty = ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(), CONFERS);
 
-        assertThat(List.of(unmapped, empty)).allSatisfy(effects -> {
+        assertThat(List.of(conferringNothing, empty)).allSatisfy(effects -> {
             assertThat(effects.audited()).isEmpty();
-            assertThat(effects.roleChanges()).isEmpty();
+            assertThat(effects.membershipChanges()).isEmpty();
             assertThat(effects.revocations()).isEmpty();
         });
     }
 
-    // ---- the dormancy job's Role revocation --------------------------------------------------------
+    // ---- the dormancy job's membership revocation -------------------------------------------------
 
     /**
-     * The dormancy job removed a User from several mapped Groups at once: it loses each one's Role,
-     * in the order the memberships were removed, and its Sessions end once, not once per Group.
+     * The dormancy job removed a User from several Groups at once — whatever each confers: it
+     * loses each membership, in the order they were removed, and its Sessions end once, not once
+     * per Group.
      */
     @Test
-    void a_role_revocation_revokes_each_groups_role_and_ends_the_sessions_once() {
+    void a_membership_revocation_revokes_each_membership_and_ends_the_sessions_once() {
         UUID other = UUID.randomUUID();
-        Role superuser = new Role("Superuser", Set.of());
-        Map<UUID, Role> lost = new LinkedHashMap<>();
-        lost.put(GROUP_ID, HELPDESK);
-        lost.put(other, superuser);
 
-        var effects = ScimWriteEffects.ofRoleRevocation(ALICE, lost);
+        var effects = ScimWriteEffects.ofMembershipRevocation(ALICE, List.of(GROUP_ID, other));
 
         assertThat(effects.audited()).isEmpty();
-        assertThat(effects.roleChanges()).containsExactly(
+        assertThat(effects.membershipChanges()).containsExactly(
                 revoked(ALICE),
-                new RoleChange(RoleChange.Kind.REVOKED, ALICE, other, superuser));
+                new MembershipChange(MembershipChange.Kind.REVOKED, ALICE, other));
         assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
         assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
     }
 
     /** A User that held none of the memberships any more lost nothing. */
     @Test
-    void a_role_revocation_that_removed_nothing_has_no_effect() {
-        var effects = ScimWriteEffects.ofRoleRevocation(ALICE, Map.of());
+    void a_membership_revocation_that_removed_nothing_has_no_effect() {
+        var effects = ScimWriteEffects.ofMembershipRevocation(ALICE, List.of());
 
-        assertThat(effects.roleChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).isEmpty();
         assertThat(effects.revocations()).isEmpty();
     }
 
@@ -509,7 +506,7 @@ class ScimWriteEffectsTests {
     void a_group_write_stores_the_columns_or_the_alias_it_moved(
             AuditGroupAttribute attribute, GroupState after) {
         var effects = ScimWriteEffects.ofGroupWrite(
-                GROUP_ID, group("Engineering", "ext", ALICE), after, Optional.of(HELPDESK));
+                GROUP_ID, group("Engineering", "ext", ALICE), after, CONFERS);
 
         boolean alias = attribute == AuditGroupAttribute.EXTERNAL_ID;
         assertThat(effects.stored()).isEqualTo(new Stored(!alias, alias));
@@ -522,7 +519,7 @@ class ScimWriteEffectsTests {
     void a_group_write_moving_a_column_and_the_alias_is_not_alias_only() {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Engineering", "ext", ALICE), group("Platform", "ext-2", ALICE),
-                Optional.empty());
+                CONFERS_NOTHING);
 
         assertThat(effects.stored()).isEqualTo(new Stored(true, true));
         assertThat(effects.stored().aliasOnly()).isFalse();
@@ -532,9 +529,9 @@ class ScimWriteEffectsTests {
     void a_group_write_restating_the_stored_state_or_a_deletion_stores_nothing() {
         var restated = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Helpdesk", "ext", ALICE, BOB), group("Helpdesk", "ext", BOB, ALICE),
-                Optional.empty());
+                CONFERS_NOTHING);
         var deleted = ScimWriteEffects.ofGroupDeletion(
-                GROUP_ID, Set.of(ALICE), Optional.of(HELPDESK));
+                GROUP_ID, Set.of(ALICE), CONFERS);
 
         assertThat(List.of(restated, deleted)).allSatisfy(effects -> {
             assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
@@ -557,13 +554,13 @@ class ScimWriteEffectsTests {
             assertThat(List.of(
                     ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, STORED_ADA).written(),
                     ScimWriteEffects.ofUserDeletion(USER_ID).written(),
-                    ScimWriteEffects.ofRoleRevocation(USER_ID, Map.of(GROUP_ID, HELPDESK))
+                    ScimWriteEffects.ofMembershipRevocation(USER_ID, List.of(GROUP_ID))
                             .written(),
-                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, Optional.empty())
+                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, CONFERS_NOTHING)
                             .written(),
-                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, Optional.of(HELPDESK))
+                    ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, CONFERS)
                             .written(),
-                    ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(ALICE), Optional.empty())
+                    ScimWriteEffects.ofGroupDeletion(GROUP_ID, Set.of(ALICE), CONFERS_NOTHING)
                             .written()))
                     .containsExactly(
                             new Resource(ScimResourceType.USER, USER_ID),
@@ -623,15 +620,15 @@ class ScimWriteEffectsTests {
 
             Set<AuditUserAttribute> audited = EnumSet.of(AuditUserAttribute.ACTIVE);
             List<SessionRevocation> revocations = new ArrayList<>(List.of(revocation));
-            List<RoleChange> roleChanges = new ArrayList<>(List.of(revoked(ALICE)));
+            List<MembershipChange> changes = new ArrayList<>(List.of(revoked(ALICE)));
             var effects = new ScimWriteEffects<>(
-                    Resource.user(USER_ID), audited, revocations, roleChanges, Stored.NOTHING);
+                    Resource.user(USER_ID), audited, revocations, changes, Stored.NOTHING);
             audited.add(AuditUserAttribute.NAME);
             revocations.clear();
-            roleChanges.clear();
+            changes.clear();
             assertThat(effects.audited()).containsExactly(AuditUserAttribute.ACTIVE);
             assertThat(effects.revocations()).containsExactly(revocation);
-            assertThat(effects.roleChanges()).containsExactly(revoked(ALICE));
+            assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE));
 
             assertThatThrownBy(() -> effects.audited().add(AuditUserAttribute.NAME))
                     .isInstanceOf(UnsupportedOperationException.class);
