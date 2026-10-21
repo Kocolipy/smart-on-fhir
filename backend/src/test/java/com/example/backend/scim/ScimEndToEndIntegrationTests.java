@@ -10,7 +10,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
-import com.example.backend.authorization.domain.Permission;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -287,13 +287,13 @@ class ScimEndToEndIntegrationTests {
                                 .formatted(userName, password)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        // "ADMIN": a member of the Superuser Group, holding every Permission; "USER": only the
+        // "ADMIN": a member of the Superuser Group, holding every Permission a session may; "USER": only the
         // baseline Permissions every User holds.
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.has("role")).isFalse();
         assertThat(body.get("permissions").size())
                 .isEqualTo("ADMIN".equals(expectedRole)
-                        ? Permission.values().length
+                        ? TestRoleMappings.EVERY_PERMISSION.size()
                         : LoginIdentityService.BASELINE_PERMISSIONS.size());
         return (MockHttpSession) login.getRequest().getSession(false);
     }

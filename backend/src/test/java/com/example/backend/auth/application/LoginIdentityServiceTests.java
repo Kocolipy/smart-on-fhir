@@ -579,7 +579,7 @@ class LoginIdentityServiceTests {
             users, groups, passwordEncoder, RoleMapping.of(
                     List.of(
                             new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                            new RoleDefinition("Helpdesk", List.of("user:write", "user:read")),
+                            new RoleDefinition("Helpdesk", List.of("account:unlock", "user:read")),
                             new RoleDefinition("Auditor", List.of("audit:read", "user:read"))),
                     List.of(
                             new GroupAssignment(
@@ -601,8 +601,8 @@ class LoginIdentityServiceTests {
         groups.given(ScimIdentities.group("Unmapped", ada));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read",
-                        "user:write");
+                .containsExactly("ROLE_USER", "account:unlock", "audit:read", "patient:read",
+                        "user:read");
     }
 
     /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
@@ -677,6 +677,27 @@ class LoginIdentityServiceTests {
     }
 
     /**
+     * The helpdesk Permission comes with the Superuser like every delegatable one, from membership
+     * alone; the token-only write halves never do — no session holds them (ADR 0015).
+     */
+    @Test
+    void theSuperuserHoldsAccountUnlockAndNoTokenOnlyWrite() {
+        RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
+        Mockito.when(conferringNothing.superuserGroupId())
+                .thenReturn(TestRoleMappings.SUPERUSER_GROUP_ID);
+        Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
+                .thenReturn(Set.of());
+        LoginIdentityService bare = new LoginIdentityService(
+                users, groups, passwordEncoder, conferringNothing);
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenSuperuserGroup(ada);
+
+        assertThat(authoritiesOf(bare.loadUserByUsername("ada")))
+                .contains("account:unlock")
+                .doesNotContain("user:write", "group:write");
+    }
+
+    /**
      * Superuser is not any Permission, and no number of Permissions makes one: a User holding every
      * delegatable Permission through Roles, not in the Superuser Group, holds no
      * {@code ROLE_SUPERUSER}.
@@ -688,8 +709,9 @@ class LoginIdentityServiceTests {
                 users, groups, passwordEncoder, RoleMapping.of(
                         List.of(
                                 new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                                new RoleDefinition("Delegated", List.of("user:read", "group:read",
-                                        "audit:read", "ops:read", "connector:read"))),
+                                new RoleDefinition("Delegated", List.of("user:read",
+                                        "account:unlock", "group:read", "audit:read", "ops:read",
+                                        "connector:read"))),
                         List.of(
                                 new GroupAssignment(
                                         TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
@@ -699,8 +721,8 @@ class LoginIdentityServiceTests {
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
         assertThat(authoritiesOf(delegating.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "connector:read", "group:read",
-                        "ops:read", "patient:read", "user:read");
+                .containsExactly("ROLE_USER", "account:unlock", "audit:read", "connector:read",
+                        "group:read", "ops:read", "patient:read", "user:read");
     }
 
     /** Membership is direct only: a member of some other Group is not a Superuser. */
@@ -781,9 +803,9 @@ class LoginIdentityServiceTests {
     private static final String[] BASELINE =
             {"ROLE_USER", "patient:read"};
 
-    /** The baseline beside the Helpdesk Role's {@code user:read} and {@code user:write}, sorted. */
+    /** The baseline beside the Helpdesk Role's {@code user:read} and {@code account:unlock}, sorted. */
     private static final String[] HELPDESK_AUTHORITIES =
-            {"ROLE_USER", "patient:read", "user:read", "user:write"};
+            {"ROLE_USER", "account:unlock", "patient:read", "user:read"};
 
     private List<String> authoritiesOf(String userName) {
         return authoritiesOf(service.loadUserByUsername(userName));

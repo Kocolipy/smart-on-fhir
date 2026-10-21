@@ -23,10 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
  * administrator may perform on a User.
  *
  * <p>Each operation declares the Permission it requires where it is defined, with method
- * security ({@code user:read} to list, {@code user:write} for Unlock and the forced password
- * change); the application chain repeats each declaration as a URL rule, as a backstop that
- * fails closed (ADR 0010). {@code AuthorizationContractTests} proves every declaration against
- * the running application, driven by the API document.
+ * security ({@code user:read} to list, {@code account:unlock} — the helpdesk Permission — for
+ * Unlock and the forced password change); the application chain repeats each declaration as a URL
+ * rule, as a backstop that fails closed (ADR 0010). Neither action can escalate, which is why a
+ * Group may carry {@code account:unlock}, and why it is not {@code user:write}: that is a
+ * connector token's, and over SCIM it sets any User's password (ADR 0015).
+ * {@code AuthorizationContractTests} proves every declaration against the running application,
+ * driven by the API document.
  *
  * <p>READ-ONLY for everything the directory owns, and enforced by absence: there is no handler
  * that accepts a {@code userName}, an {@code active} flag or a Group membership, so a
@@ -68,7 +71,7 @@ public class AdminAccountController {
      * password. Says nothing about {@code active}.
      */
     @PostMapping("/{id}/unlock")
-    @PreAuthorize("hasAuthority('user:write')")
+    @PreAuthorize("hasAuthority('account:unlock')")
     public IdentitySummary unlock(@PathVariable UUID id, HttpServletRequest request) {
         return identities.unlock(id, HttpSessionAttributes.ownerOf(request));
     }
@@ -78,7 +81,7 @@ public class AdminAccountController {
      * sessions it holds. The Admin never learns or chooses the password.
      */
     @PostMapping("/{id}/force-password-change")
-    @PreAuthorize("hasAuthority('user:write')")
+    @PreAuthorize("hasAuthority('account:unlock')")
     public IdentitySummary forcePasswordChange(@PathVariable UUID id, HttpServletRequest request) {
         return identities.forcePasswordChange(id, HttpSessionAttributes.ownerOf(request));
     }

@@ -91,7 +91,7 @@ function UserActions({
   self,
   user,
 }: {
-  /** `null` when the session lacks `user:write`, which both actions require: none is offered. */
+  /** `null` when the session lacks `account:unlock`, which both actions require: none is offered. */
   onAction: OnAction | null;
   pending: boolean;
   self: boolean;
@@ -355,7 +355,7 @@ function useDirectory() {
  *
  * Each view is shown only to a session holding the Permission its listing
  * requires — Users `user:read`, Groups `group:read`, Connectors
- * `connector:read` — and Unlock and the forced change only with `user:write`.
+ * `connector:read` — and Unlock and the forced change only with `account:unlock`.
  * The route guard keeps out a User who may see none of them. All of that is a
  * rendering decision and never the authorization: the backend enforces every
  * operation on its own.

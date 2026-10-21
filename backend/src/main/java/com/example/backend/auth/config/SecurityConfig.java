@@ -343,7 +343,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                         "/api/admin/accounts/*/unlock",
                                         "/api/admin/accounts/*/force-password-change")
-                                .hasAuthority(Permission.USER_WRITE.value())
+                                .hasAuthority(Permission.ACCOUNT_UNLOCK.value())
                         .requestMatchers(read("/api/admin/groups"), read("/api/admin/roles"))
                                 .hasAuthority(Permission.GROUP_READ.value())
                         .requestMatchers(read("/api/admin/audit-events"))

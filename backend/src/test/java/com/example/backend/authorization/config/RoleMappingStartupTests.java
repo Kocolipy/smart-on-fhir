@@ -31,10 +31,12 @@ class RoleMappingStartupTests {
     private static final String HELPDESK = "00000000-0000-4000-8000-0000000000a2";
 
     /**
-     * Every Permission as one comma-separated value: relaxed binding splits it into the list
-     * exactly as it does a deployment's environment variable.
+     * Every Permission a session may hold — all but the token-only ones — as one comma-separated
+     * value: relaxed binding splits it into the list exactly as it does a deployment's environment
+     * variable.
      */
     private static final String EVERY = Arrays.stream(Permission.values())
+            .filter(permission -> !permission.tokenOnly())
             .map(Permission::value)
             .collect(Collectors.joining(","));
 
@@ -54,7 +56,7 @@ class RoleMappingStartupTests {
     void aValidMappingStartsAndIsPublishedAsTheRoleMapping() {
         contexts.withPropertyValues(properties(SUPERUSER_ROLE, SUPERUSER_GROUP, List.of(
                         "app.authorization.roles[1].name=Helpdesk",
-                        "app.authorization.roles[1].permissions=user:read,user:write",
+                        "app.authorization.roles[1].permissions=user:read,account:unlock",
                         "app.authorization.groups[1].id=" + HELPDESK,
                         "app.authorization.groups[1].role=Helpdesk")))
                 .run(context -> {
@@ -62,9 +64,11 @@ class RoleMappingStartupTests {
                     RoleMapping mapping = context.getBean(RoleMapping.class);
                     assertThat(mapping.superuserGroupId()).isEqualTo(UUID.fromString(ADMINS));
                     assertThat(mapping.permissionsOf(List.of(UUID.fromString(HELPDESK))))
-                            .containsExactlyInAnyOrder(Permission.USER_READ, Permission.USER_WRITE);
+                            .containsExactlyInAnyOrder(
+                                    Permission.USER_READ, Permission.ACCOUNT_UNLOCK);
                     assertThat(mapping.permissionsOf(List.of(UUID.fromString(ADMINS))))
-                            .containsExactlyInAnyOrder(Permission.values());
+                            .doesNotContain(Permission.USER_WRITE, Permission.GROUP_WRITE)
+                            .contains(Permission.ACCOUNT_UNLOCK);
                 });
     }
 
@@ -75,6 +79,17 @@ class RoleMappingStartupTests {
                 SUPERUSER_ROLE, SUPERUSER_GROUP, List.of(
                         "app.authorization.roles[1].name=Helpdesk",
                         "app.authorization.roles[1].permissions=user:delete"));
+    }
+
+    /** No session may hold {@code user:write}: a Role giving it to people stops startup. */
+    @Test
+    void aRoleNamingTheTokenOnlyUserWriteFailsStartup() {
+        assertStartupFails(
+                "Role 'Helpdesk' names Permission 'user:write', which only a connector token may"
+                        + " carry",
+                SUPERUSER_ROLE, SUPERUSER_GROUP, List.of(
+                        "app.authorization.roles[1].name=Helpdesk",
+                        "app.authorization.roles[1].permissions=user:read,user:write"));
     }
 
     @Test
@@ -123,6 +138,7 @@ class RoleMappingStartupTests {
     @Test
     void aSuperuserRoleMissingAPermissionFailsStartup() {
         String allButOpsRead = Arrays.stream(Permission.values())
+                .filter(permission -> !permission.tokenOnly())
                 .filter(permission -> permission != Permission.OPS_READ)
                 .map(Permission::value)
                 .collect(Collectors.joining(","));
@@ -136,7 +152,7 @@ class RoleMappingStartupTests {
     }
 
     /**
-     * The shipped development mapping is itself valid — five mapped Groups, one of them the
+     * The shipped development mapping is itself valid — six mapped Groups, one of them the
      * Superuser Group — so a run on it fails only for a Group that does not resolve, never for its
      * own shape. Read from the shipped document itself, not a copy.
      */
@@ -158,7 +174,12 @@ class RoleMappingStartupTests {
                     RoleMapping mapping = context.getBean(RoleMapping.class);
                     assertThat(mapping.superuserGroupId()).isEqualTo(
                             UUID.fromString("00000000-0000-4000-8000-00000000a001"));
-                    assertThat(mapping.mappedGroupIds()).hasSize(5);
+                    assertThat(mapping.mappedGroupIds()).hasSize(6);
+                    assertThat(mapping.roleOf(
+                                    UUID.fromString("00000000-0000-4000-8000-00000000a006")))
+                            .map(role -> role.permissions())
+                            .contains(java.util.Set.of(
+                                    Permission.USER_READ, Permission.ACCOUNT_UNLOCK));
                 });
     }
 

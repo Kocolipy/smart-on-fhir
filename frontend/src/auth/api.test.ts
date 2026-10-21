@@ -10,16 +10,18 @@ const apiFetchMock = vi.mocked(apiFetch);
 const TEST_LOGIN = ["ada", "secret"] as const;
 /** A truthy non-boolean, as a malformed response might carry the flag. */
 const NOT_A_BOOLEAN: unknown = 1;
-/** The backend's Permission enum, value for value. */
+/**
+ * The backend's Permission enum, value for value, less the token-only
+ * `user:write` and `group:write`, which no session can hold.
+ */
 const BACKEND_PERMISSIONS = [
+  "account:unlock",
   "audit:read",
   "connector:read",
   "group:read",
-  "group:write",
   "ops:read",
   "patient:read",
   "user:read",
-  "user:write",
 ];
 
 function resolveWith(result: object) {
@@ -181,21 +183,22 @@ describe("the user decoder", () => {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
         superuser: false,
-        permissions: ["audit:read", "user:read", "user:write"],
+        permissions: ["audit:read", "user:read", "account:unlock"],
         username: "grace",
       }),
     ).resolves.toStrictEqual({
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
       superuser: false,
-      permissions: ["audit:read", "user:read", "user:write"],
+      permissions: ["audit:read", "user:read", "account:unlock"],
       username: "grace",
     });
   });
 
-  // The backend's Permission enum, value for value: a name it no longer
-  // grants is refused like any unknown one, never passed through.
-  it("knows exactly the Permissions the backend can grant", () => {
+  // The backend's Permission enum, value for value, less what only a connector
+  // token carries: a name no session holds is refused like any unknown one,
+  // never passed through.
+  it("knows exactly the Permissions the backend can grant a session", () => {
     expect(PERMISSIONS).toEqual(BACKEND_PERMISSIONS);
   });
 
@@ -341,6 +344,17 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: ["user:read", "superuser"],
+        username: "ada",
+      },
+      "UserResponse.permissions holds an unknown value",
+    ],
+    [
+      "user:write, which only a connector token carries and no session holds",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: ["user:read", "user:write"],
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",

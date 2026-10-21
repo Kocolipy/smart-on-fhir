@@ -17,8 +17,10 @@ import org.junit.jupiter.api.Test;
  */
 class RoleMappingTests {
 
-    private static final List<String> EVERY =
-            Arrays.stream(Permission.values()).map(Permission::value).toList();
+    /** Every Permission a session may hold: all of them but the token-only write halves. */
+    private static final List<String> EVERY = List.of(
+            "user:read", "account:unlock", "group:read", "audit:read", "connector:read",
+            "ops:read", "patient:read");
 
     private static final UUID ADMINS = UUID.fromString("00000000-0000-4000-8000-0000000000a1");
     private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-0000000000a2");
@@ -26,7 +28,7 @@ class RoleMappingTests {
 
     private static final RoleDefinition SUPERUSER = new RoleDefinition("Superuser", EVERY);
     private static final RoleDefinition HELPDESK_ROLE =
-            new RoleDefinition("Helpdesk", List.of("user:read", "user:write"));
+            new RoleDefinition("Helpdesk", List.of("user:read", "account:unlock"));
     private static final RoleDefinition AUDITOR_ROLE =
             new RoleDefinition("Auditor", List.of("audit:read", "user:read"));
 
@@ -43,8 +45,8 @@ class RoleMappingTests {
     @Test
     void thePermissionSetIsClosedAndSpelledAsSpecified() {
         assertThat(Arrays.stream(Permission.values()).map(Permission::value)).containsExactly(
-                "user:read", "user:write", "group:read", "group:write", "audit:read",
-                "connector:read", "ops:read", "patient:read");
+                "user:read", "user:write", "account:unlock", "group:read", "group:write",
+                "audit:read", "connector:read", "ops:read", "patient:read");
     }
 
     @Test
@@ -60,7 +62,7 @@ class RoleMappingTests {
         assertThat(Arrays.stream(Permission.values()).sorted(Permission.BY_VALUE)
                         .map(Permission::value))
                 .isSorted()
-                .first().isEqualTo("audit:read");
+                .first().isEqualTo("account:unlock");
     }
 
     // Resolution
@@ -68,7 +70,7 @@ class RoleMappingTests {
     @Test
     void severalMappedGroupsConferTheUnionOfTheirRoles() {
         assertThat(mapping.permissionsOf(List.of(HELPDESK, AUDITORS))).containsExactlyInAnyOrder(
-                Permission.USER_READ, Permission.USER_WRITE, Permission.AUDIT_READ);
+                Permission.USER_READ, Permission.ACCOUNT_UNLOCK, Permission.AUDIT_READ);
     }
 
     @Test
@@ -84,9 +86,11 @@ class RoleMappingTests {
     }
 
     @Test
-    void theSuperuserGroupConfersEveryPermission() {
+    void theSuperuserGroupConfersEveryPermissionASessionMayHold() {
         assertThat(mapping.permissionsOf(List.of(ADMINS))).containsExactlyInAnyOrder(
-                Permission.values());
+                Permission.USER_READ, Permission.ACCOUNT_UNLOCK, Permission.GROUP_READ,
+                Permission.AUDIT_READ, Permission.CONNECTOR_READ, Permission.OPS_READ,
+                Permission.PATIENT_READ);
         assertThat(mapping.superuserGroupId()).isEqualTo(ADMINS);
     }
 
@@ -101,7 +105,7 @@ class RoleMappingTests {
         assertThat(mapping.roleOf(HELPDESK)).hasValueSatisfying(role -> {
             assertThat(role.name()).isEqualTo("Helpdesk");
             assertThat(role.permissions())
-                    .containsExactly(Permission.USER_READ, Permission.USER_WRITE);
+                    .containsExactly(Permission.USER_READ, Permission.ACCOUNT_UNLOCK);
         });
         assertThat(mapping.roleOf(ADMINS)).map(Role::name).contains("Superuser");
         assertThat(mapping.roleOf(UUID.randomUUID())).isEmpty();
@@ -156,7 +160,7 @@ class RoleMappingTests {
     @Test
     void theHashIsSha256OfTheCanonicalRendering() throws Exception {
         String canonical = "role\tAuditor\taudit:read,user:read\n"
-                + "role\tHelpdesk\tuser:read,user:write\n"
+                + "role\tHelpdesk\taccount:unlock,user:read\n"
                 + "role\tSuperuser\t" + String.join(",", EVERY.stream().sorted().toList()) + "\n"
                 + "group\t" + ADMINS + "\tSuperuser\tsuperuser\n"
                 + "group\t" + HELPDESK + "\tHelpdesk\t-\n"
@@ -189,7 +193,7 @@ class RoleMappingTests {
     void theHashIsHexSha256AndStableAcrossListOrder() {
         RoleMapping reordered = RoleMapping.of(
                 List.of(AUDITOR_ROLE,
-                        new RoleDefinition("Helpdesk", List.of("user:write", "user:read")),
+                        new RoleDefinition("Helpdesk", List.of("account:unlock", "user:read")),
                         new RoleDefinition("Superuser", EVERY.reversed())),
                 List.of(
                         new GroupAssignment(AUDITORS, "Auditor", false),
@@ -337,7 +341,7 @@ class RoleMappingTests {
     @Test
     void aSuperuserRoleMissingAPermissionIsRefusedNamingWhatIsMissing() {
         List<String> allButTwo = EVERY.stream()
-                .filter(name -> !name.equals("user:write") && !name.equals("audit:read"))
+                .filter(name -> !name.equals("user:read") && !name.equals("account:unlock"))
                 .toList();
 
         assertThatThrownBy(() -> RoleMapping.of(
@@ -345,7 +349,40 @@ class RoleMappingTests {
                         List.of(new GroupAssignment(ADMINS, "Superuser", true))))
                 .isInstanceOf(InvalidRoleMappingException.class)
                 .hasMessage("Invalid role mapping: Superuser Group " + ADMINS
-                        + "'s Role 'Superuser' is missing Permissions: audit:read, user:write");
+                        + "'s Role 'Superuser' is missing Permissions: account:unlock,"
+                        + " user:read");
+    }
+
+    /**
+     * No session holds a token-only Permission, so no Role may name one: a Role that did would put
+     * a connector token's write on a person (ADR 0015). Refused by name, as an unknown one is.
+     */
+    @Test
+    void aRoleNamingATokenOnlyPermissionIsRefusedByName() {
+        assertThatThrownBy(() -> RoleMapping.of(
+                        List.of(SUPERUSER,
+                                new RoleDefinition("Helpdesk", List.of("user:read", "user:write"))),
+                        List.of(new GroupAssignment(ADMINS, "Superuser", true))))
+                .isInstanceOf(InvalidRoleMappingException.class)
+                .hasMessage("Invalid role mapping: Role 'Helpdesk' names Permission 'user:write',"
+                        + " which only a connector token may carry");
+    }
+
+    /** The Superuser's Role is no exception: its session is not split into the write halves. */
+    @Test
+    void aSuperuserRoleNamingTheTokenOnlyWritesIsRefusedForEach() {
+        List<String> withWrites = new java.util.ArrayList<>(EVERY);
+        withWrites.addAll(List.of("user:write", "group:write"));
+
+        assertThatThrownBy(() -> RoleMapping.of(
+                        List.of(new RoleDefinition("Superuser", withWrites)),
+                        List.of(new GroupAssignment(ADMINS, "Superuser", true))))
+                .isInstanceOfSatisfying(InvalidRoleMappingException.class, invalid ->
+                        assertThat(invalid.problems()).containsExactly(
+                                "Role 'Superuser' names Permission 'user:write', which only a"
+                                        + " connector token may carry",
+                                "Role 'Superuser' names Permission 'group:write', which only a"
+                                        + " connector token may carry"));
     }
 
     @Test

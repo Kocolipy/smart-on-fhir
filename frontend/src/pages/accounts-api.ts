@@ -72,15 +72,11 @@ export interface GroupRow {
 
 /**
  * The Permissions a connector token can carry: the four directory ones, in
- * the order the backend reports them (sorted by name). A token carrying any
- * other value is refused on decode rather than passed through.
+ * the order the backend reports them (sorted by name). A vocabulary of its own,
+ * not a subset of a session's: the write halves are a token's alone. A token
+ * carrying any other value is refused on decode rather than passed through.
  */
-export const TOKEN_PERMISSIONS = [
-  "group:read",
-  "group:write",
-  "user:read",
-  "user:write",
-] as const satisfies readonly Permission[];
+export const TOKEN_PERMISSIONS = ["group:read", "group:write", "user:read", "user:write"] as const;
 
 export type TokenPermission = (typeof TOKEN_PERMISSIONS)[number];
 
@@ -279,7 +275,7 @@ export const USER_ACTION: WriteDeclaration<[id: string, action: UserAction], Use
   decode: jsonDecoder(decodeUserRow),
   method: "POST",
   path: (id, action) => `${USERS_PATH}/${encodeURIComponent(id)}/${action}`,
-  permission: "user:write",
+  permission: "account:unlock",
 };
 
 /** A new connector by its name; answers the connector. */

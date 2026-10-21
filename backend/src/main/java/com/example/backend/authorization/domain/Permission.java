@@ -29,6 +29,7 @@ public enum Permission {
 
     USER_READ("user:read", true, true),
     USER_WRITE("user:write", false, true),
+    ACCOUNT_UNLOCK("account:unlock", true, false),
     GROUP_READ("group:read", true, true),
     GROUP_WRITE("group:write", false, true),
     AUDIT_READ("audit:read", true, false),
@@ -58,7 +59,9 @@ public enum Permission {
      * Whether a Group may carry this Permission. The Permissions that are not delegatable are
      * {@code patient:read}, which every active User holds as the baseline and no Group confers,
      * and the write halves {@code user:write} and {@code group:write}, which only a connector
-     * token carries: a Group holding either would be a Superuser by another name.
+     * token carries: a Group holding either would be a Superuser by another name. The helpdesk
+     * power, Unlock and the forced password change, is {@code account:unlock}, which is delegatable
+     * because neither action can escalate (ADR 0015).
      */
     public boolean delegatable() {
         return delegatable;
@@ -71,6 +74,16 @@ public enum Permission {
      */
     public boolean tokenGrantable() {
         return tokenGrantable;
+    }
+
+    /**
+     * Whether only a connector token may carry this Permission: {@linkplain #tokenGrantable()
+     * token-grantable} and not {@linkplain #delegatable() delegatable}. No session holds one —
+     * not a Superuser's either — so configuration that would give one to a Role fails startup
+     * ({@link RoleMapping}).
+     */
+    public boolean tokenOnly() {
+        return tokenGrantable && !delegatable;
     }
 
     /**
