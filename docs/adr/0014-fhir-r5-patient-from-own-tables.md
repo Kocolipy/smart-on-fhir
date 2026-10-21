@@ -9,9 +9,8 @@ Accepted, and implemented (#127): `GET /api/patient/{id}` serves a base R5
 
 ## Context
 
-Home shows a Patient (`/docs/domain/patient.md`). Later the SMART patient context of
-an EHR launch will name which one; until then it is the default patient, a
-development fixture. Two choices had to be made before the first Patient was
+Home shows a Patient (`/docs/domain/patient.md`): the one the Launch context of
+an EHR launch names, by its EHR's FHIR id (ADR 0012, D8). Two choices had to be made before the first Patient was
 served, and both are hard to reverse once a client depends on the wire:
 
 1. **Which FHIR version.** The EHRs this application launches from are R4: Epic's
@@ -112,4 +111,3 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
   served JSON against base R5 in **test scope only**, and the build's Enforcer
   refuses HAPI in any scope that reaches the packaged JAR, so the runtime
   classpath stays FHIR-library-free (`/docs/domain/patient.md`).
-
