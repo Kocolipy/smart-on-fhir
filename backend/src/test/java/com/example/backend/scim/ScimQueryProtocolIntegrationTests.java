@@ -137,9 +137,9 @@ class ScimQueryProtocolIntegrationTests {
                 .build();
         connectorId = connectors.create("Query protocol", null).id();
         writeToken = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         readToken = connectors.issueToken(
-                connectorId, TokenPermissions.READ, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.READ, null, null).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"qp-alice","externalId":"ext-alice",

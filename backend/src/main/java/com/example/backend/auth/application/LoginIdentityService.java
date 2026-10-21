@@ -67,6 +67,13 @@ public class LoginIdentityService implements UserDetailsService {
     private static final String USER_ROLE = "USER";
 
     /**
+     * The Superuser authority: the one session authority that is not a Permission, and so can
+     * never be put on a Group. Held by a direct member of the Admin group; method security spells
+     * it {@code hasRole('SUPERUSER')}, and {@code /api/auth/me} reports it as {@code superuser}.
+     */
+    public static final String SUPERUSER_AUTHORITY = ROLE_PREFIX + "SUPERUSER";
+
+    /**
      * The Permissions every active User holds whatever its Groups: reading a patient. Granted
      * here, at login, beside {@code ROLE_USER} rather than through a Role, because
      * a Role is conferred by a Group and a redundant "every User" Group would be a second place for
@@ -237,9 +244,13 @@ public class LoginIdentityService implements UserDetailsService {
      * role. Their order here is immaterial: Spring Security's {@code User} keeps authorities sorted
      * by name, and {@code /api/auth/me} sorts the Permissions it reports itself.
      *
-     * <p>There is no administrative role. Every protected operation requires its own Permission
-     * (ADR 0010), so membership of the Admin group confers authority only through the Role the
-     * mapping assigns it — the Superuser Role, which holds every Permission.
+     * <p>A direct member of the Admin group — the Group the mapping designates as the Superuser
+     * Group, which startup requires to be the reserved Admin group — is the Superuser (ADR 0015):
+     * {@code ROLE_SUPERUSER} and every {@linkplain Permission#delegatable() delegatable}
+     * Permission, expanded here in code beside whatever the mapping confers, never from a stored
+     * list or a role hierarchy. It is additive: the Role the mapping assigns the Group still
+     * applies. Every other protected operation requires its own Permission (ADR 0010), and
+     * connector administration requires the Superuser. Membership is direct only.
      */
     private List<GrantedAuthority> authoritiesOf(ScimUser user) {
         List<GrantedAuthority> authorities = new ArrayList<>();
@@ -249,6 +260,10 @@ public class LoginIdentityService implements UserDetailsService {
                 .toList();
         Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
         permissions.addAll(roleMapping.permissionsOf(memberOf));
+        if (memberOf.contains(roleMapping.superuserGroupId())) {
+            authorities.add(new SimpleGrantedAuthority(SUPERUSER_AUTHORITY));
+            permissions.addAll(Permission.allDelegatable());
+        }
         permissions.stream()
                 .map(permission -> new SimpleGrantedAuthority(permission.value()))
                 .forEach(authorities::add);

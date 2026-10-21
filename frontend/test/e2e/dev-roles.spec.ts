@@ -1,13 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { DEV_ROLES, loginAsRole, postAdminAction, type DevRole } from "./auth.helpers";
+import {
+  DEV_ROLES,
+  adminRequest,
+  loginAsRole,
+  postAdminAction,
+  type DevRole,
+} from "./auth.helpers";
 import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
-import { BACKEND_URL } from "./scim.helpers";
+import { BACKEND_URL, E2E_PREFIX } from "./scim.helpers";
 
 // The development role mapping's fixture Users: each signs in through the login
 // page, holds exactly its Role's Permissions on `GET /api/auth/me`, sees exactly
 // the pages and actions those Permissions allow, and is refused every direct
-// API call outside them.
+// API call outside them. None of them is the Superuser: connector
+// administration is refused to each, the Connector admin included, whose
+// `connector:read` lists connectors and does no more.
 //
 // In the `guest` project — empty `storageState` — because signing in is the
 // subject. The Superuser is left out on purpose: its User is the Bootstrap
@@ -42,10 +50,10 @@ const EXPECTED: Record<
   },
   auditor: { accounts: null, audit: true, createConnector: false, unlock: false },
   connectorAdmin: {
-    accounts: { connectors: true, groups: true, users: true },
+    accounts: { connectors: true, groups: false, users: false },
     audit: false,
-    createConnector: true,
-    unlock: true,
+    createConnector: false,
+    unlock: false,
   },
   monitoring: { accounts: null, audit: false, createConnector: false, unlock: false },
 };
@@ -122,6 +130,7 @@ test.describe("development Roles", () => {
       expect(me.status()).toBe(200);
       const body = (await me.json()) as Record<string, unknown>;
       expect(body.permissions).toEqual(permissions);
+      expect(body.superuser).toBe(false);
       expect(body).not.toHaveProperty("role");
 
       // The pages and actions it is shown.
@@ -139,6 +148,19 @@ test.describe("development Roles", () => {
       // unknown id answers 404 to a holder of user:write, and 403 to anyone else.
       const unlock = await postAdminAction(page, crypto.randomUUID(), "unlock");
       expect(unlock.status(), `unlock for ${username}`).toBe(expected.unlock ? 404 : 403);
+      // Connector administration is the Superuser's alone: refused to every Role, with
+      // the generic 403 whatever the body, and nothing is created.
+      const created = await adminRequest(page, "POST", "/api/admin/connectors", {
+        displayName: `${E2E_PREFIX}refused-${username}`,
+      });
+      expect(created.status(), `create connector for ${username}`).toBe(403);
+      const minted = await adminRequest(
+        page,
+        "POST",
+        `/api/admin/connectors/${crypto.randomUUID()}/tokens`,
+        { permissions: ["user:read"] },
+      );
+      expect(minted.status(), `issue token for ${username}`).toBe(403);
     });
   }
 });

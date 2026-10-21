@@ -19,6 +19,7 @@ import { authState as buildAuthState, signedIn } from "./auth-context.testHelper
 import type { WriteDeclaration } from "./declarations";
 import { useStatusReporter } from "./page-status";
 import { InPageStatus, shownLine } from "./page-status.testHelpers";
+import { SUPERUSER } from "./permissions";
 import { useGatedWrite } from "./use-gated-write";
 
 // The hook reads the session's Permissions and drives `expireSession`, so it
@@ -63,8 +64,8 @@ const ROTATE: WriteDeclaration = {
 
 const expireSession = vi.fn();
 
-function authState(permissions: Permission[]): AuthContextState {
-  return buildAuthState(signedIn({ permissions }), { expireSession });
+function authState(permissions: Permission[], superuser = false): AuthContextState {
+  return buildAuthState(signedIn({ permissions, superuser }), { expireSession });
 }
 
 /**
@@ -84,11 +85,15 @@ const CHANGED = "POST /api/example/change";
  * Renders the harness under a session holding exactly `permissions`, inside a
  * page status, over a backend answering `answers`.
  */
-function renderWrite(answers: Answers = {}, permissions: Permission[] = ["user:write"]) {
+function renderWrite(
+  answers: Answers = {},
+  permissions: Permission[] = ["user:write"],
+  superuser = false,
+) {
   const backend = fakeBackend(answers);
   const { result } = renderHook(() => useHarness(), {
     wrapper: ({ children }: { children: ReactNode }) => (
-      <AuthContext.Provider value={authState(permissions)}>
+      <AuthContext.Provider value={authState(permissions, superuser)}>
         <InPageStatus>{children}</InPageStatus>
       </AuthContext.Provider>
     ),
@@ -224,6 +229,34 @@ describe("useGatedWrite", () => {
     expect(backend.requests({ tokenFetches: true })).toEqual([]);
     expect(onOk).not.toHaveBeenCalled();
     expect(shownLine()).toBe(FORBIDDEN_MESSAGE);
+  });
+
+  /** A write only the Superuser may send: no Permission, however many a session holds, stands in for it. */
+  const SUPERUSER_ONLY: WriteDeclaration = {
+    method: "POST",
+    path: () => "/api/example/superuser-only",
+    permission: SUPERUSER,
+  };
+
+  it("sends nothing for a session holding every Permission but not the Superuser", async () => {
+    const { backend, result } = renderWrite({}, ["user:read", "user:write", "group:write"]);
+
+    await act(() => result.current.run(SUPERUSER_ONLY));
+
+    expect(backend.requests({ tokenFetches: true })).toEqual([]);
+    expect(shownLine()).toBe(FORBIDDEN_MESSAGE);
+  });
+
+  it("sends a Superuser-only write for a Superuser, holding no Permission", async () => {
+    const { backend, result } = renderWrite(
+      { "POST /api/example/superuser-only": bare(204) },
+      [],
+      true,
+    );
+
+    await act(() => result.current.run(SUPERUSER_ONLY));
+
+    expect(backend.requests()).toEqual([{ method: "POST", path: "/api/example/superuser-only" }]);
   });
 
   it("still runs the `after` step for a write refused for want of its Permission", async () => {

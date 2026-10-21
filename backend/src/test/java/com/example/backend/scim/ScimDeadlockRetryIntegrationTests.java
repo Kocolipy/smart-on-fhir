@@ -195,7 +195,7 @@ class ScimDeadlockRetryIntegrationTests {
         String tag = UUID.randomUUID().toString().substring(0, 8);
         UUID user = createUser("deadlock-repeat-" + tag);
         String token = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         String replacement = """
                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],\
                 "userName":"deadlock-repeat-%s","displayName":"Repeated %s","active":true}"""
@@ -234,12 +234,12 @@ class ScimDeadlockRetryIntegrationTests {
     @Test
     void aTokenRotationChosenAsADeadlockVictimIsRetriedOnceAndCompletes() {
         UUID issued = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).tokenId();
+                null).tokenId();
 
         IssuedConnectorToken replacement;
         try (ForcedDeadlock victim = ForcedDeadlock.once(
                 logins, "scim_connector_tokens", "connector_id", connector.connectorId())) {
-            replacement = connectors.rotateToken(issued, null, null, null, TokenPermissions.ALL);
+            replacement = connectors.rotateToken(issued, null, null, null);
         }
 
         assertThat(replacement.tokenId()).isNotEqualTo(issued);

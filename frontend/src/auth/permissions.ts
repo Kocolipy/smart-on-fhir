@@ -13,10 +13,22 @@
 import type { Permission } from "./api";
 
 /**
- * The session as these checks read it: its Permissions, absent while they are
- * not known yet. An `AuthUser` is one.
+ * The Superuser, as a request can require it: the one session authority that is
+ * not a Permission. A Group can carry a Permission and can never carry this, so
+ * it has its own name, outside {@link Permission} and outside what a session's
+ * `permissions` lists.
  */
-type PermissionHolder = { permissions?: readonly Permission[] } | null | undefined;
+export const SUPERUSER = "superuser";
+
+/** What a request requires of the session: one Permission, or the Superuser. */
+export type Requirement = Permission | typeof SUPERUSER;
+
+/**
+ * The session as these checks read it: its Permissions and whether it is the
+ * Superuser's, each absent while not known yet. An `AuthUser` is one.
+ */
+type SessionStanding =
+  { permissions?: readonly Permission[]; superuser?: boolean } | null | undefined;
 
 /**
  * What a signed-in page requires of a session: any authenticated one, or one
@@ -25,15 +37,17 @@ type PermissionHolder = { permissions?: readonly Permission[] } | null | undefin
 export type PageRequirement = "authenticated" | { anyOf: readonly Permission[] };
 
 /**
- * Whether the session holds `permission`. No session, and one whose Permissions
- * are not known yet, holds nothing.
+ * Whether the session meets `requirement`: holds the Permission, or is the
+ * Superuser's. Holding every Permission is not being the Superuser. No session,
+ * and one whose standing is not known yet, holds nothing.
  */
-export function holds(user: PermissionHolder, permission: Permission) {
-  return user?.permissions?.includes(permission) === true;
+export function holds(user: SessionStanding, requirement: Requirement) {
+  if (requirement === SUPERUSER) return user?.superuser === true;
+  return user?.permissions?.includes(requirement) === true;
 }
 
 /** Whether the session holds at least one of `permissions`. */
-export function holdsAny(user: PermissionHolder, permissions: readonly Permission[]) {
+export function holdsAny(user: SessionStanding, permissions: readonly Permission[]) {
   return permissions.some((permission) => holds(user, permission));
 }
 
@@ -50,6 +64,6 @@ export function requirementOf(permissions: readonly Permission[] | undefined): P
  * Whether the session may open a page with `requirement`. The one rule the
  * route guard applies, and the one Home reads to decide which pages to link.
  */
-export function mayOpen(user: PermissionHolder, requirement: PageRequirement) {
+export function mayOpen(user: SessionStanding, requirement: PageRequirement) {
   return requirement === "authenticated" || holdsAny(user, requirement.anyOf);
 }

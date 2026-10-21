@@ -3,6 +3,7 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -16,10 +17,13 @@ import org.junit.jupiter.params.provider.EnumSource;
 class ConnectorTokenPermissionsTests {
 
     @Test
-    void a_token_carries_only_the_four_directory_permissions() {
-        assertThat(ConnectorTokenPermissions.DIRECTORY).containsExactlyInAnyOrder(
+    void a_token_may_carry_all_four_directory_permissions() {
+        assertThat(new ConnectorTokenPermissions(Set.of(
                 Permission.USER_READ, Permission.USER_WRITE,
-                Permission.GROUP_READ, Permission.GROUP_WRITE);
+                Permission.GROUP_READ, Permission.GROUP_WRITE)).values())
+                .containsExactlyInAnyOrder(
+                        Permission.USER_READ, Permission.USER_WRITE,
+                        Permission.GROUP_READ, Permission.GROUP_WRITE);
     }
 
     @ParameterizedTest
@@ -66,7 +70,7 @@ class ConnectorTokenPermissionsTests {
 
     @Test
     void the_values_are_spelled_and_sorted_as_the_wire_spells_them() {
-        assertThat(new ConnectorTokenPermissions(ConnectorTokenPermissions.DIRECTORY)
+        assertThat(new ConnectorTokenPermissions(TokenPermissions.ALL)
                 .sortedValues())
                 .containsExactly("group:read", "group:write", "user:read", "user:write");
     }
@@ -77,7 +81,7 @@ class ConnectorTokenPermissionsTests {
                 .readableTypes()).containsExactly(ScimResourceType.USER);
         assertThat(new ConnectorTokenPermissions(Set.of(Permission.GROUP_READ)).readableTypes())
                 .containsExactly(ScimResourceType.GROUP);
-        assertThat(new ConnectorTokenPermissions(ConnectorTokenPermissions.DIRECTORY)
+        assertThat(new ConnectorTokenPermissions(TokenPermissions.ALL)
                 .readableTypes())
                 .containsExactlyInAnyOrder(ScimResourceType.USER, ScimResourceType.GROUP);
     }
@@ -90,20 +94,6 @@ class ConnectorTokenPermissionsTests {
                 .isTrue();
         assertThat(new ConnectorTokenPermissions(
                 Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE)).permitsAnyRead()).isFalse();
-    }
-
-    /** No escalation: every Permission of the token must be one the creator holds. */
-    @Test
-    void a_token_is_held_within_a_set_only_when_the_set_contains_all_of_it() {
-        ConnectorTokenPermissions token =
-                new ConnectorTokenPermissions(Set.of(Permission.GROUP_READ, Permission.GROUP_WRITE));
-
-        assertThat(token.heldWithin(Set.of(
-                Permission.GROUP_READ, Permission.GROUP_WRITE, Permission.CONNECTOR_TOKEN)))
-                .isTrue();
-        assertThat(token.heldWithin(Set.of(Permission.GROUP_READ, Permission.CONNECTOR_TOKEN)))
-                .isFalse();
-        assertThat(token.heldWithin(Set.of())).isFalse();
     }
 
     @Test

@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from "react";
 
-import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { holds } from "@/auth/permissions";
+import { holds, type Requirement } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
@@ -41,7 +40,7 @@ const TOKEN_PERMISSION_HINTS: Record<TokenPermission, string> = {
  * sends, never a neighbour's, so a Permission that moves on the backend moves
  * one declaration and every control follows it.
  */
-type May = (request: { permission: Permission }) => boolean;
+type May = (request: { permission: Requirement }) => boolean;
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -121,7 +120,6 @@ function TokenDisclosure({
 
 function ConnectorSection({
   connector,
-  grantable,
   may,
   onDelete,
   onIssue,
@@ -130,11 +128,6 @@ function ConnectorSection({
   pending,
 }: {
   connector: Connector;
-  /**
-   * The token Permissions this session holds itself — the only ones the backend
-   * lets it put on a token. The others are shown but cannot be chosen.
-   */
-  grantable: readonly TokenPermission[];
   may: May;
   onDelete: () => void;
   onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
@@ -168,12 +161,7 @@ function ConnectorSection({
       />
 
       {may(ISSUE_TOKEN) ? (
-        <IssueTokenForm
-          connector={connector}
-          grantable={grantable}
-          onIssue={onIssue}
-          pending={pending}
-        />
+        <IssueTokenForm connector={connector} onIssue={onIssue} pending={pending} />
       ) : null}
     </section>
   );
@@ -253,16 +241,10 @@ function TokenTable({
 
 function IssueTokenForm({
   connector,
-  grantable,
   onIssue,
   pending,
 }: {
   connector: Connector;
-  /**
-   * The token Permissions this session holds itself — the only ones the backend
-   * lets it put on a token. The others are shown but cannot be chosen.
-   */
-  grantable: readonly TokenPermission[];
   onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
   pending: boolean;
 }) {
@@ -286,25 +268,17 @@ function IssueTokenForm({
     <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
       <fieldset className="flex flex-col gap-1">
         <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
-        {TOKEN_PERMISSIONS.map((permission) => {
-          const allowed = grantable.includes(permission);
-          return (
-            <label className="flex items-center gap-2 text-sm" key={permission}>
-              <input
-                checked={chosen.includes(permission)}
-                disabled={!allowed}
-                onChange={(event) => toggle(permission, event.target.checked)}
-                type="checkbox"
-              />
-              <span className="font-mono">{permission}</span>
-              <span className="text-muted-foreground">
-                {allowed
-                  ? TOKEN_PERMISSION_HINTS[permission]
-                  : `${TOKEN_PERMISSION_HINTS[permission]} — you do not hold it`}
-              </span>
-            </label>
-          );
-        })}
+        {TOKEN_PERMISSIONS.map((permission) => (
+          <label className="flex items-center gap-2 text-sm" key={permission}>
+            <input
+              checked={chosen.includes(permission)}
+              onChange={(event) => toggle(permission, event.target.checked)}
+              type="checkbox"
+            />
+            <span className="font-mono">{permission}</span>
+            <span className="text-muted-foreground">{TOKEN_PERMISSION_HINTS[permission]}</span>
+          </label>
+        ))}
       </fieldset>
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium" htmlFor={lifetimeId}>
@@ -456,12 +430,11 @@ function CreateConnectorForm({
  * {@link TokenDisclosure}.
  *
  * Renders nothing for a session without `connector:read`, whose listing is
- * never asked for. Every control is offered only to a session holding the
- * Permission its own declaration requires — today `connector:write` for
- * creating and deleting a connector, `connector:token` for issuing, rotating
- * and revoking a token — and the backend refuses each independently. A token
- * may carry only Permissions the session holds itself; the backend refuses
- * anything more, so the form offers nothing more.
+ * never asked for. Creating and deleting a connector and issuing, rotating and
+ * revoking a token are the Superuser's alone: each control is offered only to a
+ * session the backend reported as one (a User holding every Permission is not),
+ * and the backend refuses each independently. A token may carry any Permission
+ * a token can carry, so the form offers them all.
  *
  * Renders no error line of its own: it is a panel of the Accounts page, and its
  * listing and mutations report to the page's one line, which the signed-in
@@ -471,7 +444,6 @@ export function Connectors() {
   const { user } = useAuth();
   const { actionsFor, create, disclosure, dismiss, pending, view } = useConnectors();
   const may: May = (request) => holds(user, request.permission);
-  const grantable = TOKEN_PERMISSIONS.filter((permission) => holds(user, permission));
 
   if (view.kind === "not-permitted") return null;
   return (
@@ -501,7 +473,6 @@ export function Connectors() {
             connectors.map((connector) => (
               <ConnectorSection
                 connector={connector}
-                grantable={grantable}
                 key={connector.id}
                 may={may}
                 pending={pending}

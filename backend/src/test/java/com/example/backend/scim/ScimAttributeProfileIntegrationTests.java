@@ -108,10 +108,10 @@ class ScimAttributeProfileIntegrationTests {
                 .build();
         UUID connector = connectors.create("Attribute profile", null).id();
         token = connectors.issueToken(
-                connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connector, TokenPermissions.ALL, null, null).presentedValue();
         UUID other = connectors.create("Attribute profile, other", null).id();
         otherToken = connectors.issueToken(
-                other, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                other, TokenPermissions.ALL, null, null).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"ap-ada","externalId":"ap-Ext-Ada",

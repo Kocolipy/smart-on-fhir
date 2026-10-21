@@ -343,7 +343,7 @@ describe("the User actions", () => {
 });
 
 describe("the connector writes", () => {
-  it("creates a connector by posting its name under connector:write", () => {
+  it("creates a connector by posting its name, for the Superuser alone", () => {
     expect({
       body: CREATE_CONNECTOR.body?.("Okta"),
       method: CREATE_CONNECTOR.method,
@@ -353,7 +353,7 @@ describe("the connector writes", () => {
       body: { displayName: "Okta" },
       method: "POST",
       path: "/api/admin/connectors",
-      permission: "connector:write",
+      permission: "superuser",
     });
   });
 
@@ -367,7 +367,7 @@ describe("the connector writes", () => {
     );
   });
 
-  it("deletes a connector at its own path under connector:write, answering no content", () => {
+  it("deletes a connector at its own path, for the Superuser alone, answering no content", () => {
     expect({
       body: DELETE_CONNECTOR.body,
       decode: DELETE_CONNECTOR.decode,
@@ -379,11 +379,11 @@ describe("the connector writes", () => {
       decode: undefined,
       method: "DELETE",
       path: "/api/admin/connectors/c%2F1",
-      permission: "connector:write",
+      permission: "superuser",
     });
   });
 
-  it("issues a token by posting its Permissions and lifetime under connector:token", () => {
+  it("issues a token by posting its Permissions and lifetime, for the Superuser alone", () => {
     const request = { lifetimeDays: 30, permissions: ["user:read" as const] };
     expect({
       body: ISSUE_TOKEN.body?.("c-1", request),
@@ -394,11 +394,11 @@ describe("the connector writes", () => {
       body: { lifetimeDays: 30, permissions: ["user:read"] },
       method: "POST",
       path: "/api/admin/connectors/c%2F1/tokens",
-      permission: "connector:token",
+      permission: "superuser",
     });
   });
 
-  it("rotates a token by posting an empty body to its own path under connector:token", () => {
+  it("rotates a token by posting an empty body to its own path, for the Superuser alone", () => {
     expect({
       body: ROTATE_TOKEN.body?.("c-1", "t-1"),
       method: ROTATE_TOKEN.method,
@@ -408,7 +408,7 @@ describe("the connector writes", () => {
       body: {},
       method: "POST",
       path: "/api/admin/connectors/c%2F1/tokens/t%2F1/rotate",
-      permission: "connector:token",
+      permission: "superuser",
     });
   });
 
@@ -428,7 +428,7 @@ describe("the connector writes", () => {
     );
   });
 
-  it("revokes a token at its own path under connector:token, with no body, answering no content", () => {
+  it("revokes a token at its own path, for the Superuser alone, with no body, answering no content", () => {
     expect({
       body: REVOKE_TOKEN.body,
       decode: REVOKE_TOKEN.decode,
@@ -440,7 +440,7 @@ describe("the connector writes", () => {
       decode: undefined,
       method: "POST",
       path: "/api/admin/connectors/c%2F1/tokens/t%2F1/revoke",
-      permission: "connector:token",
+      permission: "superuser",
     });
   });
 });

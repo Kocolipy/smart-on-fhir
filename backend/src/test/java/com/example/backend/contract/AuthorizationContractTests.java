@@ -70,12 +70,14 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * application enforces (ADR 0010).
  *
  * <p>Every operation under {@code /api} and {@code /actuator} declares its own requirement — public,
- * self-service (authenticated, no Permission) or exactly one Permission — and then, over the real
- * filter chain:
+ * self-service (authenticated, no Permission), exactly one Permission or the Superuser — and then,
+ * over the real filter chain:
  *
  * <ul>
  *   <li>a caller holding every Permission EXCEPT the declared one is refused {@code 403}, and a
  *       caller holding ONLY it is refused neither {@code 401} nor {@code 403};
+ *   <li>an operation declaring the Superuser refuses a caller holding every Permission but not
+ *       {@code ROLE_SUPERUSER} with {@code 403}, and admits one holding only that role;
  *   <li>self-service needs no Permission, and public needs no session;
  *   <li>a session confined by a required password change reaches only the self-service trio;
  *   <li>a session — holding every Permission — cannot reach {@code /scim/**}, and a connector token
@@ -83,8 +85,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li>an undeclared {@code /api/} route, or a method a declared route does not serve, is refused;
  *   <li>Unlock and the forced password change on the caller's own account are refused whatever the
  *       caller holds;
- *   <li>and each declared Permission is ALSO held by the handler itself, with method security, so
- *       the chain's matching rule is a backstop rather than the only line.
+ *   <li>and each declared Permission, and the Superuser, is ALSO held by the handler itself, with
+ *       method security, so the chain's matching rule is a backstop rather than the only line.
  * </ul>
  *
  * <p>{@link RouteContractTests} keeps every mapped route documented, so a new route cannot escape
@@ -106,6 +108,9 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     private static final String BASELINE = "ROLE_USER";
 
+    /** The Superuser authority: not a Permission, so it is in no list of Permissions below. */
+    private static final String SUPERUSER = "ROLE_SUPERUSER";
+
     /** The namespaces the application chain serves and this contract covers. */
     private static final List<String> APPLICATION_NAMESPACES = List.of("/api/", "/actuator/");
 
@@ -115,6 +120,10 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     private static final List<String> EVERY_PERMISSION =
             Arrays.stream(Permission.values()).map(Permission::value).toList();
+
+    /** Everything a session can hold: every Permission, and the Superuser beside them. */
+    private static final List<String> EVERYTHING =
+            Stream.concat(EVERY_PERMISSION.stream(), Stream.of(SUPERUSER)).toList();
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
 
@@ -172,18 +181,23 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     // ---- the document itself ----------------------------------------------------------------
 
     @Test
-    void every_application_operation_declares_public_self_service_or_one_known_permission() {
+    void every_application_operation_declares_public_self_service_the_superuser_or_one_known_permission() {
         List<Operation> operations = applicationOperations();
         assertThat(operations).as("the document lists application operations").hasSizeGreaterThan(20);
         for (Operation operation : operations) {
             OpenApiContract.Requirement requirement = operation.requirement();
             assertThat(requirement.access())
                     .as("%s declares its own security requirement", operation)
-                    .isIn(Access.PUBLIC, Access.SELF_SERVICE, Access.PERMISSION);
+                    .isIn(Access.PUBLIC, Access.SELF_SERVICE, Access.PERMISSION, Access.SUPERUSER);
             if (requirement.access() == Access.PERMISSION) {
                 assertThat(Permission.fromValue(requirement.permission()))
                         .as("%s names a Permission that exists", operation)
                         .isPresent();
+            }
+            if (requirement.access() == Access.SUPERUSER) {
+                assertThat(requirement.permission())
+                        .as("%s names the Superuser, which is no Permission", operation)
+                        .isNull();
             }
         }
     }
@@ -193,7 +207,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     @Test
     void each_declared_permission_is_required_and_is_sufficient() throws Exception {
         List<Operation> protectedOperations = withAccess(Access.PERMISSION);
-        assertThat(protectedOperations).hasSizeGreaterThan(10);
+        assertThat(protectedOperations).hasSizeGreaterThan(7);
         List<String> failures = new ArrayList<>();
         for (Operation operation : protectedOperations) {
             String permission = operation.requirement().permission();
@@ -207,6 +221,35 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             int holding = call(operation, session(List.of(permission)));
             if (holding == 401 || holding == 403) {
                 failures.add(operation + " holding only " + permission + " -> " + holding);
+            }
+        }
+        assertThat(failures).isEmpty();
+    }
+
+    /**
+     * The Superuser-only operations are exactly connector creation and deletion and the three
+     * token operations: the document names no Permission for them, and a session holding every
+     * Permission but not {@code ROLE_SUPERUSER} is refused {@code 403} where one holding that role
+     * alone is refused neither {@code 401} nor {@code 403}.
+     */
+    @Test
+    void each_superuser_only_operation_requires_the_superuser_and_no_permission_stands_in()
+            throws Exception {
+        List<Operation> superuserOnly = withAccess(Access.SUPERUSER);
+        assertThat(superuserOnly).extracting(Operation::toString).containsExactlyInAnyOrder(
+                "POST /api/admin/connectors", "DELETE /api/admin/connectors/{connectorId}",
+                "POST /api/admin/connectors/{connectorId}/tokens",
+                "POST /api/admin/connectors/{connectorId}/tokens/{tokenId}/rotate",
+                "POST /api/admin/connectors/{connectorId}/tokens/{tokenId}/revoke");
+        List<String> failures = new ArrayList<>();
+        for (Operation operation : superuserOnly) {
+            int everyPermission = call(operation, session(EVERY_PERMISSION));
+            if (everyPermission != 403) {
+                failures.add(operation + " holding every Permission -> " + everyPermission);
+            }
+            int superuser = call(operation, session(List.of(SUPERUSER)));
+            if (superuser == 401 || superuser == 403) {
+                failures.add(operation + " holding only the Superuser -> " + superuser);
             }
         }
         assertThat(failures).isEmpty();
@@ -263,7 +306,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         List<Operation> scim = scimOperations();
         assertThat(scim).hasSizeGreaterThan(10);
         for (Operation operation : scim) {
-            assertThat(call(operation, session(EVERY_PERMISSION)))
+            assertThat(call(operation, session(EVERYTHING)))
                     .as("%s with a session", operation)
                     .isEqualTo(401);
         }
@@ -379,7 +422,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     @Test
     void a_connector_token_cannot_reach_the_application_chain() throws Exception {
         UUID connector = connectors.create("authorization-contract", null).id();
-        String token = connectors.issueToken(connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+        String token = connectors.issueToken(connector, TokenPermissions.ALL, null, null)
                 .presentedValue();
         for (Operation operation : applicationOperations()) {
             if (operation.requirement().access() == Access.PUBLIC) {
@@ -399,7 +442,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     @Test
-    void an_undeclared_route_or_method_is_refused_even_holding_every_permission()
+    void an_undeclared_route_or_method_is_refused_even_to_the_superuser_holding_every_permission()
             throws Exception {
         for (String[] undeclared : List.of(
                 new String[] {"GET", "/api/undeclared"},
@@ -417,7 +460,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"GET", "/api/admin"})) {
             MockHttpServletRequestBuilder request =
                     request(HttpMethod.valueOf(undeclared[0]), undeclared[1])
-                            .session(session(EVERY_PERMISSION));
+                            .session(session(EVERYTHING));
             if (!"GET".equals(undeclared[0])) {
                 SessionCsrf.withCsrf(mvc, request.contentType(MediaType.APPLICATION_JSON)
                         .content("{}"));
@@ -438,7 +481,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             throws Exception {
         List<String> answers = new ArrayList<>();
         for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
-            MockHttpSession session = session(EVERY_PERMISSION);
+            MockHttpSession session = session(EVERYTHING);
             RetiredAnswers retired = answersOfRetired(method, "/api/session", session);
             assertThat(retired.refused().getContentAsString()).doesNotContain(session.getId());
             answers.add(method + " " + retired.statuses());
@@ -460,7 +503,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"POST", "/api/count/reset"})) {
             answers.add(retired[0] + " " + retired[1] + " "
                     + answersOfRetired(HttpMethod.valueOf(retired[0]), retired[1],
-                            session(EVERY_PERMISSION)).statuses());
+                            session(EVERYTHING)).statuses());
         }
         assertThat(answers).containsExactly(
                 "GET /api/count 403 401",
@@ -499,7 +542,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         for (String action : List.of("unlock", "force-password-change")) {
             MockHttpServletRequestBuilder request = request(HttpMethod.POST,
                     "/api/admin/accounts/" + callerId + "/" + action)
-                    .session(session(EVERY_PERMISSION));
+                    .session(session(EVERYTHING));
             SessionCsrf.withCsrf(mvc, request);
             assertThat(mvc.perform(request).andReturn().getResponse().getStatus())
                     .as("%s on the caller's own account, holding every Permission", action)
@@ -522,7 +565,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         List<Operation> handled = withAccess(Access.PERMISSION).stream()
                 .filter(operation -> operation.template().startsWith("/api/"))
                 .toList();
-        assertThat(handled).hasSizeGreaterThan(10);
+        assertThat(handled).hasSizeGreaterThan(7);
         List<String> failures = new ArrayList<>();
         for (Operation operation : handled) {
             HandlerMethod handler = handlerOf(operation);
@@ -538,6 +581,32 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             }
             if (invoke(bean, method, List.of(permission)) instanceof AccessDeniedException) {
                 failures.add(operation + " handler refused a caller holding " + permission);
+            }
+        }
+        assertThat(failures).isEmpty();
+    }
+
+    /**
+     * And the Superuser's: each Superuser-only operation's handler, invoked through its Spring proxy
+     * with no filter in front of it, refuses a caller holding every Permission without the
+     * Superuser role and admits one holding that role alone.
+     */
+    @Test
+    void each_superuser_only_handler_holds_the_superuser_requirement_itself() {
+        List<Operation> handled = withAccess(Access.SUPERUSER);
+        assertThat(handled).hasSize(5);
+        List<String> failures = new ArrayList<>();
+        for (Operation operation : handled) {
+            HandlerMethod handler = handlerOf(operation);
+            Object bean = handler.getBean() instanceof String name
+                    ? context.getBean(name) : handler.getBean();
+            Method method = handler.getMethod();
+
+            if (!(invoke(bean, method, EVERY_PERMISSION) instanceof AccessDeniedException)) {
+                failures.add(operation + " handler admitted a caller holding every Permission");
+            }
+            if (invoke(bean, method, List.of(SUPERUSER)) instanceof AccessDeniedException) {
+                failures.add(operation + " handler refused the Superuser");
             }
         }
         assertThat(failures).isEmpty();
@@ -605,7 +674,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             }
             if (!wanted.isEmpty()) {
                 return connectors.issueToken(
-                        scimConnector, wanted, null, null, TokenPermissions.ALL).presentedValue();
+                        scimConnector, wanted, null, null).presentedValue();
             }
             ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(new SecureRandom());
             Instant now = Instant.now();

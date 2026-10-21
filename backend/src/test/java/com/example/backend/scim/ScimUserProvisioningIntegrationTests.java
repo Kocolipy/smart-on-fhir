@@ -795,7 +795,7 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     private String issueTokenFor(UUID connector, java.util.Set<com.example.backend.authorization.domain.Permission> scope) {
-        return connectors.issueToken(connector, scope, null, null, TokenPermissions.ALL).presentedValue();
+        return connectors.issueToken(connector, scope, null, null).presentedValue();
     }
 
     private JsonNode body(MvcResult result) throws Exception {

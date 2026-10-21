@@ -108,14 +108,13 @@ class ScimDiscoveryIntegrationTests {
     void setUp() {
         UUID connectorId = connectors.create("Okta", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
         // Discovery needs a valid token and no Permission (ADR 0010), so every request this class
         // makes carries one by default: a token holding only group:read, which discovery does not
         // look at. A request that names its own credential — asConnector — keeps that one.
         String discoveryToken = connectors
-                .issueToken(connectorId, Set.of(Permission.GROUP_READ), null, null,
-                        TokenPermissions.ALL)
+                .issueToken(connectorId, Set.of(Permission.GROUP_READ), null, null)
                 .presentedValue();
         anonymous = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)

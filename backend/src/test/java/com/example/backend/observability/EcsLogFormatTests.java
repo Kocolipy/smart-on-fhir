@@ -527,7 +527,7 @@ class EcsLogFormatTests {
     void recordTimestampsArePlusEightWhileScimWireTimesStayUtc() throws Exception {
         UUID connectorId = connectors.create("ecs-timestamp-connector", null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logIn("test-user", "test-password").andExpect(status().isOk());
 
         JsonNode user = json(mvc.perform(get("/scim/v2/Users/{id}", userId("test-user"))
@@ -642,7 +642,7 @@ class EcsLogFormatTests {
     void aScimBearerRequestsRecordCarriesTheConnectorIdAndNoTokenMaterial() throws Exception {
         UUID connectorId = connectors.create("ecs-actor-connector", null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs.reset();
 
         mvc.perform(get("/scim/v2/Users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -665,7 +665,7 @@ class EcsLogFormatTests {
     void aRefusedBearerRequestsRecordCarriesNoConnectorId() throws Exception {
         UUID connectorId = connectors.create("ecs-refused-connector", null).id();
         String issued = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         String presented = issued.substring(0, issued.length() - 4) + "XXXX";
         logs.reset();
 
@@ -711,7 +711,7 @@ class EcsLogFormatTests {
     void aScimReadIsRecordedByTemplateWithoutItsIdOrFilterText() throws Exception {
         UUID connectorId = connectors.create("ecs-route-connector", null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         String id = userId("test-user").toString();
         String filterText = "ecs-route-filter-probe";
         logs.reset();
@@ -867,7 +867,7 @@ class EcsLogFormatTests {
     void aScimCallWithABadOrMissingBearerIsOneWarnRecordCarryingNoTokenValue() throws Exception {
         UUID connectorId = connectors.create("ecs-refusal-connector", null).id();
         String issued = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         // A real token with its secret half altered: the lookup half still names a token, so
         // the refusal is the "presented and not accepted" path, and the prefix a leak would show
         // is a real one.
@@ -1055,7 +1055,7 @@ class EcsLogFormatTests {
     void everyErrorRecordCarriesTheErrorFieldsNestedUnderError() throws Exception {
         UUID connectorId = connectors.create("ecs-error-fields-connector", null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         MockMvc failing = applicationRouteFailing();
         logs.reset();
 
@@ -1112,7 +1112,7 @@ class EcsLogFormatTests {
     void aScimRefusalIsStillTheScimErrorDocument() throws Exception {
         UUID connectorId = connectors.create("ecs-scim-document-connector", null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
 
         MvcResult result = mvc.perform(get("/scim/v2/Me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))

@@ -69,7 +69,9 @@ never overwrite a User or Group that already exists.
 | `APP_DEV_FIXTURES_PASSWORD` | none    | Every fixture User's password; required when enabled, with no fallback   |
 
 Each development Role's Permissions are in `authorization.yaml`; the Superuser
-holds every one.
+Role holds every one. The Connector admin Role holds `connector:read` only: creating
+and deleting connectors and minting their tokens are the Superuser's alone, not a
+Permission any Role holds.
 
 | Role            | Fixture Group      | Fixture User        |
 | --------------- | ------------------ | ------------------- |
@@ -90,6 +92,11 @@ stable id and current `displayName`, with the Superuser Group marked — so an
 operator can see what each Group grants without reading this configuration. It is
 the only Role endpoint: none creates, changes or deletes a Role or a mapping
 entry.
+
+**The Superuser is not a Role.** A direct member of the Admin group, the Superuser
+Group, is the Superuser: its session holds the Superuser Role's Permissions
+and `ROLE_SUPERUSER` and every delegatable Permission beside them, expanded in code
+at sign-in. Nothing here configures it.
 
 **Assigning a Role is Group membership**, which a connector writes over SCIM, so
 `group:write` on a mapped Group is Role assignment. How a membership change reaches

@@ -150,16 +150,16 @@ class ScimConformanceFixtureTests {
         UUID connector = connectors.create("conformance", null).id();
         UUID other = connectors.create("conformance-other", null).id();
         writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         readOnlyToken = connectors.issueToken(connector, TokenPermissions.READ, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         userReadToken = connectors.issueToken(connector, Set.of(Permission.USER_READ), null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         writeOnlyToken = connectors.issueToken(connector,
                 Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE), null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         otherConnectorToken = connectors.issueToken(other, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
     }
 
     @AfterEach

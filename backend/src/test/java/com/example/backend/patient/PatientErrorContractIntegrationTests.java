@@ -254,8 +254,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     /** A session confined by a required password change, which holds no Permission. */
     private HttpClient confined() throws Exception {
         UUID connectorId = connectors.create("patient-error-" + UUID.randomUUID(), null).id();
-        String token = connectors.issueToken(connectorId, TokenPermissions.ALL, null, null,
-                TokenPermissions.ALL).presentedValue();
+        String token = connectors.issueToken(connectorId, TokenPermissions.ALL, null, null).presentedValue();
         String userName = "patient-confined-" + UUID.randomUUID();
         HttpResponse<String> created = send(HttpClient.newHttpClient(),
                 request("/scim/v2/Users")

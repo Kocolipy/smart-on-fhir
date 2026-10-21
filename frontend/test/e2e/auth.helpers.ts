@@ -33,20 +33,22 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fi
 
 /**
  * The development role mapping's Roles (`backend/src/main/resources/authorization.yaml`),
- * each with the seeded User that holds it and the Permissions its session holds:
- * the Role's own plus the baseline `patient:read` every User holds, sorted by
- * name as `GET /api/auth/me` reports them. The Superuser's User
- * is the Bootstrap Admin, on the password `auth.setup.ts` settles.
+ * each with the seeded User that holds it, whether its session is the Superuser's
+ * and the Permissions it holds: the Role's own plus the baseline `patient:read`
+ * every User holds, sorted by name as `GET /api/auth/me` reports them. The
+ * Superuser's User is the Bootstrap Admin, on the password `auth.setup.ts`
+ * settles; its session holds the Role's Permissions and every delegatable one.
+ * The Connector admin holds `connector:read` and nothing else: it lists
+ * connectors and administers none, which only a Superuser does.
  */
 export const DEV_ROLES = {
   superuser: {
     username: ADMIN_USERNAME,
     password: ADMIN_PASSWORD,
+    superuser: true,
     permissions: [
       "audit:read",
       "connector:read",
-      "connector:token",
-      "connector:write",
       "group:read",
       "group:write",
       "ops:read",
@@ -58,30 +60,25 @@ export const DEV_ROLES = {
   accountAdmin: {
     username: "account-admin",
     password: FIXTURE_PASSWORD,
+    superuser: false,
     permissions: ["group:read", "patient:read", "user:read", "user:write"],
   },
   auditor: {
     username: "auditor",
     password: FIXTURE_PASSWORD,
+    superuser: false,
     permissions: ["audit:read", "patient:read"],
   },
   connectorAdmin: {
     username: "connector-admin",
     password: FIXTURE_PASSWORD,
-    permissions: [
-      "connector:read",
-      "connector:token",
-      "connector:write",
-      "group:read",
-      "group:write",
-      "patient:read",
-      "user:read",
-      "user:write",
-    ],
+    superuser: false,
+    permissions: ["connector:read", "patient:read"],
   },
   monitoring: {
     username: "monitoring",
     password: FIXTURE_PASSWORD,
+    superuser: false,
     permissions: ["ops:read", "patient:read"],
   },
 } as const;

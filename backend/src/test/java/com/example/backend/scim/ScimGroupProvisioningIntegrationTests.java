@@ -114,7 +114,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("Okta", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 

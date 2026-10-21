@@ -9,8 +9,6 @@ import { apiFetch, type ApiResult } from "@/lib/http";
 export const PERMISSIONS = [
   "audit:read",
   "connector:read",
-  "connector:token",
-  "connector:write",
   "group:read",
   "group:write",
   "ops:read",
@@ -31,6 +29,13 @@ export interface AuthUser {
   permissions: readonly Permission[];
   /** The change-required flag: this session may only change its password or log out. */
   passwordChangeRequired: boolean;
+  /**
+   * Whether the session is a Superuser's: its User is a direct member of the
+   * Admin group. A Superuser is not a Permission and no Group can carry it, so
+   * it is read here and never from `permissions`. Connector administration
+   * (create, delete, tokens) requires it; the backend alone decides.
+   */
+  superuser: boolean;
   /**
    * The backend's idle bound for this session, in seconds. The SPA signs an
    * inactive user out by this figure rather than a copy of its own, so the two
@@ -60,6 +65,7 @@ const decodeUser = jsonDecoder((body: unknown): AuthUser => {
   return {
     idleTimeoutSeconds: user.integer("idleTimeoutSeconds"),
     passwordChangeRequired: user.boolean("passwordChangeRequired"),
+    superuser: user.boolean("superuser"),
     permissions: user.array("permissions", decodePermission),
     username: user.string("username"),
   };

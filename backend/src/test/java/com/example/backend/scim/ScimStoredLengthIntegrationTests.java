@@ -131,7 +131,7 @@ class ScimStoredLengthIntegrationTests {
                 .build();
         connectorId = connectors.create("Length limits", null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
     }
 
     @AfterEach

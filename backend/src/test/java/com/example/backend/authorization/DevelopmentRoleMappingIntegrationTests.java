@@ -69,8 +69,8 @@ class DevelopmentRoleMappingIntegrationTests {
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
 
     private static final List<String> EVERY_PERMISSION_SORTED = List.of(
-            "audit:read", "connector:read", "connector:token", "connector:write",
-            "group:read", "group:write", "ops:read", "patient:read", "user:read", "user:write");
+            "audit:read", "connector:read", "group:read", "group:write", "ops:read",
+            "patient:read", "user:read", "user:write");
 
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -126,8 +126,7 @@ class DevelopmentRoleMappingIntegrationTests {
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
                 .containsExactly("audit:read", "patient:read");
         assertThat(permissionsOnMe(logIn("connector-admin", FIXTURE_PASSWORD)))
-                .containsExactly("connector:read", "connector:token", "connector:write",
-                        "group:read", "group:write", "patient:read", "user:read", "user:write");
+                .containsExactly("connector:read", "patient:read");
         assertThat(permissionsOnMe(logIn("monitoring", FIXTURE_PASSWORD)))
                 .containsExactly("ops:read", "patient:read");
     }
@@ -137,6 +136,17 @@ class DevelopmentRoleMappingIntegrationTests {
     void theBootstrapAdminHoldsEveryPermissionThroughTheSuperuserGroup() throws Exception {
         assertThat(permissionsOnMe(logIn("test-admin", "test-admin-password")))
                 .containsExactlyElementsOf(EVERY_PERMISSION_SORTED);
+    }
+
+    /** Only a direct member of the Admin group is the Superuser, whatever its Role holds. */
+    @Test
+    void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
+        assertThat(me(logIn("test-admin", "test-admin-password")).get("superuser").asBoolean())
+                .isTrue();
+        for (String fixture : List.of("account-admin", "auditor", "connector-admin", "monitoring")) {
+            assertThat(me(logIn(fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
+                    .as("%s is not the Superuser", fixture).isFalse();
+        }
     }
 
     /** Holding an extra Role never takes a power away: the result is the union. */

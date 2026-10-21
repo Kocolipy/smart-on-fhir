@@ -17,10 +17,6 @@ import type { Connector, ConnectorToken, IssuedToken } from "./accounts-api";
 import { Connectors } from "./connectors";
 import { renderInLayout } from "./signed-in-shell.testHelpers";
 
-/** Every Permission less those named. */
-const without = (...lacking: Permission[]) =>
-  EVERY_PERMISSION.filter((permission) => !lacking.includes(permission));
-
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";
 const TOKEN_ID = "a1b2c3d4-0000-4000-8000-000000000001";
 
@@ -58,58 +54,60 @@ const connectorAt = `/api/admin/connectors/${CONNECTOR_ID}`;
 const tokenAt = `${connectorAt}/tokens/${TOKEN_ID}`;
 
 /**
- * The panel, for a session holding `permissions` — by default every one — alone
- * on the Accounts path inside the real signed-in layout, which owns the page's
+ * The panel, for a session holding `permissions` and, by default, the Superuser —
+ * alone on the Accounts path inside the real signed-in layout, which owns the page's
  * one error line. The panel has no line of its own, so its failures show on
  * the layout's. The Accounts suite renders the panel on the real page.
  */
 const renderConnectors = (
   answers: Answers,
   permissions: readonly Permission[] = EVERY_PERMISSION,
+  superuser = true,
 ) =>
   renderInLayout(
     [{ element: <Connectors />, path: "/accounts" }],
     "/accounts",
-    holding(permissions),
+    holding(permissions, { superuser }),
     answers,
   );
 
 const section = (name: string) => within(screen.getByRole("region", { name: `Connector ${name}` }));
 
-describe("Connectors by Permission", () => {
+describe("Connectors by Superuser", () => {
   const oneActiveToken = { [LISTING]: json([connector({ tokens: [token()] })]) };
 
-  it("offers neither creating nor deleting a connector without connector:write", async () => {
-    await renderConnectors(oneActiveToken, without("connector:write"));
+  it("offers no connector or token action to a User holding every Permission but not the Superuser", async () => {
+    await renderConnectors(oneActiveToken, EVERY_PERMISSION, false);
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(screen.queryByLabelText("New connector name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create connector" })).not.toBeInTheDocument();
-    expect(section("Okta").queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
-    // Token actions are connector:token's, held here.
-    expect(section("Okta").getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
-  });
-
-  it("offers no token issue, rotation or revocation without connector:token", async () => {
-    await renderConnectors(oneActiveToken, without("connector:token"));
-
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     const okta = section("Okta");
+    expect(okta.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
     expect(okta.queryByRole("button", { name: /^Issue token/ })).not.toBeInTheDocument();
     expect(okta.queryByRole("button", { name: /^Rotate token/ })).not.toBeInTheDocument();
     expect(okta.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
-    // Connector management is connector:write's, held here.
-    expect(okta.getByRole("button", { name: "Delete Okta" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Create connector" })).toBeEnabled();
   });
 
-  it("still lists every connector and its tokens to a reader holding neither", async () => {
-    await renderConnectors(oneActiveToken, without("connector:write", "connector:token"));
+  it("still lists every connector and its tokens to a connector:read holder who is not the Superuser", async () => {
+    await renderConnectors(oneActiveToken, ["connector:read"], false);
 
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
     // The layout's Sign out is the only control on the page.
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Sign out"]);
+  });
+
+  it("offers every connector and token action to the Superuser", async () => {
+    await renderConnectors(oneActiveToken, ["connector:read"], true);
+
+    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create connector" })).toBeEnabled();
+    const okta = section("Okta");
+    expect(okta.getByRole("button", { name: "Delete Okta" })).toBeEnabled();
+    expect(okta.getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
+    expect(okta.getByRole("button", { name: /^Revoke token/ })).toBeEnabled();
+    expect(okta.getByRole("button", { name: "Issue token for Okta" })).toBeDisabled();
   });
 
   it("requests no listing without connector:read", async () => {
@@ -336,25 +334,21 @@ describe("Connectors", () => {
     );
   });
 
-  /** A token may carry only what the session holds itself: the rest is shown, not offered. */
-  it("offers only the Permissions the session holds", async () => {
-    await renderConnectors({ [LISTING]: json([connector()]) }, without("user:read", "user:write"));
+  /** The Superuser may put any token-grantable Permission on a token, whatever its own session lists. */
+  it("offers the Superuser every token Permission", async () => {
+    await renderConnectors({ [LISTING]: json([connector()]) }, ["connector:read"]);
 
     await screen.findByRole("heading", { name: "Okta" });
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
-    for (const permission of ["group:read", "group:write"]) {
+    for (const permission of ["group:read", "group:write", "user:read", "user:write"]) {
       expect(permissions.getByRole("checkbox", { name: new RegExp(permission) })).toBeEnabled();
     }
-    for (const permission of ["user:read", "user:write"]) {
-      expect(permissions.getByRole("checkbox", { name: new RegExp(permission) })).toBeDisabled();
-    }
-    expect(permissions.getByText("read Users — you do not hold it")).toBeInTheDocument();
-    expect(
-      permissions.getByText("create, change and delete Users — you do not hold it"),
-    ).toBeInTheDocument();
+    expect(permissions.getAllByRole("checkbox")).toHaveLength(4);
+    expect(permissions.getByText("read Users")).toBeInTheDocument();
+    expect(permissions.getByText("create, change and delete Users")).toBeInTheDocument();
     expect(permissions.getByText("read Groups")).toBeInTheDocument();
     expect(permissions.getByText("create, change and delete Groups")).toBeInTheDocument();
-    expect(permissions.getAllByRole("checkbox")).toHaveLength(4);
+    expect(permissions.queryByText(/you do not hold it/)).not.toBeInTheDocument();
   });
 
   it("rotates a token and discloses the replacement once", async () => {

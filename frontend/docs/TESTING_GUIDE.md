@@ -157,8 +157,8 @@ have up). First run on a machine needs `npx playwright install chromium`.
 
 The `setup` project signs in the fixture `user` and the Bootstrap Admin once and saves separate
 Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
-The `user` and `admin` projects reuse those sessions; `guest`,
-`connector-tokens` and `dormancy` start with explicitly empty browser storage
+The `user` and `admin` projects reuse those sessions; `guest`
+and `dormancy` start with explicitly empty browser storage
 and sign in for real. Role-guard specs are split by identity so a spec can
 never accidentally run with a more privileged session than it names.
 
@@ -166,14 +166,12 @@ The backend keeps **one session per User**: an accepted login ends every other
 session that User holds. A spec that signs in as a seeded identity therefore
 revokes the session the matching project replays from `.auth/`, or the one
 another project's sign-in holds. So the projects run as one chain, `setup` →
-`user` → `admin` → `guest` → `connector-tokens` → `dormancy`, each declaring the
+`user` → `admin` → `guest` → `dormancy`, each declaring the
 previous one in `dependencies`:
 
 - `guest` follows `admin` (and the `epic` and `packaged` projects below, when
   declared) because `login.spec.ts` signs in as the seeded Admin,
   and beside the `admin` project it turned that project's specs into 401s.
-- `connector-tokens` follows `guest` because `token-permissions.spec.ts` signs
-  in as the same development Role Users `dev-roles.spec.ts` does.
 - `dormancy` runs last and alone: it signs in as the Account admin fixture User
   and consumes the `dormant` fixture's locked state, which only a backend
   restart re-arms.
@@ -216,7 +214,7 @@ Route a spec by the identity it needs: `user` or `admin` replays that seeded
 identity's saved session, and `guest` starts signed out for specs that exercise
 sign-in itself. A spec that signs in as a development Role User, or consumes a
 fixture's one-shot state, goes in its own project appended to the end of the
-chain above, as `connector-tokens` and `dormancy` do. Do not call `login()` in each test. Per-test `login()` under
+chain above, as `dormancy` does. Do not call `login()` in each test. Per-test `login()` under
 `fullyParallel` fires N concurrent logins that can throttle and time out, and
 under one session per User each would revoke the session its project replays;
 shared storage state collapses that to one.

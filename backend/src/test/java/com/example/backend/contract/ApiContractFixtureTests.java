@@ -139,7 +139,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                         springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
         UUID connector = connectors.create("api-contract", null).id();
-        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 
@@ -503,8 +503,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             }
             UUID connector = t.connectors.create("Deadlocked connector", null).id();
             String tokens = base + "/" + connector + "/tokens";
-            UUID token = t.connectors.issueToken(connector, TokenPermissions.READ, null, null,
-                    TokenPermissions.ALL).tokenId();
+            UUID token = t.connectors.issueToken(connector, TokenPermissions.READ, null, null).tokenId();
             try (ForcedDeadlock victim =
                     t.deadlocked("scim_connector_tokens", "connector_id", connector)) {
                 t.expectDeadlocked(t.json(t.csrf(t.post(tokens)).cookie(admin),

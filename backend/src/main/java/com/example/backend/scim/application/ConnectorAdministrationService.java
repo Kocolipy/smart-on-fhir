@@ -26,7 +26,6 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -153,17 +152,13 @@ public class ConnectorAdministrationService {
      * Mints a token for a connector, carrying {@code requested}. The returned plaintext is the
      * only copy that will ever exist.
      *
-     * <p><strong>No escalation.</strong> Refused unless the administrator holds every Permission
-     * it asks for ({@code held}, the Permissions its session was issued with):
-     * {@code connector:token} lets an administrator mint credentials, never credentials more
-     * powerful than itself. The refusal is audited with the Permissions requested. Checked after
-     * the request's own shape — an empty list or a Permission no token can carry is refused
-     * whoever asks — and after the connector is found, so the refusal names a real connector.
+     * <p>Only the Superuser reaches this (the controller's method security), and a token with a
+     * write Permission is Superuser-equivalent, so there is no further rule on what it may carry
+     * beyond the vocabulary: an empty list or a Permission no token can carry is refused.
      *
-     * @param requested what the token is to carry: at least one, all directory Permissions
+     * @param requested what the token is to carry: at least one, all token-grantable Permissions
      * @param lifetime  how long it should live, or {@code null} for the default;
      *                  bounded by {@link ConnectorTokenPolicy}
-     * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_ISSUE)
@@ -171,17 +166,10 @@ public class ConnectorAdministrationService {
             UUID connectorId,
             Collection<Permission> requested,
             Duration lifetime,
-            UUID actorId,
-            Set<Permission> held) {
+            UUID actorId) {
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(requested);
         Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
         requireLive(connectorId);
-        if (!permissions.heldWithin(held)) {
-            audit.append(new Audited.ConnectorTokenIssueRefused(
-                    actorId, connectorId, permissions.values()));
-            refused(Operation.CONNECTOR_TOKEN_ISSUE);
-            throw new ConnectorTokenEscalationException();
-        }
         Instant now = clock.instant();
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         ScimConnectorToken issued = ScimConnectorToken.issue(
@@ -203,11 +191,8 @@ public class ConnectorAdministrationService {
      * Replaces a token with a new one, leaving the old one usable until the overlap window ends.
      * The replacement carries the old token's Permissions, or {@code requested} when given.
      *
-     * <p>The no-escalation rule applies to what the REPLACEMENT carries, kept or new: rotating is
-     * minting, so an administrator cannot renew a credential more powerful than itself because
-     * someone more powerful issued the original. A kept set is validated like a requested one,
-     * so a token stored before Permissions existed — which carries none — must be rotated with an
-     * explicit list.
+     * <p>A kept set is validated like a requested one, so a token stored before Permissions
+     * existed — which carries none — must be rotated with an explicit list.
      *
      * <p>The old token's expiry is brought forward to the end of the overlap and
      * never pushed back: the window ends at the earlier of the requested overlap and
@@ -222,7 +207,6 @@ public class ConnectorAdministrationService {
      * @param requested the replacement's Permissions, or {@code null} to keep the old token's
      * @param overlap   how long the old token should keep working, clamped to
      *                  {@link ConnectorTokenPolicy#MAX_ROTATION_OVERLAP}
-     * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_ROTATE)
@@ -230,8 +214,7 @@ public class ConnectorAdministrationService {
             UUID tokenId,
             Collection<Permission> requested,
             Duration overlap,
-            UUID actorId,
-            Set<Permission> held) {
+            UUID actorId) {
         tokenLocks.lockToken(tokenId);
         ScimConnectorToken existing = requireToken(tokenId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
@@ -244,12 +227,6 @@ public class ConnectorAdministrationService {
                     actorId, connector.id(), existing.id(), auditReason(refusal.get())));
             refused(Operation.CONNECTOR_TOKEN_ROTATE);
             throw new ConnectorTokenNotRotatableException();
-        }
-        if (!permissions.heldWithin(held)) {
-            audit.append(new Audited.ConnectorTokenRotateRefused(
-                    actorId, connector.id(), existing.id(), permissions.values()));
-            refused(Operation.CONNECTOR_TOKEN_ROTATE);
-            throw new ConnectorTokenEscalationException();
         }
 
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
@@ -364,10 +341,9 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * Records that a token issue or rotation was refused — as an escalation, or a rotation of a
-     * token that can no longer be rotated — at {@code WARN}: the action and the outcome, never
-     * which token, why, or which Permissions. Those are the audit trail's to name, and a log line
-     * listing Permissions would be a map of who may mint what.
+     * Records that a token rotation was refused — the token can no longer be rotated — at
+     * {@code WARN}: the action and the outcome, never which token or why. Those are the audit
+     * trail's to name.
      */
     private static void refused(Operation operation) {
         LogEvent.refused(log, operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED).log();

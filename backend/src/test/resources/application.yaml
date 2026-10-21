@@ -62,8 +62,6 @@ app:
           - group:write
           - audit:read
           - connector:read
-          - connector:write
-          - connector:token
           - ops:read
           - patient:read
     groups:

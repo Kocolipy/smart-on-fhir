@@ -112,7 +112,7 @@ class JdbcErrorLogRedactionTests {
                 .build();
         UUID connectorId = connectors.create("Log redaction", null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
-                null, TokenPermissions.ALL).presentedValue();
+                null).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

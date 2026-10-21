@@ -277,8 +277,8 @@ public final class LogEvent {
             "Administrative identity change refused";
     private static final String CONNECTOR_CHANGE_APPLIED =
             "SCIM connector lifecycle change applied";
-    private static final String CONNECTOR_ESCALATION_REFUSED =
-            "SCIM connector issue refused: it would exceed the requester's Permissions";
+    private static final String CONNECTOR_ROTATION_REFUSED =
+            "SCIM connector token rotation refused: the token can no longer be rotated";
     private static final String SCIM_REQUEST_REFUSED = "SCIM request refused";
 
     private LogEvent() {
@@ -660,9 +660,9 @@ public final class LogEvent {
         CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete",
                 onSuccess(CONNECTOR_CHANGE_APPLIED)),
         CONNECTOR_TOKEN_ISSUE(Action.USER_ADMINISTRATION, "scim.connector.token.issue",
-                onSuccess(CONNECTOR_CHANGE_APPLIED), onRefusal(CONNECTOR_ESCALATION_REFUSED)),
+                onSuccess(CONNECTOR_CHANGE_APPLIED)),
         CONNECTOR_TOKEN_ROTATE(Action.USER_ADMINISTRATION, "scim.connector.token.rotate",
-                onSuccess(CONNECTOR_CHANGE_APPLIED), onRefusal(CONNECTOR_ESCALATION_REFUSED)),
+                onSuccess(CONNECTOR_CHANGE_APPLIED), onRefusal(CONNECTOR_ROTATION_REFUSED)),
         CONNECTOR_TOKEN_REVOKE(Action.USER_PROVISIONING, "scim.connector.token.revoke",
                 onSuccess(CONNECTOR_CHANGE_APPLIED)),
         SCIM_WRITE(Action.USER_PROVISIONING, "scim.write",

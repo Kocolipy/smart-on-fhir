@@ -497,6 +497,9 @@ public final class OpenApiContract {
                 .count();
     }
 
+    /** The scope of {@code sessionCookie} that names the Superuser rather than a Permission. */
+    static final String SUPERUSER_SCOPE = "superuser";
+
     /** One documented operation: a method on a path template. */
     public record Operation(String method, String template, JsonNode definition) {
 
@@ -511,6 +514,8 @@ public final class OpenApiContract {
          *   <li>{@code - sessionCookie: []} — {@link Access#SELF_SERVICE}: authenticated, no
          *       Permission;
          *   <li>{@code - sessionCookie: [<permission>]} — {@link Access#PERMISSION}, exactly one;
+         *   <li>{@code - sessionCookie: [superuser]} — {@link Access#SUPERUSER}: the Superuser,
+         *       which is not a Permission and so names none;
          *   <li>{@code - connectorBearer: []} — {@link Access#BEARER}, the SCIM chain's: a valid
          *       token and no Permission;
          *   <li>{@code - connectorBearer: [<permission>]} — {@link Access#BEARER} naming the one
@@ -551,6 +556,9 @@ public final class OpenApiContract {
                 case "sessionCookie":
                     if (scopes.isEmpty()) {
                         return new Requirement(Access.SELF_SERVICE, null);
+                    }
+                    if (scopes.size() == 1 && SUPERUSER_SCOPE.equals(scopes.get(0).asText(null))) {
+                        return new Requirement(Access.SUPERUSER, null);
                     }
                     return scopes.size() == 1 && scopes.get(0).isTextual()
                             ? new Requirement(Access.PERMISSION, scopes.get(0).asText())
@@ -599,7 +607,7 @@ public final class OpenApiContract {
 
     /** How an operation's {@code security} requirement classifies it. */
     public enum Access {
-        PUBLIC, SELF_SERVICE, PERMISSION, BEARER, BEARER_ANY_OF, UNDECLARED, MALFORMED
+        PUBLIC, SELF_SERVICE, PERMISSION, SUPERUSER, BEARER, BEARER_ANY_OF, UNDECLARED, MALFORMED
     }
 
     /**

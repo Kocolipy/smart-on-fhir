@@ -2,7 +2,10 @@ package com.example.backend.authorization.domain;
 
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * One fine-grained power a protected action requires.
@@ -13,35 +16,71 @@ import java.util.Optional;
  * do that. A name in configuration that is not one of these fails startup — see
  * {@link RoleMapping} — so a typo can never silently grant nothing.
  *
+ * <p>Two flags say where a Permission may go. {@link #delegatable()} is what a Group may carry;
+ * {@link #tokenGrantable()} is what a connector token may carry. The Superuser is not a member of
+ * this enum: it is a session authority decided by direct membership of the Admin group, so it can
+ * never be put on a Group.
+ *
  * <p>The wire and configuration spelling is {@link #value()} ({@code user:read}), not the
  * constant's name, and the order a caller is told its Permissions in is {@link #BY_VALUE}: sorted
  * by that spelling, so the order is a fact about the names and not about declaration order here.
  */
 public enum Permission {
 
-    USER_READ("user:read"),
-    USER_WRITE("user:write"),
-    GROUP_READ("group:read"),
-    GROUP_WRITE("group:write"),
-    AUDIT_READ("audit:read"),
-    CONNECTOR_READ("connector:read"),
-    CONNECTOR_WRITE("connector:write"),
-    CONNECTOR_TOKEN("connector:token"),
-    OPS_READ("ops:read"),
-    PATIENT_READ("patient:read");
+    USER_READ("user:read", true, true),
+    USER_WRITE("user:write", false, true),
+    GROUP_READ("group:read", true, true),
+    GROUP_WRITE("group:write", false, true),
+    AUDIT_READ("audit:read", true, false),
+    CONNECTOR_READ("connector:read", true, false),
+    OPS_READ("ops:read", true, false),
+    PATIENT_READ("patient:read", false, false);
 
     /** Sorted by the spelling a caller sees, which is the order {@code /api/auth/me} reports. */
     public static final Comparator<Permission> BY_VALUE = Comparator.comparing(Permission::value);
 
     private final String value;
+    private final boolean delegatable;
+    private final boolean tokenGrantable;
 
-    Permission(String value) {
+    Permission(String value, boolean delegatable, boolean tokenGrantable) {
         this.value = value;
+        this.delegatable = delegatable;
+        this.tokenGrantable = tokenGrantable;
     }
 
     /** The Permission's name as configuration, the session and the API spell it. */
     public String value() {
         return value;
+    }
+
+    /**
+     * Whether a Group may carry this Permission. The Permissions that are not delegatable are
+     * {@code patient:read}, which every active User holds as the baseline and no Group confers,
+     * and the write halves {@code user:write} and {@code group:write}, which only a connector
+     * token carries: a Group holding either would be a Superuser by another name.
+     */
+    public boolean delegatable() {
+        return delegatable;
+    }
+
+    /**
+     * Whether a connector token may carry this Permission: the SCIM chain's vocabulary, which is
+     * enforced separately from the session's. A token holding a write half is Superuser-equivalent,
+     * which is why only the Superuser mints one.
+     */
+    public boolean tokenGrantable() {
+        return tokenGrantable;
+    }
+
+    /**
+     * Every {@linkplain #delegatable() delegatable} Permission: what a Superuser's session is
+     * expanded with at sign-in, in code, rather than from a stored list or a role hierarchy.
+     */
+    public static Set<Permission> allDelegatable() {
+        return Arrays.stream(values())
+                .filter(Permission::delegatable)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(Permission.class)));
     }
 
     /** The Permission spelled this way, or empty when no Permission is. Case-sensitive. */

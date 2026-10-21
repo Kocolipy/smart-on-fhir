@@ -2,6 +2,7 @@ package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,9 +43,9 @@ import tools.jackson.databind.json.JsonMapper;
  * driven over HTTP through both real security chains against real SQL Server, with the token
  * rows and audit rows read back with SQL.
  *
- * <p>The administrator's session is built directly with exactly the Permissions each case
- * needs, which is what lets one class show the no-escalation rule for callers holding less than
- * a Superuser without a Role per combination.
+ * <p>The administrator's session is built directly with exactly the authorities each case needs,
+ * which is what lets one class show that only the Superuser administers connectors — a session
+ * holding every Permission is refused — without a Role per combination (ADR 0015).
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -54,17 +55,14 @@ class ConnectorTokenPermissionsIntegrationTests {
 
     private static final String CONNECTORS = "/api/admin/connectors";
 
-    /** What the development mapping's Connector admin Role holds. */
-    private static final String[] CONNECTOR_ADMIN = {
-        "ROLE_USER", "connector:read", "connector:write", "connector:token",
-        "user:read", "user:write", "group:read", "group:write",
-    };
+    /** The Superuser's session: the only one that administers connectors. */
+    private static final String[] SUPERUSER = TestRoleMappings.SUPERUSER_AUTHORITIES;
 
-    /** An administrator who may mint tokens but manages Groups alone. */
-    private static final String[] GROUPS_ONLY_MINTER = {
-        "ROLE_USER", "connector:read", "connector:write", "connector:token",
-        "group:read", "group:write",
-    };
+    /** A User holding every Permission there is, and not the Superuser. */
+    private static final String[] EVERY_PERMISSION_NOT_SUPERUSER = java.util.stream.Stream.concat(
+                    java.util.stream.Stream.of("ROLE_USER"),
+                    TestRoleMappings.EVERY_PERMISSION.stream())
+            .toArray(String[]::new);
 
     private static final String TOKEN_PERMISSIONS =
             "SELECT STRING_AGG(permission, ',') WITHIN GROUP (ORDER BY permission) AS permissions"
@@ -108,7 +106,7 @@ class ConnectorTokenPermissionsIntegrationTests {
             throws Exception {
         UUID connector = createConnector("permissions-issue");
 
-        MvcResult issued = issue(connector, "[\"group:write\",\"group:read\"]", CONNECTOR_ADMIN);
+        MvcResult issued = issue(connector, "[\"group:write\",\"group:read\"]", SUPERUSER);
 
         assertThat(issued.getResponse().getStatus()).isEqualTo(201);
         JsonNode body = body(issued);
@@ -126,28 +124,53 @@ class ConnectorTokenPermissionsIntegrationTests {
                 });
     }
 
-    /** No escalation: the caller cannot mint a Permission it does not hold itself. */
+    /**
+     * Only the Superuser administers connectors: a User holding every Permission is refused with
+     * the generic 403 on create, delete and on each token operation — and mints, changes and
+     * deletes nothing — while {@code connector:read} still lists.
+     */
     @Test
-    void a_token_carrying_a_permission_the_caller_lacks_is_refused_and_audited()
+    void a_user_holding_every_permission_but_not_the_superuser_is_refused_every_administration()
             throws Exception {
-        UUID connector = createConnector("permissions-escalation");
+        UUID connector = createConnector("permissions-not-superuser");
+        UUID token = tokenId(issue(connector, "[\"user:read\"]", SUPERUSER));
 
-        MvcResult refused = issue(connector, "[\"group:write\",\"user:write\"]", GROUPS_ONLY_MINTER);
+        List<MvcResult> refused = List.of(
+                mvc.perform(asRole(post(CONNECTORS), EVERY_PERMISSION_NOT_SUPERUSER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"permissions-refused\"}")).andReturn(),
+                mvc.perform(asRole(delete(CONNECTORS + "/" + connector),
+                        EVERY_PERMISSION_NOT_SUPERUSER)).andReturn(),
+                issue(connector, "[\"user:read\"]", EVERY_PERMISSION_NOT_SUPERUSER),
+                rotate(connector, token, null, EVERY_PERMISSION_NOT_SUPERUSER),
+                mvc.perform(asRole(post(CONNECTORS + "/" + connector + "/tokens/" + token
+                        + "/revoke"), EVERY_PERMISSION_NOT_SUPERUSER)).andReturn());
 
-        assertThat(refused.getResponse().getStatus()).isEqualTo(403);
-        assertThat(refused.getResponse().getContentAsString()).isEmpty();
-        assertThat(listedTokens(connector)).isEmpty();
-        assertThat(events("CONNECTOR_TOKEN_ISSUE", connector)).singleElement()
-                .satisfies(row -> {
-                    assertThat(row.get("outcome")).isEqualTo("FAILURE");
-                    assertThat(row.get("error_code")).isEqualTo("PERMISSION_ESCALATION");
-                    assertThat(row.get("permissions")).isEqualTo("group:write,user:write");
-                    assertThat(row.get("resource_type")).isEqualTo("ScimConnector");
+        assertThat(refused).extracting(result -> result.getResponse().getStatus())
+                .containsOnly(403);
+        assertThat(refused).extracting(result -> result.getResponse().getContentAsString())
+                .allSatisfy(answer -> assertThat(answer)
+                        .doesNotContain("superuser", "SUPERUSER", "connector:", "Permission"));
+        assertThat(listedTokens(connector)).as("nothing was minted, rotated or revoked")
+                .singleElement().satisfies(held -> {
+                    assertThat(held.get("active").asBoolean()).isTrue();
+                    assertThat(held.get("revokedAt").isNull()).isTrue();
                 });
+        assertThat(mvc.perform(asRole(get(CONNECTORS), "ROLE_USER", "connector:read"))
+                .andReturn().getResponse().getStatus()).isEqualTo(200);
+    }
 
-        // The same caller may mint what it does hold.
-        assertThat(issue(connector, "[\"group:write\"]", GROUPS_ONLY_MINTER)
-                .getResponse().getStatus()).isEqualTo(201);
+    /** The Superuser may mint a token with any token-grantable Permission, the write halves included. */
+    @Test
+    void the_superuser_mints_a_token_with_every_token_grantable_permission() throws Exception {
+        UUID connector = createConnector("permissions-every");
+
+        MvcResult issued = issue(connector,
+                "[\"user:read\",\"user:write\",\"group:read\",\"group:write\"]", SUPERUSER);
+
+        assertThat(issued.getResponse().getStatus()).isEqualTo(201);
+        assertThat(strings(body(issued).get("permissions")))
+                .containsExactly("group:read", "group:write", "user:read", "user:write");
     }
 
     @Test
@@ -155,34 +178,34 @@ class ConnectorTokenPermissionsIntegrationTests {
         UUID connector = createConnector("permissions-malformed");
 
         for (String permissions : List.of(
-                "[]", "[\"connector:token\"]", "[\"user:read\",\"audit:read\"]",
+                "[]", "[\"connector:token\"]", "[\"patient:read\"]", "[\"user:read\",\"audit:read\"]",
                 "[\"scim.write\"]", "[\"USER_READ\"]", "[null]")) {
-            assertThat(issue(connector, permissions, TestRoleMappings.SUPERUSER_AUTHORITIES)
+            assertThat(issue(connector, permissions, SUPERUSER)
                     .getResponse().getStatus())
                     .as("permissions %s", permissions)
                     .isEqualTo(400);
         }
         MvcResult missing = mvc.perform(asRole(post(CONNECTORS + "/" + connector + "/tokens"),
-                        TestRoleMappings.SUPERUSER_AUTHORITIES)
+                        SUPERUSER)
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andReturn();
         assertThat(missing.getResponse().getStatus()).isEqualTo(400);
         assertThat(listedTokens(connector)).isEmpty();
         assertThat(events("CONNECTOR_TOKEN_ISSUE", connector))
-                .as("a malformed request is not an escalation").isEmpty();
+                .as("a malformed request mints and records nothing").isEmpty();
     }
 
     @Test
     void rotation_keeps_the_permissions_unless_new_ones_are_given() throws Exception {
         UUID connector = createConnector("permissions-rotation");
-        UUID original = tokenId(issue(connector, "[\"user:read\",\"user:write\"]", CONNECTOR_ADMIN));
+        UUID original = tokenId(issue(connector, "[\"user:read\",\"user:write\"]", SUPERUSER));
 
-        MvcResult kept = rotate(connector, original, "{\"overlapDays\":1}", CONNECTOR_ADMIN);
+        MvcResult kept = rotate(connector, original, "{\"overlapDays\":1}", SUPERUSER);
         assertThat(kept.getResponse().getStatus()).isEqualTo(201);
         assertThat(strings(body(kept).get("permissions"))).containsExactly("user:read", "user:write");
 
         MvcResult replaced = rotate(connector, tokenId(kept),
-                "{\"permissions\":[\"group:read\"]}", CONNECTOR_ADMIN);
+                "{\"permissions\":[\"group:read\"]}", SUPERUSER);
         assertThat(replaced.getResponse().getStatus()).isEqualTo(201);
         assertThat(strings(body(replaced).get("permissions"))).containsExactly("group:read");
         assertThat(jdbc.queryForObject(TOKEN_PERMISSIONS, String.class, tokenId(replaced)))
@@ -191,25 +214,6 @@ class ConnectorTokenPermissionsIntegrationTests {
         assertThat(events("CONNECTOR_TOKEN_ROTATE", connector))
                 .extracting(row -> row.get("permissions"))
                 .containsExactly("user:read,user:write", "group:read");
-    }
-
-    /** Rotating is minting: kept Permissions the caller lacks are an escalation too. */
-    @Test
-    void a_rotation_keeping_permissions_the_caller_lacks_is_refused_and_audited()
-            throws Exception {
-        UUID connector = createConnector("permissions-rotation-escalation");
-        UUID original = tokenId(issue(connector, "[\"user:write\",\"group:write\"]", CONNECTOR_ADMIN));
-
-        MvcResult refused = rotate(connector, original, null, GROUPS_ONLY_MINTER);
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(403);
-        assertThat(listedTokens(connector)).as("no replacement was minted").hasSize(1);
-        assertThat(events("CONNECTOR_TOKEN_ROTATE", connector)).singleElement()
-                .satisfies(row -> {
-                    assertThat(row.get("outcome")).isEqualTo("FAILURE");
-                    assertThat(row.get("error_code")).isEqualTo("PERMISSION_ESCALATION");
-                    assertThat(row.get("permissions")).isEqualTo("group:write,user:write");
-                });
     }
 
     // ---- the stored shape -------------------------------------------------------------------
@@ -221,7 +225,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     @Test
     void the_database_refuses_a_token_permission_outside_the_directory_four() throws Exception {
         UUID connector = createConnector("permissions-stored-check");
-        UUID token = tokenId(issue(connector, "[\"user:read\"]", CONNECTOR_ADMIN));
+        UUID token = tokenId(issue(connector, "[\"user:read\"]", SUPERUSER));
 
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO scim_connector_token_permissions (token_id, permission) VALUES (?, ?)",
@@ -235,7 +239,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     @Test
     void deleting_a_token_removes_its_permission_rows() throws Exception {
         UUID connector = createConnector("permissions-stored-delete");
-        UUID token = tokenId(issue(connector, "[\"group:read\",\"group:write\"]", CONNECTOR_ADMIN));
+        UUID token = tokenId(issue(connector, "[\"group:read\",\"group:write\"]", SUPERUSER));
         assertThat(jdbc.queryForObject(PERMISSION_ROWS, Integer.class, token))
                 .as("the fixture's token holds two Permission rows").isEqualTo(2);
 
@@ -251,7 +255,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     void a_group_write_only_token_writes_groups_and_is_refused_on_users_writes()
             throws Exception {
         UUID connector = createConnector("permissions-group-writer");
-        String token = presented(issue(connector, "[\"group:write\"]", CONNECTOR_ADMIN));
+        String token = presented(issue(connector, "[\"group:write\"]", SUPERUSER));
 
         MvcResult created = mvc.perform(bearer(post("/scim/v2/Groups"), token)
                         .contentType("application/scim+json")
@@ -298,11 +302,11 @@ class ConnectorTokenPermissionsIntegrationTests {
     @Test
     void a_user_read_only_token_searches_users_and_no_groups() throws Exception {
         UUID connector = createConnector("permissions-user-reader");
-        String userReader = presented(issue(connector, "[\"user:read\"]", CONNECTOR_ADMIN));
+        String userReader = presented(issue(connector, "[\"user:read\"]", SUPERUSER));
         String bothReader = presented(issue(connector, "[\"user:read\",\"group:read\"]",
-                CONNECTOR_ADMIN));
+                SUPERUSER));
         String writer = presented(issue(connector, "[\"user:write\",\"group:write\"]",
-                CONNECTOR_ADMIN));
+                SUPERUSER));
         String search = "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:SearchRequest\"],"
                 + "\"count\":200}";
 
@@ -332,7 +336,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     void a_token_cannot_reach_the_application_chain() throws Exception {
         UUID connector = createConnector("permissions-api");
         String token = presented(issue(connector,
-                "[\"user:read\",\"user:write\",\"group:read\",\"group:write\"]", CONNECTOR_ADMIN));
+                "[\"user:read\",\"user:write\",\"group:read\",\"group:write\"]", SUPERUSER));
 
         for (String path : List.of("/api/admin/accounts", "/api/admin/groups", CONNECTORS)) {
             assertThat(mvc.perform(bearer(get(path), token)).andReturn().getResponse().getStatus())
@@ -343,7 +347,7 @@ class ConnectorTokenPermissionsIntegrationTests {
     // ---- helpers ------------------------------------------------------------------------------
 
     private UUID createConnector(String displayName) throws Exception {
-        MvcResult created = mvc.perform(asRole(post(CONNECTORS), TestRoleMappings.SUPERUSER_AUTHORITIES)
+        MvcResult created = mvc.perform(asRole(post(CONNECTORS), SUPERUSER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"" + displayName + "\"}"))
                 .andReturn();
@@ -371,7 +375,7 @@ class ConnectorTokenPermissionsIntegrationTests {
 
     private List<JsonNode> listedTokens(UUID connector) throws Exception {
         JsonNode listed = body(mvc.perform(asRole(get(CONNECTORS),
-                TestRoleMappings.SUPERUSER_AUTHORITIES)).andReturn());
+                SUPERUSER)).andReturn());
         for (JsonNode summary : listed) {
             if (summary.get("id").asText().equals(connector.toString())) {
                 return summary.get("tokens").valueStream().toList();

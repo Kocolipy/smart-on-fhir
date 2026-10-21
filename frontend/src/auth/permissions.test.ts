@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { holds, holdsAny, mayOpen, requirementOf } from "./permissions";
+import { holds, holdsAny, mayOpen, requirementOf, SUPERUSER } from "./permissions";
 
 describe("holds", () => {
   it("is true only for a Permission the session holds", () => {
@@ -18,6 +18,28 @@ describe("holds", () => {
 
   it("is false for a session whose Permissions are not known yet", () => {
     expect(holds({}, "user:read")).toBe(false);
+  });
+});
+
+describe("holds the Superuser", () => {
+  it("is true only for a session the backend reported as a Superuser's", () => {
+    expect(holds({ permissions: [], superuser: true }, SUPERUSER)).toBe(true);
+    expect(holds({ permissions: [], superuser: false }, SUPERUSER)).toBe(false);
+  });
+
+  it("is not conferred by holding every Permission", () => {
+    const everyPermission = ["audit:read", "group:read", "user:read", "user:write"] as const;
+    expect(holds({ permissions: everyPermission, superuser: false }, SUPERUSER)).toBe(false);
+  });
+
+  it("is false for no session, and for one whose standing is not known yet", () => {
+    expect(holds(null, SUPERUSER)).toBe(false);
+    expect(holds(undefined, SUPERUSER)).toBe(false);
+    expect(holds({}, SUPERUSER)).toBe(false);
+  });
+
+  it("is not a Permission a session's list can hold", () => {
+    expect(holds({ permissions: [], superuser: false }, "user:read")).toBe(false);
   });
 });
 

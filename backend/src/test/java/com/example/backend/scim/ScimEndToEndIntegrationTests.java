@@ -114,7 +114,7 @@ class ScimEndToEndIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("e2e-connector", null).id();
         writeToken = connectors
-                .issueToken(connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL)
+                .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 

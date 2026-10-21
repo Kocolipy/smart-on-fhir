@@ -28,8 +28,10 @@ straight into `lib/http`) but may never point back up.
 
 - `api.ts` — the `/api/auth/*` calls, each mapping a status to a domain outcome
   (`401` on `/me` is a guest, not an error), the decoder for the session's
-  `permissions`, and `PERMISSIONS`, the closed set the backend's `Permission`
-  enum defines (a session reporting another name fails decoding). The three
+  `permissions` and `superuser`, and `PERMISSIONS`, the closed set the backend's
+  `Permission` enum defines (a session reporting another name fails decoding).
+  `superuser` is the Superuser's standing, a boolean beside the Permissions and
+  never one of them. The three
   **session actions** — `login`, `logout`, `changePassword` — and the start-up
   check, `getCurrentUser`, each resolve to a closed outcome (`LoginOutcome`,
   `LogoutOutcome`, `PasswordChangeOutcome`, `SessionCheckOutcome`) and never
@@ -44,13 +46,15 @@ straight into `lib/http`) but may never point back up.
   to the page status; outside it (Login, the idle warning's Sign out) it hands
   back `error`. No caller reads an outcome or catches. `run` resolves `"stayed"`
   or `"moved-on"`.
-- `permissions.ts` — `holds` / `holdsAny`, and the one rule for whether a
-  session may open a page: `requirementOf` reads a page's `permissions` as "any
+- `permissions.ts` — `holds` / `holdsAny`, `SUPERUSER`, and the one rule for
+  whether a session may open a page. `holds` answers a `Requirement`: a
+  Permission, or the Superuser, which no number of Permissions satisfies. The one
+  rule: `requirementOf` reads a page's `permissions` as "any
   one of these", `mayOpen` decides. Which Permission a _request_ needs is
   declared on the endpoint instead.
 - `declarations.ts` — an endpoint as data: a `ReadDeclaration` (Permission,
   path, decoder, opt-in `absentOnNotFound`) and a `WriteDeclaration` (plus method
-  and optional JSON body). The API module that exports one builds its path from
+  and optional JSON body, and a Permission or the Superuser as its requirement). The API module that exports one builds its path from
   the call's arguments, so no page concatenates one. A page reads
   `declaration.permission` to offer a control and hands the same declaration to
   the hook that sends it, so the two cannot drift — each control asks about the
@@ -144,8 +148,10 @@ decide where a visitor goes.
   creates and deletes connectors and issues, rotates and revokes their tokens,
   re-reading the listing after every change (one change can touch more than
   one token). A token's plaintext lives only in component state, shown once.
-  It offers the token Permissions the session itself holds, and a rotation
-  refused `409` has its own copy.
+  Create, delete and every token action are offered only to a Superuser (the
+  declarations require it); a `connector:read` holder sees the listing alone. The
+  issue form offers every token Permission, and a rotation refused `409` has its
+  own copy.
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
   derives `ADMINISTRATION_PERMISSIONS` from its three listings.
 - `audit.tsx` / `audit-api.ts` — the audit listing, 50 a page, filtered by

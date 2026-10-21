@@ -124,7 +124,7 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
 
         connectorId = connectors.create("Telemetry probe " + suffix, null).id();
         String token = connectors.issueToken(
-                connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                connectorId, TokenPermissions.ALL, null, null).presentedValue();
         forbidden.addAll(List.of(userName, externalId, filter, token));
 
         HttpClient connector = HttpClient.newHttpClient();
@@ -207,7 +207,7 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
         }
         if (scimUserId != null) {
             String token = connectors.issueToken(
-                    connectorId, TokenPermissions.ALL, null, null, TokenPermissions.ALL).presentedValue();
+                    connectorId, TokenPermissions.ALL, null, null).presentedValue();
             HttpResponse<String> current = send(
                     HttpClient.newHttpClient(), scim("/Users/" + scimUserId, token).GET());
             String etag = current.headers().firstValue("ETag").orElseThrow();

@@ -58,6 +58,9 @@ public class SecurityConfig {
     /** Baseline access: active, and no password change required (see LoginIdentityService). */
     private static final String USER_ROLE = "USER";
 
+    /** The Superuser authority: {@code ROLE_SUPERUSER}, held by a direct member of the Admin group. */
+    private static final String SUPERUSER_ROLE = "SUPERUSER";
+
     /**
      * The single-page application loads only same-origin module scripts and a
      * same-origin stylesheet, so everything can be locked to {@code 'self'}.
@@ -347,15 +350,19 @@ public class SecurityConfig {
                                 .hasAuthority(Permission.AUDIT_READ.value())
                         .requestMatchers(read("/api/admin/connectors"))
                                 .hasAuthority(Permission.CONNECTOR_READ.value())
+                        // ---- Superuser only (backstop; see above) ----
+                        // Connector existence and credentials: create and delete, and issue,
+                        // rotate and revoke a token. Not a Permission, so no Group can carry it
+                        // and no number of Permissions stands in for it (ADR 0015).
                         .requestMatchers(HttpMethod.POST, "/api/admin/connectors")
-                                .hasAuthority(Permission.CONNECTOR_WRITE.value())
+                                .hasRole(SUPERUSER_ROLE)
                         .requestMatchers(HttpMethod.DELETE, "/api/admin/connectors/*")
-                                .hasAuthority(Permission.CONNECTOR_WRITE.value())
+                                .hasRole(SUPERUSER_ROLE)
                         .requestMatchers(HttpMethod.POST,
                                         "/api/admin/connectors/*/tokens",
                                         "/api/admin/connectors/*/tokens/*/rotate",
                                         "/api/admin/connectors/*/tokens/*/revoke")
-                                .hasAuthority(Permission.CONNECTOR_TOKEN.value())
+                                .hasRole(SUPERUSER_ROLE)
                         .requestMatchers(read("/api/patient/*"))
                                 .hasAuthority(Permission.PATIENT_READ.value())
                         // Not a backstop: no operation serves any other method on a patient, and
