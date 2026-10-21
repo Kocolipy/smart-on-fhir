@@ -1,11 +1,19 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { holding, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
+import { bare, holding, json, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
+import { adoptLaunchLanding } from "@/auth/launch-context";
 
 import { Home } from "./home";
+import { TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
 import { renderInLayout, renderSignedIn } from "./signed-in-shell.testHelpers";
+
+/** The tab loaded at an Epic landing with `patient` in context. */
+const landedFromEpicWith = (patient: string) => {
+  window.history.replaceState(null, "", `/#patient=${patient}`);
+  adoptLaunchLanding();
+};
 
 /** The page for a session holding exactly `permissions`, inside the signed-in layout. */
 const renderHolding = (permissions: Permission[]) => renderSignedIn("/", holding(permissions), {});
@@ -84,6 +92,35 @@ describe("Home", () => {
   });
 
   it("shows no patient in context, and asks for nothing, for a session holding the baseline Permissions", async () => {
+    const { requests } = await renderHolding(BASELINE);
+
+    expect(screen.getByText("No patient in context")).toBeInTheDocument();
+    expect(requests()).toEqual([]);
+  });
+
+  it("shows the patient an EHR launch put in context on the Patient card", async () => {
+    landedFromEpicWith(TAN_WEI_MING.id);
+
+    await renderSignedIn("/", holding(BASELINE), { [TAN_WEI_MING_READ]: json(TAN_WEI_MING) });
+
+    expect(await screen.findByText("Tan Wei Ming")).toBeInTheDocument();
+  });
+
+  it("shows no patient in context when the patient an EHR launch named is not there", async () => {
+    landedFromEpicWith(TAN_WEI_MING.id);
+
+    const { requests } = await renderSignedIn("/", holding(BASELINE), {
+      [TAN_WEI_MING_READ]: bare(404),
+    });
+
+    expect(await screen.findByText("No patient in context")).toBeInTheDocument();
+    expect(requests()).toEqual([{ method: "GET", path: `/api/patient/${TAN_WEI_MING.id}` }]);
+  });
+
+  it("asks for nothing after an EHR launch that put no patient in context", async () => {
+    window.history.replaceState(null, "", "/#encounter=enc-1");
+    adoptLaunchLanding();
+
     const { requests } = await renderHolding(BASELINE);
 
     expect(screen.getByText("No patient in context")).toBeInTheDocument();

@@ -9,6 +9,7 @@ import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.EpicMfaEvidence;
 import com.example.backend.auth.domain.SignedInSession;
+import com.example.backend.auth.epic.EpicIdentity;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicTokenHandOff;
@@ -42,7 +43,9 @@ import org.springframework.stereotype.Component;
  * ({@link SignedInSession#keepEpicTokens}), taken from the token response the filter handed over
  * ({@link EpicTokenHandOff}): so they live under the rotated id alone, for exactly as long as the
  * session does, and the session is stored no longer than its remaining absolute lifetime (ADR
- * 0012, D29). The browser lands at {@code /}. Each later request is bounded the same way by
+ * 0012, D29). The browser lands at {@code /}, the token response's launch context — the patient
+ * and encounter, each a FHIR id or left out — in the fragment and nowhere else
+ * ({@link EpicIdentity}, D8). Each later request is bounded the same way by
  * {@code AbsoluteSessionLifetimeFilter}, so its renewal cannot undo this.
  *
  * <p>Anything short of that — a {@code fhirUser} of another form, or no acceptable User — ends
@@ -116,7 +119,11 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
                         .ifPresent(tokens -> HttpSessionAttributes.signedIn(session)
                                 .keepEpicTokens(tokens, absoluteLifetime, clock.instant())),
                 request, response).isPresent();
-        (signedIn ? EpicLanding.SIGNED_IN : EpicLanding.REFUSED).sendTo(request, response);
+        if (signedIn) {
+            EpicLanding.signedIn(EpicIdentity.launchContextOf(epic), request, response);
+        } else {
+            EpicLanding.REFUSED.sendTo(request, response);
+        }
     }
 
     /** The MFA factor the Login was made with, as {@link EpicMfaEvidence#factorOf} decides it. */

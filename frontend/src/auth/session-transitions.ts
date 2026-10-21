@@ -9,6 +9,10 @@
  * outlives its token being forgotten, nor the other way round. Callers say
  * *which* transition happened; none of them reaches the token itself.
  *
+ * Ending a session also forgets the tab's Launch context (`launch-context.ts`):
+ * the patient an EHR launch put in context belongs to the session it signed
+ * in, and is not shown to whoever signs in next.
+ *
  * Two transitions change the auth state without changing the session, and so
  * keep the token: a start-up check that did not answer (`checkFailed`), which
  * leaves the session unknown rather than ended, and the retry of that check
@@ -21,6 +25,7 @@ import { discardCsrfToken } from "@/lib/http";
 
 import type { AuthUser, SessionCheckFailure } from "./api";
 import type { Session } from "./auth-context-value";
+import { clearLaunchContext } from "./launch-context";
 import type { SessionEndReason } from "./sign-in-reason";
 
 const CHECKING: Session = {
@@ -66,6 +71,7 @@ export function useSessionTransitions(): SessionTransitions {
 
   const end = useCallback((reason: SessionEndReason | null) => {
     discardCsrfToken();
+    clearLaunchContext();
     setSession({ checkFailure: null, signInReason: reason, status: "guest", user: null });
   }, []);
 

@@ -342,7 +342,7 @@ class EpicProtocolIntegrationTests {
 
         EpicBrowser.Landing replayed = EPIC.browser().callback(callback, launched.session());
 
-        assertThat(first.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(first.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
         assertThat(replayed.callback().getResponse().getRedirectedUrl()).isEqualTo(REFUSED);
         assertThat(refusalsAudited("INVALID_STATE")).isEqualTo(before + 1);
         assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
@@ -378,7 +378,7 @@ class EpicProtocolIntegrationTests {
 
         long signedIn = 0;
         for (Future<EpicBrowser.Landing> landing : landings) {
-            if ("/".equals(landing.get().callback().getResponse().getRedirectedUrl())) {
+            if (EPIC.fake().defaultHome().equals(landing.get().callback().getResponse().getRedirectedUrl())) {
                 signedIn++;
             }
         }
@@ -654,7 +654,7 @@ class EpicProtocolIntegrationTests {
         EpicBrowser.Landing landing =
                 EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
     }
 
     @Test
@@ -665,7 +665,7 @@ class EpicProtocolIntegrationTests {
         EpicBrowser.Landing landing =
                 EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
     }
 
     // ---- the identity (flow step 5) -----------------------------------------------------------
@@ -714,7 +714,7 @@ class EpicProtocolIntegrationTests {
         EpicBrowser.Landing landing =
                 EPIC.browser().signIn(EPIC.provisionedFhirUser(), null);
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
     }
 
     // ---- every refusal ------------------------------------------------------------------------

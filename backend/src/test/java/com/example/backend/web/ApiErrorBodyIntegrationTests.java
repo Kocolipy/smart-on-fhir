@@ -114,6 +114,20 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
         assertApiError(response, 400, ApiError.INVALID_REQUEST, "forged", "S1234567A");
     }
 
+    /**
+     * Tomcat passes an encoded slash through ({@code EncodedSlashPassthrough}), and the request
+     * firewall still refuses it, on every path: the refusal is the namespace's document rather
+     * than Tomcat's error page, and the path is never reached.
+     */
+    @Test
+    void the_firewalls_refusal_of_an_encoded_slash_is_a_400_api_error() throws Exception {
+        HttpResponse<String> response = send(HttpClient.newHttpClient(),
+                request("/api/admin%2Faccounts").GET());
+
+        assertApiError(response, 400, ApiError.INVALID_REQUEST, "admin%2Faccounts",
+                "admin/accounts");
+    }
+
     /** A declared route sent a body type it does not read: the dispatcher's own refusal. */
     @Test
     void the_dispatchers_refusal_of_a_body_type_is_a_415_api_error() throws Exception {

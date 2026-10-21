@@ -7,8 +7,9 @@ Date: 2026-10-06
 Accepted, finalised 2026-10-08 and consolidated 2026-10-10. This ADR is the sole
 authority on Epic Login: the flow, every decision D1–D29, the accepted risk D13,
 the IM8 policy position and the App-Standards deviations. D29 (#24) supersedes D8
-for Epic's tokens; how a Login ends, for both methods, is ADR 0001's. ADR 0011
-records the ac-2, ac-12 and as-8 positions this changes.
+for Epic's tokens, and #153 revised D8 in place: the Launch context is passed to
+the SPA, never kept server-side. How a Login ends, for both methods, is ADR
+0001's. ADR 0011 records the ac-2, ac-12 and as-8 positions this changes.
 
 ## Context
 
@@ -34,9 +35,9 @@ Out of scope, deliberately:
 
 - standalone launch, a "Sign in with Epic" button, or patient-facing (MyChart)
   Login;
-- using patient or encounter launch context, or any FHIR API call. Epic's tokens
-  are kept for the session (D29), but using them, refreshing included, is out of
-  scope;
+- using the Launch context beyond showing its patient on Home (D8) — the
+  encounter is held but unused — or any FHIR API call. Epic's tokens are kept
+  for the session (D29), but using them, refreshing included, is out of scope;
 - just-in-time provisioning: an Epic Login never creates or modifies a User;
 - single sign-out with Epic;
 - signing-key generation, scheduling or expiry: key rotation is operated outside
@@ -61,7 +62,7 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    |                              |<-- POST token (client_assertion, verifier)
    |                              |-- id_token --------------->| verify via jwks_uri
    |                              |-- GET /api/auth/epic/jwks.json (Epic verifies our assertion)
-   |<-------------------------------------- 302 / (session established)
+   |<------------ 302 /#patient=…&encounter=… (session established, D8)
 ```
 
 The authorize hop is its own round trip so that Spring Security's
@@ -106,7 +107,9 @@ authorization-request filter builds the request.
    D17's switch is on; any of them failing is `INVALID_CLAIMS`. No user-info call
    is made. The access token, any refresh token and the `id_token` are handed to
    the success handler on the callback's request alone, which keeps them only if
-   step 7 signs a session in (D29). The rest of the token response is dropped.
+   step 7 signs a session in (D29). Its `patient` and `encounter` reach the
+   success handler on the request's own identity alone (`EpicIdentity`), for the
+   landing's fragment (D8). The rest of the token response is dropped.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
    non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
    refused as `INVALID_FHIR_USER`. The dev profile
@@ -125,8 +128,10 @@ authorization-request filter builds the request.
 7. **Session.** `LoginCompletion` signs the session in through
    `SessionEstablishment`, exactly as for password Login (ADR 0001), with
    `session-start` under method `sso`. The success handler then keeps Epic's
-   tokens on the signed-in session (D29). The answer is `302 /`, Home: the
-   SPA's `/api/auth/me` answers `authenticated` and the protected route renders.
+   tokens on the signed-in session (D29). The answer is `302 /`, Home, with the
+   Launch context in the fragment (`/#patient=<id>&encounter=<id>`, or the bare
+   `/#launch`; D8): the SPA's `/api/auth/me` answers `authenticated` and the
+   protected route renders.
 8. **Any refusal or OAuth error** at any step lands on the login page at
    `/login?signin=refused`, and Epic being unreachable at
    `/login?signin=unavailable` (D23). Neither carries any
@@ -231,10 +236,35 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   It is refused as `UNKNOWN_ACCOUNT`, exactly as a name that matches nobody is,
   so the refusal does not say the account exists. Password Login stays its
   recovery path.
-- **D8: no launch context is kept.** The patient and encounter context, and the
-  rest of the token response, are discarded. D8 first discarded Epic's tokens too.
-  D29 superseded that: the access token, the refresh token and the `id_token` are
-  kept for the session.
+- **D8: the Launch context is passed to the SPA, never kept server-side.** The
+  token response's `patient` and `encounter` are the **Launch context**
+  (`/CONTEXT.md`). Each is checked against FHIR's id grammar,
+  `[A-Za-z0-9\-.]{1,64}` — the one `PatientId` holds, mirrored in
+  `auth.epic.LaunchContext` because `auth` may not reach `patient` — and a value
+  outside it, or one that is not a string, is left out. The success landing
+  carries whichever passed in its fragment, `/#patient=<id>&encounter=<id>`, and
+  is the bare marker `/#launch` when neither did. Nothing of it goes into the
+  session, Redis or the Epic tokens: it reaches the success handler on the
+  callback request's own identity (`EpicIdentity`, which the login filter saves
+  nowhere), and leaves in the redirect. A refusal still lands at
+  `/login?signin=…` with no fragment. The SPA reads the fragment on load, checks
+  the same grammar, strips it from the URL and keeps the Launch context in
+  `sessionStorage`, per tab; every Epic landing replaces it, a reload keeps it,
+  and sign-out, session expiry and a password Login clear it
+  (`frontend/docs/BACKEND_CONTRACT.md`). The Patient card reads its patient; the
+  encounter is held but unused.
+
+  Authorization is unchanged, deliberately: `patient:read` alone still lets a
+  User read any id, and `GET /api/patient/{id}` is not bound to the Launch
+  context. Editing the fragment changes only which patient that User views,
+  which the same User could already read by id. Binding the read to the launch
+  would mean keeping the context server-side, which this decision avoids.
+
+  The rest of the token response is discarded. D8 first discarded Epic's tokens
+  and the launch context too. D29 superseded that for the tokens: the access
+  token, the refresh token and the `id_token` are kept for the session; #153
+  revised it for the launch context, as above.
+
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
 - **D10: `iss` is required** on the launch URL and must exactly equal
@@ -316,7 +346,10 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   signing keys. A startup validation error names the variable, never its value.
   The first line of defence is that no code path hands any of them to a log or
   audit call. The second is the ADR 0003 redaction scan, which knows these names
-  (ADR 0003, "Redaction gates").
+  (ADR 0003, "Redaction gates"). The Launch context's patient and encounter are
+  never logged or audited either; the one place they go is the success landing's
+  fragment (D8), and `EpicLoginRedactionIntegrationTests` searches every Login
+  path's log and audit trail for them.
 - **D23: refused and unavailable are distinct outcomes.** A refusal — bad input,
   a failed check, no acceptable User — is `302 /login?signin=refused`. Epic being
   unreachable — a connect or read timeout, or a `5xx`, from discovery, the JWKS
@@ -350,11 +383,29 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   (`MessageDigest.isEqual`); the nonce is bound for the rest of the callback's
   own request only (a `ScopedValue`), and is gone with it.
 - **D28: data classification is the data owner's.** Until the data owner
-  classifies the application's data (an open item, below), the controls assume
-  User PII and no clinical data, which D8 guarantees: nothing clinical Epic sends
-  is kept. The tokens D29 keeps are credentials, not clinical data, and today's
-  scope (`launch openid fhirUser`) reads none. A ticket that adds FHIR scopes
-  makes them a key to clinical data, and revisits this.
+  classifies the application's data (an open item, below), Epic Login's controls
+  assume User PII and nothing clinical kept from what Epic sends. Rechecked in
+  #153, once a patient id began to travel to the browser: **the assumption still
+  holds server-side, and no longer holds for the browser.**
+  - _Server-side it holds._ D8 still keeps nothing clinical Epic sends: the
+    Launch context reaches no session, Redis key, Epic token set, log record or
+    audit event (D22). The tokens D29 keeps are credentials, not clinical data,
+    and today's scope (`launch openid fhirUser`) reads none.
+  - _In the browser it does not._ The patient id names the patient the clinician
+    opened in Epic — clinical context — so it is handled as the Patient it names
+    is (Restricted, `/docs/domain/patient.md`, "Data classification"). It is an
+    EHR's opaque FHIR id, never an NRIC or a name, and its exposure is bounded:
+    it travels only in the redirect's fragment, which a browser never sends to a
+    server, so no access log of ours, a proxy's or a load balancer's records it;
+    the SPA strips it from the address bar and the history entry as it loads;
+    and it lives in that tab's `sessionStorage` alone — not shared with other
+    tabs, gone with the tab — cleared when the session ends and dropped by
+    logout's `Clear-Site-Data` too. It reveals nothing the User could not
+    already read: `patient:read` reads any id (D8).
+
+  A ticket that adds FHIR scopes makes the tokens a key to clinical data, and a
+  ticket that keeps the Launch context server-side makes it held clinical
+  context; either revisits this, as the data owner's classification will.
 
 ### Audit
 
@@ -517,8 +568,9 @@ Micrometer, on the existing Prometheus registry:
 supersedes D8 for the access token, the refresh token and the `id_token`. Backend
 features need to act at Epic on behalf of the signed-in clinician, so a successful
 Epic Login keeps Epic's tokens server-side, bound to the session it signs in, as
-the **Epic tokens** (`/CONTEXT.md`). The launch context is still discarded, and no
-FHIR API is called yet.
+the **Epic tokens** (`/CONTEXT.md`). The Launch context is not among them: it is
+passed to the SPA in the landing's fragment and kept nowhere server-side (D8),
+and no FHIR API is called yet.
 
 - **What is kept** (`EpicTokenSet`):
   - the access token's value;

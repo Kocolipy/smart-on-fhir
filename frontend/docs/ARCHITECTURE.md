@@ -6,7 +6,7 @@ What is here today, and where a new concern belongs.
 
 ```
 src/
-  main.tsx            composition root — mounts React, imports index.css
+  main.tsx            composition root — adopts an Epic landing's Launch context, mounts React, imports index.css
   App.tsx             app root — BrowserRouter, AuthProvider, the route table
   index.css           Tailwind entry + the design tokens
   vite-env.d.ts       /// <reference types="vite/client" />
@@ -68,9 +68,17 @@ straight into `lib/http`) but may never point back up.
   resets on every path change, and a source that unmounts withdraws its failure.
 - `session-transitions.ts` — `useSessionTransitions`, the one place the auth
   state (status, user, sign-in reason) changes, as `signIn(user)` or
-  `end(reason)`, each forgetting the CSRF token in the same step (ADR 0009).
+  `end(reason)`, each forgetting the CSRF token in the same step (ADR 0009);
+  `end` forgets the tab's Launch context too.
   `checkFailed` (status `unchecked`) and `recheck` change the status without
   changing the session, so they keep the token.
+- `launch-context.ts` — the tab's **Launch context**, the patient and encounter
+  an EHR launch put in context: `adoptLaunchLanding()` (called by `main.tsx`
+  before the router reads the URL) reads an Epic landing's fragment, holds each
+  value to FHIR's id grammar, keeps it in `sessionStorage` and strips the
+  fragment; `launchContext()` reads it back, decoded rather than trusted; and
+  `clearLaunchContext()` forgets it, on every session end and a password Login
+  (`docs/BACKEND_CONTRACT.md`).
 - `auth-context.tsx` — the `AuthProvider`: checks the session on mount and on
   `retrySessionCheck` (`ok` signs in, `401` ends, anything else is
   `checkFailed`) and maps each session event onto a transition with its sign-in
@@ -161,14 +169,15 @@ decide where a visitor goes.
   mount, submit, paging and Refresh, **never on a timer**: every request renews
   the server session, so a polling page would never reach the idle timeout. The
   pager names a total only once a read of the current query has stated one.
-- `home.tsx` — the Patient card, then the Pages card: a link to each page the
-  session may open.
+- `home.tsx` — the Patient card, handed the tab's Launch context's patient
+  (`launchContext()`), then the Pages card: a link to each page the session
+  may open.
 - `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
   an optional `patientId` prop. Without one it shows "No patient in context" and
   never calls the gated read; with one, a child component reads
   `GET /api/patient/{patientId}` through `PATIENT` (opting in to `absent`),
-  decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes no
-  id yet. Every field renders as a plain text node; the age is computed from the
+  decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes the
+  Launch context's patient. Every field renders as a plain text node; the age is computed from the
   card's injectable `Clock`.
 - `listing-body.tsx` — the one listing body: loading, empty, and a blank body
   for a failure (whose copy is on the error line). Each page names its

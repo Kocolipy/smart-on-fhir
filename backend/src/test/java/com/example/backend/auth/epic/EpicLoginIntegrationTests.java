@@ -38,9 +38,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -178,15 +182,72 @@ class EpicLoginIntegrationTests {
 
     // ---- the happy path -----------------------------------------------------------------------
 
-    /** Flow step 7: the browser lands at {@code /}, and the SPA's {@code /me} path takes over. */
+    /**
+     * Flow step 7: the browser lands at {@code /}, the SPA's {@code /me} path takes over, and the
+     * token response's patient and encounter ride in the fragment, which no server is sent (D8).
+     */
     @Test
-    void theCallbackLandsAtTheApplicationRoot() throws Exception {
+    void theCallbackLandsAtHomeCarryingTheLaunchContextInTheFragment() throws Exception {
         String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().launchContext("eq081-VQEgP8drUUqCWzHfw3", "enc.42-A");
 
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
-        assertThat(landing.callback().getResponse().getStatus()).isEqualTo(302);
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(List.of(landing.callback().getResponse().getStatus(),
+                landing.callback().getResponse().getRedirectedUrl()))
+                .containsExactly(302, "/#patient=eq081-VQEgP8drUUqCWzHfw3&encounter=enc.42-A");
+    }
+
+    /**
+     * D8: each value is checked against FHIR's id grammar, {@code [A-Za-z0-9\-.]{1,64}}, and one
+     * outside it — or one that is not a JSON string at all — is left out of the fragment, the
+     * other kept.
+     */
+    @ParameterizedTest(name = "patient {0}, encounter {1}")
+    @MethodSource("oneValueOutsideTheGrammar")
+    void aLaunchContextValueOutsideTheFhirIdGrammarIsLeftOut(
+            Object patient, Object encounter, String home) throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().launchContext(patient, encounter);
+
+        Landing landing = EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(home);
+    }
+
+    static Stream<Arguments> oneValueOutsideTheGrammar() {
+        String longest = "a".repeat(64);
+        return Stream.of(
+                Arguments.of("a/b", "enc-1", "/#encounter=enc-1"),
+                Arguments.of("a".repeat(65), "enc-1", "/#encounter=enc-1"),
+                Arguments.of("", "enc-1", "/#encounter=enc-1"),
+                Arguments.of(42, "enc-1", "/#encounter=enc-1"),
+                Arguments.of("pat-1", "enc 1", "/#patient=pat-1"),
+                Arguments.of("pat-1", "<b>x</b>", "/#patient=pat-1"),
+                Arguments.of("pat-1", "e&patient=forged", "/#patient=pat-1"),
+                Arguments.of("pat-1", "enc-1\n", "/#patient=pat-1"),
+                Arguments.of(longest, null, "/#patient=" + longest),
+                Arguments.of(null, "Z.9-z", "/#encounter=Z.9-z"));
+    }
+
+    /**
+     * With neither a patient nor an encounter to pass on, the landing is the bare marker
+     * {@code /#launch}, so the SPA still knows a launch landed and replaces what it held.
+     */
+    @ParameterizedTest(name = "patient {0}, encounter {1}")
+    @MethodSource("noValueWithinTheGrammar")
+    void aLaunchWithNoUsableLaunchContextLandsAtTheBareMarker(Object patient, Object encounter)
+            throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        EPIC.fake().launchContext(patient, encounter);
+
+        Landing landing = EPIC.signInFromEpic(practitioner, null);
+
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/#launch");
+    }
+
+    static Stream<Arguments> noValueWithinTheGrammar() {
+        return Stream.of(Arguments.of(null, null), Arguments.of("a/b", ""));
     }
 
     /**
@@ -200,7 +261,8 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.browser().completeAccepted(
                 "Practitioner/" + practitioner, EPIC.browser().launch(null));
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl())
+                .isEqualTo(EPIC.fake().defaultHome());
     }
 
     @Test
@@ -467,9 +529,10 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * What D8 still drops: the token response's patient and encounter launch context. Epic's
-     * three tokens are kept for the signed-in session (ADR 0012, D29), which
-     * {@link EpicTokensIntegrationTests} holds.
+     * What D8 keeps nowhere: the token response's patient and encounter launch context, which only
+     * the landing's fragment carries on to the browser — not the session, which is stored in
+     * Redis, and not the Epic tokens kept on it. Epic's three tokens are kept for the signed-in
+     * session (ADR 0012, D29), which {@link EpicTokensIntegrationTests} holds.
      */
     @Test
     void theLaunchContextFromEpicsTokenResponseIsNotStored() throws Exception {
@@ -970,7 +1033,7 @@ class EpicLoginIntegrationTests {
 
         Landing landing = EPIC.signInFromEpic(EPIC.practitioners().provision(), null);
 
-        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo("/");
+        assertThat(landing.callback().getResponse().getRedirectedUrl()).isEqualTo(EPIC.fake().defaultHome());
         assertThat(EPIC.fake().requests(FakeEpic.Endpoint.JWKS)).isEqualTo(before + 2);
     }
 

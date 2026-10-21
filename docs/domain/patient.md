@@ -91,9 +91,14 @@ fixed sentence per code:
 
 An outcome never contains an exception message, SQL, a stack trace or the
 submitted id — markup or a line break in the id included. Malformed covers an id
-over 64 characters, markup, a line break and an empty segment (`a//b`); the last
-two never reach the dispatcher, since the request firewall refuses them, and are
-answered with the same outcome. A well-formed id that names no patient —
+over 64 characters, markup, a line break, an empty segment (`a//b`) and an
+encoded slash (`a%2F%2Fb`); the last three never reach the dispatcher, since the
+request firewall refuses them, and are answered with the same outcome. An
+encoded slash reaches the firewall at all because Tomcat passes `%2F` through,
+still encoded, rather than refusing it with its own HTML error page
+(`web.EncodedSlashPassthrough`): passed through, it is never decoded into a path
+separator, and the firewall refuses it on every path, so path security is
+unchanged and only the answer becomes the outcome. A well-formed id that names no patient —
 `not-a-uuid` is one — is the `404`. The SPA reads the `404` as "No patient in
 context", an ordinary answer rather than a failure; every other error is the
 Patient card's failed state.
@@ -172,9 +177,12 @@ a test states the day it runs on and the age never depends on the viewer's zone.
 
 ## The patient in context and the seeding
 
-Home's **Patient card** shows the patient in context, and only that patient: with
-none in context it shows "No patient in context" and reads nothing. The SPA holds
-no patient id of its own.
+Home's **Patient card** shows the patient in context, and only that patient: the
+patient of the tab's **Launch context**, which an EHR launch passes to the SPA
+([Epic Login](./epic-login.md)). With none in context it shows "No patient in
+context" and reads nothing, and a `404` for the id in context shows the same. The
+SPA holds no patient id beyond the Launch context, and the read is not bound to
+it: `patient:read` reads any id.
 
 Patients are **development fixtures** only. The patient module's own seeder runs at
 startup **only when `APP_DEV_FIXTURES_ENABLED` is set**, so no dummy Patient

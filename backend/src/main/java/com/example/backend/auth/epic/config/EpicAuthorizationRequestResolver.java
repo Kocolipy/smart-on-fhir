@@ -1,6 +1,6 @@
 package com.example.backend.auth.epic.config;
 
-import com.example.backend.auth.epic.EpicLaunchContext;
+import com.example.backend.auth.epic.EpicLaunchValue;
 import com.example.backend.auth.epic.EpicRoutes;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -23,7 +23,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  * scope — a {@code nonce}, each random value carrying well over 128 bits; PKCE adds a
  * {@code code_verifier} of 43 or more characters and its S256 {@code code_challenge}. To that this
  * adds the two parameters an EHR launch needs: the pending {@code launch}, taken out of the
- * session ({@link EpicLaunchContext}), and {@code aud}, the FHIR base the launch was accepted
+ * session ({@link EpicLaunchValue}), and {@code aud}, the FHIR base the launch was accepted
  * for. No login hint is sent.
  *
  * <p>The pending request — {@code state}, the nonce and the verifier — is kept by
@@ -53,7 +53,7 @@ final class EpicAuthorizationRequestResolver implements OAuth2AuthorizationReque
         if (!AUTHORIZE.matches(request)) {
             return null;
         }
-        Optional<String> launch = EpicLaunchContext.take(request);
+        Optional<String> launch = EpicLaunchValue.take(request);
         if (launch.isEmpty()) {
             return null;
         }

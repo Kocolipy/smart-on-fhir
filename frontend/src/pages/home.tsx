@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
+import { launchContext } from "@/auth/launch-context";
 import { mayOpen, requirementOf } from "@/auth/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -21,10 +22,13 @@ export interface LinkablePage {
 /**
  * Home, the signed-in landing page at `/`.
  *
- * Every signed-in User lands here. The Patient card comes first: the patient in
- * context, read with `patient:read`, a baseline Permission every active User
- * holds. Nothing puts a patient in context yet, so the card shows "No patient
- * in context" and Home asks for nothing. Beneath it the Pages card links each page it is
+ * Every signed-in User lands here. The Patient card comes first: the patient of
+ * the tab's Launch context (`launch-context.ts`), which an EHR launch put
+ * there, read with `patient:read`, a baseline Permission every active User
+ * holds. With no patient in context — a password Login, or a launch that named
+ * none — the card shows "No patient in context" and Home asks for nothing. The
+ * Launch context changes only on load and when the session ends, so it is read
+ * as Home renders. Beneath it the Pages card links each page it is
  * handed (the other `SIGNED_IN_PAGES` entries, in registry order) that carries
  * a link label, exactly when that page's route guard would open it for this
  * session (`mayOpen`). It is handed them rather than importing the registry,
@@ -35,7 +39,7 @@ export function Home({ pages }: { pages: readonly LinkablePage[] }) {
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <PatientCard />
+      <PatientCard patientId={launchContext().patient} />
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Pages</CardTitle>

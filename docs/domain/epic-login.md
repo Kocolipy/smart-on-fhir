@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Epic Login
-description: Login by EHR launch — how an Epic clinician is matched to a User, every refusal, the Epic tokens' lifetime, MFA, and what is never recorded.
+description: Login by EHR launch — how an Epic clinician is matched to a User, every refusal, the Epic tokens' lifetime, the Launch context, MFA, and what is never recorded.
 tags: [authentication, epic, smart-on-fhir, oidc]
 ---
 
@@ -74,7 +74,8 @@ fixed, it is not repeated on each audit event or stored per User.
 **Every launch is a fresh Login** — the launch ends whatever session the
 browser held, whoever it belonged to, and a refused launch leaves the browser
 signed out: a shared workstation is never left signed in as the previous User. A
-successful Epic Login lands on [Home](./sessions.md), `/`, and is recorded as a
+successful Epic Login lands on [Home](./sessions.md), `/`, with its Launch
+context (below), and is recorded as a
 password Login is — failure run cleared, dormancy basis moved, `LOGIN_SUCCESS`
 with login method `sso`, every other session of the User revoked — so one session
 per User holds across both Login paths. The authorities are the ones password
@@ -99,10 +100,38 @@ leave nothing to retrieve, and a session holding them is stored no longer than
 its remaining absolute lifetime, however recently it was used. An expired
 access token ends nothing; the refresh token and the `id_token` stay with the
 session. Only backend code reads them, by session: no response carries them,
-`/api/auth/me` included, and the SPA holds no Epic credential. The patient and
-encounter context and the rest of the token response are discarded, and no FHIR
-API is called yet. Today Epic issues no refresh token, because the Login asks
-only for `launch openid fhirUser` (ADR 0012, D29).
+`/api/auth/me` included, and the SPA holds no Epic credential. The rest of the
+token response is discarded, the Launch context aside (below), and no FHIR API is
+called yet. Today Epic issues no refresh token, because the Login asks only for
+`launch openid fhirUser` (ADR 0012, D29).
+
+**The Launch context goes to the browser, never into the session** — the
+token response's `patient` and `encounter` are the **Launch context**. Each is
+checked against FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}`, the grammar a
+[Patient](./patient.md)'s id is held to, and a value outside it, or one that is
+not a string, is left out. A successful Epic Login lands at
+`/#patient=<id>&encounter=<id>`, carrying whichever passed, or at the bare
+marker `/#launch` when neither did; a refused or unavailable launch lands at
+`/login?signin=…` with no fragment. Nothing of it is kept server-side — not in
+the session, Redis or the Epic tokens — and none of it is logged or audited. A
+fragment is never sent to a server, so no access log records it either.
+
+The SPA reads the fragment as it loads, checks the same grammar, strips it from
+the address bar, and keeps the Launch context in that tab's `sessionStorage`:
+
+| Event                                                                               | The tab's Launch context |
+| ----------------------------------------------------------------------------------- | ------------------------ |
+| An Epic landing, the bare `/#launch` included                                       | replaced                 |
+| A reload                                                                            | kept                     |
+| Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared                  |
+| A password Login                                                                    | cleared                  |
+
+Home's Patient card reads `GET /api/patient/{patient}` for the patient in
+context, and shows "No patient in context" with none, or when that read is a
+`404`. The encounter is held but not used yet. Authorization is unchanged, by
+decision: `patient:read` alone lets a User read any id, and the read is not
+bound to the Launch context, so editing the fragment changes only which patient
+that User views (ADR 0012, D8, D28).
 
 **Input bounds** — what the browser hands a Login is checked before it is held,
 sent to Epic or redeemed:
@@ -157,6 +186,6 @@ change-required flag it sets confines only the User's password Login. It still
 ends every session the User holds, an Epic one included.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
-nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, our
-client assertion and our signing keys appear in no log record and no audit event
-(D22).
+nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, the
+Launch context's patient and encounter, our client assertion and our signing keys
+appear in no log record and no audit event (D22).

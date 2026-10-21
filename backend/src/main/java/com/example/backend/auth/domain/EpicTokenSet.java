@@ -16,8 +16,8 @@ import java.util.TreeSet;
  * the instant it expires, the scope Epic granted it, the refresh token when Epic issued one, and
  * the raw {@code id_token} (ADR 0012, D29, superseding D8 for those three).
  *
- * <p>Nothing else from the token response is here: the patient and encounter launch context are
- * still dropped.
+ * <p>Nothing else from the token response is here: the patient and encounter of the Launch
+ * context are passed to the browser in the landing's fragment and kept nowhere server-side (D8).
  *
  * <p>All three tokens are D22 values. The access and refresh tokens are bearer credentials at
  * Epic, and the {@code id_token} carries the clinician's identity claims, so none of them may

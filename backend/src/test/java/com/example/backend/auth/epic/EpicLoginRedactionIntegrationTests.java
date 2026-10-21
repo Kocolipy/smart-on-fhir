@@ -39,9 +39,11 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * refused for each reason the audit trail knows, and one for each way Epic can be unavailable
  * past discovery, each searched for every D22 value it handled — the {@code launch}, the
  * {@code state} and {@code nonce}, the authorization {@code code}, the PKCE verifier, the client
- * assertion, the {@code id_token}, the access token, the refresh token, and the private key
- * material of both signing keys — in the whole log stream it produced, the whole audit trail after
- * it, and every answer our callback gave the browser. Epic's three tokens are kept server-side for
+ * assertion, the {@code id_token}, the access token, the refresh token, the launch context's
+ * patient and encounter, and the private key material of both signing keys — in the whole log
+ * stream it produced, the whole audit trail after it, and every answer our callback gave the
+ * browser, the launch context aside: a signed-in landing carries it in its fragment, the one place
+ * it is meant to go (D8). Epic's three tokens are kept server-side for
  * a signed-in session (ADR 0012, D29), and none of them leaves it this way. The
  * same paths hold the {@code login} counter's Epic series and the {@code epic.outbound} meters to the tags each should
  * move.
@@ -114,8 +116,9 @@ class EpicLoginRedactionIntegrationTests {
     private static final Set<String> REDEEMED =
             with(CALLED_BACK, "code_verifier", "client_assertion");
 
+    /** A token response carries the launch context too, which no record names either (D8). */
     private static final Set<String> TOKENS =
-            with(REDEEMED, "id_token", "access_token", "refresh_token");
+            with(REDEEMED, "id_token", "access_token", "refresh_token", "patient", "encounter");
 
     /** One way an Epic Login can go, played against this test's browser and fake Epic. */
     @FunctionalInterface
@@ -219,7 +222,9 @@ class EpicLoginRedactionIntegrationTests {
         assertThat(logs.records()).as("the records %s wrote", which).isNotEmpty();
         seen.assertNoneIn("the log", logs.lines());
         seen.assertNoneInTheAuditTrail(jdbc);
-        seen.assertNoneIn("the callback's answer", callbackAnswers.toString());
+        // The launch context alone is meant for the browser, in a signed-in landing's fragment.
+        seen.without("patient", "encounter")
+                .assertNoneIn("the callback's answer", callbackAnswers.toString());
     }
 
     @ParameterizedTest(name = "{0} moves the Epic Login meters under the expected tags")

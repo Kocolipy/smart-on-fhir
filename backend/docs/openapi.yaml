@@ -594,8 +594,13 @@ paths:
         whose `userName` equals that id exactly is signed in as password Login
         would sign it in — the same authorities, a rotated session id, the
         pre-login CSRF token dropped — and the browser lands at `/`, where the
-        SPA's `GET /api/auth/me` takes over. Epic's access token and the rest of
-        its token response are discarded (D8).
+        SPA's `GET /api/auth/me` takes over. Epic's tokens are kept on the
+        signed-in session (D29). The token response's `patient` and `encounter`,
+        the Launch context, are passed to the SPA in the landing's fragment,
+        `/#patient=<id>&encounter=<id>`, each only when it is a FHIR id
+        (`[A-Za-z0-9\-.]{1,64}`), and the bare `/#launch` when neither is; they
+        are kept nowhere server-side. The rest of the token response is
+        discarded (D8).
 
         Any OAuth error or failed check lands at `/login?signin=refused`, audited
         with its reason (`INVALID_STATE`, `INVALID_CODE`, `IDP_ERROR`,
@@ -624,8 +629,10 @@ paths:
       responses:
         "302":
           description: >-
-            To `/` signed in, to `/login?signin=refused`, or — Epic unavailable — to
-            `/login?signin=unavailable`.
+            To `/` signed in — `/#patient=<id>&encounter=<id>` with whichever of
+            the Launch context passed, or `/#launch` — to `/login?signin=refused`,
+            or — Epic unavailable — to `/login?signin=unavailable`, neither of
+            which carries a fragment.
           headers:
             Location:
               description: Where the browser goes next.
@@ -743,10 +750,11 @@ paths:
         "400":
           description: |
             `id` is outside FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}` — over 64
-            characters, markup, an encoded line break, an empty segment, anything
-            else: `code: invalid`, `diagnostics` "The request is not valid.". A
-            line break or an empty segment is refused by the request firewall
-            before the dispatcher, in the same outcome.
+            characters, markup, an encoded line break, an empty segment, an
+            encoded slash (`%2F`), anything else: `code: invalid`, `diagnostics`
+            "The request is not valid.". A line break, an empty segment or an
+            encoded slash is refused by the request firewall before the
+            dispatcher, in the same outcome.
           content:
             application/fhir+json:
               schema:

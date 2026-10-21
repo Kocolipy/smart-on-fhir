@@ -20,12 +20,12 @@ import java.util.Optional;
  * still only one callback can complete. A refused or unavailable Login ends the session (D24),
  * which takes this value with it and leaves the pending entry unreachable until it expires.
  */
-public final class EpicLaunchContext {
+public final class EpicLaunchValue {
 
     /** The session attribute the value is held under between the launch and the authorize hop. */
-    static final String ATTRIBUTE = EpicLaunchContext.class.getName() + ".LAUNCH";
+    static final String ATTRIBUTE = EpicLaunchValue.class.getName() + ".LAUNCH";
 
-    private EpicLaunchContext() {
+    private EpicLaunchValue() {
     }
 
     /** Holds {@code launch} in {@code session} for the authorize hop. */
