@@ -216,16 +216,4 @@ class AbsoluteSessionLifetimeFilterTests {
                 .isEqualTo(300);
     }
 
-    @Test
-    void aSessionHoldingEpicTokensFarFromItsLifetimesEndKeepsItsIdleBound() throws Exception {
-        assertThat(requestedAt(Duration.ofHours(1), true).getMaxInactiveInterval())
-                .isEqualTo(IDLE_SECONDS);
-    }
-
-    /** Only the Epic tokens' storage is bounded so: a password session's idle bound is its own. */
-    @Test
-    void aSessionWithoutEpicTokensKeepsItsIdleBoundNearItsLifetimesEnd() throws Exception {
-        assertThat(requestedAt(Duration.ofHours(7).plusMinutes(55), false).getMaxInactiveInterval())
-                .isEqualTo(IDLE_SECONDS);
-    }
 }

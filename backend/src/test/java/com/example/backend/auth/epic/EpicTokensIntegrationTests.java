@@ -113,28 +113,21 @@ class EpicTokensIntegrationTests {
 
     // ---- what is kept, and for which session --------------------------------------------------
 
+    /**
+     * The signed-in session keeps what Epic issued: the access token, the {@code id_token}, the
+     * granted scope — and no refresh token, since Epic issues none for
+     * {@code launch openid fhirUser}, which is what we ask for today.
+     */
     @Test
-    void theAccessTokenIsKeptForTheSignedInSession() throws Exception {
+    void theTokensEpicIssuedAreKeptForTheSignedInSession() throws Exception {
         Cookie signedIn = signInFromEpic();
 
-        assertThat(tokensOf(signedIn).map(EpicTokenSet::accessToken))
-                .contains(EPIC.fake().accessToken);
-    }
+        EpicTokenSet kept = tokensOf(signedIn).orElseThrow();
 
-    @Test
-    void theIdTokenIsKeptForTheSignedInSession() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(tokensOf(signedIn).map(EpicTokenSet::idToken))
-                .contains(EPIC.fake().idTokens.getFirst());
-    }
-
-    @Test
-    void theGrantedScopeIsKeptForTheSignedInSession() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(tokensOf(signedIn).map(EpicTokenSet::scope))
-                .contains(Set.of("launch", "openid", "fhirUser"));
+        assertThat(kept.accessToken()).isEqualTo(EPIC.fake().accessToken);
+        assertThat(kept.idToken()).isEqualTo(EPIC.fake().idTokens.getFirst());
+        assertThat(kept.scope()).isEqualTo(Set.of("launch", "openid", "fhirUser"));
+        assertThat(kept.refreshToken()).isEmpty();
     }
 
     /**
@@ -162,14 +155,6 @@ class EpicTokensIntegrationTests {
 
         assertThat(tokensOf(signedIn).flatMap(EpicTokenSet::refreshToken))
                 .contains(EPIC.fake().refreshToken);
-    }
-
-    /** Epic issues none for {@code launch openid fhirUser}, which is what we ask for today. */
-    @Test
-    void theTokensAreKeptWithNoRefreshTokenWhenEpicIssuesNone() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(tokensOf(signedIn).orElseThrow().refreshToken()).isEmpty();
     }
 
     /** Kept only under the rotated id: the launch's own session id holds nothing. */

@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * What the bound configuration says about itself. A record's generated {@code toString} prints
@@ -40,18 +43,6 @@ class EpicLoginPropertiesTests {
                 + ", fhirBase=null, oauthIssuer=null, clientId=null, redirectUri=null"
                 + ", clientKey=null, clientKeyId=null, clientNextKey=null, clientNextKeyId=null"
                 + ", connectTimeout=PT2S, readTimeout=PT5S, mfaEvidenceRequired=false]");
-    }
-
-    /**
-     * D17: until Epic confirms it sends {@code amr} on an EHR launch, an unset MFA switch leaves
-     * the Epic organisation's MFA an attestation.
-     */
-    @Test
-    void anUnsetMfaEvidenceSwitchIsOff() {
-        EpicLoginProperties properties = new EpicLoginProperties(
-                null, null, null, null, null, null, null, null, null, null, null, null);
-
-        assertThat(properties.mfaEvidenceRequired()).isFalse();
     }
 
     /** The switch, set, reaches the accepted configuration. */
@@ -95,32 +86,28 @@ class EpicLoginPropertiesTests {
                 null, null, false);
     }
 
-    /** An unset switch is off. */
-    @Test
-    void anUnsetSwitchIsOff() {
+    /** The switch unset, or set to false as {@code APP_EPIC_ENABLED=false} sets it, is off. */
+    @ParameterizedTest(name = "set to {0}")
+    @NullSource
+    @ValueSource(booleans = false)
+    void aSwitchUnsetOrFalseIsOff(Boolean enabled) {
         EpicLoginProperties properties = new EpicLoginProperties(
-                null, null, null, null, null, null, null, null, null, null, null, null);
-
-        assertThat(properties.enabled()).isFalse();
-    }
-
-    /** A switch set to false is off, as {@code APP_EPIC_ENABLED=false} sets it. */
-    @Test
-    void aSwitchSetToFalseIsOff() {
-        EpicLoginProperties properties = new EpicLoginProperties(
-                false, null, null, null, null, null, null, null, null, null, null, null);
+                enabled, null, null, null, null, null, null, null, null, null, null, null);
 
         assertThat(properties.enabled()).isFalse();
     }
 
     /**
-     * An MFA switch set to false is off, as {@code APP_EPIC_MFA_EVIDENCE_REQUIRED=false} sets
-     * it.
+     * D17: until Epic confirms it sends {@code amr} on an EHR launch, an MFA switch unset, or set
+     * to false as {@code APP_EPIC_MFA_EVIDENCE_REQUIRED=false} sets it, leaves the Epic
+     * organisation's MFA an attestation.
      */
-    @Test
-    void anMfaEvidenceSwitchSetToFalseIsOff() {
+    @ParameterizedTest(name = "set to {0}")
+    @NullSource
+    @ValueSource(booleans = false)
+    void anMfaEvidenceSwitchUnsetOrFalseIsOff(Boolean required) {
         EpicLoginProperties properties = new EpicLoginProperties(
-                null, null, null, null, null, null, null, null, null, null, null, false);
+                null, null, null, null, null, null, null, null, null, null, null, required);
 
         assertThat(properties.mfaEvidenceRequired()).isFalse();
     }

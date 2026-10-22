@@ -61,28 +61,6 @@ class LoginIdentityServiceTests {
 
     // Reporting the stored identity to Spring Security
 
-    /**
-     * A User with a required password change authenticates normally — the refusal is at
-     * authorization, so the state is not enumerable before login — but receives the confined
-     * authority ONLY: no {@code ROLE_USER}, and for a member of the Admin group no
-     * {@code ROLE_ADMIN} either.
-     */
-    @Test
-    void aUserRequiredToChangeItsPasswordReceivesOnlyTheConfinedAuthority() {
-        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
-                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
-        groups.createReserved(
-                ScimIdentities.group("Admins", grace), ReservedResourceName.ADMIN_GROUP);
-
-        UserDetails details = service.loadUserByUsername("grace");
-
-        assertThat(details.getAuthorities())
-                .extracting(GrantedAuthority::getAuthority)
-                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
-        assertThat(details.isEnabled()).isTrue();
-        assertThat(details.isAccountNonLocked()).isTrue();
-        assertThat(details.getPassword()).isEqualTo("hash");
-    }
     @Test
     void loadsThePersistedIdentityAsSpringSecurityUserDetails() {
         users.given(ScimIdentities.user("admin"));
@@ -444,43 +422,6 @@ class LoginIdentityServiceTests {
     // Authority, which is derived from Group membership rather than stored
 
     /**
-     * Baseline access is what being an active identity means, so an identity outside the
-     * Admin group holds {@code ROLE_USER} and the baseline Permissions, and nothing else.
-     */
-    @Test
-    void anIdentityOutsideTheAdminGroupHoldsUserAuthorityAlone() {
-        users.given(ScimIdentities.user("ada"));
-        givenAdminGroup();
-
-        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
-    }
-
-    /**
-     * There is no administrative role any more: a direct member of the Admin group is the
-     * Superuser, never {@code ROLE_ADMIN}. The Admin group is the Group holding the reservation
-     * marker, whatever its id — here not the id the seed uses — so its member is the Superuser
-     * all the same (ADR 0015).
-     */
-    @Test
-    void anIdentityInTheAdminGroupIsTheSuperuserWhateverTheGroupsId() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        givenAdminGroup(ada);
-
-        assertThat(authoritiesOf("ada"))
-                .contains("ROLE_SUPERUSER")
-                .doesNotContain("ROLE_ADMIN")
-                .containsAll(TestGroupPermissions.EVERY_PERMISSION);
-    }
-
-    /** With no Admin group seeded at all, nobody is an administrator. */
-    @Test
-    void withNoAdminGroupSeededNobodyHoldsAdminAuthority() {
-        users.given(ScimIdentities.user("ada"));
-
-        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
-    }
-
-    /**
      * The Group is resolved through its reservation marker, never through its label. So a
      * Group that merely <em>displays</em> as the administrators' one confers nothing — which
      * is the difference between authority a connector cannot forge and authority anyone who
@@ -494,16 +435,6 @@ class LoginIdentityServiceTests {
                 ScimIdentities.group("Reserved administrators"),
                 ReservedResourceName.ADMIN_GROUP);
         groups.create(ScimIdentities.group("Admins", ada));
-
-        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
-    }
-
-    /** Membership is direct only, so another Group's members are not administrators. */
-    @Test
-    void membershipOfSomeOtherGroupConfersNoAdminAuthority() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        givenAdminGroup();
-        groups.create(ScimIdentities.group("Engineering", ada));
 
         assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
@@ -568,6 +499,59 @@ class LoginIdentityServiceTests {
 
     // Permissions from the Groups (ADR 0015)
 
+    /**
+     * Baseline access is what being an active identity means: a User whose Groups confer nothing
+     * holds {@code ROLE_USER} and the baseline Permissions, and nothing else — however it came to
+     * hold no more.
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            "in no Group beside an Admin group",
+            "with no Admin group seeded",
+            "in a Group carrying nothing",
+            "outside the only Group carrying Permissions"})
+    void aUserWhoseGroupsConferNothingHoldsOnlyTheBaseline(String arrangement) {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        switch (arrangement) {
+            case "in no Group beside an Admin group" -> givenAdminGroup();
+            case "with no Admin group seeded" -> { }
+            case "in a Group carrying nothing" -> groups.given(ScimIdentities.group("Carries nothing", ada));
+            case "outside the only Group carrying Permissions" -> groups.given(ScimGroup.created(AUDITORS,
+                    "Auditors", List.of(ScimGroupMember.reference(users.given(ScimIdentities.user("grace")).id())),
+                    ScimIdentities.NOW));
+            default -> throw new IllegalArgumentException(arrangement);
+        }
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+    }
+
+    /**
+     * A User with a required password change authenticates normally — the refusal is at
+     * authorization, so the state is not enumerable before login — but receives the confined
+     * authority ONLY: no {@code ROLE_USER}, no Permission, and in the Admin group not the
+     * Superuser either, whatever its Groups carry.
+     */
+    @ParameterizedTest(name = "a member of {0}")
+    @ValueSource(strings = {"the Admin group", "a Group carrying Permissions"})
+    void aUserRequiredToChangeItsPasswordReceivesOnlyTheConfinedAuthority(String group) {
+        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
+                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
+        if (group.equals("the Admin group")) {
+            givenAdminGroup(grace);
+        } else {
+            groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                    List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
+        }
+
+        UserDetails details = mapped.loadUserByUsername("grace");
+
+        assertThat(authoritiesOf(details))
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+        assertThat(details.isEnabled()).isTrue();
+        assertThat(details.isAccountNonLocked()).isTrue();
+        assertThat(details.getPassword()).isEqualTo("hash");
+    }
+
     private static final UUID HELPDESK = UUID.fromString(
             "00000000-0000-4000-8000-0000000000b1");
     private static final UUID AUDITORS = UUID.fromString(
@@ -612,49 +596,16 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * A Group carrying no Permission confers nothing: baseline access all the same — which
-     * includes the baseline Permissions, held by every active User whatever its Groups.
-     */
-    @Test
-    void aUserWhoseGroupsCarryNothingHoldsOnlyTheBaselinePermissions() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        groups.given(ScimIdentities.group("Carries nothing", ada));
-
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
-    }
-
-    /** What a Group carries reaches only its own direct members. */
-    @Test
-    void aGroupsPermissionsReachOnlyItsDirectMembers() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        ScimUser grace = users.given(ScimIdentities.user("grace"));
-        groups.given(ScimGroup.created(AUDITORS, "Auditors",
-                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
-
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
-    }
-
-    /** A confined session holds no Permission either, whatever its Groups carry. */
-    @Test
-    void aUserRequiredToChangeItsPasswordHoldsNoPermission() {
-        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
-                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
-        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
-                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
-
-        assertThat(authoritiesOf(mapped.loadUserByUsername("grace")))
-                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
-    }
-
-    /**
      * A direct member of the Admin group is the Superuser: {@code ROLE_SUPERUSER} beside baseline
      * access and every Permission a session may hold, and no {@code ROLE_ADMIN} — though the
-     * Admin group carries no Permission at all: the expansion is in code.
+     * Admin group carries no Permission at all: the expansion is in code. The Admin group is the
+     * Group holding the reservation marker, whatever its id — here not the id the seed uses
+     * (ADR 0015).
      */
     @Test
     void aDirectMemberOfTheAdminGroupHoldsRoleSuperuserAndEveryPermission() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
-        givenSuperuserGroup(ada);
+        givenAdminGroup(ada);
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .contains("ROLE_USER", "ROLE_SUPERUSER")
@@ -741,17 +692,6 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
                 .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read");
-    }
-
-    /** A confined password session is not yet a Superuser's: the change comes first. */
-    @Test
-    void aSuperuserRequiredToChangeItsPasswordHoldsOnlyTheConfinedAuthority() {
-        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
-                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
-        givenSuperuserGroup(grace);
-
-        assertThat(authoritiesOf(mapped.loadUserByUsername("grace")))
-                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
     /**

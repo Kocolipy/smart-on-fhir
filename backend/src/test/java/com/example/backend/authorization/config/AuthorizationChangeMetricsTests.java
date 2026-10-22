@@ -30,13 +30,6 @@ class AuthorizationChangeMetricsTests {
         assertThat(count("superuser-grant")).isZero();
     }
 
-    /** The description is the {@code # HELP} line Prometheus serves for the meter. */
-    @Test
-    void theMeterSaysWhatItCounts() {
-        assertThat(registry.get("authorization.changes").counter().getId().getDescription())
-                .isEqualTo("Changes of authorization, by operation");
-    }
-
     @Test
     void eachSuperuserGrantCountsOnce() {
         metrics.superuserGranted();

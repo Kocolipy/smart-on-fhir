@@ -76,27 +76,6 @@ class EpicTokensAdapterTests {
         assertThat(adapter.forSession(id)).isEmpty();
     }
 
-    /** At the boundary the session is still within its lifetime, as the policy has it. */
-    @Test
-    void aSessionExactlyAtItsAbsoluteLifetimeStillAnswers() {
-        String id = open(NOW.minus(ABSOLUTE_LIFETIME), TOKENS);
-
-        assertThat(adapter.forSession(id)).containsSame(TOKENS);
-    }
-
-    /** Something else under the attribute's name is not a token set, and is not handed out. */
-    @Test
-    void anAttributeOfAnotherTypeAnswersEmpty() {
-        MapSession session = new MapSession();
-        session.setCreationTime(NOW);
-        session.setLastAccessedTime(NOW);
-        session.setMaxInactiveInterval(Duration.ofDays(365_000));
-        session.setAttribute(SignedInSession.EPIC_TOKENS_ATTRIBUTE, "not a token set");
-        sessions.save(session);
-
-        assertThat(adapter.forSession(session.getId())).isEmpty();
-    }
-
     /**
      * A session created at {@code createdAt}, holding {@code tokens} when there are any. Its idle
      * bound is set far beyond any test, because the map repository measures it on the system

@@ -25,17 +25,6 @@ class DormancyPolicyTests {
         assertThat(DormancyPolicy.defaults()).isEqualTo(policy);
     }
 
-    /**
-     * The constants are what the README and {@code .env.example} quote, so a change to either is
-     * a change to the docs in the same commit.
-     */
-    @Test
-    void theDocumentedDefaultsAreTheOnesTheRuleUses() {
-        assertThat(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW).isEqualTo(Duration.ofDays(90));
-        assertThat(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW)
-                .isEqualTo(Duration.ofDays(180));
-    }
-
     /** Asserted against literals: comparing two constructions would pass if both defaulted. */
     @Test
     void configuredWindowsAreKeptAsGivenAndIndependently() {

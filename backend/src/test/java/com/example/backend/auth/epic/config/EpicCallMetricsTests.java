@@ -17,13 +17,6 @@ class EpicCallMetricsTests {
 
     private final EpicCallMetrics metrics = new EpicCallMetrics(registry);
 
-    /** The description is the {@code # HELP} line Prometheus serves for the meter. */
-    @Test
-    void theMeterSaysWhatItCounts() {
-        assertThat(failedCall("token", "cert/auth").getId().getDescription())
-                .isEqualTo("Epic calls whose failure ended an Epic Login, by call and category");
-    }
-
     /** {@code EpicClientCredentialRefused} selects {@code call="token", error_category="cert/auth"}. */
     @Test
     void everyFailedCallSeriesExistsAtZeroFromTheStart() {

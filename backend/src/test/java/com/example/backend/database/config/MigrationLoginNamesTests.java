@@ -8,6 +8,8 @@ import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
@@ -38,60 +40,30 @@ class MigrationLoginNamesTests {
                 .containsEntry("retention_login", "backend_retention_login");
     }
 
-    @Test
-    void aNameOfThreeCharactersIsAccepted() {
-        FluentConfiguration configuration = withLogins("app", "ret");
+    /** The pattern's length bounds, three to thirty-one characters, are themselves accepted. */
+    @ParameterizedTest(name = "a name of {0} characters is accepted")
+    @ValueSource(ints = {3, 31})
+    void aNameAtTheLengthBoundsIsAccepted(int length) {
+        String name = "a" + "b".repeat(length - 1);
+        FluentConfiguration configuration = withLogins(name, "retention");
 
         check.customize(configuration);
 
-        assertThat(configuration.getPlaceholders()).containsEntry("app_login", "app");
+        assertThat(configuration.getPlaceholders()).containsEntry("app_login", name);
     }
 
-    @Test
-    void aNameOfThirtyOneCharactersIsAccepted() {
-        String longest = "a" + "b".repeat(30);
-        FluentConfiguration configuration = withLogins(longest, "retention");
-
-        check.customize(configuration);
-
-        assertThat(configuration.getPlaceholders()).containsEntry("app_login", longest);
-    }
-
-    @Test
-    void aNameOfTwoCharactersIsRefused() {
-        assertThatThrownBy(() -> check.customize(withLogins("ab", "retention")))
+    /**
+     * A name one character outside either length bound, an uppercase letter or a leading digit is
+     * refused — and a quote or a space, which is how a name would carry SQL out of its identifier.
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"ab", "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "app\"; DROP TABLE x; --",
+            "Backend_app", "1backend"})
+    void aNameOutsideThePatternIsRefused(String name) {
+        assertThatThrownBy(() -> check.customize(withLogins(name, "retention")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Flyway placeholder app_login (DATABASE_USERNAME) must be a login"
                         + " name matching ^[a-z][a-z0-9_]{2,30}$");
-    }
-
-    @Test
-    void aNameOfThirtyTwoCharactersIsRefused() {
-        assertThatThrownBy(() -> check.customize(withLogins("a" + "b".repeat(31), "retention")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Flyway placeholder app_login ");
-    }
-
-    /** A quote or a space is how a name would carry SQL out of its identifier. */
-    @Test
-    void aNameCarryingSqlIsRefused() {
-        assertThatThrownBy(() -> check.customize(withLogins("app\"; DROP TABLE x; --", "ret")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Flyway placeholder app_login ");
-    }
-
-    @Test
-    void aNameWithAnUppercaseLetterIsRefused() {
-        assertThatThrownBy(() -> check.customize(withLogins("Backend_app", "retention")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Flyway placeholder app_login ");
-    }
-
-    @Test
-    void aNameStartingWithADigitIsRefused() {
-        assertThatThrownBy(() -> check.customize(withLogins("1backend", "retention")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Flyway placeholder app_login ");
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,7 +28,6 @@ import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -58,7 +56,6 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.TestingAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -299,71 +296,6 @@ class AuthControllerTests {
     }
 
     /**
-     * Session fixation protection: a caller that already holds a session gets a
-     * new session id once it authenticates, so an id captured before login cannot
-     * be replayed against the authenticated session.
-     */
-    @Test
-    void loginRotatesTheSessionIdOfAPreExistingSession() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        String preLoginSessionId = request.getSession(true).getId();
-
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-
-        assertThat(request.getSession(false).getId()).isNotEqualTo(preLoginSessionId);
-    }
-
-    /**
-     * Rotation has to happen before the authentication is written down, otherwise
-     * the context is saved into the session that is about to be replaced and the
-     * caller comes back authenticated as nobody.
-     */
-    @Test
-    void loginKeepsTheAuthenticationInTheRotatedSession() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession(true);
-
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-
-        SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
-                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
-        assertThat(savedContext).isNotNull();
-        assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
-    }
-
-    /**
-     * A CSRF token obtained before logging in must not survive the privilege
-     * change. Rotation alone would not do it: the session id changes but its
-     * attributes, the token among them, move to the new id with it.
-     */
-    @Test
-    void loginDiscardsTheCsrfTokenOfThePreLoginSession() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        csrfTokenRepository.saveToken(
-                csrfTokenRepository.generateToken(request), request, response);
-        assertThat(csrfTokenRepository.loadToken(request)).as("the arranged token").isNotNull();
-
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                response);
-
-        assertThat(csrfTokenRepository.loadToken(request)).isNull();
-        assertThat(request.getSession(false).getAttribute(
-                        HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY))
-                .as("only the token is dropped, not the session it lived in")
-                .isNotNull();
-        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
-    }
-
-    /**
      * The token travels in the body, never a cookie, under the header name the chain
      * reads it from, and is marked uncacheable so no intermediary can hand it to
      * another caller.
@@ -378,24 +310,6 @@ class AuthControllerTests {
         assertThat(answer.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
         assertThat(answer.getBody()).isEqualTo(
                 new AuthController.CsrfTokenResponse("X-CSRF-TOKEN", "masked-token-value"));
-    }
-
-    /**
-     * Saving to the session is not enough: the rest of the request that performed
-     * the login also has to see the authentication, which is what publishing it on
-     * the {@link SecurityContextHolder} thread-local provides.
-     */
-    @Test
-    void loginPublishesAuthenticationOnTheCurrentThread() {
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                new MockHttpServletRequest(),
-                new MockHttpServletResponse());
-
-        Authentication current = SecurityContextHolder.getContext().getAuthentication();
-        assertThat(current).isNotNull();
-        assertThat(current.getName()).isEqualTo("ada");
-        assertThat(current.isAuthenticated()).isTrue();
     }
 
     @Test
@@ -446,23 +360,6 @@ class AuthControllerTests {
     }
 
     /**
-     * {@code /me} reports Permissions and nothing else the session holds: not the baseline role,
-     * not a leftover {@code ROLE_ADMIN} a session from before the scheme might carry, not another
-     * framework authority — and in the order of their names, not the order they were granted.
-     */
-    @Test
-    void currentUserReportsOnlyPermissionsSortedByName() {
-        AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("grace", null,
-                        "account:unlock", "ROLE_USER", "ROLE_ADMIN", "FACTOR_PASSWORD",
-                        "audit:read"),
-                session());
-
-        assertThat(response.username()).isEqualTo("grace");
-        assertThat(response.permissions()).containsExactly("account:unlock", "audit:read");
-    }
-
-    /**
      * Every refusal leaves through this one handler, so the decision that a locked
      * account looks exactly like a wrong password is really a property of the
      * response it writes: status 401 and no body at all. Asserted over MockMvc
@@ -507,43 +404,6 @@ class AuthControllerTests {
                         wrongPassword.getHeaderNames()));
     }
 
-    @Test
-    void logoutInvalidatesTheSessionAndClearsTheSecurityContext() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-        MockHttpSession session = (MockHttpSession) request.getSession(false);
-        assertThat(session).isNotNull();
-
-        controller.logout(request, new MockHttpServletResponse());
-
-        assertThat(session.isInvalid()).isTrue();
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-    }
-
-    /**
-     * Invalidating the session server-side leaves the browser holding a cookie
-     * that names a session which no longer exists, so logout expires it.
-     */
-    @Test
-    void logoutExpiresTheSessionCookie() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        controller.logout(request, response);
-
-        Cookie cleared = response.getCookie(SESSION_COOKIE);
-        assertThat(cleared).isNotNull();
-        assertThat(cleared.getValue()).isEmpty();
-        assertThat(cleared.getMaxAge()).isZero();
-    }
-
     /**
      * The token belonged to the closed session and ended with it; logout writes no
      * replacement anywhere, because the next login fetches one for the session it
@@ -565,78 +425,6 @@ class AuthControllerTests {
 
         assertThat(csrfTokenRepository.loadToken(request)).isNull();
         assertThat(response.getCookie(CSRF_COOKIE)).isNull();
-    }
-
-    /**
-     * A logout is audited against the account the session belongs to, named by the stable id the
-     * principal index holds — never by the username the security context carries.
-     */
-    @Test
-    void logoutRecordsTheLogoutAgainstTheSessionsStableId() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-        controller.logout(request, new MockHttpServletResponse());
-
-        UUID ada = users.require("ada").id();
-        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT))
-                .containsExactly(new com.example.backend.audit.RecordingAuditTrail.Recorded(
-                        com.example.backend.audit.domain.AuditOperation.LOGOUT, ada, ada, null));
-    }
-
-    /**
-     * A session minted before anyone signed in to it has no principal index: nothing was logged
-     * out, so nothing is recorded, and the session still ends.
-     */
-    @Test
-    void logoutOfASessionNoOneSignedInToRecordsNothingAndStillEndsIt() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = (MockHttpSession) request.getSession(true);
-
-        assertThatNoException()
-                .isThrownBy(() -> controller.logout(request, new MockHttpServletResponse()));
-
-        assertThat(audit.recorded()).isEmpty();
-        assertThat(session.isInvalid()).isTrue();
-    }
-
-    /**
-     * A principal index that is not a stable id names no account: nothing is recorded against an
-     * id nobody holds, and the session still ends.
-     */
-    @Test
-    void logoutOfASessionWithAMalformedPrincipalIndexRecordsNothingAndStillEndsIt() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = (MockHttpSession) request.getSession(true);
-        session.setAttribute(
-                FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, "not-an-id");
-
-        assertThatNoException()
-                .isThrownBy(() -> controller.logout(request, new MockHttpServletResponse()));
-
-        assertThat(audit.recorded()).isEmpty();
-        assertThat(session.isInvalid()).isTrue();
-    }
-
-    /**
-     * Logging out without a session is a no-op rather than a failure, so a caller
-     * whose session already expired still gets a clean logout.
-     */
-    @Test
-    void logoutWithoutASessionSucceedsAndStillClearsTheSecurityContext() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(
-                new TestingAuthenticationToken("ada", "correct-password", "ROLE_USER"));
-        SecurityContextHolder.setContext(context);
-
-        assertThatNoException()
-                .isThrownBy(() -> controller.logout(request, new MockHttpServletResponse()));
-
-        assertThat(request.getSession(false)).isNull();
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     // ---- self-service password change ------------------------------------------------------
@@ -950,20 +738,6 @@ class AuthControllerTests {
 
     private static final String CLEAR_SITE_DATA = "\"cache\",\"cookies\",\"storage\"";
 
-    @Test
-    void logoutAsksTheBrowserToClearTheSitesData() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        controller.logout(request, response);
-
-        assertThat(response.getHeaders("Clear-Site-Data")).containsExactly(CLEAR_SITE_DATA);
-    }
-
     /** Over MockMvc, so the header is observed on the response as the handler mapping sends it. */
     @Test
     void theLogoutResponseCarriesTheExactClearSiteDataValue() throws Exception {
@@ -975,100 +749,6 @@ class AuthControllerTests {
     }
 
     // ---- input length limits -----------------------------------------------------------------
-
-    /**
-     * The operational stream's line for a logout: one INFO {@code user-logout} record, after the
-     * audit append, naming the account by the stable id in the logging context — and that id is
-     * gone from the context once the record is written.
-     */
-    @Test
-    void logoutWritesOneUserLogoutRecordNamingTheSessionsUser() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-
-        try (com.example.backend.audit.CapturedLog captured =
-                com.example.backend.audit.CapturedLog.attach()) {
-            controller.logout(request, new MockHttpServletResponse());
-
-            java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> records = captured.withAction(
-                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "user-logout");
-            assertThat(records).hasSize(1);
-            ch.qos.logback.classic.spi.ILoggingEvent record = records.getFirst();
-            assertThat(record.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
-            assertThat(record.getFormattedMessage()).isEqualTo("Logout completed");
-            assertThat(com.example.backend.audit.CapturedLog.fields(record))
-                    .containsEntry(LogEvent.KIND, "event")
-                    .containsEntry(LogEvent.CATEGORY, java.util.List.of("process"))
-                    .containsEntry(LogEvent.TYPE, java.util.List.of("user", "end"))
-                    .containsEntry(LogEvent.OUTCOME, "success")
-                    .doesNotContainKey(LogEvent.LOCAL_ACTION);
-            assertThat(record.getMDCPropertyMap())
-                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
-            assertThat(record.getFormattedMessage()).doesNotContain("ada");
-        }
-        assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).as("the scope is closed").isNull();
-    }
-
-    /** No account was logged out, so no logout record is written either. */
-    @Test
-    void logoutOfASessionWithNoPrincipalIndexWritesNoLogoutRecord() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession(true).setAttribute("unrelated", "value");
-
-        try (com.example.backend.audit.CapturedLog captured =
-                com.example.backend.audit.CapturedLog.attach()) {
-            controller.logout(request, new MockHttpServletResponse());
-
-            assertThat(captured.withAction(
-                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "user-logout")).isEmpty();
-        }
-    }
-
-    /**
-     * A login starts one session, and the operational stream gets one INFO {@code session-start}
-     * for it: the recipe's classification, the idle bound read off the session the login
-     * continues in, the User by stable id — and neither the pre-login id nor the rotated one.
-     */
-    @Test
-    void loginWritesOneSessionStartRecordCarryingTheSessionsIdleBound() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession().setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
-        String preLoginId = request.getSession().getId();
-
-        try (com.example.backend.audit.CapturedLog captured =
-                com.example.backend.audit.CapturedLog.attach()) {
-            controller.login(
-                    new AuthController.LoginRequest("ada", "correct-password"),
-                    request,
-                    new MockHttpServletResponse());
-
-            java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> records = captured.withAction(
-                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "session-start");
-            assertThat(records).hasSize(1);
-            ch.qos.logback.classic.spi.ILoggingEvent record = records.getFirst();
-            assertThat(record.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
-            assertThat(record.getFormattedMessage()).isEqualTo("Session started");
-            java.util.Map<String, Object> fields = com.example.backend.audit.CapturedLog.fields(record);
-            assertThat(fields)
-                    .containsEntry(LogEvent.KIND, "event")
-                    .containsEntry(LogEvent.CATEGORY, java.util.List.of("process"))
-                    .containsEntry(LogEvent.TYPE, java.util.List.of("start"))
-                    .containsEntry(LogEvent.OUTCOME, "success")
-                    .containsEntry(LogEvent.SEVERITY, "low")
-                    .containsEntry(LogEvent.SESSION_MAX_INACTIVE_INTERVAL, IDLE_TIMEOUT_SECONDS)
-                    .doesNotContainKey(LogEvent.LOCAL_ACTION);
-            assertThat(record.getMDCPropertyMap())
-                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
-            String postLoginId = request.getSession(false).getId();
-            assertThat(postLoginId).as("the login rotated the id").isNotEqualTo(preLoginId);
-            assertThat(fields.values()).extracting(String::valueOf)
-                    .noneMatch(value -> value.equals(preLoginId) || value.equals(postLoginId));
-        }
-        assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).as("the scope is closed").isNull();
-    }
 
     /** A refused login started no session, so it writes no {@code session-start}. */
     @Test

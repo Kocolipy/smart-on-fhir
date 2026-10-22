@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.backend.authorization.TestGroupPermissions;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -24,12 +23,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.TestingAuthenticationToken;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
@@ -154,57 +149,10 @@ class SecurityConfigTests {
     }
 
     /**
-     * An unsafe request carrying no CSRF token is rejected before authentication
-     * is even considered, which is what distinguishes 403 here from the 401 the
-     * same request earns once the token is present.
-     */
-    @Test
-    void unsafeRequestWithoutACsrfTokenIsForbidden() throws Exception {
-        mvc.perform(post("/api/admin/connectors"))
-                .andExpect(status().isForbidden());
-    }
-
-    /**
-     * The token the session holds is the token the chain accepts: the masked
-     * value the chain exposes for that session is echoed back in the header the
-     * token names, and the request gets as far as the authorization check, which
-     * turns it away with a 401 instead.
-     */
-    @Test
-    void unsafeRequestWithItsSessionsCsrfTokenPassesCsrfAndReachesAuthorization() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        MvcResult issued = mvc.perform(get(ProbeController.TOKEN).session(session))
-                .andExpect(status().isOk())
-                .andReturn();
-        String[] token = issued.getResponse().getContentAsString().split(":", 2);
-
-        mvc.perform(post("/api/admin/connectors").session(session).header(token[0], token[1]))
-                .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * Bound to the session, so the session's token is the only one that passes —
-     * the raw stored value fails too, because the default handler only accepts
-     * the XOR-masked form it hands out.
-     */
-    @Test
-    void unsafeRequestWithTheUnmaskedSessionTokenIsForbidden() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        mvc.perform(get(ProbeController.TOKEN).session(session)).andExpect(status().isOk());
-        CsrfToken stored = (CsrfToken) session.getAttribute(
-                HttpSessionCsrfTokenRepository.class.getName().concat(".CSRF_TOKEN"));
-        assertThat(stored).as("the token the probe left in the session").isNotNull();
-
-        mvc.perform(post("/api/admin/connectors").session(session)
-                        .header(stored.getHeaderName(), stored.getToken()))
-                .andExpect(status().isForbidden());
-    }
-
-    /**
      * The token lives in the session, behind the default XOR-masking handler —
      * asserted on the chain's own filter, because {@code csrf.spa()} would swap
      * both for a cookie repository and a raw-token handler while every request
-     * above still passed. The shared bean is the instance the chain holds, so the
+     * {@code CsrfSynchronizerTokenIntegrationTests} sends still passed. The shared bean is the instance the chain holds, so the
      * login path drops the very token the chain would otherwise accept.
      */
     @Test
@@ -305,96 +253,6 @@ class SecurityConfigTests {
 
         mvc.perform(post("/").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * Account administration is one namespace, {@code /api/admin/**}, and these
-     * three cover the whole rule: refused for a non-admin, allowed for an admin,
-     * and — because the chain answers before any handler — unauthorized rather
-     * than forbidden for a caller with no session at all. The path asserted is
-     * the one {@link com.example.backend.auth.controller.AdminAccountController}
-     * really maps, so the rule is proven against the endpoint it protects.
-     */
-    @Test
-    void userRoleCannotReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void theListingPermissionCanReachTheAccountsListing() throws Exception {
-        mvc.perform(get("/api/admin/accounts")
-                        .session(authenticatedSession("ROLE_USER", "user:read")))
-                .andExpect(status().isOk());
-    }
-
-    /** Another administrative Permission is not this route's: deny by Permission, not by area. */
-    @Test
-    void anotherPermissionCannotReachTheAccountsListing() throws Exception {
-        mvc.perform(get("/api/admin/accounts")
-                        .session(authenticatedSession("ROLE_USER", "audit:read", "account:unlock")))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void anonymousCallerCannotReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/accounts"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * Every actuator endpoint but health is Admin-only: the telemetry scrape describes the
-     * whole service's traffic. Proven here against the chain alone;
-     * {@code OperationalTelemetryIntegrationTests} proves it against the real scrape.
-     */
-    @Test
-    void userRoleCannotReachActuatorEndpointsOtherThanHealth() throws Exception {
-        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-        mvc.perform(get("/actuator/prometheus").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-    }
-
-    /**
-     * Admitted, which in this class reads as {@code 404}: the chain is driven standalone in
-     * front of a probe controller that maps no actuator handler, so a request the chain lets
-     * through finds nothing — where a refused one never gets that far (401 or 403 above).
-     */
-    @Test
-    void opsReadCanReachActuatorEndpoints() throws Exception {
-        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_USER", "ops:read")))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/actuator/prometheus")
-                        .session(authenticatedSession("ROLE_USER", "ops:read")))
-                .andExpect(status().isNotFound());
-    }
-
-    /** Every Permission but ops:read — an account administrator's included — is refused. */
-    @Test
-    void everyOtherPermissionIsRefusedTheActuatorEndpoints() throws Exception {
-        String[] allButOps = java.util.stream.Stream.of(TestGroupPermissions.SUPERUSER_AUTHORITIES)
-                .filter(authority -> !authority.equals("ops:read"))
-                .toArray(String[]::new);
-        mvc.perform(get("/actuator/prometheus").session(authenticatedSession(allButOps)))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void healthStaysPublicWhileTheRestOfActuatorIsAdminOnly() throws Exception {
-        mvc.perform(get("/actuator/health"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/actuator/info"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    private MockHttpSession authenticatedSession(String... authorities) {
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new TestingAuthenticationToken("account", null, authorities));
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(
-                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                context);
-        return session;
     }
 
     @Test

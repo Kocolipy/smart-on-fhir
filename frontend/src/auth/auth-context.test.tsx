@@ -176,25 +176,27 @@ describe("AuthProvider", () => {
     expect(result.current.user).toEqual(CONFINED);
   });
 
-  it("ends the session on a successful change and records why", async () => {
-    const { backend, result } = await mounted({ ...SIGNED_IN_CONFINED, [CHANGE]: bare(204) });
+  it("ends the session on a successful change and records why, forgetting the token", async () => {
+    const session = await mounted({ ...SIGNED_IN_CONFINED, [CHANGE]: bare(204) });
 
-    let outcome: PasswordChangeOutcome | undefined;
-    await act(async () => {
-      outcome = await result.current.changePassword(OLD_VALUE, NEW_VALUE);
-    });
+    const settled = await settle(session, (auth) => auth.changePassword(OLD_VALUE, NEW_VALUE));
 
-    expect(outcome).toEqual({ kind: "changed" });
-    expect(backend.requests()).toContainEqual({
+    expect(settled.outcome).toEqual({ kind: "changed" });
+    expect(session.backend.requests()).toContainEqual({
       body: { currentPassword: OLD_VALUE, newPassword: NEW_VALUE },
       method: "POST",
       path: "/api/auth/change-password",
     });
-    expect(signInReasonAndStatus(result.current)).toEqual({
+    expect({
+      ...signInReasonAndStatus(session.result.current),
+      tokenForgotten: settled.tokenForgotten,
+      user: session.result.current.user,
+    }).toEqual({
       signInReason: "password-changed",
       status: "guest",
+      tokenForgotten: true,
+      user: null,
     });
-    expect(result.current.user).toBeNull();
   });
 
   it("ends the session on a lockout and records why, forgetting the token", async () => {
@@ -277,32 +279,6 @@ describe("AuthProvider", () => {
       signInReason: null,
       status: "authenticated",
     });
-  });
-
-  it("clears the password-change reason on the next login", async () => {
-    const { backend, result } = await mounted({
-      ...SIGNED_IN_CONFINED,
-      [CHANGE]: bare(204),
-      [LOGIN]: json(USER),
-    });
-
-    await act(async () => {
-      await result.current.changePassword(OLD_VALUE, NEW_VALUE);
-    });
-    await act(async () => {
-      await result.current.login(...CREDENTIALS);
-    });
-
-    expect(backend.requests()).toContainEqual({
-      body: { password: CREDENTIALS[1], username: CREDENTIALS[0] },
-      method: "POST",
-      path: "/api/auth/login",
-    });
-    expect(signInReasonAndStatus(result.current)).toEqual({
-      signInReason: null,
-      status: "authenticated",
-    });
-    expect(result.current.user).toEqual(USER);
   });
 
   it("signs in, forgetting the pre-login session's token", async () => {
@@ -389,16 +365,6 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("forgets the token on a successful change", async () => {
-    const session = await mounted({ ...SIGNED_IN_CONFINED, [CHANGE]: bare(204) });
-
-    const { tokenForgotten: forgotten } = await settle(session, (auth) =>
-      auth.changePassword(OLD_VALUE, NEW_VALUE),
-    );
-
-    expect(forgotten).toBe(true);
-  });
-
   it("forgets the CSRF token of a session the backend has ended", async () => {
     const { backend, result } = await mounted(SIGNED_IN);
     await backend.holdToken();
@@ -408,34 +374,68 @@ describe("AuthProvider", () => {
     expect(await backend.tokenForgotten()).toBe(true);
   });
 
-  it("clears the expiry reason on the next login", async () => {
-    const { result } = await mounted({ ...SIGNED_IN, [LOGIN]: json(USER) });
+  /** Each way a session ends with a reason, and the answers that let it end so. */
+  const ENDINGS = [
+    [
+      "a successful change",
+      { ...SIGNED_IN_CONFINED, [CHANGE]: bare(204) },
+      (auth: ReturnType<typeof useAuthState>) => auth.changePassword(OLD_VALUE, NEW_VALUE),
+      "password-changed",
+    ],
+    [
+      "an expiry",
+      SIGNED_IN,
+      (auth: ReturnType<typeof useAuthState>) => {
+        auth.expireSession();
+        return Promise.resolve();
+      },
+      "expired",
+    ],
+    [
+      "an Idle sign-out",
+      { ...SIGNED_IN, [LOGOUT]: bare(204) },
+      (auth: ReturnType<typeof useAuthState>) => auth.signOutForInactivity(),
+      "inactive",
+    ],
+  ] as const;
 
-    act(() => result.current.expireSession());
-    expect(signInReasonAndStatus(result.current)).toEqual({
-      signInReason: "expired",
-      status: "guest",
-    });
+  it.each(ENDINGS)(
+    "clears the reason %s recorded on the next login",
+    async (_name, answers, end, reason) => {
+      const { result } = await mounted({ ...answers, [LOGIN]: json(USER) });
 
-    await act(async () => {
-      await result.current.login(...CREDENTIALS);
-    });
-    expect(result.current.signInReason).toBeNull();
-  });
+      await act(async () => {
+        await end(result.current);
+      });
+      expect(result.current.signInReason).toBe(reason);
 
-  it("an expiry after a change says the session expired, not that it changed", async () => {
-    const { result } = await mounted({ ...SIGNED_IN_CONFINED, [CHANGE]: bare(204) });
+      await act(async () => {
+        await result.current.login(...CREDENTIALS);
+      });
+      expect({ ...signInReasonAndStatus(result.current), user: result.current.user }).toEqual({
+        signInReason: null,
+        status: "authenticated",
+        user: USER,
+      });
+    },
+  );
 
-    await act(async () => {
-      await result.current.changePassword(OLD_VALUE, NEW_VALUE);
-    });
-    act(() => result.current.expireSession());
+  it.each(ENDINGS.filter(([name]) => name !== "an expiry"))(
+    "says an expiry after %s ended the session by expiry",
+    async (_name, answers, end) => {
+      const { result } = await mounted(answers);
 
-    expect(signInReasonAndStatus(result.current)).toEqual({
-      signInReason: "expired",
-      status: "guest",
-    });
-  });
+      await act(async () => {
+        await end(result.current);
+      });
+      act(() => result.current.expireSession());
+
+      expect(signInReasonAndStatus(result.current)).toEqual({
+        signInReason: "expired",
+        status: "guest",
+      });
+    },
+  );
 
   it("logs out to a cold guest, clearing the sign-in reason", async () => {
     const { backend, result } = await mounted({
@@ -510,27 +510,6 @@ describe("AuthProvider", () => {
       expect(session.result.current.user).toBeNull();
     },
   );
-
-  it("clears the Idle sign-out reason on the next login, and replaces it on a later expiry", async () => {
-    const { result } = await mounted({ ...SIGNED_IN, [LOGIN]: json(USER), [LOGOUT]: bare(204) });
-
-    await act(async () => {
-      await result.current.signOutForInactivity();
-    });
-    await act(async () => {
-      await result.current.login(...CREDENTIALS);
-    });
-    expect(result.current.signInReason).toBeNull();
-
-    await act(async () => {
-      await result.current.signOutForInactivity();
-    });
-    act(() => result.current.expireSession());
-    expect(signInReasonAndStatus(result.current)).toEqual({
-      signInReason: "expired",
-      status: "guest",
-    });
-  });
 });
 
 describe("AuthProvider and the Launch context", () => {

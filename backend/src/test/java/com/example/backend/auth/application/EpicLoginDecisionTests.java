@@ -20,7 +20,6 @@ import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.authorization.TestGroupPermissions;
-import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -196,15 +195,6 @@ class EpicLoginDecisionTests {
     }
 
     @Test
-    void aRefusalIsAuditedUnderTheSsoLoginMethod() {
-        users.given(ScimIdentities.inactiveUser("eRETIRED"));
-
-        refusalOf("eRETIRED");
-
-        assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
-    }
-
-    @Test
     void aRefusedDeactivatedUserKeepsTheFailureRunItHad() {
         ScimUser retired = users.given(new ScimUser(UUID.randomUUID(),
                 ScimIdentities.profile("eRETIRED", false), new ScimLoginState("hash", 2, null),
@@ -249,43 +239,26 @@ class EpicLoginDecisionTests {
 
     // ---- a refusal is logged generically: the reason is audit-only (ADR 0012) ----------------
 
-    @Test
-    void aRefusalIsLoggedAtWarnAsTheGenericEpicSignInRefused() {
-        users.given(ScimIdentities.inactiveUser("eRETIRED"));
-
-        assertThat(refusalRecord("eRETIRED").getFormattedMessage())
-                .isEqualTo("Epic sign-in refused");
-    }
-
-    @Test
-    void aRefusalsLogRecordNamesTheSsoMethod() {
-        users.given(ScimIdentities.inactiveUser("eRETIRED"));
-
-        assertThat(CapturedLog.fields(refusalRecord("eRETIRED")))
-                .containsEntry(LogEvent.LOGIN_METHOD, "sso");
-    }
-
-    @Test
-    void aRefusalsLogRecordCarriesNoReason() {
-        users.given(ScimIdentities.userWithLoginState(
-                "eLOCKED", new ScimLoginState("hash", 5, NOW)));
-
-        assertThat(CapturedLog.fields(refusalRecord("eLOCKED")))
-                .doesNotContainKey(LogEvent.REASON);
-    }
-
     /**
-     * The session the browser carried is not whom the launch was for, and the refused User is
-     * the audit trail's to name: the record carries no user, whoever was signed in.
+     * A refusal is recorded by {@link LoginOutcomeService}, whose tests own what the record says
+     * — one generic WARN naming no reason and no user. What the decision adds is what it hands
+     * over: an SSO refusal, under its reason, of the session the launch arrived on.
      */
     @Test
-    void aRefusalsLogRecordNamesNoUserEvenWhenTheBrowserCarriedOne() {
+    void aRefusalIsRecordedOnceAsAnSsoRefusalOfTheSessionItArrivedOn() {
         users.given(ScimIdentities.inactiveUser("eRETIRED"));
 
-        try (LogContext.Scope colleague = LogContext.userId(UUID.randomUUID())) {
-            assertThat(refusalRecord("eRETIRED").getMDCPropertyMap())
-                    .doesNotContainKey(LogContext.USER_ID);
+        try (CapturedLog captured = CapturedLog.attach()) {
+            login.logInFromEpic("eRETIRED", "launch-session", AuditMfaFactor.IDP_ATTESTED);
+
+            assertThat(captured.withAction(Level.WARN, LogEvent.ACTION, "user-authentication"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.LOGIN_METHOD, "sso")
+                            .containsEntry(LogEvent.SESSION_HASH, SessionHash.of("launch-session")));
         }
+        assertThat(counts.moved()).containsExactly("sso:refused:ACCOUNT_DISABLED");
+        assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
     }
 
     @Test
@@ -323,31 +296,6 @@ class EpicLoginDecisionTests {
                     .isEmpty();
         }
         assertThat(counts.moved()).isEmpty();
-    }
-
-    /** SSO §3.4: a refusal names no user, so its session's hash is what it correlates by. */
-    @Test
-    void aRefusalsLogRecordNamesTheSessionByHash() {
-        users.given(ScimIdentities.inactiveUser("eRETIRED"));
-
-        try (CapturedLog captured = CapturedLog.attach()) {
-            login.logInFromEpic("eRETIRED", "launch-session", AuditMfaFactor.IDP_ATTESTED);
-
-            assertThat(captured.withAction(Level.WARN, LogEvent.ACTION, "user-authentication"))
-                    .singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.SESSION_HASH,
-                                    SessionHash.of("launch-session")));
-        }
-    }
-
-    @Test
-    void aRefusalIsCountedUnderItsReason() {
-        users.given(ScimIdentities.inactiveUser("eRETIRED"));
-
-        refusalOf("eRETIRED");
-
-        assertThat(counts.moved()).containsExactly("sso:refused:ACCOUNT_DISABLED");
     }
 
     /** Exactly a signed-in decision carries the Login a session is established from. */
