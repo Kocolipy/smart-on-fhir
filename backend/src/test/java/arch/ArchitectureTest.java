@@ -17,6 +17,7 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.tngtech.archunit.library.Architectures;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import jakarta.persistence.Entity;
@@ -217,21 +218,46 @@ public class ArchitectureTest {
 
     // Layer Boundaries
 
+    /**
+     * The infrastructure adapters the onion rule knows, by their package under
+     * {@code ..infrastructure}. Declared ahead of the rules that read it, which are initialized in
+     * the order they are written.
+     */
+    private static final List<String> INFRASTRUCTURE_ADAPTERS =
+            List.of("persistence", "session", "transaction", "request", "alert");
+
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule onion_architecture =
+    static final ArchRule onion_architecture = withInfrastructureAdapters(
         onionArchitecture()
             .domainModels("com.example.backend..domain..")
             .domainServices("com.example.backend..domain.service..")
-            .applicationServices("com.example.backend..application..")
-            .adapter("persistence", "com.example.backend..infrastructure.persistence..")
-            .adapter("session", "com.example.backend..infrastructure.session..")
-            .adapter("transaction", "com.example.backend..infrastructure.transaction..")
-            .adapter("request", "com.example.backend..infrastructure.request..")
-            .adapter("alert", "com.example.backend..infrastructure.alert..")
+            .applicationServices("com.example.backend..application.."))
             .adapter("web", "com.example.backend..controller..")
             .adapter("config", "com.example.backend..config..")
             .withOptionalLayers(true)
             .because("Dependencies point inward: adapters depend on application, application on domain, domain on nothing");
+
+    private static Architectures.OnionArchitecture withInfrastructureAdapters(
+            Architectures.OnionArchitecture onion) {
+        for (String adapter : INFRASTRUCTURE_ADAPTERS) {
+            onion = onion.adapter(adapter, "com.example.backend..infrastructure." + adapter + "..");
+        }
+        return onion;
+    }
+
+    // The onion rule reads the adapters it is given and nothing else: a package such as
+    // ..infrastructure.http would be in no layer, so the application layer could depend on it
+    // unseen. A new adapter package fails here until it is added to INFRASTRUCTURE_ADAPTERS.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule every_infrastructure_package_is_a_declared_adapter =
+        classes()
+            .that().resideInAPackage("com.example.backend..infrastructure..")
+            .should().resideInAnyPackage(INFRASTRUCTURE_ADAPTERS.stream()
+                    .map(adapter -> "com.example.backend..infrastructure." + adapter + "..")
+                    .toArray(String[]::new))
+            .allowEmptyShould(true)
+            .because("an infrastructure package the onion rule does not name is in no layer, so"
+                    + " nothing holds its dependencies inward");
 
     // The onion rule above cannot see this: the auth.epic root matches no layer, yet it holds
     // adapter-grade code (Micrometer meters, key signing, bound properties).
@@ -837,6 +863,69 @@ public class ArchitectureTest {
                     + " being reusable by the modules that build on it");
 
     /**
+     * The shared modules with no layers of their own: each is one package of plumbing, reached
+     * directly by every module that builds on it.
+     */
+    private static final Set<String> LAYERLESS_MODULES = Set.of("database", "observability", "web");
+
+    /** The layers another module may be reached through: its ports and its use cases. */
+    private static final Set<String> PUBLISHED_LAYERS = Set.of("domain", "application");
+
+    /**
+     * The classes that may reach another module's other layers, each with the reason. Named one by
+     * one, so a new reach into another module's internals is a choice someone writes down here.
+     */
+    private static final Set<String> CROSS_MODULE_INTERNALS_EXEMPT = Set.of(
+            // The startup record logs every module's effective settings, so it reads the two that
+            // live in their module's adapter code: whether SCIM is open (scim.config) and the Epic
+            // Login switch with its signing keys' kids (the auth.epic root).
+            "com.example.backend.lifecycle.config.ApplicationLifecycleLog");
+
+    /** The layer a class sits in within its module: the package segment after the module's. */
+    private static Optional<String> layerOf(JavaClass type) {
+        String packageName = type.getPackageName();
+        return moduleOf(type).map(module -> {
+            String rest = packageName.substring(Math.min(packageName.length(),
+                    ROOT_PACKAGE.length() + module.length() + 2));
+            int dot = rest.indexOf('.');
+            return dot < 0 ? rest : rest.substring(0, dot);
+        });
+    }
+
+    // MODULE_DEPENDENCIES says which modules a module may reach, not which of their layers, and
+    // the onion rule sees one module's persistence adapter reaching another's as the same layer.
+    // Without this, auth could use a scim JpaRepository directly and skip the scim.domain port
+    // behind which the directory's locks and versions are taken.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule other_modules_are_reached_through_domain_or_application =
+        classes()
+            .that().resideInAPackage(ROOT_PACKAGE + ".*..")
+            .and(DescribedPredicate.<JavaClass>describe("are not named in CROSS_MODULE_INTERNALS_EXEMPT",
+                    type -> !CROSS_MODULE_INTERNALS_EXEMPT.contains(type.getName())))
+            .should(new ArchCondition<JavaClass>("reach another module only through its domain or"
+                    + " application layer") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    String own = moduleOf(type).orElseThrow();
+                    for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
+                        JavaClass target = dependency.getTargetClass();
+                        moduleOf(target)
+                                .filter(module -> !module.equals(own)
+                                        && !LAYERLESS_MODULES.contains(module))
+                                .filter(module -> layerOf(target)
+                                        .filter(PUBLISHED_LAYERS::contains).isEmpty())
+                                .ifPresent(module -> events.add(SimpleConditionEvent.violated(
+                                        dependency,
+                                        dependency.getDescription() + " (" + own + " reaches "
+                                                + module + " outside its domain and application"
+                                                + " layers)")));
+                    }
+                }
+            })
+            .because("a module is reached through its ports and use cases, so the rules behind them"
+                    + " hold for every caller");
+
+    /**
      * Outbound HTTP lives in the Epic adapter.
      *
      * <p>ADR 0012: Epic is reached through the one outbound client, {@code epicRestClient}, which
@@ -1385,6 +1474,30 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("the lock lives in the run's own transaction, which only the run module"
                     + " opens, so no job body can take it for a shorter one");
+
+    // The rule above stops anyone else taking the lock; these two stop a job skipping it. A job is
+    // scheduled one way, through a SchedulingConfigurer whose cron is read from configuration,
+    // and @Scheduled cannot read one there (AuditRetentionScheduleConfig).
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_scheduled_annotation =
+        noMethods()
+            .should().beAnnotatedWith("org.springframework.scheduling.annotation.Scheduled")
+            .allowEmptyShould(true)
+            .because("ADR 0005: a job is scheduled through a SchedulingConfigurer that runs it"
+                    + " through the scheduled-job run, so its lock serializes it across instances");
+
+    // Reads the configurer's dependencies transitively, so it holds that the job reaches the run
+    // module somewhere, not that the body it schedules is the one that does.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule scheduled_jobs_run_through_the_job_run =
+        classes()
+            .that().implement("org.springframework.scheduling.annotation.SchedulingConfigurer")
+            .should().resideInAPackage("..config..")
+            .andShould().transitivelyDependOnClassesThat().haveFullyQualifiedName(
+                    "com.example.backend.scheduling.application.ScheduledJobRunService")
+            .allowEmptyShould(true)
+            .because("ADR 0005: every scheduled job takes its per-job lock row through the run"
+                    + " module, or two instances run it at once");
 
     /** The login-state module, the one owner of the login-state writes. */
     private static final String LOGIN_STATE_MODULE =
