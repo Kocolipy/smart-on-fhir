@@ -80,18 +80,16 @@ test.describe("baseline User API", () => {
   });
 
   /**
-   * The control endpoints matter more than the listings: a User who could
-   * reach them could unlock or flag an administrator. The CSRF token is sent
+   * The control endpoint matters more than the listings: a User who could
+   * reach it could unlock an administrator. The CSRF token is sent
    * deliberately — without it the chain answers 403 from the CSRF filter first,
    * and the test would pass without ever exercising the Permission check. Any
    * id will do: the Permission is refused before the target is looked up.
    */
-  test("is refused unlocking or flagging a User", async ({ page }) => {
-    for (const action of ["unlock", "force-password-change"]) {
-      const response = await postAdminAction(page, crypto.randomUUID(), action);
+  test("is refused unlocking a User", async ({ page }) => {
+    const response = await postAdminAction(page, crypto.randomUUID(), "unlock");
 
-      expect(response.status(), `a baseline User must not reach ${action}`).toBe(403);
-    }
+    expect(response.status(), "a baseline User must not reach unlock").toBe(403);
   });
 
   test("keeps its self-service", async ({ page }) => {

@@ -19,7 +19,6 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SqlFailures;
@@ -115,14 +114,9 @@ class AuditAppendOnlyIntegrationTests {
     private static final String EVENTS_BY_OPERATION =
             "SELECT * FROM audit_events WHERE operation = ?";
 
-    /**
-     * The administrative standing flag, read from the one table that now holds it: the
-     * {@code accounts} table is gone and {@code active} is the SCIM attribute it collapsed
-     * into. Keyed on the normalized {@code userName}, which is the column uniqueness is
-     * decided on.
-     */
-    private static final String CHANGE_REQUIRED_SINCE_OF_USER =
-            "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?";
+    /** Whether a lockout stands, read from the row that holds it, keyed on the stable id. */
+    private static final String LOCKED_AT_OF_USER =
+            "SELECT locked_at FROM scim_users WHERE resource_id = ?";
 
     private static final String FORCED_FAILURE_TRIGGER = """
             CREATE TRIGGER forced_append_failure
@@ -151,9 +145,6 @@ class AuditAppendOnlyIntegrationTests {
 
     @Autowired
     private AuditTrail auditTrail;
-
-    @Autowired
-    private InMemoryAccountSessions sessions;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -189,21 +180,18 @@ class AuditAppendOnlyIntegrationTests {
 
     @Test
     void aForcedAuditInsertFailureRollsBackTheMutationItWasRecording() {
-        ScimUser target = throwaway("append-rollback-target");
+        ScimUser target = lockedThrowaway("append-rollback-target");
         try {
             forceAppendFailure();
 
-            assertThatThrownBy(() -> administration.forcePasswordChange(target.id(), idOf(ADMIN)))
+            assertThatThrownBy(() -> administration.unlock(target.id(), idOf(ADMIN)))
                     .isInstanceOf(RuntimeException.class);
 
             // Read back from the database, not from the object the call returned: the
-            // claim is that nothing was committed.
-            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, OffsetDateTime.class,
-                    target.id())).isNull();
+            // claim is that nothing was committed — the lock still stands.
+            assertThat(jdbc.queryForObject(LOCKED_AT_OF_USER, OffsetDateTime.class,
+                    target.id())).isNotNull();
             assertThat(allEvents()).isEmpty();
-            // The revocation is deferred to after the commit, so a rollback never
-            // reaches it either.
-            assertThat(sessions.revocations()).doesNotContain(target.id());
         } finally {
             logins.owner().jdbc().execute(DROP_FORCED_FAILURE_TRIGGER);
             discard(target);
@@ -212,17 +200,17 @@ class AuditAppendOnlyIntegrationTests {
 
     /**
      * The same write with no forced failure commits, so the test above is about the
-     * rollback rather than about a forced change that never worked in the first place.
+     * rollback rather than about an Unlock that never worked in the first place.
      */
     @Test
     void theSameWriteCommitsWhenTheAppendSucceeds() {
-        ScimUser target = throwaway("append-commit-target");
+        ScimUser target = lockedThrowaway("append-commit-target");
         try {
-            administration.forcePasswordChange(target.id(), idOf(ADMIN));
+            administration.unlock(target.id(), idOf(ADMIN));
 
-            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, OffsetDateTime.class,
-                    target.id())).isNotNull();
-            assertThat(rows(AuditOperation.PASSWORD_CHANGE_REQUIRE)).hasSize(1);
+            assertThat(jdbc.queryForObject(LOCKED_AT_OF_USER, OffsetDateTime.class,
+                    target.id())).isNull();
+            assertThat(rows(AuditOperation.LOCKOUT_LIFT)).hasSize(1);
         } finally {
             discard(target);
         }
@@ -524,9 +512,9 @@ class AuditAppendOnlyIntegrationTests {
      * no {@code EntityManager} to flush.
      */
     /**
-     * A credentialed User of this test's own, so a forced change it commits does not leave a
-     * seeded identity flagged for every other test sharing this context — a flag only a real
-     * password change clears.
+     * A credentialed User of this test's own, so an Unlock it commits does not leave a seeded
+     * identity flagged for every other test sharing this context — a flag only a real password
+     * change clears.
      */
     private ScimUser throwaway(String userName) {
         return transactions.execute(status -> users.create(ScimUser.created(
@@ -535,6 +523,14 @@ class AuditAppendOnlyIntegrationTests {
                         userName, null, null, null, null, null, true, List.of()),
                 "hash",
                 Instant.now())));
+    }
+
+    /** A throwaway User serving a lockout for failures, locked straight in the store. */
+    private ScimUser lockedThrowaway(String userName) {
+        ScimUser user = throwaway(userName);
+        jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
+                + " WHERE resource_id = ?", OffsetDateTime.now(java.time.ZoneOffset.UTC), user.id());
+        return user;
     }
 
     private void discard(ScimUser user) {

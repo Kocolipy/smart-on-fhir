@@ -72,7 +72,8 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>A connector sets a password; the next login is confined to the change flow, every other
  *       route refused — an administrative one included, for a flagged Admin; a valid change; full
  *       access after a fresh login, every earlier session gone.
- *   <li>The Admin-forced equivalent, and Unlock requiring a change.
+ *   <li>The Admin's equivalent: Unlock of a locked User requiring a change, and the refusals of an
+ *       Unlock with nothing to lift.
  *   <li>The dormancy basis under a simulated clock: confined logins do not move it, the completed
  *       change does.
  *   <li>One password acceptance behind both entry paths: reuse refused across them against one
@@ -253,57 +254,15 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(status(get("/api/self"), fresh)).isEqualTo(200);
     }
 
-    // ---- 2. Admin-forced change, and Unlock ------------------------------------------------
-
-    @Test
-    void anAdminForcedChangeEndsTheUsersSessionsAndConfinesItsNextLoginUntilItChanges()
-            throws Exception {
-        String forcedId = provisionAndSettle("lifecycle-forced", CONNECTOR_PASSWORD, NEW_PASSWORD);
-        Cookie before = logIn("lifecycle-forced", NEW_PASSWORD, "USER", false);
-        assertThat(status(get("/api/self"), before)).isEqualTo(200);
-
-        Cookie admin = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, "ADMIN", false);
-        MvcResult forced = send(post("/api/admin/accounts/{id}/force-password-change", forcedId),
-                admin);
-        assertThat(forced.getResponse().getStatus()).isEqualTo(200);
-        assertThat(json.readTree(forced.getResponse().getContentAsString())
-                .get("passwordChangeRequired").booleanValue()).isTrue();
-
-        assertThat(status(get("/api/auth/me"), before))
-                .as("forcing a change ends the sessions the User already holds")
-                .isEqualTo(401);
-
-        Cookie confined = logIn("lifecycle-forced", NEW_PASSWORD, null, true);
-        assertConfined(confined);
-        String second = "another-self-chosen-one";
-        assertThat(changePassword(confined, NEW_PASSWORD, second).getResponse().getStatus())
-                .isEqualTo(204);
-        assertThat(status(get("/api/auth/me"), confined)).isEqualTo(401);
-
-        Cookie fresh = logIn("lifecycle-forced", second, "USER", false);
-        // Baseline access back: self-service answers again (this User holds no Permission).
-        assertThat(status(get("/api/self"), fresh)).isEqualTo(200);
-    }
-
-    @Test
-    void theAdminForcedChangeIsRefusedOnTheCallersOwnAccountAndOnTheBootstrapAdmin()
-            throws Exception {
-        String userId = provisionAndSettle("lifecycle-other-admin", CONNECTOR_PASSWORD, NEW_PASSWORD);
-        addToAdminGroup(userId);
-        Cookie otherAdmin = logIn("lifecycle-other-admin", NEW_PASSWORD, "ADMIN", false);
-
-        assertThat(status(post("/api/admin/accounts/{id}/force-password-change", userId),
-                otherAdmin)).isEqualTo(403);
-        assertThat(status(post("/api/admin/accounts/{id}/force-password-change",
-                idOf(BOOTSTRAP_ADMIN)), otherAdmin)).isEqualTo(403);
-    }
+    // ---- 2. Unlock of a locked User, and its refusals ----------------------------------------
 
     /**
      * IM8 as-15 / ac-6: Unlock requires a change, because the credential that reached the threshold
-     * may be the one being guessed. After Unlock the User authenticates and is confined.
+     * may be the one being guessed. After Unlock the User authenticates and is confined until it
+     * makes the change; the change ends that session, and a fresh login has the User's access back.
      */
     @Test
-    void anUnlockedUserAuthenticatesIntoTheChangeFlow() throws Exception {
+    void anUnlockedUserAuthenticatesIntoTheChangeFlowUntilItChanges() throws Exception {
         String unlockedId =
                 provisionAndSettle("lifecycle-unlocked", CONNECTOR_PASSWORD, NEW_PASSWORD);
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
@@ -321,6 +280,38 @@ class PasswordChangeLifecycleIntegrationTests {
 
         Cookie confined = logIn("lifecycle-unlocked", NEW_PASSWORD, null, true);
         assertConfined(confined);
+        String second = "another-self-chosen-one";
+        assertThat(changePassword(confined, NEW_PASSWORD, second).getResponse().getStatus())
+                .isEqualTo(204);
+        assertThat(status(get("/api/auth/me"), confined)).isEqualTo(401);
+
+        Cookie fresh = logIn("lifecycle-unlocked", second, "USER", false);
+        // Baseline access back: self-service answers again (this User holds no Permission).
+        assertThat(status(get("/api/self"), fresh)).isEqualTo(200);
+    }
+
+    /**
+     * No administrator may Unlock its own account ({@code 403}), and an Unlock with no lockout to
+     * lift has no effect ({@code 409}) — the Bootstrap Admin's, which can never be locked,
+     * included — and the refused Unlock leaves its target unflagged, so its next login is not
+     * confined. The forced password change's retired path is owned by
+     * {@code AuthorizationContractTests} and {@code AdminAccountEndpointTests}.
+     */
+    @Test
+    void anUnlockIsRefusedOnTheCallersOwnAccountAndOnAUserServingNoLockout() throws Exception {
+        String userId = provisionAndSettle("lifecycle-other-admin", CONNECTOR_PASSWORD, NEW_PASSWORD);
+        addToAdminGroup(userId);
+        Cookie otherAdmin = logIn("lifecycle-other-admin", NEW_PASSWORD, "ADMIN", false);
+        String bystander =
+                provisionAndSettle("lifecycle-bystander", CONNECTOR_PASSWORD, NEW_PASSWORD);
+
+        assertThat(status(post("/api/admin/accounts/{id}/unlock", userId), otherAdmin))
+                .isEqualTo(403);
+        assertThat(status(post("/api/admin/accounts/{id}/unlock", idOf(BOOTSTRAP_ADMIN)),
+                otherAdmin)).isEqualTo(409);
+        assertThat(status(post("/api/admin/accounts/{id}/unlock", bystander), otherAdmin))
+                .isEqualTo(409);
+        assertThat(logIn("lifecycle-bystander", NEW_PASSWORD, "USER", false)).isNotNull();
     }
 
     /**

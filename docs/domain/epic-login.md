@@ -180,10 +180,9 @@ is issued, for its own lifetime. ADR 0012 records both as an accepted risk (D13)
 **A suspected compromise is a deactivation** — an Epic-linked User suspected
 compromised is deactivated in the directory, which revokes its sessions once the
 deactivation commits and refuses every later launch as `ACCOUNT_DISABLED`; the
-Epic organisation, whose credential it was, is told. A forced password change does
+Epic organisation, whose credential it was, is told. The change-required flag does
 not apply: an Epic Login presents no password of this service's (D20), so the
-change-required flag it sets confines only the User's password Login. It still
-ends every session the User holds, an Epic one included.
+flag confines only the User's password Login.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
 nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, the

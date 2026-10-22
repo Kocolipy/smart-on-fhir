@@ -7,7 +7,8 @@ Date: 2026-10-01
 Accepted. ADR 0007 has since replaced the inactivity job with the dormancy
 lockout; the consequences below are stated against it. Refined by the 2026-10-09
 addendum below (#23): only a password Login is confined by the change-required
-flag.
+flag. The 2026-10-22 addendum below records that no forced password change exists
+any more.
 
 ## Context
 
@@ -97,3 +98,17 @@ out — so the exposure is limited to someone who knows it being able to set a n
 password for this User. That is accepted: the credential is imposed by an
 administrator or a connector, never chosen by the User, and an Epic-linked User
 suspected compromised is deactivated rather than flagged (ADR 0012, D20).
+
+## Addendum (2026-10-22): no forced password change (ADR 0015's 2026-10-22 addendum)
+
+_Refines the 2026-10-09 addendum's "Session revocation is unchanged" bullet, which
+named the forced password change._
+
+The forced password change is removed, so no administrative action sets the
+change-required flag on a User that is not locked, and none ends a User's sessions
+by setting it. The flag is still set by a connector password write — which also
+ends the User's sessions, an Epic one included — by an Unlock of a locked User
+(which revokes nothing itself, a locked User holding none), by a reactivation of a
+User with a password, and by seeding the Bootstrap Admin. Confinement, the
+dormancy clock and one session per User are unchanged. A User suspected
+compromised is handled in the directory: a new password, or a deactivation.

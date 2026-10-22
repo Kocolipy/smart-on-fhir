@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.NoLockoutInForceException;
 import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -129,20 +130,27 @@ class LoginStateSerializationIntegrationTests {
     /**
      * An Unlock racing the failure that reaches the threshold ends as one of the two serial
      * orders: the failure locks and the Unlock then lifts it, requiring a change and restarting
-     * the dormancy basis — or the Unlock clears the run and the failure then starts a new one.
+     * the dormancy basis — or the Unlock, finding no lock, is refused and leaves the run as it
+     * stands, and the failure then reaches the threshold and locks.
      */
     @Test
     void anUnlockRacingAFailedLoginEndsInOneOfTheTwoSerialOrders() throws Exception {
         ScimUser user = userWithFailures("serialized-unlock", threshold - 1);
         UUID actor = UUID.randomUUID();
         List<Callable<?>> both = new ArrayList<>(failedLogins(user, 1));
-        both.add(() -> administration.unlock(user.id(), actor));
+        both.add(() -> {
+            try {
+                return administration.unlock(user.id(), actor);
+            } catch (NoLockoutInForceException refused) {
+                return refused;
+            }
+        });
 
         race(user.id(), both);
 
         ScimLoginState after = stored(user);
         Outcome failureThenUnlock = new Outcome(0, false, true, true);
-        Outcome unlockThenFailure = new Outcome(1, false, false, false);
+        Outcome unlockThenFailure = new Outcome(threshold, true, false, false);
         assertThat(new Outcome(after.failedLoginAttempts(), after.isLocked(),
                 after.isPasswordChangeRequired(),
                 !Objects.equals(after.lastAuthenticatedAt(),

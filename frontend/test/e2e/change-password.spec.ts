@@ -15,14 +15,14 @@ import {
 } from "./scim.helpers";
 
 /**
- * The `/change-password` route driven end to end: a forced change confined to
- * the route, a voluntary one from Home, and a lockout reached through
- * the route itself.
+ * The `/change-password` route driven end to end: the change an Admin's Unlock
+ * requires, confined to the route; a voluntary one from Home; and a lockout
+ * reached through the route itself.
  *
- * Runs in the `admin` project because the forced change is made from the
- * Accounts page. Every User here is PROVISIONED by the test over SCIM — never a
- * seeded identity, which a forced change or a lockout would leave unusable for
- * the other specs — and is deleted in a `finally`. One connector serves every
+ * Runs in the `admin` project because the Unlock is made from the Accounts
+ * page. Every User here is PROVISIONED by the test over SCIM — never a seeded
+ * identity, which a lockout or the change an Unlock requires would leave
+ * unusable for the other specs — and is deleted in a `finally`. One connector serves every
  * test a worker runs from this file (`workerConnector`). Each User signs in
  * through a browser context of its own, so nothing touches the admin session
  * this project replays.
@@ -87,7 +87,7 @@ async function expectSignedOutThenSignIn(page: Page, userName: string, password:
   expect(me.passwordChangeRequired).toBe(false);
 }
 
-test("an Admin's forced change confines the User to /change-password until it is made", async ({
+test("an Admin's Unlock confines the User to /change-password until it is made", async ({
   browser,
   page,
 }) => {
@@ -95,12 +95,25 @@ test("an Admin's forced change confines the User to /change-password until it is
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
   try {
-    user = await provision("forced");
+    user = await provision("unlocked");
 
-    // The Admin forces the change from the Accounts page.
+    // Locked by refused logins, the only way a lockout starts.
+    const guesser = await anonymousApi();
+    try {
+      for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
+        expect((await submitLoginViaApi(guesser, user.userName, "not-the-password")).status()).toBe(
+          401,
+        );
+      }
+    } finally {
+      await guesser.dispose();
+    }
+
+    // The Admin unlocks it from the Accounts page, which requires a change.
     await page.goto("/accounts");
     const row = rowOf(page, page.getByRole("table", { name: "Users" }), user.userName);
-    await row.getByRole("button", { name: `Force password change for ${user.userName}` }).click();
+    await row.getByRole("button", { name: `Unlock ${user.userName}` }).click();
+    await expect(row.getByText("Not locked")).toBeVisible();
     await expect(row.getByText("Required")).toBeVisible();
 
     // The User signs in and lands on the change, not Home.

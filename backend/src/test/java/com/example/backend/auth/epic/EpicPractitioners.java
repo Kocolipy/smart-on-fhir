@@ -71,7 +71,7 @@ final class EpicPractitioners {
 
     /**
      * {@link #provision()}, then with the change-required flag set since {@code since}, as a
-     * connector password write, a forced password change or an Unlock leaves it.
+     * connector password write or an Unlock leaves it.
      */
     String provisionRequiredToChangePassword(Instant since) {
         String practitioner = provision();

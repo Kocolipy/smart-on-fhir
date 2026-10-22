@@ -16,12 +16,10 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.application.EpicLoginLogFields;
-import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
 import com.example.backend.auth.epic.EpicBrowser.Launched;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
-import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.http.Cookie;
@@ -111,9 +109,6 @@ class EpicLoginIntegrationTests {
     /** When the change-required flag of a User provisioned flagged was set. */
     private static final Instant FLAGGED_SINCE = Instant.parse("2026-10-01T09:00:00Z");
 
-    /** The test profile's Bootstrap Admin, acting as the administrator of a forced change. */
-    private static final String BOOTSTRAP_ADMIN = "test-admin";
-
     /** The test profile's {@code app.lockout.max-attempts}. */
     private static final int LOCKOUT_THRESHOLD = 3;
 
@@ -128,9 +123,6 @@ class EpicLoginIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
-
-    @Autowired
-    private IdentityAdministrationService administration;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -437,19 +429,6 @@ class EpicLoginIntegrationTests {
 
         assertThat(loginStateOf(practitioner).lastAuthenticatedAt())
                 .isAfterOrEqualTo(before);
-    }
-
-    /** A forced password change ends every session the User holds, an Epic one included. */
-    @Test
-    void aForcedPasswordChangeEndsTheUsersEpicSession() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
-
-        administration.forcePasswordChange(
-                EPIC.practitioners().idOf(practitioner),
-                users.findByNormalizedUserName(NormalizedUserName.of(BOOTSTRAP_ADMIN)).orElseThrow().id());
-
-        assertThat(status(get("/api/auth/me"), byEpic)).isEqualTo(401);
     }
 
     /**

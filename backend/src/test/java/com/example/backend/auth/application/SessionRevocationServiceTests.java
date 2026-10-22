@@ -60,7 +60,8 @@ class SessionRevocationServiceTests {
     void nothing_is_revoked_or_recorded_until_the_transaction_commits() {
         sessions.open(user, "s-1");
 
-        revocation.revokeAllAfterCommit(user, SessionRevocationCause.FORCED_PASSWORD_CHANGE, ADMIN);
+        revocation.revokeAllAfterCommit(
+                user, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
 
         assertThat(sessions.sessionsOf(user)).containsExactly("s-1");
         assertThat(audit.recorded()).isEmpty();
@@ -115,8 +116,6 @@ class SessionRevocationServiceTests {
                 Arguments.of(SessionRevocationCause.DORMANCY_LOCKOUT, "SUCCESS::DORMANCY_LOCKOUT"),
                 Arguments.of(SessionRevocationCause.FAILURE_RUN_LOCKOUT,
                         "SUCCESS::FAILURE_RUN_LOCKOUT"),
-                Arguments.of(SessionRevocationCause.FORCED_PASSWORD_CHANGE,
-                        "SUCCESS::FORCED_PASSWORD_CHANGE"),
                 Arguments.of(SessionRevocationCause.REPLACED_BY_LOGIN,
                         "SUCCESS::REPLACED_BY_LOGIN"));
     }
@@ -128,10 +127,11 @@ class SessionRevocationServiceTests {
     }
 
     @Test
-    void the_administrator_who_forced_a_password_change_is_recorded_as_the_actor() {
+    void the_superuser_who_reduced_a_groups_permissions_is_recorded_as_the_actor() {
         sessions.open(user, "s-1");
 
-        revocation.revokeAllAfterCommit(user, SessionRevocationCause.FORCED_PASSWORD_CHANGE, ADMIN);
+        revocation.revokeAllAfterCommit(
+                user, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
         commit.commit();
 
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE))

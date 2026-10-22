@@ -89,8 +89,7 @@ Ending the sessions a User is already holding, so its next request arrives as a
 Guest and the SPA sends it back to login. Sessions are found by the User's stable
 id, never its `userName`, so a rename cannot hide one. The triggers in force:
 
-- an Admin forcing its password change, and its failure run imposing a lockout,
-  from Login or the self-service change;
+- its failure run imposing a lockout, from Login or the self-service change;
 - a SCIM write that takes `active` from true to false;
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
@@ -109,30 +108,28 @@ id, never its `userName`, so a rename cannot hide one. The triggers in force:
 
 Every one of those triggers but the startup sweep goes through one Session revocation
 module, which takes the User, the cause and the actor — the connector for a SCIM
-write, the Admin for a forced change, the Superuser for a Group's Permissions
-reduced, nobody otherwise. It defers the revocation
+write, the Superuser for a Group's Permissions reduced, nobody otherwise. It defers the revocation
 until after its transaction commits, so a write that was refused, stale or rolled
 back revokes nothing, and one SCIM write that moves several of those attributes
 revokes once. Every revocation that ended at least one session is audited as its
 own `USER_SESSIONS_REVOKE` event after the commit, its causes as the reason —
 `DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `MEMBERSHIP_REVOKED`
 (`ROLE_REVOKED` on rows recorded before #158), `GROUP_PERMISSIONS_REDUCED`,
-`DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT`, `FORCED_PASSWORD_CHANGE` or
-`REPLACED_BY_LOGIN` — and logged as `session-end` under the same names. One that
+`DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT` or `REPLACED_BY_LOGIN`
+(`FORCED_PASSWORD_CHANGE` on rows recorded before the forced password change was
+removed on 2026-10-22) — and logged as `session-end` under the same names. One that
 ended nothing (the User was signed in nowhere else) records nothing. If the session
 store fails, the failure is always audited, with outcome `FAILURE`, and alerted;
 the change stands, and the request answers as ADR 0004 sets out: one that would
-otherwise succeed — a SCIM write, the dormancy job, a password change, a forced
-change, a Group's Permissions set, an accepted Login — receives an error, while a rejected Login or a
+otherwise succeed — a SCIM write, the dormancy job, a password change, a
+Group's Permissions set, an accepted Login — receives an error, while a rejected Login or a
 rejected self-service change whose failure run imposed the lockout still answers
 with its bare refusal.
 
 Nothing else revokes: an ordinary profile or email change, a reactivation, an
 alias, a Group rename and Unlock touch no session. Reactivation gives nothing back
-(a revoked session is gone; the User signs in again). A refused forced change
-revokes nothing, which is what keeps an Admin who mis-clicks their own row from
-signing themselves out. A failure run that stops short of the limit revokes
-nothing either.
+(a revoked session is gone; the User signs in again). A refused Unlock revokes
+nothing either, and neither does a failure run that stops short of the limit.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in

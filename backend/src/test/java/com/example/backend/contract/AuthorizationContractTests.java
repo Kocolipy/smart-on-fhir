@@ -83,8 +83,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li>a session — holding every Permission — cannot reach {@code /scim/**}, and a connector token
  *       cannot reach the application chain;
  *   <li>an undeclared {@code /api/} route, or a method a declared route does not serve, is refused;
- *   <li>Unlock and the forced password change on the caller's own account are refused whatever the
- *       caller holds;
+ *   <li>Unlock on the caller's own account is refused whatever the caller holds, and the removed
+ *       forced password change is an undeclared route;
  *   <li>and each declared Permission, and the Superuser, is ALSO held by the handler itself, with
  *       method security, so the chain's matching rule is a backstop rather than the only line.
  * </ul>
@@ -258,18 +258,16 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     /**
-     * The helpdesk power: Unlock and the forced password change, and nothing else, are declared
-     * under {@code account:unlock}, a Permission a Group may carry and a token may not.
+     * The helpdesk power: Unlock, and nothing else, is declared under {@code account:unlock}, a
+     * Permission a Group may carry and a token may not (ADR 0015's 2026-10-22 addendum).
      */
     @Test
-    void unlock_and_the_forced_change_are_declared_under_account_unlock() {
+    void only_unlock_is_declared_under_account_unlock() {
         assertThat(withAccess(Access.PERMISSION))
                 .filteredOn(operation -> "account:unlock".equals(
                         operation.requirement().permission()))
                 .extracting(Operation::toString)
-                .containsExactlyInAnyOrder(
-                        "POST /api/admin/accounts/{id}/unlock",
-                        "POST /api/admin/accounts/{id}/force-password-change");
+                .containsExactly("POST /api/admin/accounts/{id}/unlock");
     }
 
     /** No session holds a token-only Permission, so no session operation may require one. */
@@ -541,6 +539,22 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     /**
+     * The forced password change no longer exists (ADR 0015's 2026-10-22 addendum). It is answered
+     * as any route nothing declares: a session holding every Permission is refused, a caller with
+     * none is unauthenticated — whichever User the path names.
+     */
+    @Test
+    void the_retired_forced_password_change_is_an_undeclared_route() throws Exception {
+        List<String> answers = new ArrayList<>();
+        for (UUID target : List.of(callerId, UUID.randomUUID())) {
+            answers.add(answersOfRetired(HttpMethod.POST,
+                    "/api/admin/accounts/" + target + "/force-password-change",
+                    session(EVERYTHING)).statuses());
+        }
+        assertThat(answers).containsExactly("403 401", "403 401");
+    }
+
+    /**
      * A retired route asked twice: once by {@code session}, once by a caller with no session. A
      * write carries a CSRF token on both, so any refusal is the authorization one and not the CSRF
      * filter's.
@@ -566,17 +580,14 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     @Test
-    void unlock_and_forced_password_change_on_the_callers_own_account_are_refused()
-            throws Exception {
-        for (String action : List.of("unlock", "force-password-change")) {
-            MockHttpServletRequestBuilder request = request(HttpMethod.POST,
-                    "/api/admin/accounts/" + callerId + "/" + action)
-                    .session(session(EVERYTHING));
-            SessionCsrf.withCsrf(mvc, request);
-            assertThat(mvc.perform(request).andReturn().getResponse().getStatus())
-                    .as("%s on the caller's own account, holding every Permission", action)
-                    .isEqualTo(403);
-        }
+    void unlock_on_the_callers_own_account_is_refused() throws Exception {
+        MockHttpServletRequestBuilder request = request(HttpMethod.POST,
+                "/api/admin/accounts/" + callerId + "/unlock")
+                .session(session(EVERYTHING));
+        SessionCsrf.withCsrf(mvc, request);
+        assertThat(mvc.perform(request).andReturn().getResponse().getStatus())
+                .as("unlock on the caller's own account, holding every Permission")
+                .isEqualTo(403);
     }
 
     // ---- the handler's own declaration ------------------------------------------------------
@@ -594,7 +605,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         List<Operation> handled = withAccess(Access.PERMISSION).stream()
                 .filter(operation -> operation.template().startsWith("/api/"))
                 .toList();
-        assertThat(handled).hasSizeGreaterThan(7);
+        assertThat(handled).hasSizeGreaterThan(6);
         List<String> failures = new ArrayList<>();
         for (Operation operation : handled) {
             HandlerMethod handler = handlerOf(operation);

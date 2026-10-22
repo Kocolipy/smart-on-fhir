@@ -62,8 +62,9 @@ public enum Permission {
      * {@code patient:read}, which every active User holds as the baseline and no Group confers,
      * and the write halves {@code user:write} and {@code group:write}, which only a connector
      * token carries: a Group holding either would be a Superuser by another name. The helpdesk
-     * power, Unlock and the forced password change, is {@code account:unlock}, which is delegatable
-     * because neither action can escalate (ADR 0015).
+     * power, Unlock of a locked User, is {@code account:unlock}, which is delegatable because it
+     * cannot escalate and has no effect on a User that is not locked (ADR 0015 and its 2026-10-22
+     * addendum).
      */
     public boolean delegatable() {
         return delegatable;

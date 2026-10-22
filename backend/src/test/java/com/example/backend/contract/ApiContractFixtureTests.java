@@ -381,28 +381,18 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 });
         add(all, "unlock: every documented outcome", t -> {
             Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-            String target = t.provision(true);
-            UUID id = t.userId(target);
+            UUID id = t.userId(t.provision(true));
+            t.lock(id);
             Cookie user = t.settle(t.provision(true));
-            t.expect(t.csrf(t.post("/api/admin/accounts/" + id + "/unlock")).cookie(admin), 200);
-            t.expect(t.csrf(t.post("/api/admin/accounts/" + id + "/unlock")), 401);
-            t.expect(t.csrf(t.post("/api/admin/accounts/" + id + "/unlock")).cookie(user), 403);
+            String path = "/api/admin/accounts/" + id + "/unlock";
+            t.expect(t.csrf(t.post(path)), 401);
+            t.expect(t.csrf(t.post(path)).cookie(user), 403);
+            t.expect(t.csrf(t.post(path)).cookie(admin), 200);
+            // Lifted now: a second Unlock has nothing to lift.
+            t.expect(t.csrf(t.post(path)).cookie(admin), 409);
             t.expect(t.csrf(t.post("/api/admin/accounts/not-a-uuid/unlock")).cookie(admin), 400);
             t.expect(t.csrf(t.post("/api/admin/accounts/" + UUID.randomUUID() + "/unlock"))
                     .cookie(admin), 404);
-        });
-        add(all, "force-password-change: every documented outcome", t -> {
-            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-            UUID credentialed = t.userId(t.provision(true));
-            UUID credentialless = t.userId(t.provision(false));
-            Cookie user = t.settle(t.provision(true));
-            String path = "/api/admin/accounts/%s/force-password-change";
-            t.expect(t.csrf(t.post(path.formatted(credentialed))).cookie(admin), 200);
-            t.expect(t.csrf(t.post(path.formatted(credentialed))), 401);
-            t.expect(t.csrf(t.post(path.formatted(credentialed))).cookie(user), 403);
-            t.expect(t.csrf(t.post(path.formatted("not-a-uuid"))).cookie(admin), 400);
-            t.expect(t.csrf(t.post(path.formatted(UUID.randomUUID()))).cookie(admin), 404);
-            t.expect(t.csrf(t.post(path.formatted(credentialless))).cookie(admin), 409);
         });
         add(all, "group permissions: every documented outcome", t -> {
             Cookie superuser = t.logIn(ADMIN, ADMIN_PASSWORD);
@@ -492,27 +482,15 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
      * and on the one retry: {@code 503} with {@code Retry-After: 1} and the generic body.
      */
     private static void deadlockedWrites(List<Fixture> all) {
-        add(all, "unlock and force-password-change: 503 with Retry-After when deadlocked twice",
-                t -> {
-                    Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-                    UUID locked = t.userId(t.provision(true));
-                    t.jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
-                            + " WHERE resource_id = ?",
-                            java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC), locked);
-                    // Settled, so it is required to change nothing yet and the forced change writes.
-                    String settled = t.provision(true);
-                    t.settle(settled);
-                    UUID credentialed = t.userId(settled);
-                    try (ForcedDeadlock victim = t.deadlocked("scim_users", "resource_id", locked)) {
-                        t.expectDeadlocked(t.csrf(t.post("/api/admin/accounts/" + locked + "/unlock"))
-                                .cookie(admin));
-                    }
-                    try (ForcedDeadlock victim =
-                            t.deadlocked("scim_users", "resource_id", credentialed)) {
-                        t.expectDeadlocked(t.csrf(t.post("/api/admin/accounts/" + credentialed
-                                + "/force-password-change")).cookie(admin));
-                    }
-                });
+        add(all, "unlock: 503 with Retry-After when deadlocked twice", t -> {
+            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+            UUID locked = t.userId(t.provision(true));
+            t.lock(locked);
+            try (ForcedDeadlock victim = t.deadlocked("scim_users", "resource_id", locked)) {
+                t.expectDeadlocked(t.csrf(t.post("/api/admin/accounts/" + locked + "/unlock"))
+                        .cookie(admin));
+            }
+        });
         add(all, "connector writes: 503 with Retry-After when deadlocked twice", t -> {
             Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
             String base = "/api/admin/connectors";
@@ -706,6 +684,13 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         expect(json(csrf(post("/api/auth/change-password")).cookie(confined),
                 change(CONNECTOR_PASSWORD, OWN_PASSWORD)), 204);
         return logIn(userName, OWN_PASSWORD);
+    }
+
+    /** Locks {@code userId} for failures straight in the store, so an Unlock has a lock to lift. */
+    void lock(UUID userId) {
+        jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
+                + " WHERE resource_id = ?",
+                java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC), userId);
     }
 
     UUID userId(String userName) {

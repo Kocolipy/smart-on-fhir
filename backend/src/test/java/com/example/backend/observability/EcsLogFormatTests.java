@@ -296,9 +296,10 @@ class EcsLogFormatTests {
         MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
         logs.reset();
 
+        // Refused — the seeded User is not locked — and logged under the session's User.
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
         mvc.perform(withCsrf(post("/api/auth/login"))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -306,7 +307,7 @@ class EcsLogFormatTests {
                 .andExpect(status().isUnauthorized());
 
         assertThat(onlyRecordWithMessage("Login refused").has("user")).isFalse();
-        assertThat(onlyRecordWithMessage("Administrative identity change applied")
+        assertThat(onlyRecordWithMessage("Administrative identity change refused")
                         .at("/user/id").asText())
                 .isEqualTo(userId("test-admin").toString());
         assertThat(admin.isInvalid()).as("the refused Login ended the session").isTrue();
@@ -315,7 +316,8 @@ class EcsLogFormatTests {
     /**
      * An authenticated request's records name the caller by the stable id its session's
      * principal index holds, and an administrative change names the identity acted on
-     * separately, as {@code user.target.id}.
+     * separately, as {@code user.target.id} — here an Unlock refused because the seeded User,
+     * shared with every test in this context, is not locked, and is left so.
      */
     @Test
     void anAdministrativeChangeIsOneEcsRecordNamingTheActorAndTheSubjectByStableId()
@@ -325,14 +327,15 @@ class EcsLogFormatTests {
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
 
-        JsonNode record = onlyRecordWithMessage("Administrative identity change applied");
+        JsonNode record = onlyRecordWithMessage("Administrative identity change refused");
 
         assertThatIsValidEcs(record);
-        assertThatClassifiedAs(record, "access-control", "process", "admin", "user", "change");
+        assertThatClassifiedAs(record, "access-control", "process", "admin", "user", "denied");
         assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.unlock");
-        assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("NOT_LOCKED");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-admin").toString());
         assertThat(record.at("/user/target/id").asText())
@@ -555,7 +558,7 @@ class EcsLogFormatTests {
         logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
 
         // The flows really did log, and did name their identities by id, so the
         // assertion below is not vacuously true.

@@ -8,6 +8,7 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.web.ApiError;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
@@ -16,6 +17,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -62,17 +66,30 @@ class AdminAccountControllerTests {
      * directory has renamed since, and what the body cannot spoof.
      */
     @Test
-    void unlockingAndForcingAChangeReachTheirOperationsByStableId() {
+    void unlockingReachesItsOperationByStableId() {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
         assertThat(controller.unlock(BOB, signedInAsAda))
                 .isEqualTo(summary(BOB, "bob", false, false));
-        assertThat(controller.forcePasswordChange(BOB, signedInAsAda))
-                .isEqualTo(flagged(BOB, "bob"));
 
-        assertThat(service.calls).containsExactly(
-                "unlock:" + BOB + ":" + ADA, "force-password-change:" + BOB + ":" + ADA);
+        assertThat(service.calls).containsExactly("unlock:" + BOB + ":" + ADA);
+    }
+
+    /**
+     * An Unlock of a User serving no lockout is answered {@code 409} with the application API's
+     * generic error document: the caller may unlock, but there is nothing to lift.
+     */
+    @Test
+    void anUnlockOfAnUnlockedUserIsAnsweredAsAConflict() {
+        AdminAccountController controller = new AdminAccountController(new RecordingService(List.of()));
+
+        ResponseEntity<ApiError> answer = controller.notLocked();
+
+        assertThat(List.of(answer.getStatusCode(), answer.getHeaders().getContentType(),
+                        answer.getBody()))
+                .containsExactly(HttpStatus.CONFLICT, MediaType.APPLICATION_JSON,
+                        new ApiError(409, ApiError.REQUEST_REFUSED, "The request was refused."));
     }
 
     /** A session that identifies nobody cannot act: the operation never reaches the service. */
@@ -85,15 +102,6 @@ class AdminAccountControllerTests {
 
         assertThatExceptionOfType(UnknownSessionIdentityException.class)
                 .isThrownBy(() -> controller.unlock(BOB, unindexed));
-    }
-
-    @Test
-    void aForcedChangeWithoutASessionIsRefused() {
-        RecordingService service = new RecordingService(List.of());
-        AdminAccountController controller = new AdminAccountController(service);
-
-        assertThatExceptionOfType(UnknownSessionIdentityException.class)
-                .isThrownBy(() -> controller.forcePasswordChange(BOB, new MockHttpServletRequest()));
     }
 
     @Test
@@ -129,13 +137,14 @@ class AdminAccountControllerTests {
 
     /**
      * The read-only criterion, as the adapters declare it: the only unsafe handlers are Unlock and
-     * the forced change, and setting a Group's Permissions — each of which writes application-owned
-     * state (ADR 0015). A handler added for Disable, a rename or a membership change fails here.
+     * setting a Group's Permissions — each of which writes application-owned state (ADR 0015). A
+     * handler added for Disable, a forced password change, a rename or a membership change fails
+     * here.
      */
     @Test
     void noHandlerWritesADirectoryOwnedAttribute() {
         assertThat(unsafeHandlers(AdminAccountController.class))
-                .containsExactlyInAnyOrder("unlock", "forcePasswordChange");
+                .containsExactly("unlock");
         assertThat(unsafeHandlers(AdminGroupController.class)).containsExactly("setPermissions");
         assertThat(unsafeHandlers(AdminPermissionController.class)).isEmpty();
     }
@@ -199,11 +208,6 @@ class AdminAccountControllerTests {
                 locked ? LockCause.DORMANCY : null, true, false, null, CREATED_AT, List.of());
     }
 
-    private static IdentitySummary flagged(UUID id, String userName) {
-        return new IdentitySummary(id, userName, null, false, false, true, false, null, true, true,
-                null, CREATED_AT, List.of());
-    }
-
     private static final class RecordingService extends IdentityAdministrationService {
 
         private final List<IdentitySummary> summaries;
@@ -215,7 +219,7 @@ class AdminAccountControllerTests {
         }
 
         RecordingService(List<IdentitySummary> summaries, List<GroupSummary> groupSummaries) {
-            super(null, null, null, null, null, null);
+            super(null, null, null, null, null);
             this.summaries = summaries;
             this.groupSummaries = groupSummaries;
         }
@@ -234,12 +238,6 @@ class AdminAccountControllerTests {
         public IdentitySummary unlock(UUID userId, UUID actorId) {
             calls.add("unlock:" + userId + ":" + actorId);
             return summary(userId, "bob", false, false);
-        }
-
-        @Override
-        public IdentitySummary forcePasswordChange(UUID userId, UUID actorId) {
-            calls.add("force-password-change:" + userId + ":" + actorId);
-            return flagged(userId, "bob");
         }
     }
 }

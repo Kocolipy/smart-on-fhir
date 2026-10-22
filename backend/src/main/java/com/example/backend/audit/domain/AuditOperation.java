@@ -33,7 +33,9 @@ public enum AuditOperation {
      * An administrator lifted a lockout. A lockout has no duration, so it never ends
      * unrequested, and every event of this operation names the administrator who ended it. Its
      * {@code errorCode} carries the cause of the lock it lifted — {@code FAILURES} or
-     * {@code DORMANCY} — or nothing when the User was not locked.
+     * {@code DORMANCY}. An Unlock of a User serving no lockout is refused and recorded as a refusal
+     * ({@code NOT_LOCKED}); an accepted event stored before that refusal existed (ADR 0015's
+     * 2026-10-22 addendum) may carry no cause.
      */
     LOCKOUT_LIFT,
 
@@ -199,11 +201,12 @@ public enum AuditOperation {
     DORMANCY_MEMBERSHIP_REVOCATION,
 
     /**
-     * A password change was required of a User by an administrator — directly, or by lifting a
-     * lockout, which requires one because the credential that reached the threshold may be the one
-     * being guessed — or such a requirement was refused. The event never carries a password value;
-     * the changed path is the flag. A refusal carries its reason from
-     * {@link AuditAdministrativeRefusal}.
+     * A password change was required of a User by an administrator lifting its lockout, which
+     * requires one because the credential that reached the threshold may be the one being guessed.
+     * The event never carries a password value; the changed path is the flag. Events stored before
+     * the forced password change was removed (ADR 0015's 2026-10-22 addendum) also record that
+     * direct requirement, and its refusals with their reason from
+     * {@link AuditAdministrativeRefusal}; they read back as the operation they were.
      */
     PASSWORD_CHANGE_REQUIRE,
 

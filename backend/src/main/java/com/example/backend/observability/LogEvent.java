@@ -631,8 +631,6 @@ public final class LogEvent {
                 onError("Epic JWKS still lacks the id_token's key after its refetches")),
         UNLOCK(Action.ACCESS_CONTROL, "identity.unlock",
                 onSuccess(ADMINISTRATIVE_CHANGE_APPLIED), onRefusal(ADMINISTRATIVE_CHANGE_REFUSED)),
-        FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null,
-                onSuccess(ADMINISTRATIVE_CHANGE_APPLIED), onRefusal(ADMINISTRATIVE_CHANGE_REFUSED)),
         PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change",
                 onSuccess("Self-service change completed"),
                 onRefusal("Self-service change refused")),
@@ -790,7 +788,6 @@ public final class LogEvent {
         SESSION_END("session-end"),
         USER_ADMINISTRATION("user-administration"),
         USER_PROVISIONING("user-provisioning"),
-        PASSWORD_CHANGE_ENFORCEMENT("password-change-enforcement"),
         ACCESS_CONTROL("access-control"),
         APPLICATION_STARTUP("application-startup"),
         APPLICATION_SHUTDOWN("application-shutdown");

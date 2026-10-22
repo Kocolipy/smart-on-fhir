@@ -33,7 +33,6 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -49,8 +48,8 @@ import org.junit.jupiter.api.Test;
  *       configured name — which is why it is seeded through {@code createReserved} and why
  *       its protections cannot be moved by a rename.
  *   <li>Deactivate and Activate are gone: {@code active} is the directory's to set over
- *       SCIM, so the listing reports it and nothing here writes it. Unlock and the forced
- *       change are addressed by stable id.
+ *       SCIM, so the listing reports it and nothing here writes it. Unlock is addressed by
+ *       stable id.
  * </ul>
  *
  * <p>Every refusal is AUDITED as well as logged, because a run of refused attempts against
@@ -91,7 +90,6 @@ class IdentityAdministrationServiceTests {
             groups,
             LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, clock),
-            revocation,
             audit,
             groupPermissions);
 
@@ -332,13 +330,89 @@ class IdentityAdministrationServiceTests {
         assertThat(users.require("bob").profile().active()).isFalse();
     }
 
+    /**
+     * An Unlock has no effect on a User serving no lockout: it is refused, and nothing is written —
+     * not even the failure run, which an Unlock used to clear on its own (ADR 0015's 2026-10-22
+     * addendum).
+     */
     @Test
-    void unlockingAnIdentityThatIsNotLockedWritesNothing() {
-        given("bob");
+    void unlockingAnIdentityThatIsNotLockedIsRefused() {
+        users.given(withRun("bob", 2));
+
+        assertThatThrownBy(() -> service.unlock(id("bob"), actor(BOOTSTRAP)))
+                .isInstanceOf(NoLockoutInForceException.class);
+    }
+
+    @Test
+    void aRefusedUnlockOfAnUnlockedIdentityKeepsItsFailureRunAndWritesNothing() {
+        users.given(withRun("bob", 2));
         int before = users.writes();
 
-        assertThat(service.unlock(id("bob"), actor(BOOTSTRAP)).locked()).isFalse();
+        assertThatThrownBy(() -> service.unlock(id("bob"), actor(BOOTSTRAP)))
+                .isInstanceOf(NoLockoutInForceException.class);
+
         assertThat(users.writes()).isEqualTo(before);
+        assertThat(users.require("bob").login()).isEqualTo(withRun("bob", 2).login());
+    }
+
+    /** The refusal is recorded as a refused lift, naming the actor, the target and the reason. */
+    @Test
+    void aRefusedUnlockOfAnUnlockedIdentityIsAuditedAsNotLocked() {
+        ScimUser recovery = given(BOOTSTRAP);
+        ScimUser bob = given("bob");
+
+        assertThatThrownBy(() -> service.unlock(bob.id(), recovery.id()))
+                .isInstanceOf(NoLockoutInForceException.class);
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(),
+                AuditAdministrativeRefusal.NOT_LOCKED.name()));
+    }
+
+    /** A refused Unlock revokes nothing: the User's sessions are untouched. */
+    @Test
+    void aRefusedUnlockOfAnUnlockedIdentityTouchesNoSessions() {
+        ScimUser bob = given("bob");
+        sessions.open(bob.id(), "session-1");
+
+        assertThatThrownBy(() -> service.unlock(bob.id(), actor(BOOTSTRAP)))
+                .isInstanceOf(NoLockoutInForceException.class);
+
+        assertThat(transaction.pending()).isZero();
+        assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
+    }
+
+    /**
+     * The Bootstrap Admin can never be locked, so another administrator's Unlock of it is always
+     * refused as not locked.
+     */
+    @Test
+    void anUnlockOfTheBootstrapAdminByAnotherAdministratorIsRefusedAsNotLocked() {
+        ScimUser recovery = givenBootstrapAdmin();
+        ScimUser ada = given("ada");
+
+        assertThatThrownBy(() -> service.unlock(recovery.id(), ada.id()))
+                .isInstanceOf(NoLockoutInForceException.class);
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT, ada.id(), recovery.id(),
+                AuditAdministrativeRefusal.NOT_LOCKED.name()));
+    }
+
+    /**
+     * The self-target refusal comes first: an administrator unlocking its own unlocked account is
+     * refused for targeting itself, whatever its state.
+     */
+    @Test
+    void anAdministratorUnlockingItsOwnUnlockedAccountIsRefusedAsSelfTargeting() {
+        ScimUser ada = given("ada");
+
+        assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT, ada.id(), ada.id(),
+                AuditAdministrativeRefusal.SELF_TARGET.name()));
     }
 
     /**
@@ -389,8 +463,6 @@ class IdentityAdministrationServiceTests {
         int before = users.writes();
 
         assertThatThrownBy(() -> service.unlock(nobody, actor(BOOTSTRAP)))
-                .isInstanceOf(UnknownIdentityException.class);
-        assertThatThrownBy(() -> service.forcePasswordChange(nobody, actor(BOOTSTRAP)))
                 .isInstanceOf(UnknownIdentityException.class);
 
         assertThat(users.writes()).isEqualTo(before);
@@ -451,27 +523,6 @@ class IdentityAdministrationServiceTests {
                         List.of(List.of("failedLoginAttempts", "lockedAt", "lockCause",
                                 "lastAuthenticatedAt")),
                         List.of(List.of("passwordChangeRequiredSince")));
-    }
-
-    /** An Unlock of a User with no run and no lock moved nothing, and its lift says so. */
-    @Test
-    void anUnlockThatMovedNothingNamesNoPath() {
-        given("bob");
-
-        service.unlock(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(audit.changedPaths(AuditOperation.LOCKOUT_LIFT)).containsExactly(List.of());
-    }
-
-    /** A forced change names the flag it set. */
-    @Test
-    void aForcedChangeNamesTheFlagItSet() {
-        given("bob");
-
-        service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(audit.changedPaths(AuditOperation.PASSWORD_CHANGE_REQUIRE))
-                .containsExactly(List.of("passwordChangeRequiredSince"));
     }
 
     // Dormancy locks (ADR 0007)
@@ -536,19 +587,20 @@ class IdentityAdministrationServiceTests {
         assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
     }
 
-    /** An Unlock of a User that is not locked does not restart its window, and names no cause. */
+    /**
+     * A refused Unlock of a User that is not locked does not restart its window: an Unlock is not a
+     * way to keep an unused account from going dormant.
+     */
     @Test
-    void unlockingAnUnlockedUserLeavesItsDormancyBasisAndNamesNoCause() {
+    void aRefusedUnlockOfAnUnlockedUserLeavesItsDormancyBasis() {
         Instant lastLogin = NOW.minus(Duration.ofDays(80));
         ScimUser dave = users.given(ScimIdentities.userAuthenticatedAt("dave", lastLogin));
         clock.advanceBy(Duration.ofDays(1));
 
-        IdentitySummary result = service.unlock(dave.id(), actor(BOOTSTRAP));
+        assertThatThrownBy(() -> service.unlock(dave.id(), actor(BOOTSTRAP)))
+                .isInstanceOf(NoLockoutInForceException.class);
 
         assertThat(users.require("dave").login().lastAuthenticatedAt()).isEqualTo(lastLogin);
-        assertThat(result.lastAuthenticatedAt()).isEqualTo(lastLogin);
-        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).singleElement()
-                .extracting(Recorded::detail).isNull();
     }
 
     /** A credentialless User locked for dormancy is unlocked without a change requirement. */
@@ -566,34 +618,19 @@ class IdentityAdministrationServiceTests {
     }
 
     /**
-     * An unlock that writes nothing — the identity is serving no lockout — is still an action
-     * an administrator took, so it is still recorded. The row is the evidence that someone
-     * looked.
-     */
-    @Test
-    void anIdempotentUnlockIsStillRecorded() {
-        given(BOOTSTRAP);
-        given("bob");
-
-        service.unlock(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).hasSize(1);
-    }
-
-    /**
      * The acting administrator is named by the stable id its session holds, so a rename between
      * signing in and acting changes nothing about who is recorded as the actor.
      */
     @Test
     void aRenamedAdministratorIsStillRecordedAsTheActorByItsStableId() {
         ScimUser admin = given("admin");
-        ScimUser bob = given("bob");
+        ScimUser bob = givenLocked("bob");
         users.rename(admin.id(), "admin-renamed");
 
         service.unlock(bob.id(), admin.id());
 
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, admin.id(), bob.id(), null));
+        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT, admin.id(), bob.id(), "FAILURES"));
     }
 
     /**
@@ -637,29 +674,14 @@ class IdentityAdministrationServiceTests {
         givenAdminGroup(recovery, ada);
         givenLocked("bob");
 
-        ScimUser carol = given("carol");
-
         try (CapturedLog captured = CapturedLog.attach()) {
             service.unlock(id("bob"), actor(BOOTSTRAP));
-            service.forcePasswordChange(carol.id(), actor(BOOTSTRAP));
 
-            assertThat(Map.of(
-                            LogEvent.LOCAL_ACTION, "identity.unlock",
-                            LogEvent.ACTION, "password-change-enforcement"))
-                    .allSatisfy((key, action) -> assertThat(
-                                    captured.withAction(Level.INFO, key, action))
-                            .singleElement()
-                            .satisfies(record -> assertThat(CapturedLog.fields(record))
-                                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)));
             assertThat(captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "identity.unlock"))
                     .singleElement()
                     .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
                             .containsEntry(LogEvent.USER_TARGET_ID, id("bob").toString()));
-            assertThat(captured.withAction(
-                            Level.INFO, LogEvent.ACTION, "password-change-enforcement"))
-                    .singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.USER_TARGET_ID, carol.id().toString()));
         }
     }
 
@@ -674,21 +696,36 @@ class IdentityAdministrationServiceTests {
         try (CapturedLog captured = CapturedLog.attach()) {
             assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
                     .isInstanceOf(ForbiddenIdentityChangeException.class);
-            assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), ada.id()))
-                    .isInstanceOf(ForbiddenIdentityChangeException.class);
 
-            assertThat(Map.of(
-                            LogEvent.LOCAL_ACTION, "identity.unlock",
-                            LogEvent.ACTION, "password-change-enforcement"))
-                    .allSatisfy((key, action) -> assertThat(
-                                    captured.withAction(Level.WARN, key, action))
-                            .singleElement()
-                            .satisfies(record -> assertThat(CapturedLog.fields(record))
-                                    .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                                    .containsEntry(LogEvent.USER_TARGET_ID, ada.id().toString())
-                                    .containsEntry(
-                                            LogEvent.REASON,
-                                            AuditAdministrativeRefusal.SELF_TARGET.name())));
+            assertThat(captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "identity.unlock"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                            .containsEntry(LogEvent.USER_TARGET_ID, ada.id().toString())
+                            .containsEntry(
+                                    LogEvent.REASON, AuditAdministrativeRefusal.SELF_TARGET.name()));
+        }
+    }
+
+    /** A not-locked refusal is reported the same way, under its own reason, and as no success. */
+    @Test
+    void aRefusedUnlockOfAnUnlockedUserReportsItsReasonToTheLogStream() {
+        ScimUser bob = given("bob");
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            assertThatThrownBy(() -> service.unlock(bob.id(), actor(BOOTSTRAP)))
+                    .isInstanceOf(NoLockoutInForceException.class);
+
+            assertThat(captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "identity.unlock"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                            .containsEntry(LogEvent.USER_TARGET_ID, bob.id().toString())
+                            .containsEntry(
+                                    LogEvent.REASON, AuditAdministrativeRefusal.NOT_LOCKED.name()));
+            assertThat(captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "identity.unlock"))
+                    .as("the refusal is the action's one record: no success beside it")
+                    .hasSize(1);
         }
     }
 
@@ -731,15 +768,6 @@ class IdentityAdministrationServiceTests {
         assertThat(audit.of(AuditOperation.PASSWORD_CHANGE_REQUIRE)).isEmpty();
     }
 
-    /** No lockout was reached, so there is no credential under suspicion. */
-    @Test
-    void anIdempotentUnlockRequiresNoChange() {
-        given("bob");
-
-        assertThat(service.unlock(id("bob"), actor(BOOTSTRAP)).passwordChangeRequired()).isFalse();
-        assertThat(users.require("bob").login().isPasswordChangeRequired()).isFalse();
-    }
-
     @Test
     void anAdminCannotUnlockTheirOwnAccount() {
         ScimUser ada = givenLocked("ada");
@@ -753,139 +781,6 @@ class IdentityAdministrationServiceTests {
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.LOCKOUT_LIFT, ada.id(), ada.id(),
                 AuditAdministrativeRefusal.SELF_TARGET.name()));
-    }
-
-    // Forced password change
-
-    @Test
-    void forcingAChangeFlagsTheUserAndRevokesItsSessionsAfterCommit() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser bob = given("bob");
-        sessions.open(bob.id(), "bob-session");
-
-        IdentitySummary forced = service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(forced.passwordChangeRequired()).isTrue();
-        assertThat(sessions.sessionsOf(bob.id())).as("revocation waits for the commit").hasSize(1);
-        transaction.commit();
-        assertThat(sessions.sessionsOf(bob.id())).isEmpty();
-        assertThat(audit.recorded()).first().isEqualTo(new Recorded(
-                AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
-    }
-
-    /** The revocation is audited under its cause, naming the administrator who forced it. */
-    @Test
-    void forcingAChangeAuditsTheRevocationUnderItsCauseWithTheAdministratorAsActor() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser bob = given("bob");
-        sessions.open(bob.id(), "bob-session");
-
-        service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
-        transaction.commit();
-
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
-                AuditOperation.USER_SESSIONS_REVOKE, recovery.id(), bob.id(),
-                "SUCCESS::FORCED_PASSWORD_CHANGE"));
-    }
-
-    /**
-     * A User already flagged has nothing re-imposed — what that leaves stored is the login-state
-     * module's rule — so the path audits nothing and revokes nothing, and still answers that a
-     * change is required.
-     */
-    @Test
-    void forcingAChangeOnAFlaggedUserAuditsAndRevokesNothing() {
-        users.given(ScimIdentities.userWithLoginState(
-                "bob", new ScimLoginState("hash", 0, null, null, NOW)));
-
-        assertThat(service.forcePasswordChange(id("bob"), actor(BOOTSTRAP)).passwordChangeRequired()).isTrue();
-
-        assertThat(transaction.pending()).isZero();
-        assertThat(audit.recorded()).isEmpty();
-    }
-
-    /** A forced change that imposed nothing is no administrative write to report as a success. */
-    @Test
-    void forcingAChangeOnAFlaggedUserReportsNoSuccessToTheLogStream() {
-        users.given(ScimIdentities.userWithLoginState(
-                "bob", new ScimLoginState("hash", 0, null, null, NOW)));
-
-        try (CapturedLog captured = CapturedLog.attach()) {
-            service.forcePasswordChange(id("bob"), actor(BOOTSTRAP));
-
-            assertThat(captured.withAction(
-                            Level.INFO, LogEvent.ACTION, "password-change-enforcement"))
-                    .isEmpty();
-        }
-    }
-
-    /** The returned summary is the stored User's, the Admin flag and creation time included. */
-    @Test
-    void forcingAChangeOnAnAdminReportsItAsAnAdminOnEitherPath() {
-        givenBootstrapAdmin();
-        ScimUser eve = given("eve");
-        ScimUser fay = users.given(ScimIdentities.userWithLoginState(
-                "fay", new ScimLoginState("hash", 0, null, null, NOW)));
-        givenAdminGroup(eve, fay);
-
-        IdentitySummary flagged = service.forcePasswordChange(id("eve"), actor(BOOTSTRAP));
-        IdentitySummary alreadyFlagged = service.forcePasswordChange(id("fay"), actor(BOOTSTRAP));
-
-        assertThat(flagged.admin()).isTrue();
-        assertThat(flagged.createdAt()).isEqualTo(eve.createdAt()).isNotNull();
-        assertThat(alreadyFlagged.admin()).isTrue();
-        assertThat(alreadyFlagged.createdAt()).isEqualTo(fay.createdAt()).isNotNull();
-    }
-
-    @Test
-    void forcingAChangeOnACredentiallessUserIsRefused() {
-        ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
-
-        assertThatThrownBy(() -> service.forcePasswordChange(id("carol"), actor(BOOTSTRAP)))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-
-        assertRefusedWithoutEffect(carol, AuditAdministrativeRefusal.CREDENTIALLESS_TARGET);
-    }
-
-    @Test
-    void anAdminCannotForceAChangeOnTheirOwnAccount() {
-        ScimUser ada = given("ada");
-
-        assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), ada.id()))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
-
-        assertRefusedWithoutEffect(ada, AuditAdministrativeRefusal.SELF_TARGET);
-    }
-
-    @Test
-    void nobodyButTheBootstrapAdminMayFlagIt() {
-        ScimUser recovery = givenBootstrapAdmin();
-        given("ada");
-
-        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), id("ada")))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
-
-        assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isFalse();
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.PASSWORD_CHANGE_REQUIRE,
-                users.require("ada").id(),
-                recovery.id(),
-                AuditAdministrativeRefusal.PROTECTED_RESOURCE.name()));
-    }
-
-    /**
-     * The self-target refusal holds for the Bootstrap Admin too, whatever it holds: no
-     * administrator acts on its own account through the admin flow. It replaces its own password
-     * through the self-service change instead.
-     */
-    @Test
-    void theBootstrapAdminCannotFlagItself() {
-        ScimUser bootstrap = givenBootstrapAdmin();
-
-        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), actor(BOOTSTRAP)))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
-
-        assertRefusedWithoutEffect(bootstrap, AuditAdministrativeRefusal.SELF_TARGET);
     }
 
     /**
@@ -902,16 +797,6 @@ class IdentityAdministrationServiceTests {
         assertThat(users.require("bob").login().isLocked()).isTrue();
     }
 
-    @Test
-    void aForcedChangeWithNoActorIsRefusedBeforeAnythingIsWritten() {
-        ScimUser carol = given("carol");
-
-        assertThatNullPointerException()
-                .isThrownBy(() -> service.forcePasswordChange(carol.id(), null));
-
-        assertThat(audit.recorded()).isEmpty();
-    }
-
     /**
      * The stable id the acting administrator's session holds: its own, when the test provisioned
      * it, or that of an administrator the test did not need to provision.
@@ -922,19 +807,6 @@ class IdentityAdministrationServiceTests {
                 .orElse(UNPROVISIONED_ADMIN);
     }
 
-    private void assertRefusedWithoutEffect(ScimUser target, AuditAdministrativeRefusal reason) {
-        assertThat(users.require(target.profile().userName()).login().isPasswordChangeRequired())
-                .isFalse();
-        assertThat(transaction.pending()).isZero();
-        assertThat(audit.recorded())
-                .singleElement()
-                .satisfies(event -> {
-                    assertThat(event.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE_REQUIRE);
-                    assertThat(event.subjectId()).isEqualTo(target.id());
-                    assertThat(event.detail()).isEqualTo(reason.name());
-                });
-    }
-
     /** The stable id every operation addresses a User by. */
     private UUID id(String userName) {
         return users.require(userName).id();
@@ -942,6 +814,12 @@ class IdentityAdministrationServiceTests {
 
     private ScimUser given(String userName) {
         return users.given(ScimIdentities.user(userName));
+    }
+
+    /** A User serving no lockout, with {@code failures} attempts in its failure run. */
+    private static ScimUser withRun(String userName, int failures) {
+        return ScimIdentities.userWithLoginState(
+                userName, new ScimLoginState("hash", failures, null, null, NOW, null));
     }
 
     private ScimUser givenLocked(String userName) {

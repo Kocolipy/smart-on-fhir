@@ -24,7 +24,8 @@ import org.springframework.stereotype.Service;
 /**
  * Session revocation: ending the sessions a User already holds, because something about its
  * identity, credential or authority changed. Every trigger comes here — a SCIM write, the dormancy
- * job, a failure-run lockout, a forced or self-service password change, and an accepted Login's
+ * job, a failure-run lockout, a self-service password change, a Superuser reducing a Group's
+ * Permissions, and an accepted Login's
  * one-session-per-User sweep — so each one ends, audits and logs the same way, under one cause
  * vocabulary ({@link SessionRevocationCause}).
  *
@@ -42,9 +43,9 @@ import org.springframework.stereotype.Service;
  *
  * <ul>
  *   <li>a request that would otherwise <em>succeed</em> — a SCIM write, the dormancy job, a
- *       password change, a forced change, an accepted Login — sees the failure: the change stays
- *       durable, as ADR 0002 argues, but the caller is not told a change fully succeeded while the
- *       sessions it should have ended survive;
+ *       password change, a Group's Permissions reduced, an accepted Login — sees the failure: the
+ *       change stays durable, as ADR 0002 argues, but the caller is not told a change fully
+ *       succeeded while the sessions it should have ended survive;
  *   <li>a request already being <em>refused</em> — a failure-run lockout, imposed by a rejected
  *       Login or a rejected self-service password change — does not, so it keeps answering with
  *       the same bare refusal whatever the state of the session store.
@@ -81,7 +82,7 @@ public class SessionRevocationService implements ScimUserSessions {
      * @param userId  the User whose sessions end
      * @param cause   why; never {@link SessionRevocationCause#REPLACED_BY_LOGIN}, which keeps a
      *                session and is {@link #revokeOtherSessionsAfterCommit}'s
-     * @param actorId who caused it — the administrator forcing a password change — or
+     * @param actorId who caused it — the Superuser reducing a Group's Permissions — or
      *                {@code null} when nobody recorded as an actor did: the dormancy job, a Login,
      *                the User's own self-service change
      */
@@ -162,7 +163,7 @@ public class SessionRevocationService implements ScimUserSessions {
 
     /**
      * The attribute whose change each cause is, as the event's changed paths. A deletion, a
-     * lockout, a forced change, a Group's Permissions reduced and a Login changed no attribute of
+     * lockout, a Group's Permissions reduced and a Login changed no attribute of
      * the User a connector reads, so none contributes one; the reason names them instead.
      */
     private static Set<AuditUserAttribute> paths(Set<SessionRevocationCause> causes) {
@@ -173,8 +174,8 @@ public class SessionRevocationService implements ScimUserSessions {
                 case PASSWORD_CHANGED -> paths.add(AuditUserAttribute.PASSWORD);
                 case USER_NAME_CHANGED -> paths.add(AuditUserAttribute.USER_NAME);
                 case MEMBERSHIP_REVOKED -> paths.add(AuditUserAttribute.GROUPS);
-                case DELETED, DORMANCY_LOCKOUT, FAILURE_RUN_LOCKOUT, FORCED_PASSWORD_CHANGE,
-                        GROUP_PERMISSIONS_REDUCED, REPLACED_BY_LOGIN -> { }
+                case DELETED, DORMANCY_LOCKOUT, FAILURE_RUN_LOCKOUT, GROUP_PERMISSIONS_REDUCED,
+                        REPLACED_BY_LOGIN -> { }
             }
         }
         return paths;
@@ -183,7 +184,8 @@ public class SessionRevocationService implements ScimUserSessions {
     /**
      * Each cause as the audit trail's own name for it, which is the same name: audit cannot see
      * this enum (the slices depend the other way), so it mirrors it. A cause added here without
-     * its mirror fails {@code SessionRevocationServiceTests}' every-cause test.
+     * its mirror fails {@code SessionRevocationServiceTests}' every-cause test. The mirror may hold
+     * more: a cause no longer raised keeps its audit name for the rows already stored.
      */
     private static Set<AuditSessionRevocationCause> auditCauses(
             Set<SessionRevocationCause> causes) {

@@ -121,7 +121,6 @@ class LoginLockoutTests {
                 users,
                 groups,
                 loginState,
-                revocation,
                 audit,
                 InMemoryGroupPermissions.over(groups));
     }

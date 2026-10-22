@@ -130,7 +130,7 @@ on the view instead of re-checking flags.
   `403` with the page's failure copy, still as `failed`, still without ending
   the session. The Patient card is its one user.
 
-**Every page action** — Unlock, the forced change, connector and token changes —
+**Every page action** — Unlock, a Group's Permissions, connector and token changes —
 goes through `useGatedWrite`, handed a declaration, its arguments, the success
 handling, the copy for the statuses the page cares about, and optionally an
 `after` step run inside the pending window (Connectors' listing re-read). It
@@ -148,12 +148,14 @@ Pages consume `auth/`; they hold no session or Permission logic and never
 decide where a visitor goes.
 
 - `accounts.tsx` — the widest page: the Users and Groups projections, Unlock
-  and the forced password change by stable id, and — for the Superuser alone, on
+  of a locked User by stable id, and — for the Superuser alone, on
   every Group but the Admin group — "Edit permissions". An action replaces the
   affected row from its response, which _is_ that User's or Group's new state,
   rather than re-reading. Nothing the directory owns has a control, and the page
-  hides the actions the backend would refuse (its own row; Unlock on the
-  Bootstrap Admin; the Admin group's Permissions).
+  hides the actions the backend would refuse (its own row; Unlock on a User
+  that is not locked, the Bootstrap Admin always among them; the Admin group's
+  Permissions). An Unlock the backend still refuses `409` — another
+  administrator unlocked the User first — says the User is no longer locked.
 - `group-permissions-dialog.tsx` — the Accounts page's Group Permissions editor,
   not a page: a modal checkbox dialog fed by `GET /api/admin/permissions` and
   pre-ticked with the Group's current set. It hands the complete set to the

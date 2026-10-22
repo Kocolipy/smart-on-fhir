@@ -340,9 +340,7 @@ public class SecurityConfig {
                         // ---- Permission per operation (backstop; see above) ----
                         .requestMatchers(read("/api/admin/accounts"))
                                 .hasAuthority(Permission.USER_READ.value())
-                        .requestMatchers(HttpMethod.POST,
-                                        "/api/admin/accounts/*/unlock",
-                                        "/api/admin/accounts/*/force-password-change")
+                        .requestMatchers(HttpMethod.POST, "/api/admin/accounts/*/unlock")
                                 .hasAuthority(Permission.ACCOUNT_UNLOCK.value())
                         .requestMatchers(read("/api/admin/groups"), read("/api/admin/permissions"))
                                 .hasAuthority(Permission.GROUP_READ.value())

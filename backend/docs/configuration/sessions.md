@@ -9,7 +9,7 @@ tags: [sessions, redis, configuration]
 
 Sessions are stored through Spring Session's **indexed** Redis repository, which
 keeps a per-principal index. That index is what lets the service end a User's
-sessions — on deactivation, lockout, a forced password change, or a new login
+sessions — on deactivation, lockout, a password change, or a new login
 under one session per User — so the setting is a requirement rather than a preference:
 with the default repository the application does not start. It is configured in
 `src/main/resources/session.yaml`, imported by both the main and the test

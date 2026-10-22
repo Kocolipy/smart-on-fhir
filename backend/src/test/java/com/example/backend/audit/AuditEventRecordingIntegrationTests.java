@@ -314,16 +314,22 @@ class AuditEventRecordingIntegrationTests {
         assertThat(require(USER).login().isLocked()).isTrue();
     }
 
+    /**
+     * An Unlock of a User serving no lockout is refused, and the refusal is exactly one failed
+     * lift naming the administrator, the User and the reason — recorded although the request
+     * changed nothing, in a transaction of its own.
+     */
     @Test
-    void unlockingAnAccountProducesExactlyOneLiftEventNamingTheAdministrator()
+    void aRefusedUnlockProducesExactlyOneFailedLiftEventNamingTheAdministrator()
             throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
 
         Map<String, Object> event = only(AuditOperation.LOCKOUT_LIFT);
-        assertThat(event).containsEntry("error_code", null);
-        assertThat(event).as("no lock stood and no run was held, so nothing changed")
+        assertThat(event).containsEntry("outcome", "FAILURE");
+        assertThat(event).containsEntry("error_code", "NOT_LOCKED");
+        assertThat(event).as("no lock stood, so nothing changed")
                 .containsEntry("changed_paths", null);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
@@ -332,22 +338,21 @@ class AuditEventRecordingIntegrationTests {
     }
 
     /**
-     * An Unlock records what it changed. Of a User serving no lockout, that is the failure run it
-     * cleared and nothing else: no lock stood, so none was lifted and the dormancy basis did not
-     * move.
+     * An Unlock of a User serving no lockout has no effect: the failure run it holds is kept as
+     * evidence, where an Unlock used to clear it, and the refusal names no changed path.
      */
     @Test
-    void anUnlockOfAUserServingNoLockoutRecordsOnlyTheRunItCleared() throws Exception {
+    void aRefusedUnlockOfAUserServingNoLockoutKeepsItsFailureRun() throws Exception {
         ScimUser user = require(USER);
         transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
                 loginStates, user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
 
-        assertThat(only(AuditOperation.LOCKOUT_LIFT))
-                .containsEntry("changed_paths", "failedLoginAttempts");
+        assertThat(require(USER).login().failedLoginAttempts()).isEqualTo(2);
+        assertThat(only(AuditOperation.LOCKOUT_LIFT)).containsEntry("changed_paths", null);
     }
 
     /**
@@ -386,9 +391,10 @@ class AuditEventRecordingIntegrationTests {
         logIn(USER, USER_PASSWORD).andExpect(status().isOk());
         logIn(USER, "wrong-" + USER_PASSWORD).andExpect(status().isUnauthorized());
         logIn("no-such-account", "irrelevant").andExpect(status().isUnauthorized());
+        // Refused — the User is not locked — and still recorded.
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
 
         assertThat(allEvents()).hasSizeGreaterThanOrEqualTo(3);
         // The scan works: a value that is present is found.

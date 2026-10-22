@@ -9,7 +9,9 @@ Group through a configured role mapping), restating what survives from it below.
 The decision is written once, here, although it lands in steps: the Superuser
 authority and the Superuser-only connector operations come first (#155), and the
 rest follows in later tickets (#156 to #159) while Roles still exist. Until each
-lands, ADR 0010's mechanism stands for that part.
+lands, ADR 0010's mechanism stands for that part. Refined by the 2026-10-22
+addendum below: `account:unlock` is Unlock of a locked User only, and the forced
+password change is removed.
 
 ## Context
 
@@ -211,3 +213,62 @@ method security.
   Superuser sets a Group's Permissions from the Groups table, a shrink ends the
   members' sessions after commit, and each change is audited as
   `GROUP_PERMISSIONS_CHANGE`. With it every part of this decision is in force.
+
+## Addendum (2026-10-22): `account:unlock` is Unlock of a locked User only
+
+_Contradicts this ADR's "`account:unlock` is the helpdesk Permission: Unlock and
+the forced password change, neither of which can escalate", but worth reopening
+because the forced change, though it cannot escalate, let a lower-privileged User
+deny a higher-privileged one._
+
+### Context
+
+The forced password change set another User's change-required flag and ended
+every session it held. Its only target refusals were the caller's own account
+and the Bootstrap Admin, and there is deliberately no rule refusing a target that
+holds more than the caller. So a holder of `account:unlock` — a helpdesk Group's
+member, nothing near a Superuser — could force a change on any Superuser but the
+Bootstrap Admin, and repeat it each time the Superuser recovered, ending its
+sessions every time. Unlock had a milder version of the same reach: on a User
+serving no lockout it still cleared the failure run, so the Permission had an
+effect on a User that was not locked at all.
+
+### Decision
+
+- **The forced password change is removed.** `POST
+  /api/admin/accounts/{id}/force-password-change`, its use case, its login-state
+  transition and the SPA's control are gone. The path is now an undeclared route,
+  refused by deny by default like the counter endpoints before it. No migration
+  is needed: no table, column or constraint was the forced change's alone.
+- **An Unlock of a User serving no lockout is refused and changes nothing.** It
+  answers `409` with the generic `request-refused` `ApiError`; the stored state
+  is untouched, its failure run included; nothing is revoked; and the refusal is
+  audited and logged as the self-target refusal is — a `LOCKOUT_LIFT` failure
+  with the new reason `NOT_LOCKED`. The self-target refusal is checked first, so
+  an Admin's own row is refused for being its own whatever its state. The
+  Bootstrap Admin, which can never be locked, is always refused `NOT_LOCKED` by
+  anyone else. Whether a lock stood is decided by the login-state module on the
+  state it reads under the User's lock, so an Unlock racing another lands as one
+  success and one refusal.
+- **An Unlock of a locked User is unchanged**: it lifts the lock, clears the run,
+  resets the dormancy basis and, for a User with a password, sets the
+  change-required flag (ADR 0011's ac-6).
+- `account:unlock` therefore has an effect only on a locked User, and stays
+  delegatable: unlocking a locked User restores access the User already had, and
+  confines it to replacing its password.
+- **History keeps its vocabulary.** The audit listing still reads every row
+  stored before: the `PASSWORD_CHANGE_REQUIRE` operation (Unlock still records
+  it), the `CREDENTIALLESS_TARGET` refusal reason and the
+  `FORCED_PASSWORD_CHANGE` session-revocation cause are kept for those rows, the
+  last two documented as no longer recorded. The runtime-only vocabulary — the
+  log operation, the login surface's revocation cause, the exception for a
+  credentialless target — is removed.
+
+### Accepted cost
+
+No one can require a password change of an unlocked User whose password is
+suspected compromised. Recovery goes through the connector instead: the directory
+sets a new password, which also sets the change-required flag and ends the User's
+sessions, or deactivates the User, which ends them and refuses every Login until
+it is reactivated. An Epic-linked User was already handled that way (ADR 0012,
+D20).

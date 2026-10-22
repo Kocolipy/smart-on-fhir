@@ -1419,7 +1419,7 @@ public class ArchitectureTest {
     /**
      * The Failure run and the lock, the dormancy basis, the change-required flag and the completed
      * password change are written by the login-state module alone, anywhere in the application:
-     * the Login, password-change, Unlock, forced-change and dormancy paths report what happened and
+     * the Login, password-change, Unlock and dormancy paths report what happened and
      * the module decides the new state (issues #42, #43). The directory reaches the module through
      * the {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture
      * is written by the module too — and the persistence adapter, which implements these

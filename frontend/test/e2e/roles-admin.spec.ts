@@ -136,15 +136,27 @@ test.describe("ADMIN directory projections", () => {
 test.describe("ADMIN account control", () => {
   /**
    * Unlocking a User that is serving no lockout is the safe case to assert
-   * live: it is idempotent, writes nothing and requires no change, so it cannot
-   * disturb a parallel spec. The locked case is driven through the page in
+   * live: it is refused and writes nothing, so it cannot disturb a parallel
+   * spec. The locked case is driven through the page in
    * `accounts-admin.spec.ts`, on a User that spec provisions for itself.
    */
-  test("reports a User as unlocked when it is serving no lockout", async ({ page }) => {
-    const response = await postAdminAction(page, await userIdOf(page, "user"), "unlock");
+  test("refuses to unlock a User that is serving no lockout, and changes nothing", async ({
+    page,
+  }) => {
+    const id = await userIdOf(page, "user");
+    const response = await postAdminAction(page, id, "unlock");
 
-    expect(response.status()).toBe(200);
-    expect(await response.json()).toMatchObject({ locked: false, passwordChangeRequired: false });
+    expect(response.status()).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "request-refused", status: 409 });
+    const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<{
+      id: string;
+      locked: boolean;
+      passwordChangeRequired: boolean;
+    }>;
+    expect(listing.find((row) => row.id === id)).toMatchObject({
+      locked: false,
+      passwordChangeRequired: false,
+    });
   });
 
   /**

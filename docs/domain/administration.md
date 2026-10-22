@@ -15,20 +15,23 @@ projection and the Groups projection, both read-only for everything the director
 owns, plus the application-owned operations:
 
 - **Unlock**, offered only while a lockout is in force, and described as the only
-  way a lockout ends — one that also requires the User to change its password;
-- the **forced password change**, offered only on a credentialed User not already
-  flagged;
+  way a lockout ends — one that also requires the User to change its password.
+  An Unlock the backend refuses because the User is no longer locked (`409`,
+  most often another Admin's Unlock landing first) says so and asks for a
+  reload;
 - **Group Permissions**, set by the Superuser from the Groups projection;
 - connector and token management with one-time plaintext disclosure.
 
-Both User operations address the User by its stable id. It offers neither
-operation on the signed-in Admin's own row (comparing the normalized `userName`),
-no Unlock on the Bootstrap Admin, and no forced change on it either, so the
-backend's [refusals](./authentication.md) are visible before the click. There is
+Unlock addresses the User by its stable id. It is not offered on the signed-in
+Admin's own row (comparing the normalized `userName`), on the Bootstrap Admin, or
+on any User that is not locked, so the backend's
+[refusals](./authentication.md) are visible before the click. There is no forced
+password change: the helpdesk Permission acts only on a locked User (ADR 0015's
+2026-10-22 addendum). There is
 no Deactivate or Activate: `active` is the directory's, and the backend has no
 endpoint that would accept a write to any directory-owned field. Each view and
 action is shown by its own Permission — the Users projection by `user:read`, its
-Unlock and forced change by `account:unlock`, the Groups projection by `group:read`
+Unlock by `account:unlock`, the Groups projection by `group:read`
 (its "Edit permissions" action only to a Superuser), connectors by `connector:read`
 (create, delete and every token action are shown only to a Superuser) — and the
 page renders for a User who may see at least one view;
