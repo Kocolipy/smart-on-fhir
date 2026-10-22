@@ -109,7 +109,7 @@ class ScheduledJobScheduleTests {
     @Test
     void theDormancyChangeCountersAreRegisteredFromScheduling() {
         assertThat(registry.find("app.dormancy.users.locked").counter()).isNotNull();
-        assertThat(registry.find("app.dormancy.users.roles.revoked").counter()).isNotNull();
+        assertThat(registry.find("app.dormancy.users.memberships.revoked").counter()).isNotNull();
     }
 
     private List<CronTask> cronTasks() {
@@ -156,7 +156,7 @@ class ScheduledJobScheduleTests {
                 assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
                 assertThat(record.at("/dormancy/lockout/window").asText())
                         .isEqualTo(dormancy.lockoutWindow().toString());
-                assertThat(record.at("/dormancy/role_revocation/window").asText())
+                assertThat(record.at("/dormancy/membership_revocation/window").asText())
                         .isEqualTo(dormancy.membershipRevocationWindow().toString());
             });
 

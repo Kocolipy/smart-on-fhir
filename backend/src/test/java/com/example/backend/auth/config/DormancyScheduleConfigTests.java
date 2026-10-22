@@ -11,7 +11,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.SessionRevocationService;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
@@ -71,7 +71,7 @@ class DormancyScheduleConfigTests {
                 groups,
                 new InMemoryScimWriteLocks(),
                 new ScimMembershipRevocationService(users, groups, sessions, audit,
-                        TestRoleMappings.superuserOnly(), () -> {
+                        TestGroupPermissions.superuserOnly(), () -> {
                         }),
                 sessions,
                 LoginStateModules.over(users, clock),
@@ -93,7 +93,7 @@ class DormancyScheduleConfigTests {
     @Test
     void theCountersExistAtZeroBeforeAnyRun() {
         assertThat(locked()).isZero();
-        assertThat(rolesRevoked()).isZero();
+        assertThat(membershipsRevoked()).isZero();
         assertThat(registry.find("app.job.runs").tag("job", "dormancy").counters()).hasSize(2);
     }
 
@@ -102,9 +102,9 @@ class DormancyScheduleConfigTests {
     void theCountersAreDescribed() {
         assertThat(registry.find("app.dormancy.users.locked").counter().getId().getDescription())
                 .isEqualTo("Users the dormancy job locked");
-        assertThat(registry.find("app.dormancy.users.roles.revoked").counter().getId()
+        assertThat(registry.find("app.dormancy.users.memberships.revoked").counter().getId()
                         .getDescription())
-                .isEqualTo("Users whose mapped Group memberships the dormancy job removed");
+                .isEqualTo("Users whose Group memberships the dormancy job removed");
     }
 
     @Test
@@ -112,7 +112,7 @@ class DormancyScheduleConfigTests {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         users.given(ScimIdentities.user("bob"));
         groups.createReserved(
-                ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+                ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
                         List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW),
                 ReservedResourceName.ADMIN_GROUP);
         clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
@@ -120,12 +120,12 @@ class DormancyScheduleConfigTests {
         scheduled.run();
 
         assertThat(locked()).isEqualTo(2);
-        assertThat(rolesRevoked()).isEqualTo(1);
+        assertThat(membershipsRevoked()).isEqualTo(1);
 
         scheduled.run();
 
         assertThat(locked()).as("nothing more to lock").isEqualTo(2);
-        assertThat(rolesRevoked()).isEqualTo(1);
+        assertThat(membershipsRevoked()).isEqualTo(1);
     }
 
     /** A skipped run changed nothing and counts nothing. */
@@ -139,7 +139,7 @@ class DormancyScheduleConfigTests {
         scheduled.run();
 
         assertThat(locked()).isZero();
-        assertThat(rolesRevoked()).isZero();
+        assertThat(membershipsRevoked()).isZero();
     }
 
     /** A failed run — its transaction rolled back after a User was locked — counts nothing. */
@@ -160,7 +160,7 @@ class DormancyScheduleConfigTests {
         assertThat(users.require("ada").login().isLocked())
                 .as("the run got as far as locking").isTrue();
         assertThat(locked()).isZero();
-        assertThat(rolesRevoked()).isZero();
+        assertThat(membershipsRevoked()).isZero();
         assertThat(registry.find("app.job.runs").tag("job", "dormancy").tag("outcome", "failure")
                 .counter().count()).isEqualTo(1);
     }
@@ -184,15 +184,15 @@ class DormancyScheduleConfigTests {
                     .reduce((first, second) -> second)
                     .orElseThrow();
             assertThat(end.at("/dormancy/locked_count").asLong()).isEqualTo(2);
-            assertThat(end.at("/dormancy/roles_revoked_count").asLong()).isEqualTo(1);
+            assertThat(end.at("/dormancy/memberships_revoked_count").asLong()).isEqualTo(1);
             assertThat(locked()).isEqualTo(end.at("/dormancy/locked_count").asDouble());
-            assertThat(rolesRevoked()).isEqualTo(end.at("/dormancy/roles_revoked_count").asDouble());
+            assertThat(membershipsRevoked()).isEqualTo(end.at("/dormancy/memberships_revoked_count").asDouble());
         }
     }
 
     private void givenAdmins(ScimUser member) {
         groups.createReserved(
-                ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+                ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
                         List.of(ScimGroupMember.reference(member.id())), ScimIdentities.NOW),
                 ReservedResourceName.ADMIN_GROUP);
     }
@@ -201,7 +201,7 @@ class DormancyScheduleConfigTests {
         return registry.find("app.dormancy.users.locked").counter().count();
     }
 
-    private double rolesRevoked() {
-        return registry.find("app.dormancy.users.roles.revoked").counter().count();
+    private double membershipsRevoked() {
+        return registry.find("app.dormancy.users.memberships.revoked").counter().count();
     }
 }

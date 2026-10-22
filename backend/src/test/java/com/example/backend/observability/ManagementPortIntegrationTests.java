@@ -30,11 +30,11 @@ import tools.jackson.databind.json.JsonMapper;
  * takes it off the public port — the application port no longer serves it — and does NOT
  * take it out from behind its Permission, because the application chain guards the
  * management port too. A network boundary is added, never swapped for the access rule —
- * and the rule still admits the Monitoring Role's account there, holding {@code ops:read} and
+ * and the rule still admits the Monitoring Group's account there, holding {@code ops:read} and
  * nothing else, so Prometheus has a working path; an Account admin, holding every User and Group
  * power but not {@code ops:read}, is refused.
  *
- * <p>Runs under the shipped development role mapping, with its fixture Users, so the two
+ * <p>Runs under the shipped development fixtures and their {@code local} Group Permissions, so the two
  * accounts are the ones local runs and the e2e suite sign in as.
  *
  * <p>Every expectation sits in ONE test method, with soft assertions so each still reports
@@ -49,17 +49,17 @@ import tools.jackson.databind.json.JsonMapper;
             "management.server.port=0",
             "app.dev-fixtures.enabled=true",
             "app.dev-fixtures.password=" + ManagementPortIntegrationTests.FIXTURE_PASSWORD})
-@ActiveProfiles("dev-mapping")
+@ActiveProfiles({"dev-fixtures", "local"})
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 class ManagementPortIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
-    /** The Monitoring Role's fixture User: {@code ops:read} alone. */
+    /** The Monitoring Group's fixture User: {@code ops:read} alone. */
     private static final String MONITORING = "monitoring";
 
-    /** The Account admin Role's fixture User: {@code user:*} and {@code group:read}. */
+    /** The Account admins Group's fixture User: {@code user:read} and {@code group:read}. */
     private static final String ACCOUNT_ADMIN = "account-admin";
 
     private static final String REQUESTS = "http_server_requests_seconds_count";

@@ -17,7 +17,7 @@ import {
   settlePassword,
 } from "./scim.helpers";
 
-// The seeded `user`: a baseline User, in no mapped Group, so holding only the
+// The seeded `user`: a baseline User, in no Group, so holding only the
 // baseline Permissions every User holds. What it sees and what it is refused
 // are both asserted.
 
@@ -67,6 +67,7 @@ test.describe("baseline User API", () => {
     for (const path of [
       "/api/admin/accounts",
       "/api/admin/groups",
+      "/api/admin/permissions",
       "/api/admin/audit-events",
       "/api/admin/connectors",
       `${BACKEND_URL}/actuator/prometheus`,

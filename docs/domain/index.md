@@ -24,7 +24,7 @@ bodies, and the ADRs in `/docs/adr/` record the decisions.
 
 # Authority and operations
 
-- [Authorization](authorization.md) - Permissions, Roles and the role mapping, baseline access, deny by default, refusals, the Superuser Group, and the development fixtures.
+- [Authorization](authorization.md) - Permissions, the Superuser and Group Permissions, baseline access, deny by default, refusals, the Admin group, and the development fixtures.
 - [Dormancy and scheduled jobs](dormancy.md) - The dormancy basis and windows, the dormancy job, the audit retention job, and scheduled job locks.
 - [Administration and audit](administration.md) - The Accounts page and its projections, and the SCIM audit trail and how it is read.
 - [Request paths](request-paths.md) - Reserved server paths, the SPA shell, and file requests.

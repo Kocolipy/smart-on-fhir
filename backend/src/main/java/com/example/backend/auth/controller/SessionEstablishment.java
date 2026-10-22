@@ -58,8 +58,7 @@ class SessionEstablishment {
 
     /**
      * Signs the caller's session in as the Login {@code accepted}: as its authentication, with
-     * the authorities the login resolved; indexed and logged by the User's stable id; recording
-     * the hash of the role mapping those authorities were resolved under; and with a
+     * the authorities the login resolved; indexed and logged by the User's stable id; and with a
      * {@code session-start} naming its login method (D15).
      *
      * @return the signed-in session, under its rotated id
@@ -76,9 +75,8 @@ class SessionEstablishment {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
 
-        // Signs the session in to the User's SCIM stable id and the role mapping the
-        // Permissions in the security context were resolved under (SignedInSession owns
-        // both attributes). The index overrides Spring Session's default principal-index
+        // Signs the session in to the User's SCIM stable id (SignedInSession owns the
+        // attribute). The index overrides Spring Session's default principal-index
         // population (which reads Authentication.getName(), i.e. the userName), so
         // AccountSessionsAdapter — and any future stable-id-keyed session lookup — finds
         // this session by an id that survives a later username change.
@@ -93,7 +91,7 @@ class SessionEstablishment {
         HttpSession session = request.getSession(false);
         if (session != null) {
             HttpSessionAttributes.signedIn(session)
-                    .signIn(accepted.userId(), accepted.roleMappingHash());
+                    .signIn(accepted.userId());
         }
 
         // The session id has just rotated, but its attributes moved with it — the

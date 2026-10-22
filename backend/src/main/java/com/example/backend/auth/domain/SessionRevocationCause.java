@@ -27,11 +27,12 @@ public enum SessionRevocationCause {
     DELETED,
 
     /**
-     * The User lost a Role: its direct membership of a mapped Group was removed, by a connector's
-     * write or the dormancy job. Gaining one revokes nothing — the new Permissions arrive at the
-     * next Login.
+     * The User lost Permissions: its direct membership of a Group conferring them was removed, or
+     * the Group deleted, by a connector's write, or the dormancy job removed its memberships.
+     * Gaining one revokes nothing — the new Permissions arrive at the next Login. Audit rows
+     * recorded before #158 carry this cause under its earlier name, {@code ROLE_REVOKED}.
      */
-    ROLE_REVOKED,
+    MEMBERSHIP_REVOKED,
 
     /** The dormancy job locked the User. */
     DORMANCY_LOCKOUT,

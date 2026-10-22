@@ -84,7 +84,7 @@ reads none:
 | ----------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `E2E_ADMIN_PASSWORD`          | `E2e-Bootstrap-Secret-4m`        | the seeded Admin's password in the suite                                                                                          |
 | `APP_LOCKOUT_MAX_ATTEMPTS`    | `3`                              | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)           |
-| `APP_DEV_FIXTURES_PASSWORD`   | `Dev-Fixture-P@ssw0rd`           | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                                     |
+| `APP_DEV_FIXTURES_PASSWORD`   | `Dev-Fixture-P@ssw0rd`           | the development fixture Users' password (`make integration-test` exports it from `backend/.env`)                                  |
 | `E2E_BACKEND_URL`             | `http://localhost:8080`          | SCIM calls that bypass the Vite proxy                                                                                             |
 | `E2E_EPIC_FHIR_BASE`          | none (unset)                     | the SMART launcher's FHIR base, the Epic spec's launch `iss`; declares the `epic` project (`make integration-test` sets it)       |
 | `E2E_EPIC_JWKS_URL`           | none — required by the Epic spec | our JWKS as the launcher container reaches it (`make integration-test` sets it)                                                   |
@@ -92,8 +92,9 @@ reads none:
 | `E2E_PACKAGED_BASE_URL`       | none (unset)                     | the packaged JAR's origin; declares the `packaged` project (`make integration-test` sets it)                                      |
 
 The specs sign in as the backend's development fixtures (one User per
-development Role, plus `user` and `dormant`; `backend/docs/configuration/role-mapping.md`)
-through `DEV_ROLES` and `loginAsRole()` in `test/e2e/auth.helpers.ts`.
+development Group, whose Permissions the `local` profile seeds, plus `user` and
+`dormant`; `backend/docs/configuration/group-permissions.md`) through
+`DEV_FIXTURES` and `loginAsFixture()` in `test/e2e/auth.helpers.ts`.
 
 ## Backend contract
 

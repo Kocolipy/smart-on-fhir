@@ -20,8 +20,12 @@ public enum AuditSessionRevocationCause {
     /** A connector deleted the User. */
     DELETED,
 
-    /** The User lost a Role, by a connector's write or the dormancy job. */
-    ROLE_REVOKED,
+    /**
+     * The User lost a Group membership, by a connector's write or the dormancy job. Rows recorded
+     * before #158 carry it under its earlier name, {@code ROLE_REVOKED}: the trail is append-only
+     * and nothing reads the reason back, so they are left as written.
+     */
+    MEMBERSHIP_REVOKED,
 
     /** The dormancy job locked the User. */
     DORMANCY_LOCKOUT,

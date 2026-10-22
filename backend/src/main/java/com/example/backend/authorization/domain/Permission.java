@@ -1,8 +1,10 @@
 package com.example.backend.authorization.domain;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -10,11 +12,11 @@ import java.util.stream.Collectors;
 /**
  * One fine-grained power a protected action requires.
  *
- * <p>The set is CLOSED and lives here, in code, rather than in configuration: a deployment chooses
- * which Role holds which Permission, never which Permissions exist. A new Permission is a code
+ * <p>The set is CLOSED and lives here, in code, rather than in data: a deployment chooses which
+ * Group carries which Permission, never which Permissions exist. A new Permission is a code
  * change because it only means something once a protected action declares it, and only code can
- * do that. A name in configuration that is not one of these fails startup — see
- * {@link RoleMapping} — so a typo can never silently grant nothing.
+ * do that. A stored name that is not one of these fails startup — see
+ * {@link GroupPermissionValues} — so a removed Permission can never silently linger on a Group.
  *
  * <p>Two flags say where a Permission may go. {@link #delegatable()} is what a Group may carry;
  * {@link #tokenGrantable()} is what a connector token may carry. The Superuser is not a member of
@@ -79,8 +81,8 @@ public enum Permission {
     /**
      * Whether only a connector token may carry this Permission: {@linkplain #tokenGrantable()
      * token-grantable} and not {@linkplain #delegatable() delegatable}. No session holds one —
-     * not a Superuser's either — so configuration that would give one to a Role fails startup
-     * ({@link RoleMapping}).
+     * not a Superuser's either — so a Group stored carrying one fails startup
+     * ({@link GroupPermissionValues}).
      */
     public boolean tokenOnly() {
         return tokenGrantable && !delegatable;
@@ -94,6 +96,14 @@ public enum Permission {
         return Arrays.stream(values())
                 .filter(Permission::delegatable)
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(Permission.class)));
+    }
+
+    /**
+     * These Permissions as the wire spells them ({@link #value()}), in {@link #BY_VALUE} order: the
+     * one way a set of Permissions becomes a list a caller, a log or the audit trail sees.
+     */
+    public static List<String> valuesOf(Collection<Permission> permissions) {
+        return permissions.stream().sorted(BY_VALUE).map(Permission::value).toList();
     }
 
     /** The Permission spelled this way, or empty when no Permission is. Case-sensitive. */

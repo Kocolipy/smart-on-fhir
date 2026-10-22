@@ -1,12 +1,12 @@
 package com.example.backend.authorization.domain;
 
 /**
- * The log field names that name what a Group confers or the {@link RoleMapping} (ADR 0010, ADR
- * 0015), beside the vocabulary they come from, for the session side and the SCIM side alike. The records
+ * The log field names that name what a Group confers (ADR 0015), beside the vocabulary they come
+ * from, for the session side and the SCIM side alike. The records
  * themselves are built by {@link com.example.backend.observability.LogEvent}'s shapes (ADR 0003);
  * these are only the keys a caller adds to them.
  */
-public final class RoleLogFields {
+public final class PermissionLogFields {
 
     /**
      * The Permissions the Group whose membership a connector changed confers, sorted by name and
@@ -24,9 +24,6 @@ public final class RoleLogFields {
      */
     public static final String PERMISSIONS_LOST = "app.authorization.permissions_lost";
 
-    /** The SHA-256 of the role mapping, on the record that reports it validated at startup. */
-    public static final String ROLE_MAPPING_HASH = "app.authorization.mapping_hash";
-
-    private RoleLogFields() {
+    private PermissionLogFields() {
     }
 }

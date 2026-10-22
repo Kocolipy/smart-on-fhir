@@ -69,4 +69,11 @@ class PermissionTests {
         assertThat(Permission.fromValue("connector:write")).isEmpty();
         assertThat(Permission.fromValue("connector:token")).isEmpty();
     }
+
+    @Test
+    void a_set_of_permissions_is_spelled_as_the_wire_spells_it_in_alphabetical_order() {
+        assertThat(Permission.valuesOf(EnumSet.of(
+                        Permission.USER_READ, Permission.AUDIT_READ, Permission.ACCOUNT_UNLOCK)))
+                .containsExactly("account:unlock", "audit:read", "user:read");
+    }
 }

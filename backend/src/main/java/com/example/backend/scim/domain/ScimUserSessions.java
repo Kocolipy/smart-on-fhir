@@ -37,19 +37,20 @@ public interface ScimUserSessions {
         /** The User was deleted. */
         DELETED,
         /**
-         * The User lost a Role: its direct membership of a mapped Group was removed by a
-         * connector's write or by the dormancy job. Gaining one revokes nothing — the new
+         * The User lost Permissions: its direct membership of a Group conferring them was
+         * removed, or the Group deleted, by a connector's write, or the dormancy job removed its
+         * memberships. Gaining one revokes nothing — the new
          * Permissions arrive at the next sign-in.
          */
-        ROLE_REVOKED
+        MEMBERSHIP_REVOKED
     }
 
     /**
      * Ends every session the User holds once the current transaction commits.
      *
      * @param connectorId the connector whose write caused it, recorded as the actor; or
-     *                    {@code null} when no connector made the write — the dormancy job's Role
-     *                    revocation (ADR 0007) — recorded with no actor
+     *                    {@code null} when no connector made the write — the dormancy job's
+     *                    membership revocation (ADR 0007) — recorded with no actor
      * @param userId      the User whose sessions end
      * @param causes      why; never empty
      */

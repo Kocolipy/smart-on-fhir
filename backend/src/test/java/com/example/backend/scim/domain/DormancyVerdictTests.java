@@ -28,12 +28,12 @@ class DormancyVerdictTests {
 
     private static final Duration LOCKOUT = Duration.ofDays(10);
 
-    private static final Duration ROLE_REVOCATION = Duration.ofDays(20);
+    private static final Duration MEMBERSHIP_REVOCATION = Duration.ofDays(20);
 
-    private static final DormancyPolicy POLICY = new DormancyPolicy(LOCKOUT, ROLE_REVOCATION);
+    private static final DormancyPolicy POLICY = new DormancyPolicy(LOCKOUT, MEMBERSHIP_REVOCATION);
 
     /** Long before every window: a basis that, if the verdict read it, would always be due. */
-    private static final Instant LONG_AGO = NOW.minus(ROLE_REVOCATION.multipliedBy(10));
+    private static final Instant LONG_AGO = NOW.minus(MEMBERSHIP_REVOCATION.multipliedBy(10));
 
     private static final Duration NANO = Duration.ofNanos(1);
 
@@ -81,7 +81,7 @@ class DormancyVerdictTests {
      */
     static Stream<Arguments> boundaries() {
         Instant lockoutBoundary = NOW.minus(LOCKOUT);
-        Instant revocationBoundary = NOW.minus(ROLE_REVOCATION);
+        Instant revocationBoundary = NOW.minus(MEMBERSHIP_REVOCATION);
         List<Object[]> rows = List.of(
                 new Object[] {"newer than the lockout boundary", lockoutBoundary.plus(NANO),
                         DormancyVerdict.NOT_DUE},
@@ -89,13 +89,13 @@ class DormancyVerdictTests {
                         DormancyVerdict.NOT_DUE},
                 new Object[] {"older than the lockout boundary", lockoutBoundary.minus(NANO),
                         DormancyVerdict.LOCKOUT},
-                new Object[] {"newer than the role-revocation boundary",
+                new Object[] {"newer than the membership-revocation boundary",
                         revocationBoundary.plus(NANO), DormancyVerdict.LOCKOUT},
-                new Object[] {"exactly at the role-revocation boundary", revocationBoundary,
+                new Object[] {"exactly at the membership-revocation boundary", revocationBoundary,
                         DormancyVerdict.LOCKOUT},
-                new Object[] {"older than the role-revocation boundary",
+                new Object[] {"older than the membership-revocation boundary",
                         revocationBoundary.minus(NANO),
-                        DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION},
+                        DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION},
                 new Object[] {"exactly now", NOW, DormancyVerdict.NOT_DUE});
         return Stream.of(Basis.values()).flatMap(basis -> rows.stream()
                 .map(row -> Arguments.of(basis, row[0], row[1], row[2])));
@@ -129,7 +129,7 @@ class DormancyVerdictTests {
     @Test
     void aLastAuthenticationIsMeasuredInsteadOfANewerCreation() {
         assertThat(POLICY.verdict(NOW, LONG_AGO, NOW))
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
         assertThat(DormancyPolicy.basis(NOW, LONG_AGO)).isEqualTo(LONG_AGO);
     }
 
@@ -137,7 +137,7 @@ class DormancyVerdictTests {
     @Test
     void creationIsMeasuredWhenTheUserNeverAuthenticated() {
         assertThat(POLICY.verdict(LONG_AGO, null, NOW))
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
         assertThat(POLICY.verdict(NOW, null, NOW)).isEqualTo(DormancyVerdict.NOT_DUE);
         assertThat(DormancyPolicy.basis(LONG_AGO, null)).isEqualTo(LONG_AGO);
     }
@@ -159,7 +159,7 @@ class DormancyVerdictTests {
 
         assertThat(locked.login().isLocked()).isTrue();
         assertThat(POLICY.verdict(locked, NOW))
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
     }
 
     // ---- the exemption ----------------------------------------------------------------------
@@ -173,7 +173,7 @@ class DormancyVerdictTests {
         assertThat(POLICY.verdict(bootstrap, NOW)).isEqualTo(DormancyVerdict.NOT_DUE);
         assertThat(POLICY.verdict(bootstrap.createdAt(), null, NOW))
                 .as("the same instants, unreserved, would be due")
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
     }
 
     /** Another reservation protects from writes but not from dormancy. */
@@ -185,7 +185,7 @@ class DormancyVerdictTests {
             }
             assertThat(POLICY.verdict(user(LONG_AGO, ScimLoginState.of("hash"), name), NOW))
                     .as("reserved as %s", name)
-                    .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                    .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
         }
     }
 
@@ -203,7 +203,7 @@ class DormancyVerdictTests {
         assertThat(defaults.verdict(NOW.minus(Duration.ofDays(180)), null, NOW))
                 .isEqualTo(DormancyVerdict.LOCKOUT);
         assertThat(defaults.verdict(NOW.minus(Duration.ofDays(180)).minus(NANO), null, NOW))
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
     }
 
     /** "Now" is the verdict's input, not a clock it reads: the same basis ages with it. */
@@ -214,8 +214,8 @@ class DormancyVerdictTests {
         assertThat(POLICY.verdict(basis, null, NOW)).isEqualTo(DormancyVerdict.NOT_DUE);
         assertThat(POLICY.verdict(basis, null, NOW.plus(LOCKOUT).plus(NANO)))
                 .isEqualTo(DormancyVerdict.LOCKOUT);
-        assertThat(POLICY.verdict(basis, null, NOW.plus(ROLE_REVOCATION).plus(NANO)))
-                .isEqualTo(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION);
+        assertThat(POLICY.verdict(basis, null, NOW.plus(MEMBERSHIP_REVOCATION).plus(NANO)))
+                .isEqualTo(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION);
     }
 
     // ---- what each verdict asks of the job --------------------------------------------------
@@ -223,11 +223,11 @@ class DormancyVerdictTests {
     @Test
     void eachVerdictNamesTheStepsItApplies() {
         assertThat(DormancyVerdict.NOT_DUE.locksOut()).isFalse();
-        assertThat(DormancyVerdict.NOT_DUE.revokesRoles()).isFalse();
+        assertThat(DormancyVerdict.NOT_DUE.revokesMemberships()).isFalse();
         assertThat(DormancyVerdict.LOCKOUT.locksOut()).isTrue();
-        assertThat(DormancyVerdict.LOCKOUT.revokesRoles()).isFalse();
-        assertThat(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION.locksOut()).isTrue();
-        assertThat(DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION.revokesRoles()).isTrue();
+        assertThat(DormancyVerdict.LOCKOUT.revokesMemberships()).isFalse();
+        assertThat(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION.locksOut()).isTrue();
+        assertThat(DormancyVerdict.LOCKOUT_AND_MEMBERSHIP_REVOCATION.revokesMemberships()).isTrue();
     }
 
     private static ScimUser user(

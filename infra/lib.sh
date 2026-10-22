@@ -218,7 +218,7 @@ AUTHORIZATION_YAML="$INFRA_DIR/../backend/src/main/resources/authorization.yaml"
 
 # dev_fixture_usernames: the userName of every development fixture User, one
 # per line: each baseline-member, dormant-member and Group member value under
-# app.authorization.dev-fixtures. Fails when it finds none, so a reshaped file
+# app.dev-fixtures. Fails when it finds none, so a reshaped file
 # cannot turn the check into a pass over nothing.
 dev_fixture_usernames() {
   local names

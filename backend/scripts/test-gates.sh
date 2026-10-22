@@ -60,8 +60,6 @@ FAST_GATE=(
   com/example/backend/auth/application/PasswordLoginRenameTests
   com/example/backend/auth/application/PasswordRefusalReasonTests
   com/example/backend/auth/application/RefusalTimingEquivalenceTests
-  com/example/backend/auth/application/RoleListingServiceTests
-  com/example/backend/auth/application/RoleMappingSessionServiceTests
   com/example/backend/auth/application/SelfReadServiceTests
   com/example/backend/auth/application/SessionRevocationServiceTests
   com/example/backend/auth/config/ApplicationChainRefusalTests
@@ -106,10 +104,9 @@ FAST_GATE=(
   com/example/backend/auth/infrastructure/session/SpringSessionAttributesTests
   com/example/backend/auth/infrastructure/transaction/AfterCommitAdapterTests
   com/example/backend/authorization/config/AuthorizationChangeMetricsTests
-  com/example/backend/authorization/config/RoleMappingStartupTests
+  com/example/backend/authorization/domain/GroupPermissionValuesTests
   com/example/backend/authorization/domain/GroupPermissionsTests
   com/example/backend/authorization/domain/PermissionTests
-  com/example/backend/authorization/domain/RoleMappingTests
   com/example/backend/contract/OpenApiContractTests
   com/example/backend/database/config/DatabaseConnectionsTests
   com/example/backend/database/config/MigrationConnectionTests

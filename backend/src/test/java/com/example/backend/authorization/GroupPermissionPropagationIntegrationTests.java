@@ -12,8 +12,6 @@ import com.example.backend.DevFixtures;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
-import com.example.backend.auth.domain.SignedInSession;
-import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -30,15 +28,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.Session;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.context.ActiveProfiles;
@@ -52,29 +46,30 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Roles made visible, the Superuser Group's protections, and a change of Role reaching the
- * sessions it was issued to — over HTTP, against the shipped development role mapping, real
- * SQL Server and the indexed Redis session store.
+ * Group Permissions made visible, the Admin group's protections, and a change of a Group's
+ * membership reaching the sessions it was issued to — over HTTP, against the shipped development
+ * fixtures and their {@code local} Group Permissions, real SQL Server and the indexed Redis
+ * session store (ADR 0015).
  *
  * <p>Its context is dirtied after the class, because these tests change who belongs to the
- * fixture Groups and delete one of them, which no other class sharing the development mapping's
+ * fixture Groups and delete one of them, which no other class sharing the development fixtures'
  * context — and so its database — could survive. Its configuration is the same as
- * {@code DevelopmentRoleMappingIntegrationTests}', so without the eviction whichever runs second
+ * {@code DevelopmentFixturesIntegrationTests}', so without the eviction whichever runs second
  * would reuse it. Each test that moves a fixture membership puts it back; the Monitoring Group is
  * deleted by one test only, and no other test here depends on it.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-@ActiveProfiles("dev-mapping")
+@ActiveProfiles({"dev-fixtures", "local"})
 @DirtiesContext(classMode = ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "app.dev-fixtures.enabled=true",
-    "app.dev-fixtures.password=" + RolePropagationIntegrationTests.FIXTURE_PASSWORD})
-class RolePropagationIntegrationTests {
+    "app.dev-fixtures.password=" + GroupPermissionPropagationIntegrationTests.FIXTURE_PASSWORD})
+class GroupPermissionPropagationIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
-    private static final UUID SUPERUSERS = TestRoleMappings.SUPERUSER_GROUP_ID;
+    private static final UUID SUPERUSERS = TestGroupPermissions.SUPERUSER_GROUP_ID;
 
     private static final UUID ACCOUNT_ADMINS =
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
@@ -106,9 +101,6 @@ class RolePropagationIntegrationTests {
     private Filter springSessionRepositoryFilter;
 
     @Autowired
-    private FindByIndexNameSessionRepository<? extends Session> sessions;
-
-    @Autowired
     private ScimUserRepository users;
 
     @Autowired
@@ -118,14 +110,7 @@ class RolePropagationIntegrationTests {
     private JdbcTemplate jdbc;
 
     @Autowired
-    private RoleMapping roleMapping;
-
-    @Autowired
     private MeterRegistry meters;
-
-    @Autowired
-    @Qualifier("revokeSessionsIssuedUnderAnotherMapping")
-    private ApplicationRunner revokeAtStartup;
 
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
@@ -141,86 +126,78 @@ class RolePropagationIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Role propagation", null).id();
+        connectorId = connectors.create("Group Permission propagation", null).id();
         token = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
 
-    // ---- the roles endpoint -------------------------------------------------------------------
+    // ---- what a Group may carry, and what each carries ---------------------------------------
 
-    /**
-     * A holder of {@code group:read} reads every Role, its Permissions and the Group conferring
-     * it by id and current name, with the Superuser Group marked.
-     */
+    /** A holder of {@code group:read} reads every delegatable Permission, sorted by name. */
     @Test
-    void a_group_reader_lists_every_role_with_its_permissions_and_group() throws Exception {
-        MvcResult listed = mvc.perform(get("/api/admin/roles")
+    void a_group_reader_lists_every_permission_a_group_may_carry() throws Exception {
+        MvcResult listed = mvc.perform(get("/api/admin/permissions")
                         .cookie(logIn("account-admin"))).andReturn();
 
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
-        JsonNode roles = json.readTree(listed.getResponse().getContentAsString());
-        assertThat(roles.valueStream().map(role -> role.get("name").asString()).toList())
-                .containsExactly("Account admin", "Auditor", "Connector admin", "Helpdesk",
-                        "Monitoring", "Superuser");
-
-        JsonNode accountAdmin = role(roles, "Account admin");
-        assertThat(strings(accountAdmin.get("permissions")))
-                .containsExactly("account:unlock", "group:read", "user:read");
-        assertThat(accountAdmin.get("groups")).singleElement().satisfies(group -> {
-            assertThat(group.get("id").asString()).isEqualTo(ACCOUNT_ADMINS.toString());
-            assertThat(group.get("displayName").asString()).isEqualTo("Account admins");
-            assertThat(group.get("superuser").asBoolean()).isFalse();
-        });
-
-        JsonNode superuser = role(roles, "Superuser");
-        assertThat(strings(superuser.get("permissions"))).containsExactly(
-                "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
-                "patient:read", "user:read");
-        assertThat(superuser.get("groups")).singleElement().satisfies(group -> {
-            assertThat(group.get("id").asString()).isEqualTo(SUPERUSERS.toString());
-            assertThat(group.get("displayName").asString()).isNotBlank();
-            assertThat(group.get("superuser").asBoolean()).isTrue();
-        });
-        assertThat(roles.valueStream()
-                        .flatMap(role -> role.get("groups").valueStream())
-                        .filter(group -> group.get("superuser").asBoolean()))
-                .as("exactly one Superuser Group is marked")
-                .hasSize(1);
+        assertThat(strings(json.readTree(listed.getResponse().getContentAsString())))
+                .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
+                        "ops:read", "user:read");
     }
 
-    /** Without {@code group:read} the read is refused; and nothing writes a Role. */
+    /**
+     * Without {@code group:read} the read is refused; nothing writes the vocabulary; and the
+     * retired roles endpoint answers no one, the Superuser included.
+     */
     @Test
-    void the_roles_endpoint_requires_group_read_and_offers_no_write() throws Exception {
-        Cookie auditor = logIn("auditor");
-
-        assertThat(mvc.perform(get("/api/admin/roles").cookie(auditor))
-                        .andReturn().getResponse().getStatus())
+    void the_permissions_endpoint_requires_group_read_and_the_roles_endpoint_is_gone()
+            throws Exception {
+        assertThat(status(get("/api/admin/permissions").cookie(logIn("auditor"))))
                 .isEqualTo(403);
         Cookie admin = logIn("test-admin", "test-admin-password");
+        assertThat(status(get("/api/admin/roles").cookie(admin)))
+                .as("no Role remains to list").isEqualTo(403);
         for (MockHttpServletRequestBuilder write : List.of(
-                post("/api/admin/roles"), put("/api/admin/roles"), delete("/api/admin/roles"))) {
+                post("/api/admin/permissions"), put("/api/admin/permissions"),
+                delete("/api/admin/permissions"))) {
             assertThat(mvc.perform(SessionCsrf.withCsrf(mvc, write.cookie(admin))
                                     .contentType(MediaType.APPLICATION_JSON).content("{}"))
                             .andReturn().getResponse().getStatus())
-                    .as("a Superuser holding every Permission cannot write a Role either")
+                    .as("the vocabulary is code's, so even the Superuser writes none")
                     .isEqualTo(403);
         }
     }
 
-    // ---- the Superuser Group over SCIM ------------------------------------------------------
-
     /**
-     * The Superuser Group — the mapping's, resolved here by the mapping rather than by the
-     * reservation marker — cannot be renamed or deleted, and the Bootstrap Admin's membership in
-     * it cannot change. Every other member can be removed: there is no "last enabled
-     * administrator" guard, because the frozen Bootstrap Admin is what keeps a holder of every
-     * Permission.
+     * Each Groups row carries what the Group confers, read with {@code group:read}: the Account
+     * admins their three, and the Admin group none — its members are the Superuser.
      */
     @Test
-    void the_superuser_group_keeps_its_name_its_existence_and_the_bootstrap_admin()
+    void the_groups_rows_carry_each_groups_permissions() throws Exception {
+        MvcResult listed = mvc.perform(get("/api/admin/groups")
+                        .cookie(logIn("account-admin"))).andReturn();
+
+        assertThat(listed.getResponse().getStatus()).isEqualTo(200);
+        JsonNode rows = json.readTree(listed.getResponse().getContentAsString());
+        assertThat(strings(row(rows, ACCOUNT_ADMINS).get("permissions")))
+                .containsExactly("account:unlock", "group:read", "user:read");
+        JsonNode adminGroup = row(rows, SUPERUSERS);
+        assertThat(adminGroup.get("adminGroup").asBoolean()).isTrue();
+        assertThat(strings(adminGroup.get("permissions"))).isEmpty();
+    }
+
+    // ---- the Admin group over SCIM -------------------------------------------------------------
+
+    /**
+     * The Admin group cannot be renamed or deleted, and the Bootstrap Admin's membership in it
+     * cannot change. Every other member can be removed: there is no "last enabled administrator"
+     * guard, because the frozen Bootstrap Admin is what keeps a Superuser.
+     */
+    @Test
+    void the_admin_group_keeps_its_name_its_existence_and_the_bootstrap_admin()
             throws Exception {
-        UUID superusers = roleMapping.superuserGroupId();
+        UUID superusers = SUPERUSERS;
         UUID bootstrapAdmin = jdbc.queryForObject(
                 "SELECT id FROM scim_resources WHERE reserved_name = 'bootstrap-admin'", UUID.class);
         UUID testUser = userId("test-user");
@@ -248,11 +225,12 @@ class RolePropagationIntegrationTests {
     }
 
     /**
-     * Every mapped Group but the Superuser Group is writable and deletable — and deleting one takes
-     * its Role from every member, ending their sessions.
+     * Every Group but the Admin group is writable and deletable — and deleting one that carries
+     * Permissions takes them from every member, ending their sessions after the commit, and takes
+     * its stored Permissions with it.
      */
     @Test
-    void another_mapped_group_can_be_renamed_and_deleted_which_revokes_its_members()
+    void a_group_carrying_permissions_can_be_renamed_and_deleted_which_revokes_its_members()
             throws Exception {
         Cookie monitoring = logIn("monitoring");
         UUID member = userId("monitoring");
@@ -267,13 +245,17 @@ class RolePropagationIntegrationTests {
         assertThat(status(get("/api/auth/me").cookie(monitoring))).isEqualTo(401);
         assertPermissionChange("PERMISSION_REVOKE", member, MONITORING, "ops:read", null, false);
         assertSessionsRevokedForGroups(member);
+        assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM group_permission WHERE group_id = ?",
+                        Integer.class, MONITORING))
+                .as("the Group's Permissions went with it").isZero();
     }
 
     // ---- propagation ------------------------------------------------------------------------
 
-    /** Removing a User from a mapped Group ends its sessions once the write commits. */
+    /** Removing a User from a Group carrying Permissions ends its sessions once the write commits. */
     @Test
-    void removal_from_a_mapped_group_by_patch_or_put_revokes_the_members_sessions()
+    void removal_from_a_group_carrying_permissions_by_patch_or_put_revokes_the_members_sessions()
             throws Exception {
         UUID accountAdmin = userId("account-admin");
         try {
@@ -286,7 +268,7 @@ class RolePropagationIntegrationTests {
                     "account:unlock,group:read,user:read", null, false);
             assertSessionsRevokedForGroups(accountAdmin);
 
-            // Signed in again, the User no longer holds the Role.
+            // Signed in again, the User no longer holds the Group's Permissions.
             Cookie again = logIn("account-admin");
             assertThat(status(get("/api/admin/accounts").cookie(again))).isEqualTo(403);
 
@@ -303,11 +285,11 @@ class RolePropagationIntegrationTests {
     }
 
     /**
-     * Adding a User to a mapped Group leaves its live session alone, holding what it held; the
-     * Role applies from its next sign-in.
+     * Adding a User to a Group carrying Permissions leaves its live session alone, holding what it
+     * held; the Group's Permissions apply from its next sign-in.
      */
     @Test
-    void addition_to_a_mapped_group_applies_at_the_next_sign_in() throws Exception {
+    void addition_to_a_group_carrying_permissions_applies_at_the_next_sign_in() throws Exception {
         UUID auditor = userId("auditor");
         try {
             Cookie live = logIn("auditor");
@@ -346,57 +328,15 @@ class RolePropagationIntegrationTests {
 
             assertThat(superuserGrants()).isEqualTo(before + 1);
             assertPermissionChange("PERMISSION_GRANT", monitoring, SUPERUSERS, "ops:read",
-                    "account:unlock,audit:read,connector:read,group:read,ops:read,patient:read,"
-                            + "user:read", true);
+                    "account:unlock,audit:read,connector:read,group:read,ops:read,user:read",
+                    true);
         } finally {
             scimPatch(SUPERUSERS, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(monitoring));
         }
     }
 
-    /**
-     * At startup, an authenticated session issued under a different role mapping — or under none
-     * recorded — is ended, and one issued under the running mapping is kept.
-     */
-    @Test
-    void a_session_issued_under_another_mapping_hash_is_revoked_at_startup() throws Exception {
-        Cookie current = logIn("connector-admin");
-        UUID connectorAdmin = userId("connector-admin");
-        Cookie stale = logIn("test-user", "test-password");
-        UUID testUser = userId("test-user");
-        rewriteHash(testUser, "0".repeat(64));
-
-        revokeAtStartup.run(new DefaultApplicationArguments());
-
-        assertThat(sessions.findByPrincipalName(testUser.toString())).isEmpty();
-        assertThat(status(get("/api/auth/me").cookie(stale))).isEqualTo(401);
-        assertThat(sessions.findByPrincipalName(connectorAdmin.toString())).hasSize(1);
-        assertThat(status(get("/api/auth/me").cookie(current))).isEqualTo(200);
-
-        Cookie unrecorded = logIn("test-user", "test-password");
-        rewriteHash(testUser, null);
-        revokeAtStartup.run(new DefaultApplicationArguments());
-        assertThat(status(get("/api/auth/me").cookie(unrecorded))).isEqualTo(401);
-    }
-
     // ---- helpers ----------------------------------------------------------------------------
-
-    /** Sets (or, for {@code null}, removes) the mapping hash on every session the User holds. */
-    @SuppressWarnings("unchecked")
-    private void rewriteHash(UUID userId, String hash) {
-        FindByIndexNameSessionRepository<Session> store =
-                (FindByIndexNameSessionRepository<Session>) sessions;
-        Map<String, Session> held = store.findByPrincipalName(userId.toString());
-        assertThat(held).isNotEmpty();
-        for (Session session : held.values()) {
-            if (hash == null) {
-                session.removeAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE);
-            } else {
-                session.setAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE, hash);
-            }
-            store.save(session);
-        }
-    }
 
     /** How many Superuser grants the {@code authorization.changes} counter has seen. */
     private double superuserGrants() {
@@ -468,9 +408,9 @@ class RolePropagationIntegrationTests {
         return strings(json.readTree(me.getResponse().getContentAsString()).get("permissions"));
     }
 
-    private static JsonNode role(JsonNode roles, String name) {
-        return roles.valueStream()
-                .filter(role -> name.equals(role.get("name").asString()))
+    private static JsonNode row(JsonNode rows, UUID groupId) {
+        return rows.valueStream()
+                .filter(row -> groupId.toString().equals(row.get("id").asString()))
                 .findFirst()
                 .orElseThrow();
     }

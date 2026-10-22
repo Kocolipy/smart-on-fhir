@@ -532,23 +532,11 @@ public final class LogEvent {
             LoggingEventBuilder opened, Operation operation, Category category, Type... types) {
         return classify(opened, operation, category, types)
                 .addKeyValue(OUTCOME, SUCCESS)
-                .setMessage(successMessage(operation, types));
+                .setMessage(successMessage(operation));
     }
 
-    /*
-     * The success message for a record of these types. One operation writes two success records
-     * an operator must not confuse: the role-mapping startup pass reports the validated hash
-     * ({@code info}) and, when the hash changed, the sessions it ended ({@code change}). Both
-     * share the operation's fields, as ADR 0003's "Role changes and the role mapping" records, so
-     * the {@code change} record is told apart by its message as well as its type: an operation
-     * that declares a {@link MessageSlot#SUCCESS_ON_CHANGE} message writes it on its
-     * {@code change} records, and every other operation writes its success message on all of them.
-     */
-    static String successMessage(Operation operation, Type... types) {
-        if (operation.declares(MessageSlot.SUCCESS_ON_CHANGE)
-                && Arrays.asList(types).contains(Type.CHANGE)) {
-            return message(operation, MessageSlot.SUCCESS_ON_CHANGE);
-        }
+    /** The success message of an operation's records, whatever their types. */
+    static String successMessage(Operation operation) {
         return message(operation, MessageSlot.SUCCESS);
     }
 
@@ -680,9 +668,6 @@ public final class LogEvent {
                 onSuccess("Permissions granted by a Group's membership")),
         PERMISSION_REVOKE(Action.USER_ADMINISTRATION, "identity.permission_revoke",
                 onSuccess("Permissions revoked by a Group's membership")),
-        ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping",
-                onSuccess("Role mapping validated"),
-                onChange("Sessions issued under another role mapping ended")),
         PATIENT_SEED(Action.APPLICATION_STARTUP, "patient.seed",
                 onSuccess("Development patient fixtures seeded")),
         SESSION_START(Action.SESSION_START, null,
@@ -734,11 +719,6 @@ public final class LogEvent {
             return new Message(MessageSlot.SUCCESS, text);
         }
 
-        /** The message of its {@code change} success records, where they need one of their own. */
-        private static Message onChange(String text) {
-            return new Message(MessageSlot.SUCCESS_ON_CHANGE, text);
-        }
-
         /** The message of its {@link LogEvent#refused} records. */
         private static Message onRefusal(String text) {
             return new Message(MessageSlot.REFUSED, text);
@@ -763,11 +743,6 @@ public final class LogEvent {
      */
     enum MessageSlot {
         SUCCESS("Operation completed"),
-        /**
-         * A success record of type {@code change}, where an operation must tell it apart; with
-         * none declared, the {@link #SUCCESS} message.
-         */
-        SUCCESS_ON_CHANGE(null),
         REFUSED("Operation refused"),
         ERROR("Operation failed"),
         SCHEDULED("Scheduled job registered");

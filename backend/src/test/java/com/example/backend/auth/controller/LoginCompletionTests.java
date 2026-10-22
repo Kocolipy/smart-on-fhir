@@ -26,8 +26,7 @@ import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.auth.domain.SignedInSession;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.SessionHash;
@@ -102,7 +101,7 @@ class LoginCompletionTests {
                 ScimIdentities.profile("ada", true), passwordEncoder.encode(PASSWORD),
                 ScimIdentities.NOW)).id();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 accountSessions,
                 new PendingCommit(),
@@ -218,20 +217,6 @@ class LoginCompletionTests {
         assertThat(signedIn.orElseThrow().session()
                 .getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME))
                 .isEqualTo(ada.toString());
-    }
-
-    /**
-     * The session records the role mapping its authorities were resolved under, so a later change
-     * of mapping can tell it is stale.
-     */
-    @Test
-    void anAcceptedLoginsSessionCarriesTheRoleMappingItsAuthoritiesWereResolvedUnder() {
-        Optional<LoginCompletion.EstablishedLogin> signedIn = completion.complete(
-                password(PASSWORD), new MockHttpServletRequest(), new MockHttpServletResponse());
-
-        assertThat(signedIn.orElseThrow().session()
-                .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
-                .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 
     /** A login method's own work on the session — Epic's tokens — is handed the signed-in one. */

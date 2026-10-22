@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { FIXTURE_PASSWORD, loginAsRole, submitLogin, userIdOf } from "./auth.helpers";
+import { FIXTURE_PASSWORD, loginAsFixture, submitLogin, userIdOf } from "./auth.helpers";
 import { FIXTURE_GROUPS, freshBrowser, rowOf } from "./scim.helpers";
 
 /**
@@ -50,8 +50,8 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
   test.setTimeout(120_000);
   const returning = await freshBrowser(browser);
   try {
-    // An Account admin — a Role holding account:unlock, not the Superuser — reads the list.
-    await loginAsRole(page, "accountAdmin");
+    // An Account admin — a Group carrying account:unlock, not the Superuser — reads the list.
+    await loginAsFixture(page, "accountAdmin");
     await page.goto("/accounts");
     const row = rowOf(page, usersTable(page), DORMANT);
     await expect(
@@ -67,7 +67,7 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
     // In a browser of its own: the dormant User signs in through `returning` below.
     const auditing = await freshBrowser(browser);
     const reader = await auditing.newPage();
-    await loginAsRole(reader, "auditor");
+    await loginAsFixture(reader, "auditor");
     await reader.goto("/audit");
     await reader.getByLabel("Operation").selectOption("DORMANCY_MEMBERSHIP_REVOCATION");
     await reader.getByLabel("Resource id").fill(dormantId);

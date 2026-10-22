@@ -6,6 +6,8 @@ import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.authorization.domain.GroupPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -26,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,18 +73,21 @@ public class IdentityAdministrationService {
     private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
+    private final GroupPermissions groupPermissions;
 
     public IdentityAdministrationService(
             ScimUserRepository users,
             ScimGroupRepository groups,
             LoginStateService loginState,
             SessionRevocationService sessions,
-            AuditTrail audit) {
+            AuditTrail audit,
+            GroupPermissions groupPermissions) {
         this.users = users;
         this.groups = groups;
         this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
+        this.groupPermissions = groupPermissions;
     }
 
     /**
@@ -118,17 +124,22 @@ public class IdentityAdministrationService {
 
     /**
      * Every Group, for the read-only Groups projection: its name, how many direct members it has,
-     * and whether it is the protected Admin group — decided by the reservation marker, so a Group
-     * a connector names "Admins" is not reported as one.
+     * whether it is the protected Admin group — decided by the reservation marker, so a Group a
+     * connector names "Admins" is not reported as one — and the Permissions it carries, sorted by
+     * name. One read for every Group's Permissions, not one per Group.
      */
     @Transactional(readOnly = true)
     public List<GroupSummary> listGroups() {
-        return groups.findAllOrderedByNormalizedDisplayName().stream()
+        List<ScimGroup> all = groups.findAllOrderedByNormalizedDisplayName();
+        Map<UUID, Set<Permission>> carried =
+                groupPermissions.carriedBy(all.stream().map(ScimGroup::id).toList());
+        return all.stream()
                 .map(group -> new GroupSummary(
                         group.id(),
                         group.displayName(),
                         group.members().size(),
-                        group.reservedName() == ReservedResourceName.ADMIN_GROUP))
+                        group.reservedName() == ReservedResourceName.ADMIN_GROUP,
+                        Permission.valuesOf(carried.getOrDefault(group.id(), Set.of()))))
                 .toList();
     }
 

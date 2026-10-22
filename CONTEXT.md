@@ -120,16 +120,16 @@ without, with a password or without.
 _Avoid_: Account, SCIM User (in prose), member (except of a Group)
 
 **Group**:
-A set of Users in the SCIM directory with direct members only; a mapped Group
-confers its Role.
+A set of Users in the SCIM directory with direct members only; it confers its
+Group Permissions on its direct members.
 
 **Member label**:
 How a Group's rendered members name each User: its `displayName`, or its
 `userName` when it has none.
 
 **Admin group**:
-The server-seeded Group that is the Superuser Group; a direct member is the
-Superuser.
+The server-seeded Group, recognised by its `admin-group` reservation marker alone;
+a direct member is the Superuser. It carries no Group Permissions.
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
@@ -187,27 +187,19 @@ One named, fine-grained power a protected action requires, such as
 configuration. The Superuser is not one.
 _Avoid_: scope, right, privilege
 
-**Role**:
-A named set of Permissions defined in deployment configuration; a User holds
-one by being a direct member of the Group mapped to it.
-_Avoid_: role (for `ROLE_USER`, baseline access, which is not a Role)
+**Group Permissions**:
+The Delegatable Permissions a Group carries, stored per Group in the database
+rather than configured, and held by each of its direct members from its next
+sign-in. A Group with none confers nothing. Never set over SCIM, so `group:write`
+on a Group that carries Permissions decides who holds them.
+_Avoid_: Role, role mapping, mapped Group, Role assignment (there are no Roles,
+ADR 0015); role (for `ROLE_USER`, baseline access)
 
-**Role mapping**:
-The read-only deployment configuration that defines the Roles and maps each one
-to a Group by stable id.
-
-**Mapped Group**:
-A Group the role mapping names, and so one that confers a Role on its direct
-members.
-
-**Role assignment**:
-Membership of a mapped Group, which is the only way a User holds a Role; so
-`group:write` on a mapped Group is Role assignment, not a harmless Permission.
-_Avoid_: role grant (the audited event is a `PERMISSION_GRANT`)
-
-**Role-change propagation**:
-How a change of Role reaches live sessions: losing one ends them, gaining one
-waits for the next Login.
+**Permission-change propagation**:
+How a change of what a User's Groups confer reaches live sessions: losing a
+Permission — leaving a Group that carries it, or the Group being deleted — ends
+them after the commit; gaining one waits for the next Login.
+_Avoid_: role-change propagation
 
 **Superuser**:
 The session authority, spelled `ROLE_SUPERUSER`, of a User who is a direct member
@@ -226,14 +218,6 @@ A Permission a connector token may carry: `user:read`, `user:write`, `group:read
 and `group:write`. The write halves are token-only: no session holds `user:write`
 or `group:write`, a Superuser's included.
 
-**Superuser Group**:
-The one mapped Group whose Role holds every Permission a session may hold: the
-Admin group.
-
-**Superuser Role**:
-The Role the Superuser Group confers, required at startup to hold every
-Permission a session may hold, and refused one that is token-only.
-
 **Deny by default**:
 The rule that every operation of the application chain declares what it needs —
 public, self-service, one Permission or the Superuser — and whatever declares
@@ -241,18 +225,19 @@ nothing is refused.
 
 **Token Permissions**:
 The Permissions a connector token carries: only Token-grantable Permissions, from
-the same vocabulary a Role grants. A token with a write Permission is Superuser-equivalent, which is why only
+the same vocabulary a Group carries. A token with a write Permission is Superuser-equivalent, which is why only
 the Superuser mints one.
 _Avoid_: scope, `scim.read`, `scim.write` (they no longer exist)
 
 **Baseline access**:
-What every active User holds without any Role and without a required password
-change: self-service, spelled `ROLE_USER` in the session and not a Role, and the
-baseline Permission `patient:read`.
+What every active User holds whatever its Groups carry, without a required
+password change: self-service, spelled `ROLE_USER` in the session, and the
+baseline Permission `patient:read`, which no Group carries.
 
 **Development fixtures**:
-The development Role mapping's Groups and Users, and the dummy Patients, seeded
-only when `APP_DEV_FIXTURES_ENABLED` is on.
+The development Groups and their Users, the dummy Patients, and — under the
+`local` profile alone — the development Groups' Permissions, seeded only when
+`APP_DEV_FIXTURES_ENABLED` is on.
 
 **Self-service**:
 An operation needing a signed-in session and no Permission, acting only on the
@@ -261,7 +246,7 @@ session's own User.
 **Authorization refusal**:
 A `403` for a signed-in caller the operation does not admit — a Permission it
 lacks, a route nothing declares, or a confined session — that never names the
-Permission, Role or rule.
+Permission, Group or rule.
 _Avoid_: forbidden (for a CSRF refusal, which is not an authorization decision)
 
 ### Authentication
@@ -380,7 +365,7 @@ only place the job compares a basis with a window.
 The dormancy job's second step: removing every direct Group membership — the
 Admin group's included, the Bootstrap Admin's exempt — of a User past the
 revocation window, recorded as one `DORMANCY_MEMBERSHIP_REVOCATION`.
-_Avoid_: role revocation (it removed only mapped-Group memberships)
+_Avoid_: role revocation (there are no Roles)
 
 **Dormancy job**:
 The daily scheduled job that locks dormant Users and revokes every Group
@@ -460,12 +445,13 @@ Permission.
 What administration may know about each User — never a credential.
 
 **Groups projection**:
-What administration may know about each Group: its name, member count, and
-whether it is the Admin group.
+What administration may know about each Group: its name, member count, whether
+it is the Admin group, and its Group Permissions.
 
-**Roles listing**:
-The read of the role mapping (`GET /api/admin/roles`): each Role, its
-Permissions, and the Groups conferring it. API only; the SPA has no view of it.
+**Permissions listing**:
+The read of every Delegatable Permission (`GET /api/admin/permissions`), for a
+holder of `group:read`: what any Group could carry. API only.
+_Avoid_: Roles listing (`GET /api/admin/roles` is gone)
 
 **SCIM audit trail**:
 The append-only history of provisioning, connector, authentication,

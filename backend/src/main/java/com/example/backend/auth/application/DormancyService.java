@@ -186,7 +186,7 @@ public class DormancyService {
         groupsByUser.forEach((userId, groupIds) -> {
             Optional<ScimUser> user = users.findById(userId);
             // Decided again on the locked read; the verdict is NOT_DUE for the Bootstrap Admin.
-            if (user.isEmpty() || !policy.verdict(user.get(), now).revokesRoles()) {
+            if (user.isEmpty() || !policy.verdict(user.get(), now).revokesMemberships()) {
                 return;
             }
             // The User and every candidate Group are already held. What removing the memberships

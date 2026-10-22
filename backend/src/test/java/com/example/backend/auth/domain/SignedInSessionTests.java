@@ -79,7 +79,7 @@ class SignedInSessionTests {
     void aSessionSignedInIsOwnedByItsUser() {
         SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
 
-        signedIn.signIn(ADA, "mapping-hash");
+        signedIn.signIn(ADA);
 
         assertThat(signedIn.owner()).contains(ADA);
     }
@@ -92,36 +92,23 @@ class SignedInSessionTests {
     void signingInIndexesTheSessionByTheStableIdsString() {
         MapBackedSession session = new MapBackedSession();
 
-        SignedInSession.of(session).signIn(ADA, "mapping-hash");
+        SignedInSession.of(session).signIn(ADA);
 
         assertThat(session.attributes)
                 .containsEntry(SignedInSession.OWNER_ATTRIBUTE, "0b7c6a52-5c0e-4a8f-9f61-3d2f9a1c7e10");
     }
 
-    // ---- the role-mapping hash -----------------------------------------------------------------
-
+    /**
+     * Signing in records whose session it is and nothing else: there is no role mapping, so
+     * nothing records which one the session's Permissions were resolved under.
+     */
     @Test
-    void aSessionSignedInUnderAMappingWasIssuedUnderIt() {
-        SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
+    void signingInRecordsTheOwnerAlone() {
+        MapBackedSession session = new MapBackedSession();
 
-        signedIn.signIn(ADA, "mapping-hash");
+        SignedInSession.of(session).signIn(ADA);
 
-        assertThat(signedIn.issuedUnder("mapping-hash")).isTrue();
-    }
-
-    @Test
-    void aSessionSignedInUnderAMappingWasNotIssuedUnderAnother() {
-        SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
-
-        signedIn.signIn(ADA, "mapping-hash");
-
-        assertThat(signedIn.issuedUnder("another-hash")).isFalse();
-    }
-
-    /** One that predates the hash being recorded was issued under no mapping this one knows. */
-    @Test
-    void aSessionCarryingNoHashWasIssuedUnderNoMapping() {
-        assertThat(SignedInSession.of(new MapBackedSession()).issuedUnder("mapping-hash")).isFalse();
+        assertThat(session.attributes).containsOnlyKeys(SignedInSession.OWNER_ATTRIBUTE);
     }
 
     // ---- the absolute session lifetime ---------------------------------------------------------

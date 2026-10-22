@@ -13,7 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.SessionCsrf;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -123,7 +123,7 @@ class AdminAccountEndpointTests {
 
     @Test
     void anAdministratorSeesEveryAccountWithItsRoleStatusAndCreationDate() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].userName")
                         .value(Matchers.hasItems("test-admin", "test-user")))
@@ -149,7 +149,7 @@ class AdminAccountEndpointTests {
     void theListingReportsTheBootstrapAdminAndEachUsersDirectGroups() throws Exception {
         String adminGroup = adminGroupName();
 
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.userName == 'test-admin')].bootstrapAdmin")
                         .value(Matchers.contains(true)))
@@ -171,7 +171,7 @@ class AdminAccountEndpointTests {
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
         String body = mvc.perform(get("/api/admin/accounts")
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
@@ -186,22 +186,26 @@ class AdminAccountEndpointTests {
     }
 
     @Test
-    void anAdministratorSeesEveryGroupWithItsMemberCountAndTheAdminMarker() throws Exception {
+    void anAdministratorSeesEveryGroupWithItsMemberCountTheAdminMarkerAndItsPermissions()
+            throws Exception {
         String adminGroup = adminGroupName();
 
         String body = mvc.perform(get("/api/admin/groups")
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].adminGroup")
                         .value(Matchers.contains(true)))
                 .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].memberCount")
                         .value(Matchers.contains(Matchers.greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].permissions")
+                        .value(Matchers.contains(Matchers.empty())))
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode listing = JsonMapper.builder().build().readTree(body);
         assertThat(listing.size()).isPositive();
         listing.valueStream().forEach(group -> assertThat(group.propertyNames())
-                .containsExactlyInAnyOrder("id", "displayName", "memberCount", "adminGroup"));
+                .containsExactlyInAnyOrder(
+                        "id", "displayName", "memberCount", "adminGroup", "permissions"));
     }
 
     @Test
@@ -230,7 +234,7 @@ class AdminAccountEndpointTests {
     @Test
     void aControlRequestWithoutACsrfTokenIsRefusedBeforeAuthorization() throws Exception {
         mvc.perform(post("/api/admin/accounts/{id}/unlock", require("test-user").id())
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
     }
 
@@ -252,7 +256,7 @@ class AdminAccountEndpointTests {
     @Test
     void anAdministratorSessionNamingNobodyIsUnauthorized() throws Exception {
         UUID id = require("test-user").id();
-        MockHttpSession unindexed = authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES);
+        MockHttpSession unindexed = authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES);
         unindexed.removeAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME);
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id)).session(unindexed))
@@ -262,11 +266,11 @@ class AdminAccountEndpointTests {
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
         mvc.perform(withCsrf(post(
                         "/api/admin/accounts/{id}/force-password-change", UUID.randomUUID()))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
     }
 
@@ -277,10 +281,10 @@ class AdminAccountEndpointTests {
     @Test
     void aUserNameIsNotAnIdAndActsOnNobody() throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         mvc.perform(withCsrf(post("/api/admin/accounts/test-user/force-password-change"))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
     }
@@ -302,7 +306,7 @@ class AdminAccountEndpointTests {
             for (String action : List.of("disable", "enable")) {
                 for (Object target : List.of("test-user", before.id())) {
                     mvc.perform(withCsrf(post("/api/admin/accounts/{target}/" + action, target))
-                                    .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                                    .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                             .andExpect(status().isForbidden());
                 }
             }
@@ -357,7 +361,7 @@ class AdminAccountEndpointTests {
 
         for (MockHttpServletRequestBuilder write : writes) {
             int status = mvc.perform(withCsrf(write)
-                            .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES))
+                            .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andReturn().getResponse().getStatus();
@@ -376,7 +380,7 @@ class AdminAccountEndpointTests {
         UUID id = require("test-user").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.locked").value(false))
@@ -393,7 +397,7 @@ class AdminAccountEndpointTests {
         UUID self = require("test-admin").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", self))
-                        .session(authenticatedSession("test-admin", TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession("test-admin", TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
     }
 
@@ -406,7 +410,7 @@ class AdminAccountEndpointTests {
         UUID bootstrap = require("test-admin").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
-                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
         assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
     }
@@ -418,13 +422,13 @@ class AdminAccountEndpointTests {
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
                         .session(authenticatedSession(
-                                "test-admin", TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                                "test-admin", TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
         assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
     }
 
     private String listing(String path) throws Exception {
-        return mvc.perform(get(path).session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+        return mvc.perform(get(path).session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
     }

@@ -500,7 +500,6 @@ class LogEventTests {
             "LOGOUT | Logout completed",
             "PERMISSION_GRANT | Permissions granted by a Group's membership",
             "PERMISSION_REVOKE | Permissions revoked by a Group's membership",
-            "ROLE_MAPPING_STARTUP | Role mapping validated",
             "SESSION_START | Session started",
             "SESSION_END | Session ended",
             "APPLICATION_STARTUP | Application started",
@@ -508,23 +507,6 @@ class LogEventTests {
             "SCIM_WRITE | Operation completed"})
     void eachOperationsSuccessMessage(Operation operation, String message) {
         assertThat(LogEvent.successMessage(operation)).isEqualTo(message);
-    }
-
-    /**
-     * The one success message keyed by type as well as operation: the role-mapping pass's
-     * {@code change} record names the sessions it ended, while its {@code info} record — and
-     * a {@code change} record of any other operation — keeps the operation's own message.
-     */
-    @Test
-    void theRoleMappingChangeRecordNamesTheSessionsItEnded() {
-        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP, Type.CHANGE))
-                .isEqualTo("Sessions issued under another role mapping ended");
-        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP, Type.INFO))
-                .isEqualTo("Role mapping validated");
-        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP))
-                .isEqualTo("Role mapping validated");
-        assertThat(LogEvent.successMessage(Operation.PERMISSION_GRANT, Type.CHANGE))
-                .isEqualTo("Permissions granted by a Group's membership");
     }
 
     @ParameterizedTest

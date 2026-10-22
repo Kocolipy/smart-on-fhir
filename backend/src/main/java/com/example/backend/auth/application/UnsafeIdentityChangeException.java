@@ -12,8 +12,7 @@ package com.example.backend.auth.application;
  * deployment with nobody able to reverse a change — an identity disabling itself, or the last
  * enabled administrator being disabled — and those are gone: there is no Disable action, and the
  * deployment's recovery is guaranteed structurally instead, by the Bootstrap Admin's frozen
- * membership of the Superuser Group together with the startup validation that the Superuser
- * Group's Role holds every Permission.
+ * membership of the Admin group, whose direct members are the Superuser (ADR 0015).
  */
 public class UnsafeIdentityChangeException extends RuntimeException {
 

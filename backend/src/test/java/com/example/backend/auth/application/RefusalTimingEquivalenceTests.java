@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.LoginStateModules;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -86,7 +86,7 @@ class RefusalTimingEquivalenceTests {
                 passwordEncoder.encode("correct-password"),
                 ScimIdentities.NOW));
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         RecordingAuditTrail audit = new RecordingAuditTrail();
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(),

@@ -9,7 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
 import java.util.List;
@@ -56,12 +56,12 @@ class ConnectorTokenPermissionsIntegrationTests {
     private static final String CONNECTORS = "/api/admin/connectors";
 
     /** The Superuser's session: the only one that administers connectors. */
-    private static final String[] SUPERUSER = TestRoleMappings.SUPERUSER_AUTHORITIES;
+    private static final String[] SUPERUSER = TestGroupPermissions.SUPERUSER_AUTHORITIES;
 
     /** A User holding every Permission there is, and not the Superuser. */
     private static final String[] EVERY_PERMISSION_NOT_SUPERUSER = java.util.stream.Stream.concat(
                     java.util.stream.Stream.of("ROLE_USER"),
-                    TestRoleMappings.EVERY_PERMISSION.stream())
+                    TestGroupPermissions.EVERY_PERMISSION.stream())
             .toArray(String[]::new);
 
     private static final String TOKEN_PERMISSIONS =

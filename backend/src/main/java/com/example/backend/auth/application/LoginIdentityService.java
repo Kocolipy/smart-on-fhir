@@ -1,7 +1,7 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.EdgeWhitespace;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -45,16 +45,16 @@ import org.springframework.stereotype.Service;
  * same fact — and nothing else is a role.
  *
  * <p>Derived HERE, which is once per login, and that is the specified behaviour rather than a
- * limitation: a session carries the authorities it was issued with, so adding a User to a mapped
- * Group grants its Role's Permissions at its next login and never mid-session. Recomputing
+ * limitation: a session carries the authorities it was issued with, so adding a User to a Group
+ * grants the Group's Permissions at its next login and never mid-session. Recomputing
  * per request would make an authority change take effect at an unpredictable moment and would
  * put a database read on every authenticated request.
  *
- * <h2>Permissions come from the role mapping</h2>
+ * <h2>Permissions come from the Groups</h2>
  *
  * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — {@code patient:read},
- * which every active User holds — and the Permissions of every Role the {@link RoleMapping}
- * assigns to a Group it is a direct member of, derived here too, once per login, for the same
+ * which every active User holds — and the Permissions every Group it is a direct member of
+ * carries ({@link GroupPermissions}, ADR 0015), derived here too, once per login, for the same
  * reasons. A session confined by a required password change holds none, as it holds no role.
  */
 @Service
@@ -75,9 +75,8 @@ public class LoginIdentityService implements UserDetailsService {
 
     /**
      * The Permissions every active User holds whatever its Groups: reading a patient. Granted
-     * here, at login, beside {@code ROLE_USER} rather than through a Role, because
-     * a Role is conferred by a Group and a redundant "every User" Group would be a second place for
-     * the same fact. A session confined by a required password change does not receive them.
+     * here, at login, beside {@code ROLE_USER} rather than through a Group, because a redundant
+     * "every User" Group would be a second place for the same fact. A session confined by a required password change does not receive them.
      */
     public static final Set<Permission> BASELINE_PERMISSIONS =
             Set.copyOf(EnumSet.of(Permission.PATIENT_READ));
@@ -118,17 +117,17 @@ public class LoginIdentityService implements UserDetailsService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final PasswordEncoder passwordEncoder;
-    private final RoleMapping roleMapping;
+    private final GroupPermissions groupPermissions;
 
     public LoginIdentityService(
             ScimUserRepository users,
             ScimGroupRepository groups,
             PasswordEncoder passwordEncoder,
-            RoleMapping roleMapping) {
+            GroupPermissions groupPermissions) {
         this.users = users;
         this.groups = groups;
         this.passwordEncoder = passwordEncoder;
-        this.roleMapping = roleMapping;
+        this.groupPermissions = groupPermissions;
     }
 
     /**
@@ -225,33 +224,23 @@ public class LoginIdentityService implements UserDetailsService {
     }
 
     /**
-     * The hash of the role mapping every Permission this service reports was resolved under. A
-     * session records it beside the Permissions, so a session issued under another mapping can be
-     * recognised as such.
-     */
-    public String roleMappingHash() {
-        return roleMapping.hash();
-    }
-
-    /**
-     * Baseline access, and the Permissions of every Role the User's direct Group memberships
-     * confer.
+     * Baseline access, and the Permissions the User's direct Groups carry.
      *
-     * <p>Permissions are the UNION over the mapped Groups the User is a direct member of, so
-     * holding an extra Role never takes a power away, and a User in no mapped Group holds none and
-     * keeps {@code ROLE_USER}. Each is an authority spelled as its {@link Permission#value()}
-     * ({@code user:read}), which carries no {@code ROLE_} prefix and so can never be mistaken for a
-     * role. Their order here is immaterial: Spring Security's {@code User} keeps authorities sorted
-     * by name, and {@code /api/auth/me} sorts the Permissions it reports itself.
+     * <p>Permissions are the UNION over the Groups the User is a direct member of, so belonging to
+     * an extra Group never takes a power away, and a User whose Groups carry none holds only the
+     * baseline and keeps {@code ROLE_USER}. A Group with no Permissions confers nothing. Each is an
+     * authority spelled as its {@link Permission#value()} ({@code user:read}), which carries no
+     * {@code ROLE_} prefix and so can never be mistaken for a role. Their order here is
+     * immaterial: Spring Security's {@code User} keeps authorities sorted by name, and
+     * {@code /api/auth/me} sorts the Permissions it reports itself.
      *
-     * <p>A direct member of the Admin group — the Group the mapping designates as the Superuser
-     * Group, which startup requires to be the reserved Admin group — is the Superuser (ADR 0015):
-     * {@code ROLE_SUPERUSER} and every {@linkplain Permission#delegatable() delegatable}
-     * Permission, expanded in code beside whatever the mapping confers
-     * ({@link com.example.backend.authorization.domain.GroupPermissions#effectivePermissionsOf}),
-     * never from a stored list or a role hierarchy. It is additive: the Role the mapping assigns the Group still
-     * applies. Every other protected operation requires its own Permission (ADR 0010), and
-     * connector administration requires the Superuser. Membership is direct only.
+     * <p>A direct member of the Admin group — the Group with the {@code admin-group} reservation
+     * marker — is the Superuser (ADR 0015): {@code ROLE_SUPERUSER} and every
+     * {@linkplain Permission#delegatable() delegatable} Permission, expanded in code
+     * ({@link GroupPermissions#effectivePermissionsOf}), never from a stored list or a role
+     * hierarchy. The Admin group carries no Permissions of its own. Every other protected
+     * operation requires its own Permission, and connector administration requires the
+     * Superuser. Membership is direct only: a Group's members are Users, never Groups.
      */
     private List<GrantedAuthority> authoritiesOf(ScimUser user) {
         List<GrantedAuthority> authorities = new ArrayList<>();
@@ -260,8 +249,8 @@ public class LoginIdentityService implements UserDetailsService {
                 .map(ScimGroupReference::id)
                 .toList();
         Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
-        permissions.addAll(roleMapping.effectivePermissionsOf(memberOf));
-        if (roleMapping.confersSuperuser(memberOf)) {
+        permissions.addAll(groupPermissions.effectivePermissionsOf(memberOf));
+        if (groupPermissions.confersSuperuser(memberOf)) {
             authorities.add(new SimpleGrantedAuthority(SUPERUSER_AUTHORITY));
         }
         permissions.stream()

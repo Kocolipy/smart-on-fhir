@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-import { submitLogin, submitLoginViaApi } from "./auth.helpers";
+import { DEV_FIXTURES, groupPermissionsOf, submitLogin, submitLoginViaApi } from "./auth.helpers";
 import {
   anonymousApi,
   deprovisionUser,
@@ -18,8 +18,9 @@ import {
  * Sessions ended from somewhere other than the browser holding them, seen from
  * that browser: a second sign-in as the same User (one session per User, #64),
  * and SCIM writes the backend revokes sessions for after commit — deactivation,
- * deletion, a password replace, a rename, and removal from a mapped Group (the
- * Admin group, which is the Superuser Group, and the Account admin Role's Group).
+ * deletion, a password replace, a rename, removal from a Group of power (the
+ * Admin group, whose members are the Superuser, and the Account admins Group,
+ * which carries Permissions), and the deletion of a Group carrying Permissions.
  *
  * The backend's integration tests prove the sessions are deleted. What only a
  * browser can show is the SPA's reaction: the next request the page makes is
@@ -225,7 +226,7 @@ test("a SCIM rename ends the User's session and only the new name signs in", asy
   });
 });
 
-test("removal from the Admin group over SCIM ends the session and the Admin role", async ({
+test("removal from the Admin group over SCIM ends the session and the Superuser", async ({
   browser,
   page: adminPage,
 }) => {
@@ -272,24 +273,24 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
   });
 });
 
-test("removal from a mapped Group over SCIM signs an Account admin's open SPA session out", async ({
+test("removal from a Group carrying Permissions over SCIM signs an Account admin's open SPA session out", async ({
   browser,
   page: adminPage,
 }) => {
   test.setTimeout(90_000);
-  // The Group conferring the Account admin Role, read from the roles endpoint the
-  // way an operator would find it rather than from a hard-coded fixture id.
-  const roles = (await (await adminPage.request.get("/api/admin/roles")).json()) as Array<{
-    name: string;
-    groups: Array<{ id: string; superuser: boolean }>;
+  // The Group carrying the Account admin's Permissions, as the Groups listing
+  // shows it: an ordinary Group, whose stored Permissions are what it confers.
+  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+    adminGroup: boolean;
+    id: string;
+    permissions: string[];
   }>;
-  const accountAdmin = roles.find((role) => role.name === "Account admin");
-  expect(
-    accountAdmin?.groups,
-    "the Account admin Role should be conferred by one Group",
-  ).toHaveLength(1);
-  expect(accountAdmin!.groups[0].superuser).toBe(false);
-  const groupPath = `/scim/v2/Groups/${accountAdmin!.groups[0].id}`;
+  const accountAdmins = groups.find((group) => group.id === DEV_FIXTURES.accountAdmin.group);
+  expect(accountAdmins?.permissions, "the Account admins Group's Permissions").toEqual(
+    groupPermissionsOf("accountAdmin"),
+  );
+  expect(accountAdmins!.adminGroup).toBe(false);
+  const groupPath = `/scim/v2/Groups/${accountAdmins!.id}`;
 
   await withUser("account-admin", async (userName, id) => {
     const added = await scimPatch(connector.scim, groupPath, [
@@ -299,7 +300,7 @@ test("removal from a mapped Group over SCIM signs an Account admin's open SPA se
 
     const page = await signedInBrowser(browser, userName);
     try {
-      // Precondition: the Role reached the session — the Users view is shown, the
+      // Precondition: the Group's Permissions reached the session — the Users view is shown, the
       // connectors view (connector:read) is not.
       await page.goto("/accounts");
       await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
@@ -315,13 +316,71 @@ test("removal from a mapped Group over SCIM signs an Account admin's open SPA se
 
       await expectNextRequestEndsSession(page);
 
-      // Signed in again, the Role is gone: the Accounts page routes away and the
+      // Signed in again, the Permissions are gone: the Accounts page routes away and the
       // backend refuses the listing.
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page).toHaveURL("/change-password");
       await page.goto("/accounts");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
+    } finally {
+      await page.context().close();
+    }
+  });
+});
+
+/**
+ * The development fixture Group the suite may delete (`authorization.yaml`,
+ * "Disposable auditors"): it carries `audit:read`, no other spec relies on it,
+ * and the next startup creates it again with its Permissions.
+ */
+const DISPOSABLE_AUDITORS = "00000000-0000-4000-8000-00000000a007";
+
+test("deleting a Group carrying Permissions over SCIM signs its member's open SPA session out", async ({
+  browser,
+  page: adminPage,
+}) => {
+  test.setTimeout(90_000);
+  const groupPath = `/scim/v2/Groups/${DISPOSABLE_AUDITORS}`;
+  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+    id: string;
+    permissions: string[];
+  }>;
+  expect(
+    groups.find((group) => group.id === DISPOSABLE_AUDITORS)?.permissions,
+    "the disposable Group exists and carries audit:read (a restart restores it)",
+  ).toEqual(["audit:read"]);
+
+  await withUser("group-deleted", async (userName, id) => {
+    const added = await scimPatch(connector.scim, groupPath, [
+      { op: "add", path: "members", value: [{ value: id }] },
+    ]);
+    expect(added.status(), "adding the User to the disposable Group").toBe(200);
+
+    const page = await signedInBrowser(browser, userName);
+    try {
+      // Precondition: the Group's Permission reached the session.
+      await page.goto("/audit");
+      await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
+      await page.goto("/");
+      await park(page);
+
+      const current = await connector.scim.get(groupPath);
+      expect(current.status(), `GET ${groupPath}`).toBe(200);
+      const deleted = await connector.scim.delete(groupPath, {
+        headers: { "If-Match": current.headers()["etag"] ?? "" },
+      });
+      expect(deleted.status(), "deleting the Group over SCIM").toBe(204);
+
+      await expectNextRequestEndsSession(page);
+
+      // Signed in again, the deleted Group confers nothing: the audit page routes
+      // away and the backend refuses the trail.
+      await submitLogin(page, userName, OWN_PASSWORD);
+      await expect(page).toHaveURL("/change-password");
+      await page.goto("/audit");
+      await expect(page).toHaveURL("/");
+      expect((await page.request.get("/api/admin/audit-events")).status()).toBe(403);
     } finally {
       await page.context().close();
     }

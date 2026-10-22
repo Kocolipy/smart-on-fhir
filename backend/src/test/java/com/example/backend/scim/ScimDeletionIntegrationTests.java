@@ -18,7 +18,10 @@ import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupRepository;
 import jakarta.servlet.Filter;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -92,6 +95,9 @@ class ScimDeletionIntegrationTests {
 
     @Autowired
     private ScimUserRepository userRepository;
+
+    @Autowired
+    private ScimGroupRepository groupRepository;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -337,6 +343,32 @@ class ScimDeletionIntegrationTests {
                 "SELECT resource_type FROM scim_tombstones WHERE resource_id = ?",
                 String.class, group)).isEqualTo("Group");
         assertThat(createGroup("Delete Group Tombstone")).isNotEqualTo(group);
+    }
+
+    /**
+     * A Group the seed creates again under its fixed id — a development fixture deleted over SCIM
+     * and restored by the next startup — can be deleted again: the second deletion is a 204, and
+     * the tombstone already standing for the id is kept as it was, never changed.
+     */
+    @Test
+    void a_group_recreated_under_a_deleted_id_can_be_deleted_again() throws Exception {
+        UUID group = createGroup("Delete Recreated Group");
+        assertThat(status(conditional(tokenA, delete(GROUPS + "/" + group), group)))
+                .isEqualTo(204);
+        Object firstDeletion = jdbc.queryForObject(
+                "SELECT deleted_at FROM scim_tombstones WHERE resource_id = ?",
+                Object.class, group);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                groupRepository.create(ScimGroup.created(
+                        group, "Delete Recreated Group", List.of(), Instant.now())));
+
+        assertThat(status(conditional(tokenA, delete(GROUPS + "/" + group), group)))
+                .isEqualTo(204);
+
+        assertThat(jdbc.queryForList(
+                        "SELECT deleted_at FROM scim_tombstones WHERE resource_id = ?",
+                        Object.class, group))
+                .containsExactly(firstDeletion);
     }
 
     // ---- a deleted id as a Group member reference ---------------------------------------

@@ -163,9 +163,9 @@ way. A session that identifies nobody cannot Unlock or force a change (`401`).
 deactivation included, so a deployment whose other Admins are all locked is still
 recoverable: it signs in and unlocks them. No runtime guard counts the remaining
 administrators: the Bootstrap Admin's frozen membership of the
-[Superuser Group](./authorization.md), together with startup's validation that the
-Superuser Role holds every Permission, is what guarantees a User holding every
-Permission, so a connector may remove every other member of the Superuser Group.
+[Admin group](./authorization.md), whose direct members are the Superuser, is what
+guarantees a User holding every delegatable Permission, so a connector may remove
+every other member of the Admin group.
 
 The Bootstrap Admin's protections are recognised by the **reservation marker** on
 the User's own resource row, not by comparing its name to the configured one. A

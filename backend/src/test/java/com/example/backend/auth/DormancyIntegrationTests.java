@@ -64,7 +64,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The dormancy job end to end (ADR 0007), against a real SQL Server, the real seeded identities,
- * the real role mapping and the real job lock: the lockout at the lockout window with
+ * the real Group Permissions and the real job lock: the lockout at the lockout window with
  * {@code DORMANCY}, every direct Group membership removed at the revocation window, a re-added
  * membership removed again, the Bootstrap Admin's exemption, an
  * existing {@code FAILURES} cause surviving, Unlock restarting the window, {@code active} never
@@ -86,7 +86,7 @@ class DormancyIntegrationTests {
     private static final Duration PAST_LOCKOUT =
             DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1);
 
-    private static final Duration PAST_ROLE_REVOCATION =
+    private static final Duration PAST_MEMBERSHIP_REVOCATION =
             DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1);
 
     private static final String PASSWORD = "first-correct-horse";
@@ -190,7 +190,7 @@ class DormancyIntegrationTests {
 
         assertThat(run.skipped()).isFalse();
         assertThat(run.locked()).contains(ada);
-        assertThat(run.rolesRevoked()).doesNotContain(ada);
+        assertThat(run.membershipsRevoked()).doesNotContain(ada);
         assertThat(lockedAt(ada)).isEqualTo(runAt);
         assertThat(lockCause(ada)).isEqualTo("DORMANCY");
         assertThat(active(ada)).as("active is the directory's, never written").isTrue();
@@ -274,7 +274,7 @@ class DormancyIntegrationTests {
                 loginStates.findDormantUnlockedUserIds(policy.lockoutCutoff(now))).stream()
                 .filter(fixtures::contains)
                 .toList();
-        List<UUID> roleRevocationCandidates = read.execute(status ->
+        List<UUID> membershipRevocationCandidates = read.execute(status ->
                 groups.findDormantMemberships(policy.membershipRevocationCutoff(now)))
                 .stream()
                 .filter(membership -> membership.groupId().equals(group))
@@ -282,12 +282,12 @@ class DormancyIntegrationTests {
                 .toList();
 
         List<UUID> lockedOut = fixtures.stream().filter(id -> verdicts.get(id).locksOut()).toList();
-        List<UUID> revoked = fixtures.stream().filter(id -> verdicts.get(id).revokesRoles()).toList();
+        List<UUID> revoked = fixtures.stream().filter(id -> verdicts.get(id).revokesMemberships()).toList();
         // Past the lockout window by a microsecond, for each basis, and all six at the second.
         assertThat(lockedOut).hasSize(8);
         assertThat(revoked).hasSize(2);
         assertThat(lockoutCandidates).containsExactlyInAnyOrderElementsOf(lockedOut);
-        assertThat(roleRevocationCandidates).containsExactlyInAnyOrderElementsOf(revoked);
+        assertThat(membershipRevocationCandidates).containsExactlyInAnyOrderElementsOf(revoked);
     }
 
     /**
@@ -371,7 +371,7 @@ class DormancyIntegrationTests {
      */
     @Test
     void aUserPastTheRevocationWindowLosesEveryMembershipAndAReAddIsRemovedAgain() {
-        UUID ada = createSettledUser("dormancy-roles");
+        UUID ada = createSettledUser("dormancy-memberships");
         UUID ordinary = createGroup("Dormancy Engineering", ada);
         UUID adminGroup = adminGroupId();
         addToAdminGroup(ada);
@@ -379,11 +379,11 @@ class DormancyIntegrationTests {
         long ordinaryVersion = version(ordinary);
         long userVersion = version(ada);
         sessions.open(ada, "admin-session");
-        backdateBasis(ada, PAST_ROLE_REVOCATION);
+        backdateBasis(ada, PAST_MEMBERSHIP_REVOCATION);
 
         DormancyRun run = dormancy.run();
 
-        assertThat(run.rolesRevoked()).contains(ada);
+        assertThat(run.membershipsRevoked()).contains(ada);
         assertThat(run.locked()).contains(ada);
         assertThat(isMember(adminGroup, ada)).isFalse();
         assertThat(isMember(adminGroup, bootstrapAdmin())).isTrue();
@@ -400,8 +400,10 @@ class DormancyIntegrationTests {
                         .containsEntry("resource_type", "User")
                         .containsEntry("changed_paths", "groups")
                         .containsEntry("group_ids", sortedIds(adminGroup, ordinary))
+                        // The Superuser's expansion, every delegatable Permission: the Admin
+                        // group carries none, and the baseline is never recorded.
                         .containsEntry("permissions_before", "account:unlock,audit:read,"
-                                + "connector:read,group:read,ops:read,patient:read,user:read")
+                                + "connector:read,group:read,ops:read,user:read")
                         .containsEntry("permissions_after", null)
                         .containsEntry("superuser_changed", true));
 
@@ -410,7 +412,7 @@ class DormancyIntegrationTests {
 
         DormancyRun second = dormancy.run();
 
-        assertThat(second.rolesRevoked()).contains(ada);
+        assertThat(second.membershipsRevoked()).contains(ada);
         assertThat(second.locked()).as("already locked").doesNotContain(ada);
         assertThat(isMember(adminGroup, ada)).isFalse();
         assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", ada)).hasSize(2);
@@ -427,7 +429,7 @@ class DormancyIntegrationTests {
         DormancyRun run = dormancy.run();
 
         assertThat(run.locked()).contains(ada);
-        assertThat(run.rolesRevoked()).doesNotContain(ada);
+        assertThat(run.membershipsRevoked()).doesNotContain(ada);
         assertThat(isMember(adminGroupId(), ada)).isTrue();
     }
 
@@ -477,7 +479,7 @@ class DormancyIntegrationTests {
         OffsetDateTime originalBasis = jdbc.queryForObject(
                 "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?",
                 OffsetDateTime.class, bootstrap);
-        backdateBasis(bootstrap, PAST_ROLE_REVOCATION.multipliedBy(2));
+        backdateBasis(bootstrap, PAST_MEMBERSHIP_REVOCATION.multipliedBy(2));
         sessions.open(bootstrap, "bootstrap-session");
         long version = version(bootstrap);
         long adminGroupVersion = version(adminGroupId());
@@ -485,7 +487,7 @@ class DormancyIntegrationTests {
             DormancyRun run = dormancy.run();
 
             assertThat(run.locked()).doesNotContain(bootstrap);
-            assertThat(run.rolesRevoked()).doesNotContain(bootstrap);
+            assertThat(run.membershipsRevoked()).doesNotContain(bootstrap);
             assertThat(lockedAt(bootstrap)).isNull();
             assertThat(isMember(adminGroupId(), bootstrap)).isTrue();
             assertThat(version(bootstrap)).isEqualTo(version);
@@ -512,7 +514,7 @@ class DormancyIntegrationTests {
         for (int i = 0; i < 4; i++) {
             UUID user = createUser("dormancy-concurrent-" + i, null);
             addToAdminGroup(user);
-            backdateCreation(user, PAST_ROLE_REVOCATION);
+            backdateCreation(user, PAST_MEMBERSHIP_REVOCATION);
             dormant.add(user);
         }
 
@@ -521,7 +523,7 @@ class DormancyIntegrationTests {
         for (UUID user : dormant) {
             assertThat(runs.stream().filter(run -> run.locked().contains(user)).count())
                     .as("runs that locked %s", user).isEqualTo(1);
-            assertThat(runs.stream().filter(run -> run.rolesRevoked().contains(user)).count())
+            assertThat(runs.stream().filter(run -> run.membershipsRevoked().contains(user)).count())
                     .as("runs that revoked %s", user).isEqualTo(1);
             assertThat(auditRows("DORMANCY_LOCKOUT", user)).hasSize(1);
             assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", user)).hasSize(1);
@@ -532,7 +534,7 @@ class DormancyIntegrationTests {
     /**
      * A run removing a dormant User's mapped membership and a connector deleting that User both
      * lock the User and the Group. Released together they complete, every round, in whichever
-     * order the locks put them: the run revokes the Role of a User still there, or finds it gone.
+     * order the locks put them: the run revokes the memberships of a User still there, or finds it gone.
      */
     @Test
     void aRunRacingAUserDeleteOnAMappedMembershipBothComplete() throws Exception {
@@ -541,7 +543,7 @@ class DormancyIntegrationTests {
         for (int round = 0; round < 10; round++) {
             UUID user = createUser("dormancy-delete-race-" + round, null);
             addToAdminGroup(user);
-            backdateCreation(user, PAST_ROLE_REVOCATION);
+            backdateCreation(user, PAST_MEMBERSHIP_REVOCATION);
             ExecutorService pool = Executors.newFixedThreadPool(2);
             try {
                 CountDownLatch start = new CountDownLatch(1);

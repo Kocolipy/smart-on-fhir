@@ -28,8 +28,8 @@ independent client namespaces cannot collide. When a connector is deleted, all o
 its aliases are deleted too and its namespace may be reused by a future connector.
 
 **User** — the one domain identity: Login authenticates against `scim_users`, and
-authority is the Permissions the role mapping confers through direct Group
-membership. It owns the selected core User profile, stable SCIM id and version,
+authority is the Group Permissions its direct Groups carry
+([authorization](./authorization.md)). It owns the selected core User profile, stable SCIM id and version,
 active state, encoded password, creation metadata, and recent login history. Its
 profile round-trips `userName`, the calling connector's `externalId`, `active`,
 `name`, `displayName`, `emails`, locale and time-zone attributes, Groups, and SCIM
@@ -40,7 +40,8 @@ the application hashes it immediately and never returns it. SCIM may rename
 That rule, and Login, compare the normalized form: Unicode NFKC and case folding,
 the mapping half of PRECIS UsernameCaseMapped (RFC 8265), which RFC 7644 §5
 requires. A password or username change, deactivation, deletion, or removal from a
-mapped Group revokes the User's existing sessions (see
+Group that carries Permissions — the Group's deletion included — revokes the User's
+existing sessions (see
 [Session revocation](./sessions.md)). Failure runs and lockouts are
 application-owned authentication state on the User.
 
@@ -84,13 +85,14 @@ application authorization. Every active User receives baseline access without
 membership in a redundant Users group. A Group may contain direct User members
 only; Group-valued members and transitive membership are unsupported.
 
-**Admin group** — the server-seeded Group that is the
-[Superuser Group](./authorization.md). Its stable resource id carries that
-meaning: SCIM may change ordinary membership but may neither rename nor delete
-the Group, nor remove the Bootstrap Admin's membership. These protections are the
-Superuser Group's alone: every other mapped Group is an ordinary Group over SCIM —
-renamable, deletable, its membership writable — so an identity provider can retire
-a helpdesk Group without touching this application's configuration.
+**Admin group** — the server-seeded Group whose direct members are the
+[Superuser](./authorization.md), recognised by its `admin-group` reservation
+marker alone. SCIM may change ordinary membership but may neither rename nor
+delete the Group, nor remove the Bootstrap Admin's membership. These protections
+are the Admin group's alone: a Group that carries Permissions is not special over
+SCIM — renamable, deletable, its membership writable — so an identity provider can
+retire a helpdesk Group without touching this application's configuration, and
+no SCIM path reads or sets what a Group carries.
 
 **SCIM tombstone** — the privacy-minimal record retained after SCIM deletion: the
 resource type, stable resource id and deletion time (UTC), and nothing else. Its
@@ -117,10 +119,13 @@ Bootstrap Admin cannot be deleted.
 Deletion advances the version of every former member, then removes its memberships
 explicitly, in the same transaction and before the Group itself, exactly as for a
 Deleted User; it then makes the Group unavailable through SCIM and leaves a SCIM
-tombstone. A deleted mapped Group takes its Role from every member, each
-recorded as a `PERMISSION_REVOKE` and signed out after commit, exactly as removing
-them one by one would; the mapping still names its id, but it confers nothing until
-the deployment replaces the mapping. The Admin group cannot be deleted.
+tombstone. A deleted Group that carried Permissions takes them from every
+member — a shrink to empty — each recorded as a `PERMISSION_REVOKE` with what the
+Group carried and signed out after commit, exactly as removing them one by one
+would. Its stored Permissions go with it, so nothing names it afterwards and the
+next startup is unaffected. A Group the seed creates again under its fixed id — a
+development fixture — can be deleted again; the tombstone the first deletion left
+stands unchanged. The Admin group cannot be deleted.
 
 ## Resource version
 

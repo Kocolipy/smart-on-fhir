@@ -207,8 +207,8 @@ class StartupLogConnectionDetailsTests {
         env.put("REDIS_HOST", environment.getRequiredProperty("spring.data.redis.host"));
         env.put("REDIS_PORT", environment.getRequiredProperty("spring.data.redis.port"));
         env.put("SERVER_PORT", "0");
-        // The development role mapping the main configuration imports names the development
-        // fixtures' Groups, so the start seeds them, as `.env.example` has a local start do.
+        // The start seeds the development fixtures the main configuration imports, as
+        // `.env.example` has a local start do.
         env.put("APP_DEV_FIXTURES_ENABLED", "true");
         env.put("APP_DEV_FIXTURES_PASSWORD", "Startup-Probe-P@ssw0rd");
         Process process = start(BackendApplication.class, env);

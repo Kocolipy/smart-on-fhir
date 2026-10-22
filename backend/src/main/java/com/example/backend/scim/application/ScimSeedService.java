@@ -3,14 +3,17 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditSeededResource;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.authorization.domain.InvalidRoleMappingException;
-import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.authorization.domain.GroupPermissionValues;
+import com.example.backend.authorization.domain.InvalidGroupPermissionsException;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.authorization.domain.StoredGroupPermission;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimGroupPermissionStore;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimSeedLock;
 import com.example.backend.scim.domain.ScimUser;
@@ -22,7 +25,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +79,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ScimSeedService {
 
+    /**
+     * The stable id a fresh database's Admin group is seeded under. Fixed so local runs and the
+     * test suite can name the Group, and nothing more: the Admin group is RECOGNISED by its
+     * reservation marker alone, never by this id, so a database seeded under another keeps it.
+     */
+    public static final UUID ADMIN_GROUP_ID =
+            UUID.fromString("00000000-0000-4000-8000-00000000a001");
+
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final ScimWriteLocks writeLocks;
@@ -84,7 +94,7 @@ public class ScimSeedService {
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
-    private final RoleMapping roleMapping;
+    private final ScimGroupPermissionStore groupPermissions;
     private final ScimUserLoginState loginStates;
 
     public ScimSeedService(
@@ -95,7 +105,7 @@ public class ScimSeedService {
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
             Clock clock,
-            RoleMapping roleMapping,
+            ScimGroupPermissionStore groupPermissions,
             ScimUserLoginState loginStates) {
         this.users = users;
         this.groups = groups;
@@ -104,7 +114,7 @@ public class ScimSeedService {
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
-        this.roleMapping = roleMapping;
+        this.groupPermissions = groupPermissions;
         this.loginStates = loginStates;
     }
 
@@ -144,7 +154,8 @@ public class ScimSeedService {
 
     /**
      * The development fixtures: one Group per fixture, under the fixture's fixed id, with one
-     * User in it, so local runs and the e2e suite have a User per Role to sign in as.
+     * User in it, so local runs and the e2e suite have a User per Group to sign in as. What each
+     * Group confers is {@link #seedGroupPermissionFixtures}'.
      *
      * <p>Called only when {@code app.dev-fixtures.enabled} is set. Idempotent like the rest of
      * seeding, and like the ordinary identity it never overwrites: a fixture User that exists keeps
@@ -191,7 +202,7 @@ public class ScimSeedService {
      * profile makes at startup locks it, and the e2e suite can show a User locked for dormancy,
      * refused at login, unlocked and signed in again.
      *
-     * <p>Unlike the Role fixtures it is RESET, not merely created: the e2e journey ends with the
+     * <p>Unlike the Group fixtures it is RESET, not merely created: the e2e journey ends with the
      * User unlocked and holding a password it chose, so a fixture that kept that state would be
      * usable once per database. Each startup therefore puts back the fixture password — with no
      * change required — clears any lock, and backdates the basis; that reset is the login-state
@@ -246,35 +257,66 @@ public class ScimSeedService {
     }
 
     /**
-     * Refuses startup unless every Group the role mapping names exists, and the Superuser Group is
-     * the reserved Admin group.
+     * The development fixtures' Group Permissions (ADR 0015): each named Group is given its
+     * Permissions, but only while it carries none, so a Group whose Permissions have been set since
+     * keeps them, and a restart changes nothing.
      *
-     * <p>The half of the mapping's validation that needs the directory, so it runs after seeding:
-     * a mapping naming a Group that does not exist would be a Role nobody can hold, which an
-     * operator should learn at deploy time rather than as a missing power. And a Superuser Group
-     * that is not the reserved Admin group would be a Role holding every Permission conferred by a
-     * Group a connector may rename, empty or delete.
+     * <p>Called only when {@code app.dev-fixtures.enabled} is set, after the fixture Groups exist,
+     * and only the {@code local} profile names any. Every fixture is checked before any is
+     * applied, so a bad one fails startup with nothing written: a name the vocabulary does not
+     * have or that no Group may carry, a Group that does not exist, and the Admin group, which
+     * carries none because its members are the Superuser. Like the rest of the development
+     * seeding it is not audited.
+     *
+     * @param fixtures each Group's stable id and the Permission names it is given
      */
-    @Transactional(readOnly = true)
-    public void verifyMappedGroups() {
-        List<UUID> mapped = List.copyOf(roleMapping.mappedGroupIds());
-        Map<UUID, ScimGroup> found = new HashMap<>();
-        groups.findAllById(mapped).forEach(group -> found.put(group.id(), group));
+    @Transactional
+    public void seedGroupPermissionFixtures(List<GroupPermissionFixture> fixtures) {
+        seedLock.acquire();
+        List<StoredGroupPermission> named = new ArrayList<>();
+        fixtures.forEach(fixture -> fixture.permissions()
+                .forEach(value -> named.add(new StoredGroupPermission(fixture.groupId(), value))));
+        Map<UUID, Set<Permission>> carried = GroupPermissionValues.validated(named);
         List<String> problems = new ArrayList<>();
-        for (UUID groupId : mapped) {
-            if (!found.containsKey(groupId)) {
-                problems.add("Group " + groupId + " does not exist");
+        for (GroupPermissionFixture fixture : fixtures) {
+            Optional<ScimGroup> group = groups.findById(fixture.groupId());
+            if (group.isEmpty()) {
+                problems.add("Group " + fixture.groupId() + " does not exist");
+            } else if (group.get().reservedName() == ReservedResourceName.ADMIN_GROUP) {
+                problems.add("Group " + fixture.groupId()
+                        + " is the Admin group, whose members are the Superuser");
             }
         }
-        ScimGroup superuserGroup = found.get(roleMapping.superuserGroupId());
-        if (superuserGroup != null
-                && superuserGroup.reservedName() != ReservedResourceName.ADMIN_GROUP) {
-            problems.add("Superuser Group " + superuserGroup.id()
-                    + " is not the reserved Admin group");
-        }
         if (!problems.isEmpty()) {
-            throw new InvalidRoleMappingException(problems);
+            throw new InvalidGroupPermissionsException(problems);
         }
+        carried.forEach((groupId, permissions) -> {
+            if (!groupPermissions.carriesAny(groupId)) {
+                groupPermissions.add(groupId, permissions);
+            }
+        });
+    }
+
+    /**
+     * Refuses startup unless the reserved Admin group exists, the one Group whose direct members
+     * are the Superuser. Seeding creates it, so this fails only when something outside the
+     * application removed it.
+     */
+    @Transactional(readOnly = true)
+    public void verifyAdminGroup() {
+        if (groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).isEmpty()) {
+            throw new IllegalStateException("The reserved Admin group does not exist");
+        }
+    }
+
+    /**
+     * Refuses startup when a stored Group Permission names a Permission the vocabulary does not
+     * have, or one no Group may carry ({@link GroupPermissionValues}), naming every such row. A
+     * Permission removed from code therefore needs a migration that deletes its rows.
+     */
+    @Transactional(readOnly = true)
+    public void verifyGroupPermissions() {
+        GroupPermissionValues.validated(groupPermissions.findAll());
     }
 
     /**
@@ -332,10 +374,9 @@ public class ScimSeedService {
     /**
      * The Admin group, reserved as it is created, with the Bootstrap Admin in it.
      *
-     * <p>Created under the role mapping's Superuser Group id, so the mapping can name the Group by
-     * its stable id before the Group exists: the Admin group IS the Superuser Group. A database
-     * whose Admin group was seeded under another id keeps it — the id is never rewritten — and
-     * {@link #verifyMappedGroups} then refuses startup, naming the mismatch.
+     * <p>Created under {@link #ADMIN_GROUP_ID}. A database whose Admin group was seeded under
+     * another id keeps it — the id is never rewritten — and is no less the Admin group: the
+     * reservation marker, not the id, is what makes it one.
      *
      * <p>When the Group already exists its ordinary membership is left exactly as provisioning left
      * it — that membership is what external provisioning is for — and only the Bootstrap Admin's
@@ -347,7 +388,7 @@ public class ScimSeedService {
         if (existing.isEmpty()) {
             ScimGroup created = groups.createReserved(
                     ScimGroup.created(
-                            roleMapping.superuserGroupId(),
+                            ADMIN_GROUP_ID,
                             ADMIN_GROUP_DISPLAY_NAME,
                             List.of(ScimGroupMember.reference(bootstrapAdmin.id())),
                             now),
@@ -411,9 +452,20 @@ public class ScimSeedService {
     }
 
     /**
-     * One development fixture: a Group under a fixed stable id — the id the development role
-     * mapping names — and the userName of the one User seeded into it.
+     * One development fixture: a Group under a fixed stable id — the id the development Group
+     * Permissions name — and the userName of the one User seeded into it.
      */
     public record DevFixture(UUID groupId, String displayName, String member) {
+    }
+
+    /**
+     * One development fixture's Group Permissions: the Group's stable id and the Permission NAMES
+     * it is given, as configuration states them, so a bad one is reported by name.
+     */
+    public record GroupPermissionFixture(UUID groupId, List<String> permissions) {
+
+        public GroupPermissionFixture {
+            permissions = permissions == null ? List.of() : List.copyOf(permissions);
+        }
     }
 }

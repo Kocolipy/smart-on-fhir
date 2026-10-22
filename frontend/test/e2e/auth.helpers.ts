@@ -32,21 +32,26 @@ const ADMIN_CREDENTIALS = [ADMIN_USERNAME, ADMIN_PASSWORD] as const;
 export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fixture-P@ssw0rd";
 
 /**
- * The development role mapping's Roles (`backend/src/main/resources/authorization.yaml`),
- * each with the seeded User that holds it, whether its session is the Superuser's
- * and the Permissions it holds: the Role's own plus the baseline `patient:read`
- * every User holds, sorted by name as `GET /api/auth/me` reports them. The
- * Superuser's User is the Bootstrap Admin, on the password `auth.setup.ts`
- * settles; its session holds the Role's Permissions and every delegatable one.
- * The Connector admin holds `connector:read` and nothing else: it lists
- * connectors and administers none, which only a Superuser does. The Helpdesk
- * holds `user:read` and the helpdesk Permission `account:unlock`: it lists the
- * Users and Unlocks or forces a password change on one, and nothing more.
+ * The development fixtures (`backend/src/main/resources/authorization.yaml`):
+ * one User per development Group, each with the Group whose stored Permissions
+ * it signs in with, whether its session is the Superuser's, and the Permissions
+ * it holds — what its Group carries plus the baseline `patient:read` every User
+ * holds, sorted by name as `GET /api/auth/me` reports them. The Group
+ * Permissions are the `local` profile's fixtures block, which `make
+ * integration-test` runs under. The Superuser's User is the Bootstrap Admin, on
+ * the password `auth.setup.ts` settles: a direct member of the Admin group,
+ * which carries no Permission, its session holds every delegatable one,
+ * expanded in code. The Connector admin holds `connector:read` and nothing
+ * else: it lists connectors and administers none, which only a Superuser does.
+ * The Helpdesk holds `user:read` and the helpdesk Permission `account:unlock`:
+ * it lists the Users and Unlocks or forces a password change on one, and
+ * nothing more.
  */
-export const DEV_ROLES = {
+export const DEV_FIXTURES = {
   superuser: {
     username: ADMIN_USERNAME,
     password: ADMIN_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a001",
     superuser: true,
     permissions: [
       "account:unlock",
@@ -61,36 +66,59 @@ export const DEV_ROLES = {
   accountAdmin: {
     username: "account-admin",
     password: FIXTURE_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a002",
     superuser: false,
     permissions: ["account:unlock", "group:read", "patient:read", "user:read"],
   },
   auditor: {
     username: "auditor",
     password: FIXTURE_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a003",
     superuser: false,
     permissions: ["audit:read", "patient:read"],
   },
   connectorAdmin: {
     username: "connector-admin",
     password: FIXTURE_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a004",
     superuser: false,
     permissions: ["connector:read", "patient:read"],
   },
   monitoring: {
     username: "monitoring",
     password: FIXTURE_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a005",
     superuser: false,
     permissions: ["ops:read", "patient:read"],
   },
   helpdesk: {
     username: "helpdesk",
     password: FIXTURE_PASSWORD,
+    group: "00000000-0000-4000-8000-00000000a006",
     superuser: false,
     permissions: ["account:unlock", "patient:read", "user:read"],
   },
 } as const;
 
-export type DevRole = keyof typeof DEV_ROLES;
+export type DevFixture = keyof typeof DEV_FIXTURES;
+
+/**
+ * What a fixture's Group carries: its User's Permissions less the baseline
+ * `patient:read`, which no Group confers.
+ */
+export function groupPermissionsOf(fixture: Exclude<DevFixture, "superuser">): string[] {
+  return DEV_FIXTURES[fixture].permissions.filter((permission) => permission !== "patient:read");
+}
+
+/** Every Permission a Group may carry, sorted by name, as `GET /api/admin/permissions` lists them. */
+export const DELEGATABLE_PERMISSIONS = [
+  "account:unlock",
+  "audit:read",
+  "connector:read",
+  "group:read",
+  "ops:read",
+  "user:read",
+] as const;
 
 /**
  * Refused attempts that lock an account: the backend's
@@ -152,15 +180,15 @@ export async function login(page: Page) {
 }
 
 /**
- * Sign in as the User holding one development Role, through the login page, and
- * wait for the protected page.
+ * Sign in as one development fixture's User, through the login page, and wait
+ * for the protected page.
  *
  * Signing in ends every other session of that User (one session per User), so
  * a spec doing this for `superuser` must not run beside one replaying
  * `admin.json`.
  */
-export async function loginAsRole(page: Page, role: DevRole) {
-  const { username, password } = DEV_ROLES[role];
+export async function loginAsFixture(page: Page, fixture: DevFixture) {
+  const { username, password } = DEV_FIXTURES[fixture];
   await loginAs(page, username, password);
 }
 

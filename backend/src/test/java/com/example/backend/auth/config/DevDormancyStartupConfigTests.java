@@ -12,7 +12,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.SessionRevocationService;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
 import com.example.backend.scheduling.RecordingTransactionManager;
@@ -57,7 +57,7 @@ class DevDormancyStartupConfigTests {
             groups,
             new InMemoryScimWriteLocks(),
             new ScimMembershipRevocationService(users, groups, sessions, audit,
-                    TestRoleMappings.superuserOnly(), () -> {
+                    TestGroupPermissions.superuserOnly(), () -> {
                     }),
             sessions,
             LoginStateModules.over(users, clock),
@@ -96,7 +96,7 @@ class DevDormancyStartupConfigTests {
             assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
             assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
             assertThat(record.at("/dormancy/locked_count").asInt()).isEqualTo(1);
-            assertThat(record.at("/dormancy/roles_revoked_count").asInt()).isZero();
+            assertThat(record.at("/dormancy/memberships_revoked_count").asInt()).isZero();
         }
         assertThat(users.require("dormant").login().lockCause()).isEqualTo(LockCause.DORMANCY);
         assertThat(audit.of(AuditOperation.DORMANCY_LOCKOUT)).containsExactly(

@@ -1186,7 +1186,9 @@ Resources:
             # start.sh reads at every start; the owner secret is migrate.env's alone.
             # DATABASE_URL validates RDS's certificate against the driver-scoped trust
             # store (never trustServerCertificate). No development fixtures.
-            # APP_AUTHORIZATION_GROUPS_0_* map the Admin group alone (backend/docs/configuration/role-mapping.md).
+            # No Group Permission is configured: they are data, and only the Admin
+            # group's members, the Superuser, hold any on a fresh stack
+            # (backend/docs/configuration/group-permissions.md).
             cat > /opt/backend/.env << 'EOF'
             AWS_REGION=${AWS::Region}
             DATABASE_URL=jdbc:sqlserver://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port};databaseName=${DBName};${DatabaseUrlOptions}
@@ -1201,9 +1203,6 @@ Resources:
             SERVER_PORT=8080
             SESSION_TIMEOUT=15m
             SESSION_COOKIE_SECURE=false
-            APP_AUTHORIZATION_GROUPS_0_ID=00000000-0000-4000-8000-00000000a001
-            APP_AUTHORIZATION_GROUPS_0_ROLE=Superuser
-            APP_AUTHORIZATION_GROUPS_0_SUPERUSER=true
             APP_EPIC_ENABLED=${AppEpicEnabled}
             APP_EPIC_FHIR_BASE=${AppEpicFhirBase}
             APP_EPIC_OAUTH_ISSUER=${AppEpicOauthIssuer}

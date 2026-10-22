@@ -43,9 +43,9 @@ class DormancyPolicyTests {
         assertThat(onlyLockout.lockoutWindow()).isEqualTo(Duration.ofDays(30));
         assertThat(onlyLockout.membershipRevocationWindow()).isEqualTo(Duration.ofDays(180));
 
-        DormancyPolicy onlyRoles = new DormancyPolicy(null, Duration.ofDays(120));
-        assertThat(onlyRoles.lockoutWindow()).isEqualTo(Duration.ofDays(90));
-        assertThat(onlyRoles.membershipRevocationWindow()).isEqualTo(Duration.ofDays(120));
+        DormancyPolicy onlyRevocation = new DormancyPolicy(null, Duration.ofDays(120));
+        assertThat(onlyRevocation.lockoutWindow()).isEqualTo(Duration.ofDays(90));
+        assertThat(onlyRevocation.membershipRevocationWindow()).isEqualTo(Duration.ofDays(120));
     }
 
     @Test
@@ -73,12 +73,12 @@ class DormancyPolicyTests {
                 .hasMessageContaining("lockout window");
         assertThatThrownBy(() -> new DormancyPolicy(null, Duration.ofDays(-1)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("role revocation window")
+                .hasMessageContaining("membership revocation window")
                 .hasMessageContaining(Duration.ofDays(-1).toString())
                 .hasMessageContaining("must be positive");
         assertThatThrownBy(() -> new DormancyPolicy(null, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("role revocation window");
+                .hasMessageContaining("membership revocation window");
 
         DormancyPolicy smallest = new DormancyPolicy(Duration.ofNanos(1), Duration.ofNanos(2));
         assertThat(smallest.lockoutWindow()).isEqualTo(Duration.ofNanos(1));
@@ -86,11 +86,11 @@ class DormancyPolicyTests {
     }
 
     /**
-     * Role revocation is the later step: a window equal to or shorter than the lockout window is
+     * Membership revocation is the later step: a window equal to or shorter than the lockout window is
      * refused, naming both values; one nanosecond longer is accepted.
      */
     @Test
-    void aRoleRevocationWindowNotLongerThanTheLockoutWindowIsRefused() {
+    void aMembershipRevocationWindowNotLongerThanTheLockoutWindowIsRefused() {
         assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(90)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must be longer than the lockout window")
@@ -100,7 +100,7 @@ class DormancyPolicyTests {
                 .hasMessageContaining(Duration.ofDays(60).toString())
                 .hasMessageContaining(Duration.ofDays(90).toString());
         assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(200), null))
-                .as("a lockout window past the default role revocation window")
+                .as("a lockout window past the default membership revocation window")
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThat(new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(90).plusNanos(1))

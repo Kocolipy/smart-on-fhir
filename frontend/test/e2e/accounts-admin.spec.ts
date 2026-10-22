@@ -106,8 +106,16 @@ test.describe.serial("ADMIN accounts page", () => {
     }
     await expect(page.getByRole("button", { name: /Disable|Enable|Deactivate/ })).toHaveCount(0);
 
-    // The protected Admin group is marked, and Unlock is described as the only lift.
-    await expect(groupsTable(page).getByText("Protected Admin group")).toHaveCount(1);
+    // The Admin group confers the Superuser, a fixture Group shows the Permissions it
+    // carries, and Unlock is described as the only lift.
+    await expect(
+      groupsTable(page).getByRole("cell", { exact: true, name: "Superuser" }),
+    ).toHaveCount(1);
+    await expect(
+      groupsTable(page)
+        .getByRole("row", { name: /^Account admins/ })
+        .getByRole("cell", { exact: true, name: "account:unlock, group:read, user:read" }),
+    ).toBeVisible();
     await expect(
       page.getByText(/A lockout never expires: Unlock is the only way it ends/),
     ).toBeVisible();

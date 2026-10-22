@@ -8,7 +8,6 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import jakarta.servlet.http.HttpSession;
@@ -34,13 +33,11 @@ class SessionEstablishmentTests {
 
     private static final UUID USER_ID = UUID.fromString("5b0d6a8e-3c1f-4e7a-9d2b-1f0e8c7a6b54");
 
-    private static final String ROLE_MAPPING_HASH = "role-mapping-hash-under-test";
-
     private final Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
             "ada", null, AuthorityUtils.createAuthorityList("ROLE_USER"));
 
     private final AcceptedLogin passwordLogin =
-            new AcceptedLogin(authentication, SignedIn.password(USER_ID), ROLE_MAPPING_HASH);
+            new AcceptedLogin(authentication, SignedIn.password(USER_ID));
 
     private SessionEstablishment establishment;
 
@@ -108,13 +105,15 @@ class SessionEstablishmentTests {
                 .isEqualTo("5b0d6a8e-3c1f-4e7a-9d2b-1f0e8c7a6b54");
     }
 
-    /** The session records the role mapping its Permissions were resolved under. */
+    /**
+     * There is no role mapping, so the session records none: the attribute a session once named
+     * its mapping's hash under is never written (ADR 0015).
+     */
     @Test
-    void theSessionRecordsTheRoleMappingHash() {
+    void theSessionRecordsNoRoleMappingHash() {
         HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
-        assertThat(signedIn.getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
-                .isEqualTo("role-mapping-hash-under-test");
+        assertThat(signedIn.getAttribute("app.authorization.roleMappingHash")).isNull();
     }
 
     /** A CSRF token fetched before signing in does not survive into the signed-in session. */
@@ -161,8 +160,7 @@ class SessionEstablishmentTests {
     void theSessionStartRecordCarriesTheLoginMethod() {
         try (CapturedLog captured = CapturedLog.attach()) {
             establishment.establish(
-                    new AcceptedLogin(authentication, SignedIn.epic(USER_ID, AuditMfaFactor.OTP),
-                            ROLE_MAPPING_HASH),
+                    new AcceptedLogin(authentication, SignedIn.epic(USER_ID, AuditMfaFactor.OTP)),
                     new MockHttpServletRequest(),
                     new MockHttpServletResponse());
 

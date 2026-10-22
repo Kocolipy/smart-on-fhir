@@ -218,8 +218,7 @@ final class AuditRows {
             Audited.Stamp stamp, Change change, Tokens tokens, Set<Permission> permissions) {
         return row(stamp, stamp.requests().current(), change, AuditEvent.CONNECTOR_RESOURCE_TYPE,
                 change.subjectId(), new Particulars(null, null,
-                        permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value)
-                                .toList(),
+                        Permission.valuesOf(permissions),
                         null, null, tokens, Membership.NONE));
     }
 

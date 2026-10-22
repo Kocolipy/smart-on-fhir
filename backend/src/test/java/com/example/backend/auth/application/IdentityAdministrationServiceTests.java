@@ -16,7 +16,9 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -82,13 +84,16 @@ class IdentityAdministrationServiceTests {
             audit,
             new RecordingOperationalAlerts());
 
+    private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups);
+
     private final IdentityAdministrationService service = new IdentityAdministrationService(
             users,
             groups,
             LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, clock),
             revocation,
-            audit);
+            audit,
+            groupPermissions);
 
     // Reviewing who has access
 
@@ -186,22 +191,26 @@ class IdentityAdministrationServiceTests {
     // Reviewing the Groups
 
     /**
-     * Every Group with its direct member count, and the protected Admin group marked by its
-     * reservation — not by its name, which a connector-created Group can share in spirit.
+     * Every Group with its direct member count, the protected Admin group marked by its
+     * reservation — not by its name, which a connector-created Group can share in spirit — and
+     * the Permissions each carries, sorted by name: none for the Admin group, whose members are
+     * the Superuser, and none for a Group that confers nothing.
      */
     @Test
-    void listsEveryGroupWithItsMemberCountAndTheProtectedAdminMarker() {
+    void listsEveryGroupWithItsMemberCountTheProtectedAdminMarkerAndItsPermissions() {
         ScimUser ada = given("ada");
         ScimUser bob = given("bob");
         ScimGroup admins = givenAdminGroup(ada);
         ScimGroup lookalike = groups.create(ScimIdentities.group("Administrators", ada, bob));
         ScimGroup empty = groups.create(ScimIdentities.group("Empty"));
+        groupPermissions.carrying(lookalike.id(), Permission.USER_READ, Permission.OPS_READ);
 
         // Normalized display-name order: "administrators" sorts before "admins".
         assertThat(service.listGroups()).containsExactly(
-                new GroupSummary(lookalike.id(), "Administrators", 2, false),
-                new GroupSummary(admins.id(), "Admins", 1, true),
-                new GroupSummary(empty.id(), "Empty", 0, false));
+                new GroupSummary(lookalike.id(), "Administrators", 2, false,
+                        List.of("ops:read", "user:read")),
+                new GroupSummary(admins.id(), "Admins", 1, true, List.of()),
+                new GroupSummary(empty.id(), "Empty", 0, false, List.of()));
     }
 
     @Test

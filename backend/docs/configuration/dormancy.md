@@ -7,10 +7,22 @@ tags: [dormancy, scheduled-jobs, configuration]
 
 # Dormancy
 
-| Variable                              | Default           | Meaning                                                                                                        |
-| ------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| `APP_DORMANCY_LOCKOUT_WINDOW`         | `90d` (90 days)   | How long a User may go without logging in before it is locked for dormancy                                     |
-| `APP_DORMANCY_ROLE_REVOCATION_WINDOW` | `180d` (180 days) | How long before its direct membership of every Group is removed; must be longer than the lockout window        |
+| Variable                                    | Default           | Meaning                                                                                                 |
+| ------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------- |
+| `APP_DORMANCY_LOCKOUT_WINDOW`               | `90d` (90 days)   | How long a User may go without logging in before it is locked for dormancy                              |
+| `APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW` | `180d` (180 days) | How long before its direct membership of every Group is removed; must be longer than the lockout window |
+
+> **Breaking change (#158).** The revocation window was configured as
+> `APP_DORMANCY_ROLE_REVOCATION_WINDOW` (property
+> `app.dormancy.role.revocation.window`). That name is no longer read: a deployment
+> still setting it runs with the 180-day default, or fails startup if its lockout
+> window is 180 days or longer. Rename the variable when upgrading. The telemetry
+> names moved with it: the startup fields `app.dormancy.membership_revocation.window`
+> and `dormancy.membership_revocation.window`, the `job-end` count
+> `dormancy.memberships_revoked_count` (was `dormancy.roles_revoked_count`) and the
+> counter `app.dormancy.users.memberships.revoked` (was
+> `app.dormancy.users.roles.revoked`), so dashboards and alerts on the old names
+> need updating too.
 
 One daily job (04:00 `Asia/Singapore`) applies both windows, measured from each
 User's dormancy basis. What a run does to a User — the lockout, the membership
@@ -25,8 +37,7 @@ window, fails startup. Both defaults belong to `DormancyPolicy`, not
 `application.yaml`. The startup record states the job's cron, zone and both
 windows; every run logs `job-start` and `job-end` (`event.action:
 identity.dormancy`), the end carrying `dormancy.locked_count` and
-`dormancy.roles_revoked_count` (Users whose memberships were revoked; the window
-variable and the count keep their names), including a run that skipped or changed
+`dormancy.memberships_revoked_count` (Users whose memberships were revoked), including a run that skipped or changed
 nobody.
 
 With the development fixtures on (`APP_DEV_FIXTURES_ENABLED=true`, as

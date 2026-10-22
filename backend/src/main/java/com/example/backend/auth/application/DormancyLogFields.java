@@ -10,14 +10,16 @@ public final class DormancyLogFields {
     /** The dormancy lockout window, as an ISO-8601 duration, on the job's startup record. */
     public static final String DORMANCY_LOCKOUT_WINDOW = "dormancy.lockout.window";
 
-    /** The dormancy role-revocation window, as an ISO-8601 duration, on the job's startup record. */
-    public static final String DORMANCY_ROLE_REVOCATION_WINDOW = "dormancy.role_revocation.window";
+    /** The dormancy revocation window, as an ISO-8601 duration, on the job's startup record. */
+    public static final String DORMANCY_MEMBERSHIP_REVOCATION_WINDOW =
+            "dormancy.membership_revocation.window";
 
     /** How many Users one dormancy run locked, on its {@code job-end} record. */
     public static final String DORMANCY_LOCKED_COUNT = "dormancy.locked_count";
 
-    /** How many Users one dormancy run revoked the Roles of, on its {@code job-end} record. */
-    public static final String DORMANCY_ROLES_REVOKED_COUNT = "dormancy.roles_revoked_count";
+    /** How many Users one dormancy run removed Group memberships of, on its {@code job-end} record. */
+    public static final String DORMANCY_MEMBERSHIPS_REVOKED_COUNT =
+            "dormancy.memberships_revoked_count";
 
     private DormancyLogFields() {
     }

@@ -12,7 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.LoginStateModules;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.ScimGroup;
@@ -29,7 +29,6 @@ import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -119,14 +118,14 @@ class AuthControllerTests {
         // port, because nothing else may mint a reserved resource.
         groups.createReserved(
                 ScimGroup.created(
-                        TestRoleMappings.SUPERUSER_GROUP_ID,
+                        TestGroupPermissions.SUPERUSER_GROUP_ID,
                         "Admins",
                         List.of(ScimGroupMember.reference(grace.id())),
                         Instant.EPOCH),
                 ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
@@ -196,21 +195,6 @@ class AuthControllerTests {
         assertThat(response.passwordChangeRequired()).isFalse();
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
-    }
-
-    /** The session records the hash of the role mapping its Permissions were resolved under. */
-    @Test
-    void loginRecordsTheRoleMappingHashOnTheSession() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse());
-
-        assertThat(request.getSession(false)
-                        .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
-                .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 
     /**

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.auth.application.DormancyLogFields;
 import com.example.backend.auth.application.EpicLoginLogFields;
-import com.example.backend.authorization.domain.RoleLogFields;
+import com.example.backend.authorization.domain.PermissionLogFields;
 import com.example.backend.scim.application.ScimLogFields;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -21,11 +21,11 @@ class FeatureLogFieldsTests {
     @Test
     void theDormancyJobsFieldsKeepTheirSpellings() {
         assertThat(List.of(DormancyLogFields.DORMANCY_LOCKOUT_WINDOW,
-                        DormancyLogFields.DORMANCY_ROLE_REVOCATION_WINDOW,
+                        DormancyLogFields.DORMANCY_MEMBERSHIP_REVOCATION_WINDOW,
                         DormancyLogFields.DORMANCY_LOCKED_COUNT,
-                        DormancyLogFields.DORMANCY_ROLES_REVOKED_COUNT))
-                .containsExactly("dormancy.lockout.window", "dormancy.role_revocation.window",
-                        "dormancy.locked_count", "dormancy.roles_revoked_count");
+                        DormancyLogFields.DORMANCY_MEMBERSHIPS_REVOKED_COUNT))
+                .containsExactly("dormancy.lockout.window", "dormancy.membership_revocation.window",
+                        "dormancy.locked_count", "dormancy.memberships_revoked_count");
     }
 
     @Test
@@ -36,10 +36,10 @@ class FeatureLogFieldsTests {
 
     @Test
     void theAuthorizationFieldsKeepTheirSpellings() {
-        assertThat(List.of(RoleLogFields.GROUP_PERMISSIONS, RoleLogFields.PERMISSIONS_LOST,
-                        RoleLogFields.ROLE_MAPPING_HASH))
+        assertThat(List.of(PermissionLogFields.GROUP_PERMISSIONS,
+                        PermissionLogFields.PERMISSIONS_LOST))
                 .containsExactly("app.authorization.group_permissions",
-                        "app.authorization.permissions_lost", "app.authorization.mapping_hash");
+                        "app.authorization.permissions_lost");
     }
 
     @Test
