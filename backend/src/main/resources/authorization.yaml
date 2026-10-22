@@ -16,10 +16,12 @@ app:
   # Group at all. The Superuser's User is the Bootstrap Admin, which is the only
   # User seeded regardless.
   #
-  # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it). The
-  # password has no fallback here: this remote is public, so a deployment that
-  # enabled the fixtures without choosing one fails startup rather than shipping
-  # a published credential.
+  # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it), and
+  # refused outside the `local` profile (ScimSeedConfig.LOCAL_PROFILE): turned on
+  # under any other profile, no profile included, they fail startup, because
+  # they waive the Bootstrap Admin's first-login change. The password has no fallback here: this
+  # remote is public, so enabling the fixtures without choosing one fails startup
+  # rather than shipping a published credential.
   dev-fixtures:
     enabled: ${APP_DEV_FIXTURES_ENABLED:false}
     password: ${APP_DEV_FIXTURES_PASSWORD:}
@@ -68,6 +70,8 @@ app:
 # account:unlock, group:read, audit:read, ops:read, connector:read); any other
 # fails startup, and so does naming the Admin group or a Group that does not
 # exist. A list rather than a map, so a higher-precedence source replaces it whole.
+# `local` here is ScimSeedConfig.LOCAL_PROFILE, the one profile that admits the
+# fixtures at all: rename the two together.
 spring:
   config:
     activate:

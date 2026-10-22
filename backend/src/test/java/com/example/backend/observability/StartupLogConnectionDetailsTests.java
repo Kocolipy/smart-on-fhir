@@ -207,10 +207,9 @@ class StartupLogConnectionDetailsTests {
         env.put("REDIS_HOST", environment.getRequiredProperty("spring.data.redis.host"));
         env.put("REDIS_PORT", environment.getRequiredProperty("spring.data.redis.port"));
         env.put("SERVER_PORT", "0");
-        // The start seeds the development fixtures the main configuration imports, as
-        // `.env.example` has a local start do.
-        env.put("APP_DEV_FIXTURES_ENABLED", "true");
-        env.put("APP_DEV_FIXTURES_PASSWORD", "Startup-Probe-P@ssw0rd");
+        // The Bootstrap Admin's first password, which has no fallback; and no development
+        // fixtures, which a start with no profile refuses (ScimSeedConfig).
+        env.put("APP_BOOTSTRAP_PASSWORD", "Startup-Probe-P@ssw0rd");
         Process process = start(BackendApplication.class, env);
 
         List<String> lines = new CopyOnWriteArrayList<>();

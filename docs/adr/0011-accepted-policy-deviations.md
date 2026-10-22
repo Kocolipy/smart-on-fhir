@@ -40,7 +40,9 @@ ac-6 (default credentials) is met: every imposed credential — the seeded Boots
 Admin, a connector password write, an Unlock, a forced change — sets the
 change-required flag, and a password session stays confined until the User
 replaces it (ADR 0008). The one waiver is the seeded Bootstrap Admin with the
-development fixtures on, which only a developer's machine enables. An Epic Login, which presents no password of ours, is
+development fixtures on, which startup refuses outside the `local` profile, so
+only a developer's machine can enable them. The Bootstrap Admin's first password
+has no fallback: a start without one fails. An Epic Login, which presents no password of ours, is
 not confined by the flag (ADR 0008's 2026-10-09 addendum).
 
 ### Standalone User Access Control standard

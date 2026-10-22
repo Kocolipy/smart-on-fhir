@@ -43,8 +43,10 @@ The service listens on `http://localhost:8080`; its health endpoint is
 
 The identity that logs in is a **SCIM User** — there is no separate account
 table. Startup seeds the **Bootstrap Admin** (`APP_BOOTSTRAP_USERNAME` /
-`APP_BOOTSTRAP_PASSWORD`, development default `admin` / `P@ssw0rd`, never for
-production) and the **Admin group**. With the development fixtures on, a freshly
+`APP_BOOTSTRAP_PASSWORD`; the username defaults to `admin`, the password has no
+default and startup fails without one — `.env.example` sets `P@ssw0rd` for a local
+run) and the **Admin group**. The development fixtures are refused outside the
+`local` profile: enabled under any other, startup fails. With them on, a freshly
 seeded Bootstrap Admin owes no first-login password change; an existing one keeps
 whatever flag it has. With the development fixtures on, there is
 also a User per development Group, all with `APP_DEV_FIXTURES_PASSWORD`

@@ -113,8 +113,12 @@ app:
   auth:
     # The Bootstrap Admin, the one User every deployment is seeded with. The
     # non-administrative `user` is a development fixture (authorization.yaml).
+    # The password has no fallback: this remote is public, so an unset or blank
+    # APP_BOOTSTRAP_PASSWORD fails startup (ScimSeedConfig) rather than seeding a
+    # Superuser on a published credential. The username keeps `admin`: a name,
+    # not a secret.
     bootstrap-username: ${APP_BOOTSTRAP_USERNAME:admin}
-    bootstrap-password: ${APP_BOOTSTRAP_PASSWORD:P@ssw0rd}
+    bootstrap-password: ${APP_BOOTSTRAP_PASSWORD}
     lockout:
       # Consecutive failures that lock an account. There is deliberately no
       # duration setting: a lockout is lifted by an Admin's Unlock and by nothing

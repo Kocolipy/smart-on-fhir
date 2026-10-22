@@ -60,7 +60,8 @@ Admin group seeded earlier under another id keeps it.
 ## Development fixtures
 
 `src/main/resources/authorization.yaml` holds the development fixtures, off unless
-`APP_DEV_FIXTURES_ENABLED=true` (`.env.example` sets it):
+`APP_DEV_FIXTURES_ENABLED=true` (`.env.example` sets it), and refused outside the
+`local` profile, where startup fails rather than seeding them:
 
 - `app.dev-fixtures.groups` — one Group per development access level, under a
   fixed id, with one User in it (Account admins, Auditors, Connector admins,
