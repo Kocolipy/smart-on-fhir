@@ -13,10 +13,9 @@ import {
   GROUPS,
   namesSameUser,
   SET_GROUP_PERMISSIONS,
-  USER_ACTION,
+  UNLOCK_USER,
   USERS,
   type GroupRow,
-  type UserAction,
   type UserRow,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
@@ -27,18 +26,16 @@ import { ListingBody } from "./listing-body";
 const UNLOCK_EXPLANATION =
   "A lockout never expires: Unlock is the only way it ends, and Unlock also requires the User to change their password before they can do anything else.";
 
-/** What was being attempted, as the refusal copy names it. */
-const ATTEMPTED: Record<UserAction, (userName: string) => string> = {
-  unlock: (userName) => `unlock ${userName}`,
-  "force-password-change": (userName) => `force a password change for ${userName}`,
-};
-
-/** Copy for a refused action, keyed on what the backend refused. */
-function actionMessages(action: UserAction, userName: string): RefusalMessages {
+/**
+ * Copy for a refused Unlock, keyed on what the backend refused. A `409` is a
+ * User serving no lockout — most often one another administrator unlocked
+ * after this listing was read — which an Unlock has no effect on.
+ */
+function unlockMessages(userName: string): RefusalMessages {
   return {
     404: `${userName} no longer exists. Reload the page for the current list.`,
-    409: `Refused: ${userName} has no password to replace.`,
-    default: `Unable to ${ATTEMPTED[action](userName)}. Please try again.`,
+    409: `${userName} is no longer locked. Reload the page for the current list.`,
+    default: `Unable to unlock ${userName}. Please try again.`,
   };
 }
 
@@ -66,17 +63,9 @@ function LockoutCell({ user }: { user: UserRow }) {
 }
 
 /**
- * Whether the signed-in administrator may force this row's password change:
- * never on their own account, never on the Bootstrap Admin, and only for a
- * User with a password not already flagged. The backend refuses every excluded
- * case independently.
+ * Unlock only while a lockout is in force — the backend refuses it `409`
+ * otherwise — and never on the caller's own account.
  */
-function offersForcedChange(user: UserRow, self: boolean): boolean {
-  if (!user.hasPassword || user.passwordChangeRequired) return false;
-  return !self && !user.bootstrapAdmin;
-}
-
-/** Unlock only while a lockout is in force, and never on the caller's own account. */
 const offersUnlock = (user: UserRow, self: boolean): boolean =>
   user.locked && !user.bootstrapAdmin && !self;
 
@@ -90,57 +79,43 @@ function accessOf(user: UserRow): string {
   return user.admin ? "Superuser" : "User";
 }
 
-type OnAction = (user: UserRow, action: UserAction) => void;
+type OnUnlock = (user: UserRow) => void;
 
-function UserActions({
-  onAction,
+function UnlockButton({
+  onUnlock,
   pending,
   self,
   user,
 }: {
-  /** `null` when the session lacks `account:unlock`, which both actions require: none is offered. */
-  onAction: OnAction | null;
+  /** `null` when the session lacks `account:unlock`, which Unlock requires: it is not offered. */
+  onUnlock: OnUnlock | null;
   pending: boolean;
   self: boolean;
   user: UserRow;
 }) {
-  if (onAction === null) return null;
+  if (onUnlock === null || !offersUnlock(user, self)) return null;
   return (
-    <span className="flex flex-wrap gap-2">
-      {offersUnlock(user, self) ? (
-        <Button
-          disabled={pending}
-          onClick={() => onAction(user, "unlock")}
-          size="sm"
-          title={UNLOCK_EXPLANATION}
-          variant="outline"
-        >
-          Unlock {user.userName}
-        </Button>
-      ) : null}
-      {offersForcedChange(user, self) ? (
-        <Button
-          disabled={pending}
-          onClick={() => onAction(user, "force-password-change")}
-          size="sm"
-          variant="outline"
-        >
-          Force password change for {user.userName}
-        </Button>
-      ) : null}
-    </span>
+    <Button
+      disabled={pending}
+      onClick={() => onUnlock(user)}
+      size="sm"
+      title={UNLOCK_EXPLANATION}
+      variant="outline"
+    >
+      Unlock {user.userName}
+    </Button>
   );
 }
 
 const MUTED_CELL = "py-3 pr-4 text-muted-foreground";
 
 function UserRowView({
-  onAction,
+  onUnlock,
   pending,
   signedIn,
   user,
 }: {
-  onAction: OnAction | null;
+  onUnlock: OnUnlock | null;
   pending: boolean;
   signedIn: string | undefined;
   user: UserRow;
@@ -174,8 +149,8 @@ function UserRowView({
         {user.groups.map((group) => group.displayName).join(", ") || "—"}
       </td>
       <td className="py-3">
-        <UserActions
-          onAction={onAction}
+        <UnlockButton
+          onUnlock={onUnlock}
           pending={pending}
           self={namesSameUser(user.userName, signedIn)}
           user={user}
@@ -199,12 +174,12 @@ const USER_COLUMNS = [
 ];
 
 function UsersTable({
-  onAction,
+  onUnlock,
   pending,
   signedIn,
   users,
 }: {
-  onAction: OnAction | null;
+  onUnlock: OnUnlock | null;
   pending: boolean;
   signedIn: string | undefined;
   users: readonly UserRow[];
@@ -225,7 +200,7 @@ function UsersTable({
         {users.map((user) => (
           <UserRowView
             key={user.id}
-            onAction={onAction}
+            onUnlock={onUnlock}
             pending={pending}
             signedIn={signedIn}
             user={user}
@@ -381,14 +356,14 @@ function useDirectory() {
   const write = useGatedWrite();
 
   /**
-   * Runs one action and replaces just that row from the response, rather than
+   * Runs one Unlock and replaces just that row from the response, rather than
    * reloading the listing: the response *is* the User's new state, so a refetch
    * would only add a request that could disagree with it.
    */
-  const runAction = (target: UserRow, action: UserAction) =>
-    write.run(USER_ACTION, {
-      args: [target.id, action],
-      messages: actionMessages(action, target.userName),
+  const runUnlock = (target: UserRow) =>
+    write.run(UNLOCK_USER, {
+      args: [target.id],
+      messages: unlockMessages(target.userName),
       onOk: (updated) => {
         users.update((current) =>
           (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
@@ -421,17 +396,17 @@ function useDirectory() {
       },
     });
 
-  return { groups, pending: write.pending, runAction, setGroupPermissions, users };
+  return { groups, pending: write.pending, runUnlock, setGroupPermissions, users };
 }
 
 /**
  * The Accounts page: the directory's Users and Groups as read-only
- * projections, the two operations an administrator performs on a User, and
- * connector and token management.
+ * projections, the one operation an administrator performs on a User — Unlock
+ * of a locked User — and connector and token management.
  *
  * Each view is shown only to a session holding the Permission its listing
  * requires — Users `user:read`, Groups `group:read`, Connectors
- * `connector:read` — and Unlock and the forced change only with `account:unlock`.
+ * `connector:read` — and Unlock only with `account:unlock`.
  * The route guard keeps out a User who may see none of them. All of that is a
  * rendering decision and never the authorization: the backend enforces every
  * operation on its own.
@@ -442,10 +417,10 @@ function useDirectory() {
  */
 export function Accounts() {
   const { user } = useAuth();
-  const { groups, pending, runAction, setGroupPermissions, users } = useDirectory();
+  const { groups, pending, runUnlock, setGroupPermissions, users } = useDirectory();
   const [editing, setEditing] = useState<GroupRow | null>(null);
-  const onAction: OnAction | null = holds(user, USER_ACTION.permission)
-    ? (target, action) => void runAction(target, action)
+  const onUnlock: OnUnlock | null = holds(user, UNLOCK_USER.permission)
+    ? (target) => void runUnlock(target)
     : null;
   const onEdit = holds(user, SET_GROUP_PERMISSIONS.permission) ? setEditing : null;
 
@@ -459,7 +434,7 @@ export function Accounts() {
       >
         {(rows) => (
           <UsersTable
-            onAction={onAction}
+            onUnlock={onUnlock}
             pending={pending}
             signedIn={user?.username}
             users={rows}

@@ -124,7 +124,10 @@ logins right now, and is an Admin's. So:
   `LOCKOUT_LIFT` event. That event's changed paths are what the Unlock changed:
   `failedLoginAttempts` when the run held attempts, and `lockedAt`, `lockCause`
   and `lastAuthenticatedAt` when a lock stood. Unlocking a User that has a
-  password also sets its change-required flag.
+  password also sets its change-required flag. An Unlock of a User serving no
+  lockout has no effect: it is refused (`409`), nothing is written — its failure
+  run included — and the refusal is a `LOCKOUT_LIFT` failure with reason
+  `NOT_LOCKED`.
 
 The same rule holds for every event that records a login-state transition — a
 refusal counted against the run, a Lockout, an Unlock, a required change, a
@@ -148,16 +151,17 @@ path, it does not name the run it clears or the dormancy basis it moves.
 
 What keeps the deployment recoverable. Two rules.
 
-**Self-target refusal:** no Admin may Unlock or force-change themselves (`403`),
-whatever Permissions it holds — a Superuser's included — so recovering from a
-self-inflicted state takes a second Admin, and nobody may force the Bootstrap
-Admin's password change at all. The check compares stable ids: the acting Admin is
+**Self-target refusal:** no Admin may Unlock themselves (`403`, reason
+`SELF_TARGET`), whatever Permissions it holds — a Superuser's included — so
+recovering from a self-inflicted state takes a second Admin. It is checked before
+whether a lockout is in force, so an Admin's own row is refused for being its own
+whatever its state. The check compares stable ids: the acting Admin is
 the User whose stable id its signed-in session holds, never the `userName` the
 session's principal carries. A connector may rename a User between its Login and
 its next request, so a name comparison would let an Admin whose own name had moved
 act on themselves past the guard, and refuse an Admin acting on whichever User
 took its former name. Connector administration records its acting Admin the same
-way. A session that identifies nobody cannot Unlock or force a change (`401`).
+way. A session that identifies nobody cannot Unlock (`401`).
 
 **The Bootstrap Admin is never locked** and is protected from every SCIM write,
 deactivation included, so a deployment whose other Admins are all locked is still

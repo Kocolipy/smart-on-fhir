@@ -239,15 +239,16 @@ public sealed interface Audited {
      * An administrator's Unlock: the only lift there is. A lock does not expire, so there is no
      * unrequested lift to record, and {@code actorId} names the administrator who performed it.
      *
-     * <p>The paths are what the Unlock actually changed. The failure run, when it held attempts;
-     * and, when a lock stood, the lock and its cause together with the dormancy basis
-     * ({@code lastAuthenticatedAt}) the lift restarts. An Unlock of a User serving no lockout
-     * clears its run and nothing else. The change-required flag the lift may also set is recorded
-     * by its own {@link PasswordChangeRequired}, so it is the one path the Unlock moved that this
-     * event does not name.
+     * <p>The paths are what the Unlock actually changed: the failure run, when it held attempts,
+     * and the lock and its cause together with the dormancy basis ({@code lastAuthenticatedAt})
+     * the lift restarts. An Unlock of a User serving no lockout lifts nothing and is refused — it
+     * is an {@link UnlockRefused} — so this event always names a lock. The change-required flag the
+     * lift may also set is recorded by its own {@link PasswordChangeRequired}, so it is the one
+     * path the Unlock moved that this event does not name.
      *
-     * @param lockCause why the lifted lock had been imposed, recorded as the event's reason, or
-     *                  {@code null} when the User was not locked
+     * @param lockCause why the lifted lock had been imposed, recorded as the event's reason. Events
+     *                  stored before an Unlock of an unlocked User was refused (ADR 0015's
+     *                  2026-10-22 addendum) may carry none
      * @param moved     what the Unlock moved, as the login-state module handed it back
      */
     record LockoutLiftedByUnlock(
@@ -271,7 +272,10 @@ public sealed interface Audited {
         }
     }
 
-    /** An Unlock refused — of the administrator's own account. */
+    /**
+     * An Unlock refused — of the administrator's own account ({@code SELF_TARGET}), or of a User
+     * serving no lockout ({@code NOT_LOCKED}).
+     */
     record UnlockRefused(UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason)
             implements Refused {
 
@@ -697,9 +701,9 @@ public sealed interface Audited {
      * recorded with a server-error status class, because it was this service, not the caller,
      * that could not finish the job.
      *
-     * @param actorId   who caused it: the connector whose write it followed, the administrator who
-     *                  forced a password change — or {@code null} when the dormancy job, a Login or
-     *                  the User's own self-service change did
+     * @param actorId   who caused it: the connector whose write it followed, the Superuser who
+     *                  reduced a Group's Permissions — or {@code null} when the dormancy job, a
+     *                  Login or the User's own self-service change did
      * @param paths     the attributes whose change ended the sessions; empty when no attribute
      *                  changed (a deletion, a lockout, a Login)
      * @param causes    why the sessions ended, recorded as the event's reason; never empty
@@ -853,11 +857,13 @@ public sealed interface Audited {
     // ---- Passwords and authorization ------------------------------------------------------------
 
     /**
-     * An administrator requiring a password change of a User — directly, or by lifting its
-     * lockout. A requirement this service cannot account for is not imposed.
+     * An administrator requiring a password change of a User by lifting its lockout. A
+     * requirement this service cannot account for is not imposed. Events of this operation stored
+     * before the forced password change was removed (ADR 0015's 2026-10-22 addendum) also record
+     * that action, its refusals included; they read back as the operation they were.
      *
-     * @param moved what the forced change or the Unlock moved, as the login-state module handed it
-     *              back; this event names the change-required flag of it, and an Unlock's
+     * @param moved what the Unlock moved, as the login-state module handed it back; this event
+     *              names the change-required flag of it, and the Unlock's
      *              {@link LockoutLiftedByUnlock} the rest
      */
     record PasswordChangeRequired(
@@ -873,17 +879,6 @@ public sealed interface Audited {
             return AuditRows.user(stamp, AuditRows.Change.success(
                     AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId,
                     AuditAttribute.paths(onlyChangeRequired(moved))));
-        }
-    }
-
-    /** A forced password change refused. */
-    record PasswordChangeRequirementRefused(
-            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) implements Refused {
-
-        @Override
-        public AuditEvent toEvent(Stamp stamp) {
-            return AuditRows.user(stamp, AuditRows.Change.refusal(
-                    AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId, reason));
         }
     }
 

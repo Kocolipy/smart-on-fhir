@@ -59,7 +59,7 @@ import tools.jackson.databind.json.JsonMapper;
  * — present, correctly attributed, and redacted.
  *
  * <p>Driven over the real surfaces wherever one exists: logins, the Admin's connector, token,
- * Unlock and forced-change operations and the self-service change are real requests through the
+ * Unlock operations and the self-service change are real requests through the
  * application chain with a real CSRF token; the User and Group writes and the bulk read are real
  * SCIM requests bearing the token the Admin just minted. The two scheduled jobs have no HTTP
  * surface — a cron trigger is their only entry point — so the dormancy job is invoked as its
@@ -193,14 +193,13 @@ class AuditListingEndToEndIntegrationTests {
                 .queryParam("filter", "userName eq \"" + FILTER_LITERAL + "\""), null, 200);
         assertThat(probe.get("totalResults").asInt()).isZero();
 
-        // ---- #11 login and failed login; #19 self-service change; #19 forced change ----
+        // ---- #11 login and failed login; #19 self-service change; an Unlock with no lock ----
         MockHttpSession confined = logIn("audit-e2e-member", MEMBER_INITIAL);
         send(post("/api/auth/change-password").session(confined),
                 "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
                         .formatted(MEMBER_INITIAL, MEMBER_REPLACED), 204);
         assertThat(loginStatus("audit-e2e-member", WRONG_PASSWORD)).isEqualTo(401);
-        send(post("/api/admin/accounts/" + member + "/force-password-change").session(admin),
-                null, 200);
+        send(post("/api/admin/accounts/" + member + "/unlock").session(admin), null, 409);
 
         // ---- #11 lockout set, lifted by Admin Unlock (there is no expiry lift) ----
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -272,8 +271,10 @@ class AuditListingEndToEndIntegrationTests {
                 .isTrue();
         expect(single(memberEvents, "PASSWORD_CHANGE", "SUCCESS"),
                 member, "User", member, "password", "passwordChangeRequiredSince");
-        expect(single(memberEvents, "PASSWORD_CHANGE_REQUIRE", "SUCCESS"),
-                adminId, "User", member, "passwordChangeRequiredSince");
+        JsonNode refusedUnlock = single(memberEvents, "LOCKOUT_LIFT", "FAILURE");
+        expect(refusedUnlock, adminId, "User", member);
+        assertThat(refusedUnlock.get("errorCode").asText()).as("nothing to lift")
+                .isEqualTo("NOT_LOCKED");
 
         List<JsonNode> lockedEvents = listAll(reader, "resourceId=" + locked, listed);
         assertThat(lockedEvents.stream()

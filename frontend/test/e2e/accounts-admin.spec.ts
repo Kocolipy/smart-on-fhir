@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
-import { LOCKOUT_MAX_ATTEMPTS, submitLoginViaApi } from "./auth.helpers";
+import { LOCKOUT_MAX_ATTEMPTS, postAdminAction, submitLoginViaApi } from "./auth.helpers";
 import {
   anonymousApi,
   createConnector,
@@ -20,14 +20,14 @@ import {
 
 /**
  * The Accounts page driven as an Admin uses it: both read-only projections,
- * Unlock, the forced password change, and a connector's token lifecycle, all
- * from the one interface.
+ * Unlock of a locked User — and its refusal once the User is no longer locked —
+ * and a connector's token lifecycle, all from the one interface.
  *
  * Every User this spec changes is one it PROVISIONS for itself, over SCIM,
  * with a token it issued through the page. The seeded `user` is never locked or
- * flagged here: since Unlock and a forced change both require a password change,
- * and password history refuses the old password back, a seeded identity put in
- * either state could not be restored for the specs that sign in as it. The
+ * flagged here: since Unlock requires a password change, and password history
+ * refuses the old password back, a seeded identity put in either state could
+ * not be restored for the specs that sign in as it. The
  * throwaway Users and the connectors are deleted in a `finally`; whatever a
  * crashed run leaves behind is swept by `auth.setup.ts` before the next run.
  *
@@ -42,10 +42,23 @@ const RUN = runId();
 const CONNECTOR_NAME = `${E2E_PREFIX}connector-${RUN}`;
 const READ_ONLY_CONNECTOR = `${E2E_PREFIX}connector-ro-${RUN}`;
 const LOCKED_USER = `${E2E_PREFIX}locked-${RUN}`;
-const FORCED_USER = `${E2E_PREFIX}forced-${RUN}`;
+/** Locked, then unlocked behind the page's back, so the page's Unlock meets the 409. */
+const RACED_USER = `${E2E_PREFIX}raced-${RUN}`;
 
 /** For the tests outside the serial journey, whose own connector is created and deleted in it. */
 const directory = workerConnector("accounts");
+
+/** Lock `userName` the way a forgetful person does: a lockout's worth of refused logins. */
+async function lockOut(userName: string) {
+  const guesser = await anonymousApi();
+  try {
+    for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
+      expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
+    }
+  } finally {
+    await guesser.dispose();
+  }
+}
 
 /** Whether a fresh login as this User is accepted, and whether it is confined to the change. */
 async function signInState(userName: string) {
@@ -112,7 +125,7 @@ test.describe.serial("ADMIN accounts page", () => {
         .getByRole("button"),
     ).toHaveCount(0);
     for (const label of await usersTable(page).getByRole("button").allTextContents()) {
-      expect(label).toMatch(/^(Unlock|Force password change for) /);
+      expect(label).toMatch(/^Unlock /);
     }
     await expect(page.getByRole("button", { name: /Disable|Enable|Deactivate/ })).toHaveCount(0);
 
@@ -170,12 +183,12 @@ test.describe.serial("ADMIN accounts page", () => {
     }
   });
 
-  test("unlocks a User, forces another's change and manages a connector's tokens", async ({
+  test("unlocks a locked User, reports one unlocked meanwhile, and manages a connector's tokens", async ({
     page,
   }) => {
-    // Two provisions, two self-service changes, a lockout's worth of refused
-    // logins and four confirming sign-ins, each a password hash on the backend.
-    test.setTimeout(120_000);
+    // Two provisions, two self-service changes, two lockouts' worth of refused
+    // logins and three confirming sign-ins, each a password hash on the backend.
+    test.setTimeout(150_000);
     const provisioned: string[] = [];
     let scim: APIRequestContext | undefined;
 
@@ -196,22 +209,14 @@ test.describe.serial("ADMIN accounts page", () => {
       scim = await scimApi(firstValue);
       provisioned.push(
         await provisionUser(scim, LOCKED_USER),
-        await provisionUser(scim, FORCED_USER),
+        await provisionUser(scim, RACED_USER),
       );
       await settlePassword(LOCKED_USER);
-      await settlePassword(FORCED_USER);
+      await settlePassword(RACED_USER);
 
-      // Lock the first the way a forgetful person does.
-      const guesser = await anonymousApi();
-      try {
-        for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
-          expect((await submitLoginViaApi(guesser, LOCKED_USER, "not-the-password")).status()).toBe(
-            401,
-          );
-        }
-      } finally {
-        await guesser.dispose();
-      }
+      // Lock both the way a forgetful person does.
+      await lockOut(LOCKED_USER);
+      await lockOut(RACED_USER);
       expect(await signInState(LOCKED_USER)).toEqual({ accepted: false, confined: false });
 
       // Unlock it from the page.
@@ -225,15 +230,24 @@ test.describe.serial("ADMIN accounts page", () => {
       // The backend's doing: the password works again, into the change flow only.
       expect(await signInState(LOCKED_USER)).toEqual({ accepted: true, confined: true });
 
-      // Force the second's change from the page.
-      const forced = rowOf(page, usersTable(page), FORCED_USER);
-      await expect(forced.getByText("No", { exact: true })).toBeVisible();
-      await forced
-        .getByRole("button", { name: `Force password change for ${FORCED_USER}` })
-        .click();
-      await expect(forced.getByText("Required")).toBeVisible();
-      await expect(forced.getByRole("button", { name: /^Force password change/ })).toHaveCount(0);
-      expect(await signInState(FORCED_USER)).toEqual({ accepted: true, confined: true });
+      // The second is unlocked behind the page's back — as by another
+      // administrator — so the Unlock the page still offers has nothing to lift:
+      // refused, said so, and nothing changes.
+      const raced = rowOf(page, usersTable(page), RACED_USER);
+      await expect(raced.getByText("Locked: failed logins", { exact: true })).toBeVisible();
+      const raceId = provisioned[1]!;
+      expect((await postAdminAction(page, raceId, "unlock")).status()).toBe(200);
+      await raced.getByRole("button", { name: `Unlock ${RACED_USER}` }).click();
+      await expect(page.getByRole("alert")).toHaveText(
+        `${RACED_USER} is no longer locked. Reload the page for the current list.`,
+      );
+      expect((await postAdminAction(page, raceId, "unlock")).status()).toBe(409);
+      await page.reload();
+      await expect(rowOf(page, usersTable(page), RACED_USER).getByText("Not locked")).toBeVisible();
+      await expect(
+        rowOf(page, usersTable(page), RACED_USER).getByRole("button", { name: /^Unlock/ }),
+      ).toHaveCount(0);
+      expect(await signInState(RACED_USER)).toEqual({ accepted: true, confined: true });
 
       // Deprovision with the token that provisioned them, before rotating it away.
       for (const id of provisioned.splice(0)) await deprovisionUser(scim, id);

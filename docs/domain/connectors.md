@@ -53,8 +53,8 @@ is no further rule on what a Superuser may grant beyond the vocabulary. A token
 with a write Permission is Superuser-equivalent, because `group:write` on a Group
 that carries Permissions decides who holds them ([membership of
 power](./authorization.md)) and `user:write` sets a User's
-password. Neither write is a session's: the helpdesk's Unlock and forced change
-need `account:unlock`, which no token may carry. A read-only token is genuinely limited, which is why the token
+password. Neither write is a session's: the helpdesk's Unlock needs
+`account:unlock`, which no token may carry. A read-only token is genuinely limited, which is why the token
 vocabulary stays separate from the session's. A successful issue or rotation is
 audited with the Permissions granted.
 

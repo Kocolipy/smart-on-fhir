@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { ADMIN_USERNAME, postAdminAction, submitLoginViaApi, userIdOf } from "./auth.helpers";
+import {
+  ADMIN_USERNAME,
+  LOCKOUT_MAX_ATTEMPTS,
+  postAdminAction,
+  submitLoginViaApi,
+  userIdOf,
+} from "./auth.helpers";
 import {
   anonymousApi,
   deprovisionUser,
@@ -19,9 +25,9 @@ import {
  * found again on `/audit` through the filters, attributed to who took it.
  *
  * `dev-roles.spec.ts` proves who may reach the page. What this spec adds is
- * that the page shows the trail itself — the event an Admin's forced change
- * recorded, a refused login's failure, a connector's membership grant with the
- * Permissions it conferred, and a filter the page refuses locally.
+ * that the page shows the trail itself — the change an Admin's Unlock required,
+ * the refused logins that locked the User, a connector's membership grant with
+ * the Permissions it conferred, and a filter the page refuses locally.
  *
  * Every filter is pinned to the Resource id of a User this spec provisions, so
  * the rows are this run's own whatever the shared trail holds; the User is
@@ -53,16 +59,23 @@ async function applyFilters(
 }
 
 /**
- * Provisions `userName`, records one refused login against it, and hands its
- * Resource id to `body`; the User is deleted afterwards whatever `body` does.
+ * Provisions `userName`, records `refusals` refused logins against it — enough,
+ * at the lockout threshold, to lock it — and hands its Resource id to `body`;
+ * the User is deleted afterwards whatever `body` does.
  */
-async function withRefusedLoginUser(userName: string, body: (id: string) => Promise<void>) {
+async function withRefusedLoginUser(
+  userName: string,
+  body: (id: string) => Promise<void>,
+  refusals = 1,
+) {
   const id = await provisionUser(connector.scim, userName);
   try {
     await settlePassword(userName);
     const guesser = await anonymousApi();
     try {
-      expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
+      for (let attempt = 0; attempt < refusals; attempt += 1) {
+        expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
+      }
     } finally {
       await guesser.dispose();
     }
@@ -72,47 +85,54 @@ async function withRefusedLoginUser(userName: string, body: (id: string) => Prom
   }
 }
 
-test("an Admin's forced change and a refused login are found on the audit page", async ({
+test("an Admin's Unlock and the refused logins that locked the User are found on the audit page", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  // A refused login, recorded against the User it named.
-  await withRefusedLoginUser(AUDITED_USER, async (id) => {
-    // The forced change, from the Accounts page.
-    await page.goto("/accounts");
-    const row = rowOf(page, page.getByRole("table", { name: "Users" }), AUDITED_USER);
-    await row.getByRole("button", { name: `Force password change for ${AUDITED_USER}` }).click();
-    await expect(row.getByText("Required")).toBeVisible();
+  // Refused logins, recorded against the User they named, the last of them locking it.
+  await withRefusedLoginUser(
+    AUDITED_USER,
+    async (id) => {
+      // The Unlock, from the Accounts page, which requires a change of password.
+      await page.goto("/accounts");
+      const row = rowOf(page, page.getByRole("table", { name: "Users" }), AUDITED_USER);
+      await row.getByRole("button", { name: `Unlock ${AUDITED_USER}` }).click();
+      await expect(row.getByText("Required")).toBeVisible();
 
-    await page.goto("/audit");
-    await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
+      await page.goto("/audit");
+      await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
 
-    // The forced change: one event, a success, attributed to the Admin by id.
-    await applyFilters(page, { operation: "PASSWORD_CHANGE_REQUIRE", resourceId: id });
-    await expect(eventRows(page)).toHaveCount(1);
-    const forced = eventRows(page).first();
-    await expect(forced.getByRole("cell").nth(0)).toHaveText("PASSWORD_CHANGE_REQUIRE");
-    await expect(forced.getByRole("cell").nth(1)).toHaveText("SUCCESS");
-    await expect(forced.getByRole("cell").nth(2)).toHaveText(await userIdOf(page, ADMIN_USERNAME));
-    await expect(forced.getByRole("cell").nth(3)).toContainText(id);
+      // The change it required: one event, a success, attributed to the Admin by id.
+      await applyFilters(page, { operation: "PASSWORD_CHANGE_REQUIRE", resourceId: id });
+      await expect(eventRows(page)).toHaveCount(1);
+      const required = eventRows(page).first();
+      await expect(required.getByRole("cell").nth(0)).toHaveText("PASSWORD_CHANGE_REQUIRE");
+      await expect(required.getByRole("cell").nth(1)).toHaveText("SUCCESS");
+      await expect(required.getByRole("cell").nth(2)).toHaveText(
+        await userIdOf(page, ADMIN_USERNAME),
+      );
+      await expect(required.getByRole("cell").nth(3)).toContainText(id);
 
-    // Every failure against the User: only the refused login, which no actor made.
-    await applyFilters(page, { outcome: "FAILURE", resourceId: id });
-    await expect(eventRows(page)).toHaveCount(1);
-    const refused = eventRows(page).first();
-    await expect(refused.getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
-    await expect(refused.getByRole("cell").nth(2)).toHaveText("—");
+      // Every failure against the User: only the refused logins, which no actor made.
+      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+      await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS);
+      const refused = eventRows(page).first();
+      await expect(refused.getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
+      await expect(refused.getByRole("cell").nth(2)).toHaveText("—");
 
-    // A Resource id that is not a UUID is refused on the page; the listing stays as it was.
-    await page.getByLabel("Resource id").fill("not-a-uuid");
-    await page.getByRole("button", { name: "Apply filters" }).click();
-    await expect(page.getByRole("alert")).toHaveText("Resource id must be a valid UUID.");
-    await expect(eventRows(page)).toHaveCount(1);
+      // A Resource id that is not a UUID is refused on the page; the listing stays as it was.
+      await page.getByLabel("Resource id").fill("not-a-uuid");
+      await page.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Resource id must be a valid UUID.");
+      await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS);
 
-    // An operation the User never had performed on it matches nothing.
-    await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
-    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-  });
+      // An operation the User never had performed on it matches nothing: it was
+      // locked by its failure run, never by the dormancy job.
+      await applyFilters(page, { operation: "DORMANCY_LOCKOUT", resourceId: id });
+      await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
+    },
+    LOCKOUT_MAX_ATTEMPTS,
+  );
 });
 
 /** The development mapping's Monitoring Group, conferring `ops:read`. */
@@ -151,10 +171,11 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
 });
 
 /**
- * The listing past its first page. An Unlock of a User serving no lockout
- * changes nothing but is still recorded, so one more Unlock than a page holds,
- * all of this spec's own User, makes a second page whatever else the trail
- * holds — and costs no password hash, unlike a refused login.
+ * The listing past its first page. An Unlock of a User serving no lockout is
+ * refused and changes nothing, but is still recorded as a refused
+ * `LOCKOUT_LIFT`, so one more Unlock than a page holds, all of this spec's own
+ * User, makes a second page whatever else the trail holds — and costs no
+ * password hash, unlike a refused login.
  */
 test("pages through the trail, refreshes it, and narrows it by actor and by date range", async ({
   page,
@@ -163,7 +184,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
   const userName = `${E2E_PREFIX}audit-paged-${runId()}`;
   const id = await provisionUser(connector.scim, userName);
   const unlock = async () =>
-    expect((await postAdminAction(page, id, "unlock")).status(), "unlocking").toBe(200);
+    expect((await postAdminAction(page, id, "unlock")).status(), "a refused unlock").toBe(409);
   try {
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);

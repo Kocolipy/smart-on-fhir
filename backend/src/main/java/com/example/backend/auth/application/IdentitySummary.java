@@ -21,8 +21,8 @@ import java.util.UUID;
  *
  * <p>READ-ONLY for everything the directory owns. {@code userName}, {@code displayName},
  * {@code active} and {@code groups} are SCIM attributes a connector writes, and nothing in the
- * administration adapter can change them: the only operations that take this identity's id are
- * Unlock and the forced password change, and both write application-owned state. That is why
+ * administration adapter can change them: the only operation that takes this identity's id is
+ * Unlock, and it writes application-owned state. That is why
  * there is no Deactivate or Activate any more — {@code active} is the directory's to decide, and
  * an administrator overriding it here would be overwritten by the next synchronization anyway.
  *

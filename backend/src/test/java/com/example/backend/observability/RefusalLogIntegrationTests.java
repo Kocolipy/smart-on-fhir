@@ -108,7 +108,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
     }
 
     /**
-     * A session confined by a required password change: the forced-change 403, whose error
+     * A session confined by a required password change: the confinement's 403, whose error
      * page the session holds no role for either.
      */
     @Test

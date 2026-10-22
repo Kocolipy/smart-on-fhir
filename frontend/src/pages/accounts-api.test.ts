@@ -14,7 +14,7 @@ import {
   REVOKE_TOKEN,
   ROTATE_TOKEN,
   SET_GROUP_PERMISSIONS,
-  USER_ACTION,
+  UNLOCK_USER,
   USERS,
   decodeConnector,
   decodeConnectors,
@@ -336,34 +336,31 @@ describe("the listing reads", () => {
   });
 });
 
-describe("the User actions", () => {
-  it.each(["unlock", "force-password-change"] as const)(
-    "posts %s, with no body, to the User's own path under account:unlock",
-    (action) => {
-      expect({
-        body: USER_ACTION.body,
-        method: USER_ACTION.method,
-        path: USER_ACTION.path("u-1", action),
-        permission: USER_ACTION.permission,
-      }).toEqual({
-        body: undefined,
-        method: "POST",
-        path: `/api/admin/accounts/u-1/${action}`,
-        permission: "account:unlock",
-      });
-    },
-  );
+describe("Unlock, the one User action", () => {
+  it("posts, with no body, to the User's own unlock path under account:unlock", () => {
+    expect({
+      body: UNLOCK_USER.body,
+      method: UNLOCK_USER.method,
+      path: UNLOCK_USER.path("u-1"),
+      permission: UNLOCK_USER.permission,
+    }).toEqual({
+      body: undefined,
+      method: "POST",
+      path: "/api/admin/accounts/u-1/unlock",
+      permission: "account:unlock",
+    });
+  });
 
   it("encodes the id as one path segment", () => {
-    expect(USER_ACTION.path("a/b?c", "unlock")).toBe("/api/admin/accounts/a%2Fb%3Fc/unlock");
+    expect(UNLOCK_USER.path("a/b?c")).toBe("/api/admin/accounts/a%2Fb%3Fc/unlock");
   });
 
   it("reads its answer as the User's new row", async () => {
-    await expect(decodedBy(USER_ACTION.decode, USER_ROW)).resolves.toStrictEqual(USER_ROW);
+    await expect(decodedBy(UNLOCK_USER.decode, USER_ROW)).resolves.toStrictEqual(USER_ROW);
   });
 
   it("refuses an answer that is a listing rather than one row", async () => {
-    await expect(decodedBy(USER_ACTION.decode, [USER_ROW])).rejects.toThrow(
+    await expect(decodedBy(UNLOCK_USER.decode, [USER_ROW])).rejects.toThrow(
       new DecodeError("UserRow is not an object"),
     );
   });

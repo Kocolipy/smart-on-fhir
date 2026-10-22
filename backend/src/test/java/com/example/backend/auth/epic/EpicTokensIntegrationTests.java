@@ -10,9 +10,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
-import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
@@ -22,7 +23,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +44,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The Epic tokens a successful Epic Login keeps (ADR 0012, D29), end to end: the
@@ -88,14 +90,14 @@ class EpicTokensIntegrationTests {
     @TestBean(methodName = EpicTestFixtures.NO_RETRY_PAUSE)
     private EpicRetryPause epicRetryPause;
 
-    /** The test profile's Bootstrap Admin, acting as the administrator of a forced change. */
-    private static final String BOOTSTRAP_ADMIN = "test-admin";
-
     @Autowired
     private EpicTokens epicTokens;
 
     @Autowired
-    private IdentityAdministrationService administration;
+    private SessionRevocationService revocation;
+
+    @Autowired
+    private PlatformTransactionManager transactions;
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
@@ -223,15 +225,19 @@ class EpicTokensIntegrationTests {
         assertThat(tokensOf(signedIn)).isEmpty();
     }
 
-    /** A session revocation — here a forced password change — ends the session and its tokens. */
+    /**
+     * A session revocation — here the one a connector's deactivation imposes, through the module
+     * every trigger goes through — ends the session and its tokens.
+     */
     @Test
     void aSessionRevocationLeavesNoTokens() throws Exception {
         String practitioner = EPIC.practitioners().provision();
         Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
         assertThat(tokensOf(signedIn)).as("kept until the session ends").isPresent();
 
-        administration.forcePasswordChange(
-                EPIC.practitioners().idOf(practitioner), UUID.randomUUID()); // an administrator
+        new TransactionTemplate(transactions).executeWithoutResult(status ->
+                revocation.revokeAllAfterCommit(EPIC.practitioners().idOf(practitioner),
+                        SessionRevocationCause.DEACTIVATED, null));
 
         assertThat(tokensOf(signedIn)).isEmpty();
     }

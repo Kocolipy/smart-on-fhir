@@ -54,7 +54,6 @@ const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
 });
 
 const unlockGrace = `POST /api/admin/accounts/${GRACE_ID}/unlock`;
-const forceGrace = `POST /api/admin/accounts/${GRACE_ID}/force-password-change`;
 
 /**
  * The page as `session` sees it, inside the signed-in layout that renders its
@@ -230,7 +229,7 @@ describe("Accounts", () => {
       .getAllByRole("button")
       .map((button) => button.textContent ?? "");
     expect(labels.length).toBeGreaterThan(0);
-    expect(labels.every((label) => /^(Unlock|Force password change for) /.test(label))).toBe(true);
+    expect(labels.every((label) => /^Unlock /.test(label))).toBe(true);
     expect(screen.queryByRole("button", { name: /Disable|Enable|Deactivate|Activate/ })).toBeNull();
   });
 
@@ -264,27 +263,6 @@ describe("Accounts", () => {
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
-  it("forces a password change by the User's stable id", async () => {
-    const { requests } = await renderAccounts({
-      [forceGrace]: json(userRow({ passwordChangeRequired: true })),
-      [USERS]: json([userRow()]),
-    });
-    const user = userEvent.setup();
-
-    await user.click(
-      await screen.findByRole("button", { name: "Force password change for grace" }),
-    );
-
-    expect(requests()).toContainEqual({
-      method: "POST",
-      path: `/api/admin/accounts/${GRACE_ID}/force-password-change`,
-    });
-    expect(row("grace").getByText("Required")).toBeInTheDocument();
-    expect(
-      row("grace").queryByRole("button", { name: "Force password change for grace" }),
-    ).not.toBeInTheDocument();
-  });
-
   // The answer's row replaces the listed one only once it decodes: a row whose
   // lock state contradicts itself is a failure, and the listing stands.
   it("reports an action answered with a row that does not decode, and keeps the row", async () => {
@@ -309,16 +287,31 @@ describe("Accounts", () => {
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
-  it("offers no forced change to a User with no password or one already flagged", async () => {
+  // `account:unlock` has no effect on an unlocked User (ADR 0015's 2026-10-22
+  // addendum): no row that is not locked offers anything, whatever its
+  // credential, and no row offers a forced password change.
+  it("offers no action on an unlocked User, whatever its credential", async () => {
     await renderAccounts({
       [USERS]: json([
-        userRow({ hasPassword: false, userName: "nopass" }),
+        userRow({ userName: "settled" }),
+        userRow({ hasPassword: false, id: "n", userName: "nopass" }),
         userRow({ id: "f", passwordChangeRequired: true, userName: "flagged" }),
       ]),
     });
 
-    await screen.findByRole("rowheader", { name: /^nopass/ });
+    await screen.findByRole("rowheader", { name: /^settled/ });
     expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("offers Unlock alone on a locked User, and no forced password change", async () => {
+    await renderAccounts({ [USERS]: json([userRow({ locked: true })]) });
+
+    await screen.findByRole("rowheader", { name: /^grace/ });
+    expect(
+      row("grace")
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Unlock grace"]);
   });
 
   /**
@@ -349,21 +342,7 @@ describe("Accounts", () => {
     expect(root.getByTitle("The Bootstrap Admin cannot be locked")).toHaveTextContent("—");
     expect(root.queryByText(/^Locked/)).not.toBeInTheDocument();
     expect(root.queryByText("Not locked")).not.toBeInTheDocument();
-    expect(root.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
-    // Only the Bootstrap Admin may force its own change, so another Admin is not offered it.
-    expect(root.queryByRole("button", { name: /Force password change/ })).not.toBeInTheDocument();
-  });
-
-  it("does not offer the Bootstrap Admin a forced change on its own account", async () => {
-    await renderAccounts(
-      { [USERS]: json([userRow({ bootstrapAdmin: true, userName: "root" })]) },
-      holding(EVERY_PERMISSION, { username: "root" }),
-    );
-
-    expect(await screen.findByRole("rowheader", { name: /^root/ })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Force password change for root" }),
-    ).not.toBeInTheDocument();
+    expect(root.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("disables every control while an action is in flight", async () => {
@@ -383,25 +362,27 @@ describe("Accounts", () => {
     // The other row too: two actions in flight could each answer with a row
     // built from a listing the other one has already changed.
     expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Force password change for hopper" })).toBeDisabled();
 
     await unlocking.settle(json(userRow()));
     expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeEnabled();
   });
 
-  it("reports a forced change refused for a User with no password to replace", async () => {
-    await renderAccounts({ [forceGrace]: bare(409), [USERS]: json([userRow()]) });
+  // The backend refuses an Unlock of a User serving no lockout with 409 —
+  // most often another administrator unlocked it after this listing was read.
+  it("reports an Unlock refused because the User is no longer locked", async () => {
+    await renderAccounts({
+      [unlockGrace]: json({ code: "request-refused", status: 409 }, 409),
+      [USERS]: json([userRow({ locked: true })]),
+    });
     const user = userEvent.setup();
 
-    await user.click(
-      await screen.findByRole("button", { name: "Force password change for grace" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Refused: grace has no password to replace.",
+      /^grace is no longer locked\. Reload the page for the current list\.$/,
     );
-    // The listing is untouched: the backend refused, so nothing changed.
-    expect(row("grace").getByText("No")).toBeInTheDocument();
+    // The listing is untouched: the backend refused, so nothing changed here.
+    expect(row("grace").getByText("Locked: failed logins")).toBeInTheDocument();
   });
 
   it("reports a User that has since been removed", async () => {
@@ -417,8 +398,7 @@ describe("Accounts", () => {
 
   it("reports a failed action with action-specific copy", async () => {
     await renderAccounts({
-      [forceGrace]: UNREACHABLE,
-      [unlockGrace]: bare(503),
+      [unlockGrace]: UNREACHABLE,
       [USERS]: json([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
@@ -426,11 +406,6 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to unlock grace. Please try again.",
-    );
-
-    await user.click(screen.getByRole("button", { name: "Force password change for grace" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to force a password change for grace. Please try again.",
     );
   });
 
@@ -642,7 +617,7 @@ describe("Accounts by Permission", () => {
     expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
-  it("shows a helpdesk the Users with Unlock and the forced change, and no Groups", async () => {
+  it("shows a helpdesk the Users with Unlock, and no Groups", async () => {
     await renderAccounts(
       { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
       holding(["user:read", "account:unlock"]),
@@ -650,21 +625,17 @@ describe("Accounts by Permission", () => {
 
     expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
-    expect([
-      row("grace").getByRole("button", { name: "Unlock grace" }),
-      row("grace").getByRole("button", { name: "Force password change for grace" }),
-    ]).toHaveLength(2);
+    expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
-  it("offers no Unlock or forced change without account:unlock", async () => {
+  it("offers no Unlock without account:unlock", async () => {
     await renderAccounts(
       { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
       holding(["user:read"]),
     );
 
     expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Force password change/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /Unlock/ })).toHaveLength(0);
   });
 
   it("neither shows nor requests a view the session lacks the Permission for", async () => {

@@ -246,20 +246,22 @@ a valid token present, since a missing one earns the same `403` from the CSRF
 filter first.
 
 A spec must not change a **seeded** account's lockout or change-required state
-at all. Unlock and a forced password change both leave the User required to
-change its password, and password history refuses the old one back, so a seeded
-identity put in either state cannot be restored for the specs that sign in as it.
-`accounts-admin.spec.ts` therefore PROVISIONS the Users it acts on: it creates a
-connector and issues a token through the page, reads the value off the one-time
-disclosure, creates two throwaway Users over SCIM with it (straight to the
-backend — SCIM is not behind the Vite `/api` proxy; `E2E_BACKEND_URL` overrides
-`http://localhost:8080`), has each settle on a password of its own through
-`POST /api/auth/change-password`, then locks and unlocks one and force-changes
-the other from the page. It deletes the Users and the connector in a `finally`.
-It is `test.describe.serial` because its steps depend on each other.
-`roles-admin.spec.ts` asserts only idempotent actions and refusals against the
-seeded accounts — an Unlock of a User serving no lockout requires no change — and
-the statuses and response shapes are covered in `AdminAccountEndpointTests`.
+at all. A lockout ends only by an Unlock, and an Unlock leaves the User required
+to change its password, which password history refuses the old one back for, so
+a seeded identity put in either state cannot be restored for the specs that sign
+in as it. `accounts-admin.spec.ts` therefore PROVISIONS the Users it acts on: it
+creates a connector and issues a token through the page, reads the value off the
+one-time disclosure, creates two throwaway Users over SCIM with it (straight to
+the backend — SCIM is not behind the Vite `/api` proxy; `E2E_BACKEND_URL`
+overrides `http://localhost:8080`), has each settle on a password of its own
+through `POST /api/auth/change-password`, locks both with refused logins, unlocks
+one from the page, and unlocks the other behind the page's back so its Unlock
+button meets the `409` an Unlock of an unlocked User gets. It deletes the Users
+and the connector in a `finally`. It is `test.describe.serial` because its steps
+depend on each other. `roles-admin.spec.ts` asserts only refusals against the
+seeded accounts — an Unlock of a User serving no lockout is refused `409` and
+changes nothing — and the statuses and response shapes are covered in
+`AdminAccountEndpointTests`.
 
 The fixtures for that pattern live in `test/e2e/scim.helpers.ts`: a connector
 and token (`createConnector`, or `workerConnector` for one shared by every test a
@@ -277,8 +279,9 @@ A spec that needs a known **backend defect** to be visible marks the test
 and turns red the moment the fix lands, so the marker cannot outlive the bug.
 Remove the marker in the fix's PR.
 
-A forced change **revokes the sessions it holds**. Proving
-revocation needs a session of its own rather than the page's — sign in through
+A lockout, a password change and a Group losing a Permission each **revoke the
+sessions** their User holds. Proving revocation needs a session of its own rather
+than the page's — sign in through
 `submitLoginViaApi` on an `APIRequestContext` with an empty `storageState`, check
 it answers 200 _before_ the action (an unauthenticated jar answers 401 too, so
 the assertion is vacuous without it), then expect 401 after.

@@ -44,8 +44,7 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fi
  * expanded in code. The Connector admin holds `connector:read` and nothing
  * else: it lists connectors and administers none, which only a Superuser does.
  * The Helpdesk holds `user:read` and the helpdesk Permission `account:unlock`:
- * it lists the Users and Unlocks or forces a password change on one, and
- * nothing more.
+ * it lists the Users and Unlocks a locked one, and nothing more.
  */
 export const DEV_FIXTURES = {
   superuser: {

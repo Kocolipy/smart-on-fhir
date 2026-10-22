@@ -13,7 +13,7 @@ bodies, and the ADRs in `/docs/adr/` record the decisions.
 
 - [Sessions](sessions.md) - Session status in the SPA, how sessions end, sign-in reasons, and every trigger of session revocation.
 - [Authentication](authentication.md) - Password Login and its refusals, the failure run, Lockout and Unlock, deactivation, the Bootstrap Admin exemption, and the recovery guard.
-- [Passwords](passwords.md) - The change-required flag and confined session, forced and self-service changes, the password policy and history, and hashing.
+- [Passwords](passwords.md) - The change-required flag and confined session, the self-service change, the password policy and history, and hashing.
 - [Epic Login](epic-login.md) - Login by EHR launch: matching a clinician to a User, every refusal, the Epic tokens' lifetime, MFA, and what is never recorded.
 
 # Directory

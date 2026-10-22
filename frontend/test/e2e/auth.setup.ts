@@ -57,8 +57,9 @@ async function settleAdminPassword(page: Page) {
       const { passwordChangeRequired } = (await current.json()) as {
         passwordChangeRequired: boolean;
       };
-      // An Admin forced the change on the suite's own Admin: nothing here can
-      // pick a password it would accept again, so say so rather than guess.
+      // A change is owed on the suite's own Admin with the password it already
+      // has: nothing here can pick a password it would accept again, so say so
+      // rather than guess.
       expect(
         passwordChangeRequired,
         `${ADMIN_USERNAME} holds E2E_ADMIN_PASSWORD but has a password change pending`,
@@ -76,10 +77,10 @@ async function settleAdminPassword(page: Page) {
     await api.dispose();
   }
 
-  // Through the page: the forced change lands here by itself, the voluntary one
-  // is opened directly. Either way the form is the same.
+  // Through the page: the change the seed requires lands here by itself, the
+  // voluntary one is opened directly. Either way the form is the same.
   await submitLogin(page, ADMIN_USERNAME, SEED_PASSWORD);
-  // The forced change, or Home at the root exactly.
+  // The required change, or Home at the root exactly.
   await expect(page).toHaveURL(/^https?:\/\/[^/]+\/(?:change-password)?$/);
   await page.goto("/change-password");
   await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();

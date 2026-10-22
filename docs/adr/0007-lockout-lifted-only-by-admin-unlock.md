@@ -11,7 +11,8 @@ revocation (2026-10-03), which added a second cause under the same rule. The
 Accounts page's Unlock, the password-change lifecycle (ADR 0008) and the
 change-required confinement build on them. ADR 0010 replaced the Admin authority
 with Permissions: Unlock required `user:write`, and since 2026-10-21 requires
-`account:unlock` (see Amendments).
+`account:unlock`; since 2026-10-22 an Unlock of a User that is not locked is
+refused (see Amendments).
 
 ## Context
 
@@ -181,3 +182,18 @@ with the standard's soft-delete and tombstone requirements.
   `MEMBERSHIP_REVOKED` were renamed with it. Audit rows recorded before carry the
   cause as `ROLE_REVOKED` and are left as written. Windows, defaults and behaviour
   are unchanged.
+- 2026-10-22 (ADR 0015's 2026-10-22 addendum): **Unlock acts only on a locked
+  User, and the forced password change is removed.** An Unlock of a User serving
+  no lockout used to be idempotent and cleared its failure run; it is now refused
+  `409`, writes nothing — the run is kept as evidence — revokes nothing, and is
+  audited as a `LOCKOUT_LIFT` failure with reason `NOT_LOCKED`. The self-target
+  refusal is still checked first. The forced password change that the 2026-10-21
+  amendment put under `account:unlock` beside Unlock is gone: a holder of
+  `account:unlock` could repeat it on any Superuser but the Bootstrap Admin,
+  ending their sessions each time. Unlock of a locked User — the only lift there
+  is — is unchanged: the lock and the run cleared, the dormancy basis restarted
+  and, for a User with a password, a change required. The accepted cost: no one
+  can require a password change of an unlocked User whose password is suspected
+  compromised. Recovery goes through the connector — the directory sets a new
+  password, which sets the change-required flag and ends the User's sessions, or
+  deactivates the User.

@@ -21,10 +21,9 @@ import org.springframework.stereotype.Service;
 /**
  * The login-state module: the one owner of a User's Failure run and lock, its dormancy basis and
  * its change-required flag. A caller reports what happened — a failure counted, a credential
- * verified, a password changed, an Unlock, an Admin's forced change, a dormancy lock, a directory
- * write — and this decides the resulting state and writes what it changed, or hands the state
- * back to be stored with the write it belongs to. No caller decides those fields
- * itself.
+ * verified, a password changed, an Unlock, a dormancy lock, a directory write — and this decides
+ * the resulting state and writes what it changed, or hands the state back to be stored with the
+ * write it belongs to. No caller decides those fields itself.
  *
  * <p>The rules, event by event:
  *
@@ -38,13 +37,10 @@ import org.springframework.stereotype.Service;
  *       moves unless the Login builds a Confined session (ADR 0008 and its addendum).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
- *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, and when a lock
- *       stood the dormancy basis restarts (ADR 0007) and, for a User with a password, a change is
- *       required. Idempotent on a User serving no lockout: only its run is cleared.
- *   <li><b>Password change forced</b> — an Admin's forced password change: a change is required
- *       as of now, the run and any lock untouched. Idempotent on a User already owing one: it
- *       keeps the instant the change was first required, and nothing is written. Who may force a
- *       change, and on whom, is the administration path's to refuse before it reports the event.
+ *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
+ *       basis restarts (ADR 0007) and, for a User with a password, a change is required. A User
+ *       serving no lockout is left exactly as stored and nothing is written; the administration
+ *       path refuses that Unlock on the state this read.
  *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
  *       run untouched; an existing lock and its cause are never overwritten (ADR 0007).
  * </ul>
@@ -248,45 +244,29 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * An Admin Unlock of {@code user}: clears the run and any Lockout, and when a lock stood
-     * restarts the dormancy basis and, for a User with a password, requires a change — the
-     * credential that reached the limit may be the one an attacker was guessing. A User serving no
-     * lockout has only its run cleared.
+     * An Admin Unlock of {@code user}: clears the run and the Lockout, restarts the dormancy basis
+     * and, for a User with a password, requires a change — the credential that reached the limit
+     * may be the one an attacker was guessing.
      *
-     * @return what the Unlock moved — the run when it held attempts; the lock, the basis and,
-     *     for a User with a password, the change-required flag when a lock stood — and the state
-     *     it stored; the lifted lock's cause is the state it read
+     * <p>A User serving no lockout is left exactly as it is stored, its run included, and nothing
+     * is written: an Unlock has no effect on an unlocked User. Whether a lock stood is read from
+     * the state under the User's lock ({@link LoginStateChange#before}), which the administration
+     * path refuses the Unlock on (ADR 0015's 2026-10-22 addendum).
+     *
+     * @return what the Unlock moved — the run when it held attempts, the lock, the basis and, for
+     *     a User with a password, the change-required flag; nothing when no lock stood — and the
+     *     state it stored; the lifted lock's cause is the state it read
      */
     public LoginStateChange unlocked(ScimUser user) {
         ScimLoginState before = stateUnderLock(user);
-        ScimLoginState after = before.withFailureRunCleared();
-        if (before.isLocked()) {
-            Instant now = clock.instant();
-            after = after.withDormancyBasisReset(now);
-            if (before.hasPassword()) {
-                after = after.withPasswordChangeRequired(now);
-            }
-        }
-        loginStates.writeChange(user.id(), before, after);
-        return LoginStateChange.between(before, after);
-    }
-
-    /**
-     * An Admin forced a password change on {@code user}: requires a change as of now, leaving the
-     * run and any lock as they stand — the credential's standing is withdrawn, not its use
-     * counted. A User already owing a change keeps the instant it was first required, so a second
-     * forced change re-imposes nothing; the administration path's audit and Session revocation
-     * follow only a change this imposed.
-     *
-     * @return what the forced change moved — the change-required flag, or nothing for a User
-     *     already owing one — and the state it stored
-     */
-    public LoginStateChange passwordChangeForced(ScimUser user) {
-        ScimLoginState before = stateUnderLock(user);
-        if (before.isPasswordChangeRequired()) {
+        if (!before.isLocked()) {
             return LoginStateChange.none(before);
         }
-        ScimLoginState after = before.withPasswordChangeRequired(clock.instant());
+        Instant now = clock.instant();
+        ScimLoginState after = before.withFailureRunCleared().withDormancyBasisReset(now);
+        if (before.hasPassword()) {
+            after = after.withPasswordChangeRequired(now);
+        }
         loginStates.writeChange(user.id(), before, after);
         return LoginStateChange.between(before, after);
     }

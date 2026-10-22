@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Passwords
-description: The change-required flag and the confined session it issues, forced and self-service password changes, the password policy and history, and how passwords are hashed.
+description: The change-required flag and the confined session it issues, the self-service password change, the password policy and history, and how passwords are hashed.
 tags: [authentication, passwords]
 ---
 
@@ -15,7 +15,7 @@ change was last required. There is no deadline for the change; see
 [Dormancy basis](./dormancy.md) and ADR 0008.
 
 - It is **set** by every connector password write (create, `PUT` or `PATCH`
-  carrying a password), by a forced password change, by an Unlock of a User that
+  carrying a password), by an Unlock of a locked User that
   has a password — the credential that reached the lockout threshold may be the
   one an attacker was guessing — by a reactivation of a User that has a password,
   since a credential that sat unused across a deactivation is not trusted on
@@ -39,13 +39,15 @@ flag clear (ADR 0008's 2026-10-09 addendum). A User who only ever signs in
 through Epic therefore never has to replace the imposed password; that password
 still buys only a confined session.
 
-**Forced password change** — an action of a holder of `account:unlock`, setting the
-change-required flag on another User and ending every session it holds. The Admin
-never sees, chooses or transports the password. Refused (`403`) on the caller
-itself whatever Permissions it holds — the Bootstrap Admin's included, which
-replaces its own password through the self-service change — and on the Bootstrap
-Admin by anyone (see [Recovery guard](./authentication.md)); and (`409`) on a
-credentialless User.
+**No forced password change** — no administrator can set the change-required flag
+on a User directly; an Unlock of a locked User is the one administrative action
+that sets it. The forced password change was removed (ADR 0015's 2026-10-22
+addendum): a holder of `account:unlock` could repeat it on any Superuser but the
+Bootstrap Admin, ending their sessions each time. The accepted cost: no one can
+require a change of an unlocked User whose password is suspected compromised;
+recovery goes through the connector instead, which sets a new password (and with
+it the flag) or deactivates the User in the directory. `PASSWORD_CHANGE_REQUIRE`
+events recorded before the removal still read back on the audit listing.
 
 **Self-service password change** — `POST /api/auth/change-password`, for the User
 the session belongs to. A wrong current password lengthens the same failure run as

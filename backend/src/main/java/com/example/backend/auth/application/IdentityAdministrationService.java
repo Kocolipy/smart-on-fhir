@@ -5,7 +5,6 @@ import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
-import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
@@ -36,9 +35,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The identity use cases an administrator drives: reviewing the directory, and the two operations
- * on application-owned state that the directory cannot perform — Unlock and the forced password
- * change.
+ * The identity use cases an administrator drives: reviewing the directory, and the one operation on
+ * application-owned state that the directory cannot perform — Unlock. The forced password change
+ * that used to live beside it was removed (ADR 0015's 2026-10-22 addendum): a holder of
+ * {@code account:unlock} could repeat it on any Superuser but the Bootstrap Admin, ending their
+ * sessions each time, so the helpdesk Permission now acts only on a locked User.
  *
  * <p>Separate from {@link LoginIdentityService}, which serves the login path. Keeping them apart
  * means the authentication path does not depend on a class that also mutates identities, and the
@@ -52,13 +53,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>Why this is here and not in the scim slice</h2>
  *
- * <p>The forced change has to reach the sessions the identity is already holding, and the module
- * that ends them ({@link SessionRevocationService}) is this slice's: a session is a fact about the
- * login surface, not about the directory. The revocation is audited under
- * {@code FORCED_PASSWORD_CHANGE}, naming the administrator as its actor. So the use case that
- * needs both the directory and the
- * sessions lives on the side that owns the sessions and reaches the directory through its ports,
- * which is also the direction that keeps the two slices acyclic.
+ * <p>An Unlock is a fact about the login surface — it lifts the refusal of a Login and decides
+ * what the next Login may do — and the module that writes it ({@link LoginStateService}) is this
+ * slice's. So the use case lives on the side that owns the login state and reaches the directory
+ * through its ports, which is also the direction that keeps the two slices acyclic.
  */
 @Service
 public class IdentityAdministrationService {
@@ -71,7 +69,6 @@ public class IdentityAdministrationService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final LoginStateService loginState;
-    private final SessionRevocationService sessions;
     private final AuditTrail audit;
     private final GroupPermissions groupPermissions;
 
@@ -79,13 +76,11 @@ public class IdentityAdministrationService {
             ScimUserRepository users,
             ScimGroupRepository groups,
             LoginStateService loginState,
-            SessionRevocationService sessions,
             AuditTrail audit,
             GroupPermissions groupPermissions) {
         this.users = users;
         this.groups = groups;
         this.loginState = loginState;
-        this.sessions = sessions;
         this.audit = audit;
         this.groupPermissions = groupPermissions;
     }
@@ -139,9 +134,9 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * Ends a lockout, clearing the failure run with it, and requires a password change. Says nothing
-     * about whether the identity is active — a deactivated identity can be unlocked, and stays
-     * deactivated.
+     * Ends a lockout, clearing the failure run with it, and requires a password change. Says
+     * nothing about whether the identity is active — a deactivated identity can be unlocked, and
+     * stays deactivated. Has no effect on an identity serving no lockout: that Unlock is refused.
      *
      * <p>The only way a lockout ends, whatever its cause — a failure run or dormancy. Nothing
      * expires it and no other operation lifts it, so an identity that locked itself out, or that
@@ -161,13 +156,20 @@ public class IdentityAdministrationService {
      * so the version does not advance. No session is revoked: a locked User holds none, since
      * imposing the lock ended them.
      *
-     * <p>No administrator may unlock their own account, whatever Permissions it holds; recovering
-     * from a self-inflicted state takes a second administrator. The refusal is checked before
-     * anything is written.
+     * <p>Refused, audited as a refused {@code LOCKOUT_LIFT} and logged, in this order:
      *
-     * <p>Idempotent on an identity serving no lockout: it is returned unchanged, no change is
-     * required and the dormancy window is not restarted — there was no lockout for the credential
-     * to have reached, and an Unlock is not a way to keep an unused account from going dormant.
+     * <ul>
+     *   <li>on the caller's own account, whatever Permissions it holds and whatever its state —
+     *       recovering from a self-inflicted state takes a second administrator; checked before
+     *       anything is read under the User's lock ({@code SELF_TARGET}, {@code 403});
+     *   <li>on an identity serving no lockout — the Bootstrap Admin, which can never be locked,
+     *       always among them — decided by {@link LoginStateService#unlocked} on the state read
+     *       under the User's lock, which then writes nothing, the failure run included
+     *       ({@code NOT_LOCKED}, {@code 409}). There was no lockout for the credential to have
+     *       reached, so nothing is required of it; an Unlock is not a way to keep an unused account
+     *       from going dormant, nor to clear a failure run short of the limit; and no session is
+     *       revoked. The usual cause is another administrator's Unlock landing first.
+     * </ul>
      *
      * @param actorId the acting administrator's stable id, as its signed-in session holds it
      */
@@ -177,94 +179,41 @@ public class IdentityAdministrationService {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         ScimUser user = require(userId);
         if (isSelf(user, actorId)) {
-            refused(Operation.UNLOCK, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
-            audit.append(new Audited.UnlockRefused(
-                    actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET));
-            throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
+            throw refusedUnlock(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET,
+                    new ForbiddenIdentityChangeException(
+                            "An Admin cannot unlock their own account"));
         }
-        LoginStateChange unlocked = loginState.unlocked(user);
+        LoginStateChange decision = loginState.unlocked(user);
+        if (!decision.before().isLocked()) {
+            throw refusedUnlock(actorId, user.id(), AuditAdministrativeRefusal.NOT_LOCKED,
+                    new NoLockoutInForceException("The User is serving no lockout to lift"));
+        }
         audit.append(new Audited.LockoutLiftedByUnlock(actorId, user.id(),
-                auditCause(unlocked.before().lockCause()), unlocked.moved()));
-        if (unlocked.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
-            audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), unlocked.moved()));
+                auditCause(decision.before().lockCause()), decision.moved()));
+        if (decision.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
+            audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), decision.moved()));
         }
         succeeded(Operation.UNLOCK, user.id());
-        return summarize(user, unlocked.after());
+        return summarize(user, decision.after());
     }
 
-    /** The lifted lock's cause in the audit trail's own vocabulary, or none when none stood. */
+    /**
+     * Logs and audits an Unlock refused for {@code reason}, and hands back {@code refusal} for the
+     * caller to throw — so the refusal reads as a {@code throw} at the point it is decided.
+     */
+    private RuntimeException refusedUnlock(UUID actorId, UUID subjectId,
+            AuditAdministrativeRefusal reason, RuntimeException refusal) {
+        refused(Operation.UNLOCK, subjectId, reason);
+        audit.append(new Audited.UnlockRefused(actorId, subjectId, reason));
+        return refusal;
+    }
+
+    /** The lifted lock's cause in the audit trail's own vocabulary. */
     private static AuditLockCause auditCause(LockCause cause) {
-        if (cause == null) {
-            return null;
-        }
         return switch (cause) {
             case FAILURES -> AuditLockCause.FAILURES;
             case DORMANCY -> AuditLockCause.DORMANCY;
         };
-    }
-
-    /**
-     * Requires the User to replace its password before it may do anything but submit that change
-     * or log out, and ends every session it holds so the requirement applies from its next request.
-     * The Admin never sees, chooses or transports the password: this invalidates the credential's
-     * standing, it does not disclose or replace it.
-     *
-     * <p>Refused, before anything is written:
-     *
-     * <ul>
-     *   <li>on the caller's own account, whatever Permissions it holds — the Bootstrap Admin's
-     *       included, so no administrator acts on itself through the admin flow; a User replaces
-     *       its own password through the self-service change instead;
-     *   <li>on the Bootstrap Admin, by anyone else — it is the deployment's recovery identity;
-     *   <li>on a credentialless User, which already cannot log in and has nothing to replace.
-     * </ul>
-     *
-     * <p>What the forced change does to the login state is decided and written by
-     * {@link LoginStateService#passwordChangeForced}, and the response is built from that
-     * decision. It is idempotent there: a User already required to change is returned unchanged,
-     * with the instant the change was first required kept, and nothing is audited or revoked.
-     *
-     * @param actorId the acting administrator's stable id, as its signed-in session holds it
-     */
-    @Transactional
-    @RetriedOnDeadlock(Operation.FORCE_PASSWORD_CHANGE)
-    public IdentitySummary forcePasswordChange(UUID userId, UUID actorId) {
-        Objects.requireNonNull(actorId, ACTOR_REQUIRED);
-        ScimUser user = require(userId);
-        if (isSelf(user, actorId)) {
-            throw refuseForcedChange(actorId, user.id(),
-                    AuditAdministrativeRefusal.SELF_TARGET,
-                    new ForbiddenIdentityChangeException(
-                            "An administrator cannot force a password change on their own account"));
-        }
-        if (user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN) {
-            throw refuseForcedChange(actorId, user.id(),
-                    AuditAdministrativeRefusal.PROTECTED_RESOURCE,
-                    new ForbiddenIdentityChangeException(
-                            "The bootstrap administrator's password change cannot be forced"));
-        }
-        if (!user.login().hasPassword()) {
-            throw refuseForcedChange(actorId, user.id(),
-                    AuditAdministrativeRefusal.CREDENTIALLESS_TARGET,
-                    new UnsafeIdentityChangeException(
-                            "A User with no password has no credential to replace"));
-        }
-        LoginStateChange forced = loginState.passwordChangeForced(user);
-        if (!forced.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
-            return summarize(user, forced.after());
-        }
-        audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), forced.moved()));
-        sessions.revokeAllAfterCommit(
-                user.id(), SessionRevocationCause.FORCED_PASSWORD_CHANGE, actorId);
-        succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
-        return summarize(user, forced.after());
-    }
-
-    private RuntimeException refuseForcedChange(
-            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason, RuntimeException refusal) {
-        refused(Operation.FORCE_PASSWORD_CHANGE, subjectId, reason);
-        audit.append(new Audited.PasswordChangeRequirementRefused(actorId, subjectId, reason));
-        return refusal;
     }
 
     /**

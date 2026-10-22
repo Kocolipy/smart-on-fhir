@@ -91,7 +91,7 @@ app:
       - group: 00000000-0000-4000-8000-00000000a005
         permissions: [ops:read]
       - group: 00000000-0000-4000-8000-00000000a006
-        # The helpdesk power alone: see the Users and Unlock or force-change one.
+        # The helpdesk power alone: see the Users and Unlock a locked one.
         permissions: [user:read, account:unlock]
       - group: 00000000-0000-4000-8000-00000000a007
         permissions: [audit:read]

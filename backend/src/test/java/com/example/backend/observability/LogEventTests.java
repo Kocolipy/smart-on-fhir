@@ -143,8 +143,6 @@ class LogEventTests {
         assertThat(Action.SESSION_END.value()).isEqualTo("session-end");
         assertThat(Action.USER_ADMINISTRATION.value()).isEqualTo("user-administration");
         assertThat(Action.USER_PROVISIONING.value()).isEqualTo("user-provisioning");
-        assertThat(Action.PASSWORD_CHANGE_ENFORCEMENT.value())
-                .isEqualTo("password-change-enforcement");
         assertThat(Action.ACCESS_CONTROL.value()).isEqualTo("access-control");
         assertThat(Action.APPLICATION_STARTUP.value()).isEqualTo("application-startup");
         assertThat(Action.APPLICATION_SHUTDOWN.value()).isEqualTo("application-shutdown");
@@ -487,7 +485,6 @@ class LogEventTests {
     @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
             "LOGIN | Login accepted",
             "UNLOCK | Administrative identity change applied",
-            "FORCE_PASSWORD_CHANGE | Administrative identity change applied",
             "PASSWORD_CHANGE | Self-service change completed",
             "DORMANCY | Dormancy job run at startup for the development fixtures",
             "DORMANCY_LOCKOUT | User locked for dormancy",
@@ -513,7 +510,6 @@ class LogEventTests {
     @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
             "LOGIN | Login refused",
             "UNLOCK | Administrative identity change refused",
-            "FORCE_PASSWORD_CHANGE | Administrative identity change refused",
             "PASSWORD_CHANGE | Self-service change refused",
             "CONNECTOR_TOKEN_ROTATE | SCIM connector token rotation refused: the token can no"
                     + " longer be rotated",

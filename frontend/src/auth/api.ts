@@ -6,8 +6,7 @@ import { apiFetch, type ApiResult } from "@/lib/http";
  * `Permission` enum defines, less `user:write` and `group:write`, which only a
  * connector token carries. Spelled as `/api/auth/me` reports them. A value
  * outside this list is refused, never passed through, because the guards read
- * it. `account:unlock` is the helpdesk Permission: Unlock and the forced
- * password change.
+ * it. `account:unlock` is the helpdesk Permission: Unlock of a locked User.
  */
 export const PERMISSIONS = [
   "account:unlock",

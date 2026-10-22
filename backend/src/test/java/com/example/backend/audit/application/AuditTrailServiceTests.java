@@ -1172,8 +1172,6 @@ class AuditTrailServiceTests {
         trail.append(new Audited.PasswordChanged(SUBJECT, FULL_UNLOCK));
         trail.append(new Audited.PasswordChangeRefused(
                 SUBJECT, AuditPasswordChangeRefusal.TOO_SHORT));
-        trail.append(new Audited.PasswordChangeRequirementRefused(
-                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
 
         AuditEvent changed = events.appended.get(0);
         assertThat(changed.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE);
@@ -1188,12 +1186,6 @@ class AuditTrailServiceTests {
         assertThat(refused.actorId()).isEqualTo(SUBJECT);
         assertThat(refused.errorCode()).isEqualTo("TOO_SHORT");
         assertThat(refused.statusClass()).isEqualTo(AuditEvent.STATUS_CLIENT_ERROR);
-        AuditEvent requirement = events.appended.get(2);
-        assertThat(requirement.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE_REQUIRE);
-        assertThat(requirement.outcome()).isEqualTo(AuditOutcome.FAILURE);
-        assertThat(requirement.actorId()).isEqualTo(ACTOR);
-        assertThat(requirement.subjectId()).isEqualTo(SUBJECT);
-        assertThat(requirement.errorCode()).isEqualTo("SELF_TARGET");
     }
 
     /**
@@ -1340,7 +1332,6 @@ class AuditTrailServiceTests {
             // A body, a Group or the Admin group the change cannot be made to: already refused.
             Map.entry(Audited.GroupPermissionsChangeRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.PasswordChangeRequired.class, Semantics.FAIL_CLOSED),
-            Map.entry(Audited.PasswordChangeRequirementRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.PasswordChanged.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PasswordChangeRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.AccessDenied.class, Semantics.FAIL_OPEN),

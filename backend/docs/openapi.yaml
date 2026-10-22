@@ -859,8 +859,10 @@ paths:
         account is unlocked without the flag — it has no password to replace. The
         flag is not a SCIM attribute, so the version does not advance.
 
-        Idempotent — an account serving no lockout is answered 200 with nothing
-        written and no change required.
+        Has no effect on an account serving no lockout: that Unlock is refused
+        `409` and nothing is written, its failure run included (ADR 0015's
+        2026-10-22 addendum). Every Unlock, refusals included, records a
+        `LOCKOUT_LIFT` audit event.
       operationId: unlockUser
       security:
         - sessionCookie: [account:unlock]
@@ -888,51 +890,18 @@ paths:
           $ref: "#/components/responses/MalformedUserId"
         "404":
           $ref: "#/components/responses/UnknownAccount"
-        "503":
-          $ref: "#/components/responses/WriteDeadlocked"
-  /api/admin/accounts/{id}/force-password-change:
-    post:
-      tags: [Administration]
-      summary: Require an account to change its password
-      description: |
-        Sets the change-required flag and ends every session the account holds,
-        so from its next login it is confined to `POST /api/auth/change-password`
-        and logout. The Admin never sees, chooses or transports a password. Records a
-        `PASSWORD_CHANGE_REQUIRE` audit event, refusals included.
-
-        Idempotent — an account already flagged is answered 200 unchanged.
-      operationId: forcePasswordChange
-      security:
-        - sessionCookie: [account:unlock]
-      parameters:
-        - $ref: "#/components/parameters/UserId"
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/AdminAccount"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
+        "409":
           description: |
-            The caller does not hold `account:unlock` (see `PermissionRequired`, whose
-            `ApiError` body it carries); or the target is the caller's own account,
-            whatever Permissions it holds — the Bootstrap Admin's included; or the
-            target is the Bootstrap Admin, whose password change nobody may force.
-            The operation refuses those two with no body. The caller's own account
-            is the one whose stable id its session holds, whatever `userName`
-            either carries now.
+            The account is serving no lockout, so there is nothing to lift —
+            most often because another administrator unlocked it after the
+            caller's listing was read; the Bootstrap Admin, which can never be
+            locked, always. Nothing is written. Not 403: the caller may unlock
+            this account, the account's state refuses the action. The generic
+            `request-refused` `ApiError`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "400":
-          $ref: "#/components/responses/MalformedUserId"
-        "404":
-          $ref: "#/components/responses/UnknownAccount"
-        "409":
-          description: |
-            The account has no password, so there is no credential to replace. Not
-            403: the caller holds the right Permission, the action itself is refused.
         "503":
           $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/groups:
@@ -3491,7 +3460,7 @@ components:
         One row of the Users projection. Directory-owned fields (`userName`,
         `displayName`, `active`, `groups`) are read-only here; the rest is
         application-owned state. Returned by the listing and, for the User acted
-        on, by `unlock` and `force-password-change`.
+        on, by `unlock`.
       required:
         [
           id,
@@ -3537,7 +3506,7 @@ components:
           description: |
             Whether this is the deployment's reserved recovery identity. It can
             never be locked, so it has no lockout state to show and nothing to
-            Unlock; only it may force its own password change.
+            Unlock; it replaces its own password through the self-service change.
         active:
           type: boolean
           description: |
@@ -3581,9 +3550,9 @@ components:
             The change-required flag: whether the identity must replace its
             password before a password login may do anything but submit that
             change or log out. An Epic Login is not confined by it.
-            Set by every connector password write, by `force-password-change` and
-            by `unlock` of an identity that has a password; cleared only by a
-            successful `POST /api/auth/change-password`.
+            Set by every connector password write and by `unlock` of an identity
+            that has a password; cleared only by a successful
+            `POST /api/auth/change-password`.
         lastAuthenticatedAt:
           type: [string, "null"]
           format: date-time
@@ -4014,8 +3983,13 @@ components:
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
-        the cause of the lock it lifted (`FAILURES` or `DORMANCY`), or `null` when
-        the User was not locked. `DORMANCY_LOCKOUT` and
+        the cause of the lock it lifted (`FAILURES` or `DORMANCY`). A refused
+        Unlock is a `FAILURE` whose `errorCode` is `SELF_TARGET` or `NOT_LOCKED`;
+        an Unlock recorded before an Unlock of an unlocked User was refused
+        (2026-10-22) may be a `SUCCESS` with a `null` `errorCode`.
+        `PASSWORD_CHANGE_REQUIRE` is the change-required flag an Unlock set;
+        events recorded before 2026-10-22 also include the removed forced
+        password change and its refusals. `DORMANCY_LOCKOUT` and
         `DORMANCY_MEMBERSHIP_REVOCATION` are the dormancy job's, with no actor: the
         first locked the User, the second removed its direct membership of every
         Group, the Admin group's included, listing them in `groupIds` with the

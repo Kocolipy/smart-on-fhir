@@ -46,9 +46,11 @@ flag, whatever its Groups carry, so no Group can take self-service away.
 **Admin** — a User holding at least one administrative Permission through its
 Groups. Apart from the Superuser there is no administrative authority of its own:
 what an Admin may do is exactly its Permissions — a helpdesk operator holding
-`user:read` and `account:unlock` sees, unlocks and forces a password change on
-Users, and nothing more. Its reach is every User but itself, a Superuser included;
-there is no rule refusing a target that holds more than the caller.
+`user:read` and `account:unlock` sees Users and unlocks a locked one, and nothing
+more. Its reach is every locked User but itself, a Superuser included; there is no
+rule refusing a target that holds more than the caller, because an Unlock has no
+effect on a User that is not locked — a lower-privileged User cannot use it to
+disturb a higher-privileged one that is working (ADR 0015's 2026-10-22 addendum).
 
 ## Deny by default
 
@@ -63,7 +65,7 @@ declares nothing is refused. Four kinds of operation:
   request, so there is no caller-supplied id to check ownership against.
 - **One Permission** — every other operation requires exactly one, declared on
   its handler with method security and repeated by the chain as a backstop:
-  `user:read` lists Users; `account:unlock` unlocks and forces a password change;
+  `user:read` lists Users; `account:unlock` unlocks a locked User;
   `group:read` lists Groups with their Permissions and lists the Permissions a
   Group may carry; `audit:read`
   lists audit events; `connector:read` lists connectors; `ops:read` reaches every
@@ -212,7 +214,7 @@ at every startup. What each Group confers is a separate block active under the
 `local` profile alone, applied at startup only to a Group that carries nothing
 yet; no other profile seeds a Group Permission. The Connector admin holds
 `connector:read` and nothing else: it lists connectors and administers none. The
-Helpdesk holds `user:read` and `account:unlock`: it lists Users and unlocks or
-forces a password change on one. The same flag has the patient module seed the
+Helpdesk holds `user:read` and `account:unlock`: it lists Users and unlocks a
+locked one. The same flag has the patient module seed the
 dummy Patients ([patient](patient.md)) by a seeder of its own. See
 `backend/docs/configuration/group-permissions.md`.

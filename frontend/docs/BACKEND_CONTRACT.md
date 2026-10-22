@@ -97,6 +97,17 @@ change, when the backend side moves. What the SPA has to honour:
   change) and `useGatedWrite`, and both name that type; a bodiless request
   names none. The unit suites' fake backend keeps this rule, so a body sent
   under any other type fails there too.
+- **Unlock is the one write on a User, and only on a locked one.**
+  `POST /api/admin/accounts/{id}/unlock` under `account:unlock` answers `200`
+  with the User's row as it now stands, which the Accounts page puts in place
+  of the old one (`UNLOCK_USER`, `src/pages/accounts-api.ts`). An Unlock of a
+  User serving no lockout — the Bootstrap Admin's always, and most often one
+  another administrator unlocked after the listing was read — is refused `409`
+  with the generic `ApiError` (`request-refused`) and changes nothing; the
+  caller's own account is `403`, an unknown id `404`. The SPA offers Unlock only
+  on a locked row that is not the caller's and reads the status alone. There is
+  no forced password change: its old path is an undeclared route, refused
+  `403` like any other.
 - **A Group's Permissions are set by one `PUT`, the complete set, by the
   Superuser alone.** `PUT /api/admin/groups/{id}/permissions` takes a JSON
   array of delegatable Permission names (`GET /api/admin/permissions` lists

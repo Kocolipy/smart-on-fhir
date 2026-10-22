@@ -20,6 +20,8 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -216,32 +218,29 @@ class DevelopmentFixturesIntegrationTests {
 
     /**
      * The helpdesk power through a Group: the Helpdesk fixture's Group confers {@code
-     * account:unlock}, and with it its member Unlocks another User and forces its password change.
+     * account:unlock}, and with it its member Unlocks another User that is locked — and has no
+     * effect on one that is not ({@code 409}).
      */
     @Test
-    void aMemberOfAGroupCarryingAccountUnlockUnlocksAndForcesAChangeOnAnotherUser()
-            throws Exception {
-        UUID other = anotherUser("helpdesk-target");
+    void aMemberOfAGroupCarryingAccountUnlockUnlocksALockedUserAndNoOther() throws Exception {
+        UUID locked = lock(anotherUser("helpdesk-target"));
+        UUID unlocked = anotherUser("helpdesk-unlocked-target");
         Cookie helpdesk = logIn("helpdesk", FIXTURE_PASSWORD);
 
         assertThat(List.of(
-                        status(post("/api/admin/accounts/{id}/unlock", other), helpdesk),
-                        status(post("/api/admin/accounts/{id}/force-password-change", other),
-                                helpdesk)))
-                .containsExactly(200, 200);
+                        status(post("/api/admin/accounts/{id}/unlock", locked), helpdesk),
+                        status(post("/api/admin/accounts/{id}/unlock", unlocked), helpdesk)))
+                .containsExactly(200, 409);
     }
 
-    /** A User whose Groups carry no {@code account:unlock} is refused both, with the bare 403. */
+    /** A User whose Groups carry no {@code account:unlock} is refused Unlock, with the bare 403. */
     @Test
-    void aUserWithoutAccountUnlockIsRefusedUnlockAndTheForcedChange() throws Exception {
-        UUID other = anotherUser("helpdesk-refused-target");
+    void aUserWithoutAccountUnlockIsRefusedUnlock() throws Exception {
+        UUID other = lock(anotherUser("helpdesk-refused-target"));
         Cookie auditor = logIn("auditor", FIXTURE_PASSWORD);
 
-        assertThat(List.of(
-                        status(post("/api/admin/accounts/{id}/unlock", other), auditor),
-                        status(post("/api/admin/accounts/{id}/force-password-change", other),
-                                auditor)))
-                .containsExactly(403, 403);
+        assertThat(status(post("/api/admin/accounts/{id}/unlock", other), auditor))
+                .isEqualTo(403);
     }
 
     /**
@@ -303,6 +302,13 @@ class DevelopmentFixturesIntegrationTests {
         String userName = prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
         return new TransactionTemplate(transactions).execute(
                 status -> users.create(ScimIdentities.user(userName)).id());
+    }
+
+    /** Locks {@code userId} for failures straight in the store, so an Unlock has a lock to lift. */
+    private UUID lock(UUID userId) {
+        jdbc.update("UPDATE scim_users SET locked_at = ?, lock_cause = 'FAILURES'"
+                + " WHERE resource_id = ?", OffsetDateTime.now(ZoneOffset.UTC), userId);
+        return userId;
     }
 
     private List<String> permissionsOnMe(Cookie session) throws Exception {

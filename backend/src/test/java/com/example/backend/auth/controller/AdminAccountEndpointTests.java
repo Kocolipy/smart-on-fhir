@@ -67,7 +67,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>No test here flags or locks a seeded identity: they are shared with every other test
  * in this context, and a change-required flag cannot be cleared without changing the
- * password. The flagging and unlocking paths are driven end to end in
+ * password. The Unlock of a locked User is driven end to end in
  * {@code PasswordChangeLifecycleIntegrationTests}, on Users that test creates for itself.
  */
 @SpringBootTest
@@ -109,7 +109,7 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The configuration the forced-change path depends on, asserted rather
+     * The configuration Session revocation depends on, asserted rather
      * than assumed: a plain session repository cannot be searched by principal, so
      * {@code AccountSessionsAdapter} has nothing to inject and the deployed service
      * does not start. The fake registry is {@code @Primary}, so it would hide
@@ -239,12 +239,9 @@ class AdminAccountEndpointTests {
     }
 
     @Test
-    void anAuthenticatedNonAdministratorCannotUnlockOrForceAChange() throws Exception {
+    void anAuthenticatedNonAdministratorCannotUnlock() throws Exception {
         UUID id = require("test-user").id();
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
-                        .session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", id))
                         .session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
@@ -268,10 +265,6 @@ class AdminAccountEndpointTests {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
-        mvc.perform(withCsrf(post(
-                        "/api/admin/accounts/{id}/force-password-change", UUID.randomUUID()))
-                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isNotFound());
     }
 
     /**
@@ -283,27 +276,24 @@ class AdminAccountEndpointTests {
         mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/force-password-change"))
-                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isBadRequest());
         assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
     }
 
     /**
-     * The legacy Disable and Enable endpoints are REMOVED, not hidden: an administrator holding
-     * every Permission and a valid CSRF header is refused {@code 403} at the old path — the
-     * application chain denies by default, so a route nothing declares is refused before any
-     * dispatch — whether it names the account by {@code userName} as it used to or by the stable
-     * id, and the account is untouched: its {@code active} flag, its version and the sessions it
-     * holds are exactly as they were.
+     * The legacy Disable and Enable endpoints, and the forced password change, are REMOVED, not
+     * hidden: an administrator holding every Permission and a valid CSRF header is refused
+     * {@code 403} at the old path — the application chain denies by default, so a route nothing
+     * declares is refused before any dispatch — whether it names the account by {@code userName}
+     * as it used to or by the stable id, and the account is untouched: its {@code active} flag,
+     * its change-required flag, its version and the sessions it holds are exactly as they were.
      */
     @Test
-    void theLegacyDisableAndEnableEndpointsAreGone() throws Exception {
+    void theLegacyDisableEnableAndForcedChangeEndpointsAreGone() throws Exception {
         ScimUser before = require("test-user");
         sessions.open(before.id(), "live-session");
 
         try {
-            for (String action : List.of("disable", "enable")) {
+            for (String action : List.of("disable", "enable", "force-password-change")) {
                 for (Object target : List.of("test-user", before.id())) {
                     mvc.perform(withCsrf(post("/api/admin/accounts/{target}/" + action, target))
                                     .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
@@ -313,6 +303,7 @@ class AdminAccountEndpointTests {
 
             ScimUser after = require("test-user");
             assertThat(after.profile().active()).isTrue();
+            assertThat(after.login().isPasswordChangeRequired()).isFalse();
             assertThat(after.version()).isEqualTo(before.version());
             assertThat(sessions.sessionsOf(before.id())).containsExactly("live-session");
         } finally {
@@ -375,17 +366,21 @@ class AdminAccountEndpointTests {
         assertThat(require("test-user").version()).isEqualTo(user.version());
     }
 
+    /**
+     * An Unlock has no effect on an account serving no lockout: it is refused {@code 409} with the
+     * application API's generic error document, and the account reads back as it was.
+     */
     @Test
-    void unlockingAnAccountThatIsNotLockedSucceedsAndReportsItUnlocked() throws Exception {
-        UUID id = require("test-user").id();
+    void unlockingAnAccountThatIsNotLockedIsRefusedWithAConflict() throws Exception {
+        ScimUser before = require("test-user");
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", before.id()))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(id.toString()))
-                .andExpect(jsonPath("$.locked").value(false))
-                .andExpect(jsonPath("$.passwordChangeRequired").value(false))
-                .andExpect(jsonPath("$.lockedUntil").doesNotExist());
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("request-refused"));
+        assertThat(require("test-user").login()).isEqualTo(before.login());
     }
 
     /**
@@ -399,32 +394,6 @@ class AdminAccountEndpointTests {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", self))
                         .session(authenticatedSession("test-admin", TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
-    }
-
-    /**
-     * Nobody may force the Bootstrap Admin's password change — not another administrator, and
-     * (below) not the Bootstrap Admin itself, since no administrator acts on its own account.
-     */
-    @Test
-    void anotherAdministratorCannotForceTheBootstrapAdminsPasswordChange() throws Exception {
-        UUID bootstrap = require("test-admin").id();
-
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
-                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isForbidden());
-        assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
-    }
-
-    /** The Bootstrap Admin holding every Permission is refused a forced change on itself. */
-    @Test
-    void theBootstrapAdminCannotForceItsOwnPasswordChange() throws Exception {
-        UUID bootstrap = require("test-admin").id();
-
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
-                        .session(authenticatedSession(
-                                "test-admin", TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isForbidden());
-        assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
     }
 
     private String listing(String path) throws Exception {

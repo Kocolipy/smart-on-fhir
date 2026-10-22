@@ -3,7 +3,6 @@ package com.example.backend.auth.infrastructure.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.auth.application.PasswordRefusalReason;
-import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -25,8 +24,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The Redis half of "session revocation by an administrative action still works under the new
- * key", proved against a real, indexed Spring Session repository rather than the
+ * The Redis half of "session revocation still works under the new key", proved against a real,
+ * indexed Spring Session repository rather than the
  * {@link com.example.backend.auth.InMemoryAccountSessions} fake other tests use.
  *
  * <p>{@code AGENTS.md} requires an integration-level check against Redis for
@@ -48,9 +47,6 @@ class RedisSessionRevocationIntegrationTests {
 
     @Autowired
     private ScimUserRepository users;
-
-    @Autowired
-    private IdentityAdministrationService administration;
 
     @Autowired
     private LoginAttemptService attempts;
@@ -93,24 +89,6 @@ class RedisSessionRevocationIntegrationTests {
                 .isEqualTo(stableId);
         assertThat(sessionRepository.findById(session.getId())).isNotNull();
         assertThat(sessionsAdapter.revokeAll(stableId)).isEqualTo(1);
-        assertThat(sessionRepository.findById(session.getId())).isNull();
-    }
-
-    /**
-     * Session revocation by an administrative action, driven through the real
-     * administration use case and the real Redis-indexed repository — not the
-     * in-memory fake other controller-level tests substitute. A forced password
-     * change must end the identity's session when the index is keyed by its stable
-     * id rather than its userName.
-     */
-    @Test
-    void forcingAPasswordChangeRevokesTheAccountsRealRedisBackedSession() {
-        ScimUser created = create("session-forced-change-target");
-        UUID stableId = created.id();
-        Session session = openSessionFor(stableId);
-
-        administration.forcePasswordChange(stableId, UUID.randomUUID()); // some other administrator
-
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }
 

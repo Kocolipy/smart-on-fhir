@@ -215,7 +215,7 @@ _Avoid_: admin (for a holder of administrative Permissions, who is not a Superus
 **Delegatable Permission**:
 A Permission a Group may carry: `user:read`, `account:unlock`, `group:read`,
 `audit:read`, `ops:read` and `connector:read`. `account:unlock` is the helpdesk
-Permission: Unlock and the forced password change.
+Permission: Unlock, which has no effect on a User that is not locked.
 
 **Token-grantable Permission**:
 A Permission a connector token may carry: `user:read`, `user:write`, `group:read`
@@ -312,7 +312,9 @@ Why a User is locked, `FAILURES` or `DORMANCY`, recorded beside the lock.
 
 **Unlock**:
 An Admin ending a User's lockout, whatever its cause, and its failure run; it
-never changes `active`, just as deactivation never ends a lockout.
+never changes `active`, just as deactivation never ends a lockout. Only while a
+lockout is in force: an Unlock of a User that is not locked is refused and
+changes nothing.
 
 **Bootstrap Admin exemption**:
 The Bootstrap Admin's immunity from lockout and from both dormancy steps, so the
@@ -327,10 +329,6 @@ _Avoid_: password expiry, temporary password
 A session issued by a password Login while the User's change-required flag is set;
 it may only change the password or log out.
 
-**Forced password change**:
-An Admin setting another User's change-required flag and ending its sessions,
-without ever seeing a password.
-
 **Self-service password change**:
 A User replacing its own password from its own session.
 
@@ -344,9 +342,8 @@ The User's three most recent passwords, the current one included, kept as
 hashes so a new password can be refused for repeating one.
 
 **Recovery guard**:
-The rules that keep a deployment recoverable: no Admin may Unlock or force-change
-its own User, nobody may force the Bootstrap Admin's change, and the Bootstrap
-Admin can never be locked.
+The rules that keep a deployment recoverable: no Admin may Unlock its own User,
+and the Bootstrap Admin can never be locked.
 
 ### Dormancy
 
@@ -442,9 +439,9 @@ _Avoid_: startup migration, Flyway at boot
 Rules: [administration](docs/domain/administration.md).
 
 **Accounts page**:
-The administrative screen at `/accounts`: the Users and Groups projections, Unlock,
-the forced password change, setting a Group's Permissions (the Superuser only),
-and connector management, each view shown by its own Permission.
+The administrative screen at `/accounts`: the Users and Groups projections, Unlock
+of a locked User, setting a Group's Permissions (the Superuser only), and
+connector management, each view shown by its own Permission.
 
 **Users projection**:
 What administration may know about each User — never a credential.

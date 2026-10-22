@@ -28,8 +28,8 @@ export interface DirectGroup {
  * Directory-owned fields — `userName`, `displayName`, `active`, `groups` — are
  * read-only on this page: a connector writes them over SCIM, and the backend
  * has no administration endpoint that would accept a change to them. The rest
- * is application-owned state, and the two operations on a row (Unlock and the
- * forced change) address it by `id`, never by the mutable `userName`.
+ * is application-owned state, and the one operation on a row, Unlock, addresses
+ * it by `id`, never by the mutable `userName`.
  *
  * A lockout carries no expiry: it stands until an administrator unlocks the
  * identity, so there is nothing to count down to and no field for it.
@@ -124,9 +124,6 @@ export interface IssuedToken {
   expiresAt: string;
   presentedValue: string;
 }
-
-/** The two operations on a User row, named as the backend's path segments. */
-export type UserAction = "unlock" | "force-password-change";
 
 /** What a token is issued with: its Permissions, and a lifetime in days or the default (`null`). */
 export interface TokenRequest {
@@ -301,11 +298,14 @@ export const ADMINISTRATION_PERMISSIONS: readonly Permission[] = [USERS, GROUPS,
   (read) => read.permission,
 );
 
-/** Unlock or the forced change, on a User by its stable id; answers the User's new row. */
-export const USER_ACTION: WriteDeclaration<[id: string, action: UserAction], UserRow> = {
+/**
+ * Unlock, on a User by its stable id; answers the User's new row. Refused
+ * `409` for a User serving no lockout, which an Unlock has no effect on.
+ */
+export const UNLOCK_USER: WriteDeclaration<[id: string], UserRow> = {
   decode: jsonDecoder(decodeUserRow),
   method: "POST",
-  path: (id, action) => `${USERS_PATH}/${encodeURIComponent(id)}/${action}`,
+  path: (id) => `${USERS_PATH}/${encodeURIComponent(id)}/unlock`,
   permission: "account:unlock",
 };
 

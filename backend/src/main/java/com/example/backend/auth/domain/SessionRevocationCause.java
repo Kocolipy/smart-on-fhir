@@ -51,9 +51,6 @@ public enum SessionRevocationCause {
      */
     FAILURE_RUN_LOCKOUT,
 
-    /** An administrator required the User to change its password. */
-    FORCED_PASSWORD_CHANGE,
-
     /**
      * An accepted Login ended every other session the User held — one session per User. The
      * session the Login continues in is the one kept.

@@ -11,7 +11,8 @@ decision rather than an oversight. Four entries are open work, not settled decis
 as-8, ck-4, dp-3 and dp-8. Epic Login (ADR 0012, 2026-10-06) changed the ac-2, ac-12 and as-8
 entries and added ck-4; they were folded into the table on 2026-10-10. On 2026-10-14 the
 deployed database's parts of as-8, ck-4 and dp-3 were met (#65, ADR 0013); each entry says
-what stays open.
+what stays open. The 2026-10-22 addendum below restates ac-6 and the reset-token
+entry without the forced password change, which was removed.
 
 ## Context
 
@@ -115,3 +116,25 @@ not confined by the flag (ADR 0008's 2026-10-09 addendum).
   that adds classification labels lands.
 - A deployment that exposes the service without edge throttling is misconfigured,
   since as-4 is met nowhere else.
+
+## Addendum (2026-10-22): the forced password change is removed (ADR 0015's 2026-10-22 addendum)
+
+_Refines two entries above, each of which named the forced password change as
+written on 2026-10-05._
+
+- **ac-6 (default credentials) is still met.** The credentials imposed on a User
+  are now the seeded Bootstrap Admin's, a connector password write's and an
+  Unlock's; each still sets the change-required flag, and a password session
+  stays confined until the User replaces it. The forced change was never an
+  imposed credential — it withdrew the standing of one the User already held —
+  so its removal takes nothing from ac-6. The Unlock's flag is what ac-6 relies
+  on, and it is unchanged.
+- **No admin-initiated password reset tokens** still holds, on a narrower
+  footing. The bullet cited the forced change plus the authenticated
+  change-password flow as the way access is restored without an administrator
+  learning or transporting a credential. What remains of that path is the Unlock
+  of a locked User, which requires the same change through the same flow. The
+  cost grows by one case: a User whose password is suspected compromised but who
+  is not locked cannot be made to change it by anyone in this application; the
+  connector sets a new password, or deactivates the User, in the directory. There
+  is still no reset token to issue, display, log or replay.

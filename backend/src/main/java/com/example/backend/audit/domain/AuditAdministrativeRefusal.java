@@ -23,25 +23,32 @@ public enum AuditAdministrativeRefusal {
     SELF_DISABLE,
 
     /**
-     * The target is a resource the operation may not touch: the Bootstrap Admin, the deployment's
-     * recovery identity, for a forced password change; or the Admin group, whose direct members'
+     * The target is a resource the operation may not touch: the Admin group, whose direct members'
      * power is the Superuser rather than a Permission, for a change of a Group's Permissions. Also
-     * stored, from before the Disable action was removed, for a refused attempt to disable the
-     * Bootstrap Admin.
+     * stored for the Bootstrap Admin, the deployment's recovery identity, by refusals of two
+     * actions since removed — the Disable action and the forced password change.
      */
     PROTECTED_RESOURCE,
 
     /**
-     * An administrator aimed an Unlock or a forced password change at their own account. Refused so
-     * that recovering from a self-inflicted state takes a second administrator.
+     * An administrator aimed an Unlock at their own account. Refused so that recovering from a
+     * self-inflicted state takes a second administrator. Also stored for refused forced password
+     * changes, from before that action was removed.
      */
     SELF_TARGET,
 
     /**
      * A forced password change aimed at a User with no credential, which already cannot log in and
-     * has no password to replace.
+     * has no password to replace. No longer recorded — the forced password change was removed
+     * (ADR 0015's 2026-10-22 addendum) — and kept so the refusals already stored still read back.
      */
     CREDENTIALLESS_TARGET,
+
+    /**
+     * An Unlock aimed at a User serving no lockout: there was nothing to lift, so nothing was
+     * written, its failure run included (ADR 0015's 2026-10-22 addendum).
+     */
+    NOT_LOCKED,
 
     /** A connector token rotation addressing a token that has been revoked. */
     TOKEN_REVOKED,
