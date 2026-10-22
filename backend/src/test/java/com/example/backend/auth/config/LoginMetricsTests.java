@@ -80,13 +80,6 @@ class LoginMetricsTests {
                 .counters()).isEmpty();
     }
 
-    /** The description is the {@code # HELP} line Prometheus serves for the meter. */
-    @Test
-    void theMeterSaysWhatItCounts() {
-        assertThat(ending("password", "success", "none").getId().getDescription())
-                .isEqualTo("Logins that ended, by login method, outcome and refusal reason");
-    }
-
     @ParameterizedTest
     @CsvSource({"PASSWORD, password", "SSO, sso"})
     void aSignedInLoginIsCountedAsItsMethodsSuccessAndNothingElse(

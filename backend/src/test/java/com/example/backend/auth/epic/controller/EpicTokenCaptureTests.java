@@ -57,27 +57,22 @@ class EpicTokenCaptureTests {
 
     private final Authentication signedInAtEpic = epicAuthentication();
 
+    /**
+     * What Epic issued is taken whole: the access token, its {@code expires_in} of 3600 made
+     * absolute from the instant the handler took it at, the granted scope, no refresh token when
+     * Epic issued none, and the validated {@code id_token} the Login was made from.
+     */
     @Test
-    void theSavedAccessTokenIsTaken() {
-        save(refreshToken("refresh-token-value"));
-
-        assertThat(take().map(EpicTokenSet::accessToken)).contains("access-token-value");
-    }
-
-    /** {@code expires_in} of 3600, made absolute from the instant the handler took it at. */
-    @Test
-    void theAccessTokenExpiresItsLifetimeAfterTheTokensWereTaken() {
+    void theTokensAreTakenAsEpicIssuedThem() {
         save(null);
 
-        assertThat(take().map(EpicTokenSet::accessTokenExpiresAt))
-                .contains(Instant.parse("2026-10-09T10:00:00Z"));
-    }
+        EpicTokenSet taken = take().orElseThrow();
 
-    @Test
-    void theGrantedScopeIsTaken() {
-        save(null);
-
-        assertThat(take().map(EpicTokenSet::scope)).contains(Set.of("launch", "openid", "fhirUser"));
+        assertThat(taken.accessToken()).isEqualTo("access-token-value");
+        assertThat(taken.accessTokenExpiresAt()).isEqualTo(Instant.parse("2026-10-09T10:00:00Z"));
+        assertThat(taken.scope()).isEqualTo(Set.of("launch", "openid", "fhirUser"));
+        assertThat(taken.refreshToken()).isEmpty();
+        assertThat(taken.idToken()).isEqualTo(ID_TOKEN);
     }
 
     @Test
@@ -85,20 +80,6 @@ class EpicTokenCaptureTests {
         save(refreshToken("refresh-token-value"));
 
         assertThat(take().flatMap(EpicTokenSet::refreshToken)).contains("refresh-token-value");
-    }
-
-    @Test
-    void theRefreshTokenIsEmptyWhenEpicIssuedNone() {
-        save(null);
-
-        assertThat(take().flatMap(EpicTokenSet::refreshToken)).isEmpty();
-    }
-
-    @Test
-    void theIdTokenIsTheValidatedOneTheLoginWasMadeFrom() {
-        save(null);
-
-        assertThat(take().map(EpicTokenSet::idToken)).contains(ID_TOKEN);
     }
 
     @Test

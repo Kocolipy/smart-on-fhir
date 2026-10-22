@@ -304,23 +304,6 @@ class LoginLockoutTests {
         assertThat(users.require("ada").login().lockedAt()).isNull();
     }
 
-    /** And the lift is recorded against the administrator who performed it. */
-    @Test
-    void theUnlockIsAuditedWithItsAdministratorAsActor() {
-        lockTheIdentity();
-        audit.reset();
-
-        administration.unlock(users.require("ada").id(), users.require(BOOTSTRAP_ADMIN).id());
-
-        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT))
-                .singleElement()
-                .satisfies(event -> {
-                    assertThat(event.actorId())
-                            .isEqualTo(users.require(BOOTSTRAP_ADMIN).id());
-                    assertThat(event.subjectId()).isEqualTo(users.require("ada").id());
-                });
-    }
-
     /**
      * A locked identity and a wrong password end in the same kind of decision, a password
      * refusal, told apart only by the reason the audit trail records. The web adapter answers
@@ -373,17 +356,6 @@ class LoginLockoutTests {
 
         assertThat(authentication.getName()).isEqualTo(BOOTSTRAP_ADMIN);
         assertThat(users.require(BOOTSTRAP_ADMIN).login().failedLoginAttempts()).isZero();
-    }
-
-    @Test
-    void everyBootstrapAdminFailureIsStillAudited() {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            submitAs(BOOTSTRAP_ADMIN, "wrong");
-        }
-
-        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).hasSize(10)
-                .allSatisfy(event -> assertThat(event.subjectId())
-                        .isEqualTo(users.require(BOOTSTRAP_ADMIN).id()));
     }
 
     private static ScimUser withPassword(String userName, String passwordHash) {

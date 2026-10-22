@@ -9,6 +9,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The audit append pool is the connections module's pool for the app login, and sizes itself by
@@ -66,30 +68,22 @@ class AuditAppendPoolConfigTests {
         }
     }
 
-    /** ADR 0004's addendum sizes the pool at two or three connections; fewer is refused. */
-    @Test
-    void aPoolSmallerThanTwoIsRefused() {
-        assertThatThrownBy(() -> new AuditAppendPoolProperties(1, null))
+    /**
+     * ADR 0004's addendum sizes the pool at two or three connections: fewer is refused, and more
+     * would take connections the database owes the main pool.
+     */
+    @ParameterizedTest(name = "a pool of {0} is refused")
+    @ValueSource(ints = {1, 4})
+    void aPoolOutsideTwoToThreeIsRefused(int size) {
+        assertThatThrownBy(() -> new AuditAppendPoolProperties(size, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("APP_AUDIT_POOL_SIZE must be 2 or 3");
     }
 
-    /** More than three would take connections the database owes the main pool. */
-    @Test
-    void aPoolLargerThanThreeIsRefused() {
-        assertThatThrownBy(() -> new AuditAppendPoolProperties(4, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("APP_AUDIT_POOL_SIZE must be 2 or 3");
-    }
-
-    @Test
-    void aPoolOfTwoIsAllowed() {
-        assertThat(new AuditAppendPoolProperties(2, null).size()).isEqualTo(2);
-    }
-
-    @Test
-    void aPoolOfThreeIsAllowed() {
-        assertThat(new AuditAppendPoolProperties(3, null).size()).isEqualTo(3);
+    @ParameterizedTest(name = "a pool of {0} is allowed")
+    @ValueSource(ints = {2, 3})
+    void aPoolOfTwoOrThreeIsAllowed(int size) {
+        assertThat(new AuditAppendPoolProperties(size, null).size()).isEqualTo(size);
     }
 
     @Test

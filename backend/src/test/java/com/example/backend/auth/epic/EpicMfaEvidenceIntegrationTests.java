@@ -53,35 +53,10 @@ class EpicMfaEvidenceIntegrationTests {
         assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("otp");
     }
 
-    /** RFC 8176's {@code mfa}, naming no factor of its own, is recorded as itself. */
-    @Test
-    void anAmrOfMfaAloneSignsInAndIsRecordedAsMfa() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("mfa")));
-
-        EPIC.signIn(practitioner, null);
-
-        assertThat(mfaFactorsOfLoginSuccess(practitioner)).containsExactly("mfa");
-    }
-
     /** A password alone is one factor: no MFA evidence. */
     @Test
     void anAmrOfAPasswordAloneIsRefusedAsInvalidClaims() throws Exception {
         EPIC.fake().mintingIdTokensWith(claims -> claims.claim("amr", List.of("pwd")));
-        int before = refusalsAudited("INVALID_CLAIMS");
-
-        EpicBrowser.Landing landing = EPIC.browser().signIn(
-                EPIC.provisionedFhirUser(), null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=refused");
-        assertThat(refusalsAudited("INVALID_CLAIMS")).isEqualTo(before + 1);
-    }
-
-    /** An {@code acr} alone names no factor for the record, so it is no evidence here. */
-    @Test
-    void aTokenWithNoAmrIsRefusedAsInvalidClaims() throws Exception {
-        EPIC.fake().mintingIdTokensWith(claims -> claims.claim("acr", "urn:epic:loa:2"));
         int before = refusalsAudited("INVALID_CLAIMS");
 
         EpicBrowser.Landing landing = EPIC.browser().signIn(

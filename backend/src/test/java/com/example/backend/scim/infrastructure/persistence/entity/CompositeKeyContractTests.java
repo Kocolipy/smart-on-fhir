@@ -2,10 +2,14 @@ package com.example.backend.scim.infrastructure.persistence.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
+import java.util.function.BiFunction;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Named;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The equality contract of the two JPA composite keys in this package.
@@ -21,8 +25,8 @@ import org.junit.jupiter.api.Test;
  * only a direct test can reach them, and "the framework calls it" is not evidence that it does
  * the right thing when it does.
  *
- * <p>Each nested class walks all four branches — same instance, wrong type, one field differing,
- * the other field differing — because a two-field {@code equals} has a distinct way to be wrong
+ * <p>Each case runs against both keys and walks all four branches — same instance, wrong type, one
+ * field differing, the other field differing — because a two-field {@code equals} has a distinct way to be wrong
  * for each field, and an assertion on only one of them passes against a key that ignores the
  * other.
  */
@@ -34,103 +38,69 @@ class CompositeKeyContractTests {
 
     private static final UUID THIRD = UUID.fromString("00000000-0000-0000-0000-0000000000c3");
 
-    @Nested
-    class GroupMembership {
+    /**
+     * Each key built from its two columns, beside a key of the other type: a Group membership is
+     * (group, user), and an {@code externalId} alias (connector, resource) — connector-scoped, so
+     * two connectors holding an alias for one resource are separate rows.
+     */
+    record KeyType(BiFunction<UUID, UUID, Object> key, BiFunction<UUID, UUID, Object> otherType) {}
 
-        @Test
-        void a_key_equals_itself_and_an_identical_key() {
-            ScimGroupMemberId key = new ScimGroupMemberId(FIRST, SECOND);
-
-            assertThat(key).isEqualTo(key).isEqualTo(new ScimGroupMemberId(FIRST, SECOND));
-            assertThat(key.hashCode()).isEqualTo(new ScimGroupMemberId(FIRST, SECOND).hashCode());
-        }
-
-        /** The same User in a different Group is a different membership. */
-        @Test
-        void a_differing_group_makes_a_different_key() {
-            assertThat(new ScimGroupMemberId(FIRST, SECOND))
-                    .isNotEqualTo(new ScimGroupMemberId(THIRD, SECOND));
-            // Not a requirement of the equals/hashCode contract, but of the key's use: Hibernate's
-            // persistence context keys entities by it, and a constant hash degrades every lookup
-            // across a large membership to a linear scan.
-            assertThat(new ScimGroupMemberId(FIRST, SECOND).hashCode())
-                    .isNotEqualTo(new ScimGroupMemberId(THIRD, SECOND).hashCode());
-        }
-
-        /** A different User in the same Group is a different membership. */
-        @Test
-        void a_differing_user_makes_a_different_key() {
-            assertThat(new ScimGroupMemberId(FIRST, SECOND))
-                    .isNotEqualTo(new ScimGroupMemberId(FIRST, THIRD));
-        }
-
-        @Test
-        void a_value_of_another_type_is_not_equal() {
-            assertThat(new ScimGroupMemberId(FIRST, SECOND))
-                    .isNotEqualTo(new ScimExternalIdEntity.Key(FIRST, SECOND))
-                    .isNotEqualTo(null)
-                    .isNotEqualTo("not a key");
-        }
-
-        /**
-         * The property Hibernate actually relies on: equal keys collide in a hash container, so
-         * two reads of one membership resolve to one entry rather than two.
-         */
-        @Test
-        void equal_keys_are_one_entry_in_a_hash_container() {
-            Map<ScimGroupMemberId, String> byKey = new java.util.HashMap<>();
-            byKey.put(new ScimGroupMemberId(FIRST, SECOND), "first");
-            byKey.put(new ScimGroupMemberId(FIRST, SECOND), "second");
-            byKey.put(new ScimGroupMemberId(FIRST, THIRD), "other");
-
-            assertThat(byKey).hasSize(2);
-            assertThat(byKey.get(new ScimGroupMemberId(FIRST, SECOND))).isEqualTo("second");
-        }
+    static Stream<Named<KeyType>> keys() {
+        return Stream.of(
+                Named.of("group membership",
+                        new KeyType(ScimGroupMemberId::new, ScimExternalIdEntity.Key::new)),
+                Named.of("externalId alias",
+                        new KeyType(ScimExternalIdEntity.Key::new, ScimGroupMemberId::new)));
     }
 
-    @Nested
-    class ExternalIdAlias {
+    @ParameterizedTest
+    @MethodSource("keys")
+    void a_key_equals_itself_and_an_identical_key(KeyType type) {
+        Object key = type.key().apply(FIRST, SECOND);
 
-        @Test
-        void a_key_equals_itself_and_an_identical_key() {
-            ScimExternalIdEntity.Key key = new ScimExternalIdEntity.Key(FIRST, SECOND);
+        assertThat(key).isEqualTo(key).isEqualTo(type.key().apply(FIRST, SECOND));
+        assertThat(key.hashCode()).isEqualTo(type.key().apply(FIRST, SECOND).hashCode());
+    }
 
-            assertThat(key).isEqualTo(key).isEqualTo(new ScimExternalIdEntity.Key(FIRST, SECOND));
-            assertThat(key.hashCode())
-                    .isEqualTo(new ScimExternalIdEntity.Key(FIRST, SECOND).hashCode());
-        }
+    @ParameterizedTest
+    @MethodSource("keys")
+    void a_differing_first_column_makes_a_different_key(KeyType type) {
+        assertThat(type.key().apply(FIRST, SECOND)).isNotEqualTo(type.key().apply(THIRD, SECOND));
+        // Not a requirement of the equals/hashCode contract, but of the key's use: Hibernate's
+        // persistence context keys entities by it, and a constant hash degrades every lookup
+        // across a large membership to a linear scan.
+        assertThat(type.key().apply(FIRST, SECOND).hashCode())
+                .isNotEqualTo(type.key().apply(THIRD, SECOND).hashCode());
+    }
 
-        /**
-         * The alias is connector-scoped, so the connector half of the key is load-bearing: two
-         * connectors may hold an alias for the same resource and those are separate rows.
-         */
-        @Test
-        void a_differing_connector_makes_a_different_key() {
-            assertThat(new ScimExternalIdEntity.Key(FIRST, SECOND))
-                    .isNotEqualTo(new ScimExternalIdEntity.Key(THIRD, SECOND));
-        }
+    @ParameterizedTest
+    @MethodSource("keys")
+    void a_differing_second_column_makes_a_different_key(KeyType type) {
+        assertThat(type.key().apply(FIRST, SECOND)).isNotEqualTo(type.key().apply(FIRST, THIRD));
+    }
 
-        @Test
-        void a_differing_resource_makes_a_different_key() {
-            assertThat(new ScimExternalIdEntity.Key(FIRST, SECOND))
-                    .isNotEqualTo(new ScimExternalIdEntity.Key(FIRST, THIRD));
-        }
+    @ParameterizedTest
+    @MethodSource("keys")
+    void a_value_of_another_type_is_not_equal(KeyType type) {
+        assertThat(type.key().apply(FIRST, SECOND))
+                .isNotEqualTo(type.otherType().apply(FIRST, SECOND))
+                .isNotEqualTo(null)
+                .isNotEqualTo("not a key");
+    }
 
-        @Test
-        void a_value_of_another_type_is_not_equal() {
-            assertThat(new ScimExternalIdEntity.Key(FIRST, SECOND))
-                    .isNotEqualTo(new ScimGroupMemberId(FIRST, SECOND))
-                    .isNotEqualTo(null)
-                    .isNotEqualTo("not a key");
-        }
+    /**
+     * The property Hibernate actually relies on: equal keys collide in a hash container, so two
+     * reads of one row resolve to one entry rather than two.
+     */
+    @ParameterizedTest
+    @MethodSource("keys")
+    void equal_keys_are_one_entry_in_a_hash_container(KeyType type) {
+        Map<Object, String> byKey = new HashMap<>();
+        byKey.put(type.key().apply(FIRST, SECOND), "first");
+        byKey.put(type.key().apply(FIRST, SECOND), "second");
+        byKey.put(type.key().apply(FIRST, THIRD), "other");
 
-        @Test
-        void equal_keys_are_one_entry_in_a_hash_container() {
-            Map<ScimExternalIdEntity.Key, String> byKey = new java.util.HashMap<>();
-            byKey.put(new ScimExternalIdEntity.Key(FIRST, SECOND), "first");
-            byKey.put(new ScimExternalIdEntity.Key(FIRST, SECOND), "second");
-
-            assertThat(byKey).hasSize(1);
-        }
+        assertThat(byKey).hasSize(2);
+        assertThat(byKey.get(type.key().apply(FIRST, SECOND))).isEqualTo("second");
     }
 }

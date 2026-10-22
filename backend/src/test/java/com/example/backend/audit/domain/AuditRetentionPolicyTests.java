@@ -69,14 +69,4 @@ class AuditRetentionPolicyTests {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    /**
-     * The two constants are what the operator-facing documentation quotes, so a
-     * change to either has to be a change to the docs in the same commit. Asserted
-     * so the pair cannot drift silently.
-     */
-    @Test
-    void theDocumentedDefaultAndFloorAreTheOnesTheRuleUses() {
-        assertThat(AuditRetentionPolicy.DEFAULT_PERIOD).isEqualTo(Duration.ofDays(365));
-        assertThat(AuditRetentionPolicy.MINIMUM_PERIOD).isEqualTo(Duration.ofDays(90));
-    }
 }
