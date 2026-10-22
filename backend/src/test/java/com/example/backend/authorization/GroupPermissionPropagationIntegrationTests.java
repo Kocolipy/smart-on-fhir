@@ -19,6 +19,8 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -336,7 +338,168 @@ class GroupPermissionPropagationIntegrationTests {
         }
     }
 
+    // ---- a Superuser sets a Group's Permissions (#159) ---------------------------------------
+
+    /**
+     * The Superuser's PUT replaces the Group's set. Growth leaves the member's live session alone
+     * and reaches it at its next sign-in; taking the Permission away again ends that session at
+     * once. Both changes are audited with the Group's Permissions before and after, and counted.
+     */
+    @Test
+    void a_superuser_sets_a_groups_permissions_growth_at_next_sign_in_shrink_at_once()
+            throws Exception {
+        Cookie superuser = logIn("test-admin", "test-admin-password");
+        UUID actor = userId("test-admin");
+        double counted = groupPermissionsChanges();
+        OffsetDateTime started = OffsetDateTime.now(ZoneOffset.UTC);
+        try {
+            Cookie live = logIn("helpdesk");
+
+            MvcResult grown = setPermissions(superuser, HELPDESK,
+                    "[\"user:read\",\"account:unlock\",\"audit:read\",\"audit:read\"]");
+
+            assertThat(grown.getResponse().getStatus()).isEqualTo(200);
+            JsonNode row = json.readTree(grown.getResponse().getContentAsString());
+            assertThat(strings(row.get("permissions")))
+                    .as("the whole set, duplicates collapsed, sorted by name")
+                    .containsExactly("account:unlock", "audit:read", "user:read");
+            assertThat(status(get("/api/admin/audit-events").cookie(live)))
+                    .as("the live session holds what it held").isEqualTo(403);
+            Cookie next = logIn("helpdesk");
+            assertThat(status(get("/api/admin/audit-events").cookie(next))).isEqualTo(200);
+
+            MvcResult shrunk = setPermissions(superuser, HELPDESK,
+                    "[\"user:read\",\"account:unlock\"]");
+
+            assertThat(shrunk.getResponse().getStatus()).isEqualTo(200);
+            assertThat(status(get("/api/auth/me").cookie(next))).isEqualTo(401);
+            assertThat(groupPermissionsChanges()).isEqualTo(counted + 2);
+            assertThat(groupPermissionsChangeRows(actor, HELPDESK, started))
+                    .containsExactly(
+                            List.of("SUCCESS", "account:unlock,user:read",
+                                    "account:unlock,audit:read,user:read", "permissions"),
+                            List.of("SUCCESS", "account:unlock,audit:read,user:read",
+                                    "account:unlock,user:read", "permissions"));
+            assertThat(jdbc.queryForList("""
+                    SELECT error_code FROM audit_events
+                     WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ? AND actor_id = ?
+                       AND occurred_at >= ?""",
+                    String.class, userId("helpdesk"), actor, started))
+                    .containsExactly("GROUP_PERMISSIONS_REDUCED");
+        } finally {
+            setPermissions(superuser, HELPDESK, "[\"user:read\",\"account:unlock\"]");
+        }
+    }
+
+    /** An empty set clears the Group: its member holds nothing of it from the next sign-in. */
+    @Test
+    void an_empty_set_clears_a_group() throws Exception {
+        Cookie superuser = logIn("test-admin", "test-admin-password");
+        try {
+            assertThat(setPermissions(superuser, HELPDESK, "[]").getResponse().getStatus())
+                    .isEqualTo(200);
+            assertThat(jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM group_permission WHERE group_id = ?",
+                            Integer.class, HELPDESK))
+                    .isZero();
+            assertThat(status(get("/api/admin/accounts").cookie(logIn("helpdesk"))))
+                    .isEqualTo(403);
+        } finally {
+            setPermissions(superuser, HELPDESK, "[\"user:read\",\"account:unlock\"]");
+        }
+    }
+
+    /**
+     * Every refusal answers the API's one error body, changes nothing, and is audited as a
+     * {@code GROUP_PERMISSIONS_CHANGE} failure with a generic reason; a caller who is not the
+     * Superuser — whatever Permissions it holds — gets the generic 403.
+     */
+    @Test
+    void every_refusal_answers_the_error_body_changes_nothing_and_is_audited() throws Exception {
+        Cookie superuser = logIn("test-admin", "test-admin-password");
+        UUID actor = userId("test-admin");
+        UUID nowhere = UUID.randomUUID();
+        OffsetDateTime started = OffsetDateTime.now(ZoneOffset.UTC);
+        record Refusal(UUID group, String body, int status, String code, String reason) {
+        }
+        List<Refusal> refusals = List.of(
+                new Refusal(HELPDESK, null, 400, "invalid-request", "INVALID_PERMISSIONS"),
+                new Refusal(HELPDESK, "{\"permissions\":[]}", 400, "invalid-request",
+                        "INVALID_PERMISSIONS"),
+                new Refusal(HELPDESK, "[\"audit:read\",7]", 400, "invalid-request",
+                        "INVALID_PERMISSIONS"),
+                new Refusal(HELPDESK, "[\"user:write\"]", 400, "invalid-request",
+                        "INVALID_PERMISSIONS"),
+                new Refusal(HELPDESK, "[\"group:write\"]", 400, "invalid-request",
+                        "INVALID_PERMISSIONS"),
+                new Refusal(HELPDESK, "[\"audit:read\"", 400, "invalid-request",
+                        "INVALID_PERMISSIONS"),
+                new Refusal(nowhere, "[\"audit:read\"]", 404, "request-refused",
+                        "UNKNOWN_RESOURCE"),
+                new Refusal(SUPERUSERS, "[\"audit:read\"]", 409, "request-refused",
+                        "PROTECTED_RESOURCE"));
+
+        for (Refusal refusal : refusals) {
+            MvcResult answered = setPermissions(superuser, refusal.group(), refusal.body());
+            assertThat(answered.getResponse().getStatus()).as("%s", refusal)
+                    .isEqualTo(refusal.status());
+            JsonNode error = json.readTree(answered.getResponse().getContentAsString());
+            assertThat(List.of(error.get("status").asInt(), error.get("code").asString()))
+                    .as("%s", refusal).containsExactly(refusal.status(), refusal.code());
+        }
+
+        assertThat(jdbc.queryForList(
+                        "SELECT permission FROM group_permission WHERE group_id IN (?, ?)",
+                        String.class, HELPDESK, SUPERUSERS))
+                .containsExactlyInAnyOrder("user:read", "account:unlock");
+        assertThat(jdbc.queryForList("""
+                SELECT error_code FROM audit_events
+                 WHERE operation = 'GROUP_PERMISSIONS_CHANGE' AND outcome = 'FAILURE'
+                   AND actor_id = ? AND subject_id IN (?, ?, ?) AND occurred_at >= ?
+                 ORDER BY occurred_at, id""",
+                String.class, actor, HELPDESK, nowhere, SUPERUSERS, started))
+                .containsExactlyElementsOf(refusals.stream().map(Refusal::reason).toList());
+
+        Cookie groupReader = logIn("account-admin");
+        MvcResult forbidden = setPermissions(groupReader, HELPDESK, "[\"audit:read\"]");
+        assertThat(forbidden.getResponse().getStatus()).isEqualTo(403);
+        assertThat(json.readTree(forbidden.getResponse().getContentAsString())
+                .get("code").asString()).isEqualTo("request-refused");
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
+
+    private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-00000000a006");
+
+    /** {@code PUT /api/admin/groups/{id}/permissions} with {@code body}, or none when null. */
+    private MvcResult setPermissions(Cookie session, UUID groupId, String body) throws Exception {
+        MockHttpServletRequestBuilder request = SessionCsrf.withCsrf(mvc,
+                put("/api/admin/groups/" + groupId + "/permissions").cookie(session));
+        if (body != null) {
+            request.contentType(MediaType.APPLICATION_JSON).content(body);
+        }
+        return mvc.perform(request).andReturn();
+    }
+
+    /** How many Group Permissions changes the {@code authorization.changes} counter has seen. */
+    private double groupPermissionsChanges() {
+        return meters.get("authorization.changes").tag("operation", "group-permissions-change")
+                .counter().count();
+    }
+
+    /** This Superuser's successful changes of the Group: outcome, before, after and paths. */
+    private List<List<String>> groupPermissionsChangeRows(
+            UUID actor, UUID groupId, OffsetDateTime since) {
+        return jdbc.query("""
+                SELECT outcome, permissions_before, permissions_after, changed_paths
+                  FROM audit_events
+                 WHERE operation = 'GROUP_PERMISSIONS_CHANGE' AND outcome = 'SUCCESS'
+                   AND actor_id = ? AND subject_id = ? AND resource_id = ? AND occurred_at >= ?
+                 ORDER BY occurred_at, id""",
+                (rs, index) -> List.of(rs.getString("outcome"), rs.getString("permissions_before"),
+                        rs.getString("permissions_after"), rs.getString("changed_paths")),
+                actor, groupId, groupId, since);
+    }
 
     /** How many Superuser grants the {@code authorization.changes} counter has seen. */
     private double superuserGrants() {

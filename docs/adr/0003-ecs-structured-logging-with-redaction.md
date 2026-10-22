@@ -190,6 +190,7 @@ holds this list to the code.
 | `LOGOUT`                         | `user-logout`                 | —                                         |
 | `PERMISSION_GRANT`               | `user-administration`         | `identity.permission_grant`               |
 | `PERMISSION_REVOKE`              | `user-administration`         | `identity.permission_revoke`              |
+| `GROUP_PERMISSIONS_CHANGE`       | `user-administration`         | `authorization.group_permissions_change`  |
 | `ROLE_MAPPING_STARTUP`           | `application-startup`         | `authorization.role_mapping`              |
 | `PATIENT_SEED`                   | `application-startup`         | `patient.seed`                            |
 | `SESSION_START`                  | `session-start`               | —                                         |
@@ -639,6 +640,25 @@ ended, it writes a `change` record too, with its own message ("Sessions issued u
 another role mapping ended") and `session.ended_count`. The hash is configuration,
 not a secret, so `be-log-sensitive-value` is suppressed on exactly those two
 records.
+
+**A Group's Permissions set by the Superuser** (ADR 0015, #159). Each accepted
+change is one `INFO` record classified `user-administration` / `admin`, `group`,
+`change` / `success` (`authorization.group_permissions_change`), naming the Group
+as `group.id`; a refused one is the same operation at `WARN`, `denied`, with its
+generic reason (`INVALID_PERMISSIONS`, `UNKNOWN_RESOURCE`, `PROTECTED_RESOURCE`) as
+`event.reason`. Neither names a Permission: what the Group carried before and
+carries after is the audit trail's (`GROUP_PERMISSIONS_CHANGE`). The precise name
+lives under `app.event.action`, as every operation's does; `event.action` stays on
+the standard's closed list, which has no value for it.
+
+This deviates from #159's wording, which asks for
+`event.action=group-permissions-change`. The record carries
+`event.action=user-administration` and
+`app.event.action=authorization.group_permissions_change` instead: the issue's spec
+line is amended by decision to keep the logging standard rather than open its
+closed `event.action` vocabulary. The authorization-change counter's
+`group-permissions-change` tag is unaffected — it is a metric tag, not a log
+field.
 
 **Epic Login's outbound calls** (ADR 0012, D23, D25, D26). `EpicOutboundInterceptor`
 writes "Epic outbound call started" and "completed" (`INFO`, whatever the status),

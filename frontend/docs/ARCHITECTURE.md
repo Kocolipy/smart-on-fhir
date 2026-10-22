@@ -147,11 +147,19 @@ and `src/lib/` may import `lib/http.ts`, so a page cannot call `apiFetch`.
 Pages consume `auth/`; they hold no session or Permission logic and never
 decide where a visitor goes.
 
-- `accounts.tsx` — the widest page: the Users and Groups projections, and Unlock
-  and the forced password change by stable id. An action replaces the affected
-  row from its response, which _is_ that User's new state, rather than
-  re-reading. Nothing the directory owns has a control, and the page hides the
-  actions the backend would refuse (its own row; Unlock on the Bootstrap Admin).
+- `accounts.tsx` — the widest page: the Users and Groups projections, Unlock
+  and the forced password change by stable id, and — for the Superuser alone, on
+  every Group but the Admin group — "Edit permissions". An action replaces the
+  affected row from its response, which _is_ that User's or Group's new state,
+  rather than re-reading. Nothing the directory owns has a control, and the page
+  hides the actions the backend would refuse (its own row; Unlock on the
+  Bootstrap Admin; the Admin group's Permissions).
+- `group-permissions-dialog.tsx` — the Accounts page's Group Permissions editor,
+  not a page: a modal checkbox dialog fed by `GET /api/admin/permissions` and
+  pre-ticked with the Group's current set. It hands the complete set to the
+  page, which owns the `PUT` — the dialog closes once the save settles, and a
+  reporter that unmounts withdraws what it reported, so the write's outcome must
+  belong to the page's line.
 - `connectors.tsx` — the Accounts page's connector panel, not a page: it lists,
   creates and deletes connectors and issues, rotates and revokes their tokens,
   re-reading the listing after every change (one change can touch more than

@@ -85,3 +85,22 @@ Migration V5 rewrote the rows recorded before as `ROLE_GRANT`, `ROLE_REVOKE` and
 `DORMANCY_ROLE_REVOCATION`, moving each Role's name into the column on its side of
 the change, and dropped `role_name` — a one-off deviation from the audit-integrity
 rule, recorded in ADR 0015.
+
+## Group Permissions operation
+
+`GROUP_PERMISSIONS_CHANGE` records the Superuser setting a Group's Permissions
+(`PUT /api/admin/groups/{id}/permissions`, ADR 0015). It is not a membership
+operation — no User's membership moves — so the Group is its subject and resource
+and the Superuser its actor:
+
+| Outcome   | Recorded when                                         | Carries                                                                                                       |
+| --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `SUCCESS` | The Group's set is replaced                           | `changed_paths` `permissions`, and the Group's own Permissions in `permissions_before` and `permissions_after` |
+| `FAILURE` | The change is refused before anything is written     | One generic `error_code`: `INVALID_PERMISSIONS` (`400`), `UNKNOWN_RESOURCE` (`404`), `PROTECTED_RESOURCE` (`409`) |
+
+A refusal never names a Permission, and `superuser_changed` is `NULL` on both. A
+caller who is not the Superuser is refused `403` before the operation runs and is
+recorded as `ACCESS_DENIED`, like every authorization refusal. When the new set
+lacks a Permission the Group carried, each direct member's ended sessions are a
+`USER_SESSIONS_REVOKE` after the commit, with the reason
+`GROUP_PERMISSIONS_REDUCED` and the Superuser as actor.

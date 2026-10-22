@@ -241,5 +241,16 @@ public enum AuditOperation {
      * {@link #PERMISSION_GRANT}; the User's sessions are then revoked after the commit, recorded as
      * {@link #USER_SESSIONS_REVOKE}.
      */
-    PERMISSION_REVOKE
+    PERMISSION_REVOKE,
+
+    /**
+     * A Superuser replaced a Group's Permissions, or was refused (ADR 0015). Recorded against the
+     * GROUP, as subject and resource, with the Superuser as the actor and the Group's Permissions
+     * before and after, sorted by name; the changed path is {@code permissions}. A refusal — a body
+     * that is not a set of delegatable Permissions, a Group that does not exist, the Admin group —
+     * names no Permission, only its generic reason from {@link AuditAdministrativeRefusal}. When
+     * the change took a Permission away, every direct member's sessions are then revoked after the
+     * commit, recorded as {@link #USER_SESSIONS_REVOKE}.
+     */
+    GROUP_PERMISSIONS_CHANGE
 }

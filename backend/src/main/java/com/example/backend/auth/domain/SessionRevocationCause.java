@@ -34,6 +34,13 @@ public enum SessionRevocationCause {
      */
     MEMBERSHIP_REVOKED,
 
+    /**
+     * The User lost Permissions because a Superuser took them away from a Group it is a direct
+     * member of (ADR 0015): the Group's new set lacks one it carried. A Group's set growing
+     * revokes nothing — the new Permissions arrive at the next Login.
+     */
+    GROUP_PERMISSIONS_REDUCED,
+
     /** The dormancy job locked the User. */
     DORMANCY_LOCKOUT,
 

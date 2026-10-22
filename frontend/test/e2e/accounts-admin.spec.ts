@@ -100,7 +100,17 @@ test.describe.serial("ADMIN accounts page", () => {
       await expect(table.getByRole("combobox")).toHaveCount(0);
       await expect(table.getByRole("spinbutton")).toHaveCount(0);
     }
-    await expect(groupsTable(page).getByRole("button")).toHaveCount(0);
+    // The Groups table's one write is the Superuser's Edit permissions (#159), offered on
+    // every Group but the Admin group; membership stays the directory's.
+    for (const label of await groupsTable(page).getByRole("button").allTextContents()) {
+      expect(label).toMatch(/^Edit permissions for /);
+    }
+    await expect(
+      groupsTable(page)
+        .getByRole("row")
+        .filter({ has: page.getByRole("cell", { exact: true, name: "Superuser" }) })
+        .getByRole("button"),
+    ).toHaveCount(0);
     for (const label of await usersTable(page).getByRole("button").allTextContents()) {
       expect(label).toMatch(/^(Unlock|Force password change for) /);
     }

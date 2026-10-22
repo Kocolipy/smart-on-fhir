@@ -190,22 +190,26 @@ _Avoid_: scope, right, privilege
 **Group Permissions**:
 The Delegatable Permissions a Group carries, stored per Group in the database
 rather than configured, and held by each of its direct members from its next
-sign-in. A Group with none confers nothing. Never set over SCIM, so `group:write`
-on a Group that carries Permissions decides who holds them.
+sign-in. A Group with none confers nothing. Set only by the Superuser, as a
+complete set (`PUT /api/admin/groups/{id}/permissions`), never on the Admin group
+and never over SCIM, so `group:write` on a Group that carries Permissions decides
+who holds them.
 _Avoid_: Role, role mapping, mapped Group, Role assignment (there are no Roles,
 ADR 0015); role (for `ROLE_USER`, baseline access)
 
 **Permission-change propagation**:
 How a change of what a User's Groups confer reaches live sessions: losing a
-Permission — leaving a Group that carries it, or the Group being deleted — ends
-them after the commit; gaining one waits for the next Login.
+Permission — leaving a Group that carries it, the Group being deleted, or the
+Superuser taking it off the Group — ends them after the commit; gaining one waits
+for the next Login.
 _Avoid_: role-change propagation
 
 **Superuser**:
 The session authority, spelled `ROLE_SUPERUSER`, of a User who is a direct member
 of the Admin group. It is not a Permission, so no Group can carry it; its session
 also holds every delegatable Permission, and `/api/auth/me` reports it as
-`superuser`. Only the Superuser administers connectors and their tokens.
+`superuser`. Only the Superuser administers connectors and their tokens, and sets
+a Group's Permissions.
 _Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
 
 **Delegatable Permission**:
@@ -438,8 +442,8 @@ Rules: [administration](docs/domain/administration.md).
 
 **Accounts page**:
 The administrative screen at `/accounts`: the Users and Groups projections, Unlock,
-the forced password change, and connector management, each view shown by its own
-Permission.
+the forced password change, setting a Group's Permissions (the Superuser only),
+and connector management, each view shown by its own Permission.
 
 **Users projection**:
 What administration may know about each User — never a credential.
@@ -469,6 +473,13 @@ confers Permissions, or of the Admin group: `PERMISSION_GRANT` or
 and whether the change granted or removed the Superuser. A Group that confers
 nothing records none.
 _Avoid_: role change (the trail no longer speaks in Roles)
+
+**Group Permissions change**:
+An audit event of the Superuser setting a Group's Permissions:
+`GROUP_PERMISSIONS_CHANGE`, naming the Superuser and the Group and recording the
+Group's Permissions before and after; a refused one is a failure with a generic
+reason and no Permission. Not a Permission change: no membership moved.
+_Avoid_: role edit, permission assignment
 
 **Audit page**:
 The SPA screen at `/audit` showing the Audit listing, for a holder of

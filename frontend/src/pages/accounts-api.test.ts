@@ -7,11 +7,13 @@ import {
   ADMINISTRATION_PERMISSIONS,
   CONNECTORS,
   CREATE_CONNECTOR,
+  DELEGATABLE_PERMISSIONS,
   DELETE_CONNECTOR,
   GROUPS,
   ISSUE_TOKEN,
   REVOKE_TOKEN,
   ROTATE_TOKEN,
+  SET_GROUP_PERMISSIONS,
   USER_ACTION,
   USERS,
   decodeConnector,
@@ -363,6 +365,47 @@ describe("the User actions", () => {
   it("refuses an answer that is a listing rather than one row", async () => {
     await expect(decodedBy(USER_ACTION.decode, [USER_ROW])).rejects.toThrow(
       new DecodeError("UserRow is not an object"),
+    );
+  });
+});
+
+describe("a Group's Permissions", () => {
+  it("reads the vocabulary a Group may carry under group:read", async () => {
+    expect({
+      path: DELEGATABLE_PERMISSIONS.path(),
+      permission: DELEGATABLE_PERMISSIONS.permission,
+    }).toEqual({ path: "/api/admin/permissions", permission: "group:read" });
+    await expect(
+      decodedBy(DELEGATABLE_PERMISSIONS.decode, ["audit:read", "user:read"]),
+    ).resolves.toStrictEqual(["audit:read", "user:read"]);
+  });
+
+  it("refuses a vocabulary that is not a list, or names what no Group may carry", async () => {
+    await expect(decodedBy(DELEGATABLE_PERMISSIONS.decode, {})).rejects.toThrow(
+      new DecodeError("DelegatablePermission[] is not an array"),
+    );
+    await expect(decodedBy(DELEGATABLE_PERMISSIONS.decode, ["user:write"])).rejects.toThrow(
+      new DecodeError("DelegatablePermission holds an unknown value"),
+    );
+  });
+
+  it("puts the complete set, as the body, at the Group's own path, for the Superuser alone", () => {
+    expect({
+      body: SET_GROUP_PERMISSIONS.body?.("g-1", ["audit:read", "user:read"]),
+      method: SET_GROUP_PERMISSIONS.method,
+      path: SET_GROUP_PERMISSIONS.path("a/b?c", []),
+      permission: SET_GROUP_PERMISSIONS.permission,
+    }).toEqual({
+      body: ["audit:read", "user:read"],
+      method: "PUT",
+      path: "/api/admin/groups/a%2Fb%3Fc/permissions",
+      permission: "superuser",
+    });
+  });
+
+  it("reads its answer as the Group's new row", async () => {
+    await expect(decodedBy(SET_GROUP_PERMISSIONS.decode, GROUP_ROW)).resolves.toStrictEqual(
+      GROUP_ROW,
     );
   });
 });

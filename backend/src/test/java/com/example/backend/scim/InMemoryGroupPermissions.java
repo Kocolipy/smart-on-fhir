@@ -105,4 +105,10 @@ public final class InMemoryGroupPermissions implements GroupPermissions, ScimGro
     public void add(UUID groupId, Set<Permission> permissions) {
         permissions.forEach(permission -> store(groupId, permission.value()));
     }
+
+    @Override
+    public void replace(UUID groupId, Set<Permission> permissions) {
+        rows.remove(groupId);
+        add(groupId, permissions);
+    }
 }

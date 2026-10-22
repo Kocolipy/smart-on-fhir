@@ -306,7 +306,9 @@ class ScimWriteEffectsTests {
         var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
                 group("Engineering", "ext"), group("Platform", "ext-2", ALICE), CONFERS_NOTHING);
 
-        assertThat(effects.audited()).isEqualTo(EnumSet.allOf(AuditGroupAttribute.class));
+        // A Group's Permissions are a Superuser's to set, never a connector's write.
+        assertThat(effects.audited()).isEqualTo(EnumSet.of(AuditGroupAttribute.DISPLAY_NAME,
+                AuditGroupAttribute.MEMBERS, AuditGroupAttribute.EXTERNAL_ID));
     }
 
     // ---- Group writes: a membership of a Group that confers Permissions is a change of power ----

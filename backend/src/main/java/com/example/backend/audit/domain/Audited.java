@@ -806,6 +806,50 @@ public sealed interface Audited {
         }
     }
 
+    /**
+     * A Superuser replacing a Group's Permissions (ADR 0015), naming the Group and what it carried
+     * before and carries after. A change of what a Group confers this service cannot account for
+     * does not happen.
+     *
+     * @param actorId the Superuser who set them
+     * @param groupId the Group, recorded as subject and resource
+     * @param before  what the Group carried before
+     * @param after   what it carries now
+     */
+    record GroupPermissionsChanged(
+            UUID actorId, UUID groupId, Set<Permission> before, Set<Permission> after)
+            implements Accepted {
+
+        public GroupPermissionsChanged {
+            before = Set.copyOf(before);
+            after = Set.copyOf(after);
+        }
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.groupPermissionsChange(stamp, actorId, groupId, before, after);
+        }
+    }
+
+    /**
+     * A change of a Group's Permissions refused before anything was written, for one generic
+     * reason. It names no Permission. The caller is already receiving the refusal, so the append is
+     * fail-open.
+     *
+     * @param groupId the Group the request addressed, which may not exist
+     * @param reason  {@code INVALID_PERMISSIONS}, {@code UNKNOWN_RESOURCE} or
+     *                {@code PROTECTED_RESOURCE}
+     */
+    record GroupPermissionsChangeRefused(
+            UUID actorId, UUID groupId, AuditAdministrativeRefusal reason) implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.group(stamp, AuditRows.Change.refusal(
+                    AuditOperation.GROUP_PERMISSIONS_CHANGE, actorId, groupId, reason));
+        }
+    }
+
     // ---- Passwords and authorization ------------------------------------------------------------
 
     /**

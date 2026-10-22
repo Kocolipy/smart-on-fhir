@@ -344,6 +344,43 @@ describe("Audit", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a Group Permissions change's Permissions before and after, and a refusal's none", async () => {
+    const changed = {
+      ...EVENT_PERMISSION_GRANT,
+      operation: "GROUP_PERMISSIONS_CHANGE",
+      resourceType: "Group",
+      changedPaths: ["permissions"],
+      permissionsBefore: ["audit:read", "user:read"],
+      permissionsAfter: ["audit:read"],
+      superuserChanged: null,
+    };
+    await renderAudit(
+      everyRead(
+        answerPage([
+          changed,
+          {
+            ...changed,
+            id: "e-7",
+            outcome: "FAILURE",
+            statusClass: "client_error",
+            errorCode: "INVALID_PERMISSIONS",
+            changedPaths: [],
+            permissionsBefore: [],
+            permissionsAfter: [],
+          },
+        ]),
+      ),
+    );
+
+    await findTable();
+    const rows = within(table()).getAllByRole("row").slice(1);
+    expect(
+      within(rows[0]!).getByText("permissions: audit:read, user:read → audit:read"),
+    ).toBeInTheDocument();
+    expect(within(rows[1]!).queryByText(/permissions:/)).toBeNull();
+    expect(within(rows[1]!).getByText("INVALID_PERMISSIONS")).toBeInTheDocument();
+  });
+
   it("names the Superuser granted by a grant and removed by a revocation", async () => {
     await renderAudit(
       everyRead(

@@ -28,6 +28,10 @@ final class AuditRows {
      */
     static final List<String> MEMBERSHIP_PATHS = List.of(AuditGroupAttribute.MEMBERS.path());
 
+    /** What a change of a Group's own Permissions records as changed, spelled once. */
+    static final List<String> GROUP_PERMISSIONS_PATHS =
+            List.of(AuditGroupAttribute.PERMISSIONS.path());
+
     /** The Permissions of every event but a token's issue or rotation: none. */
     private static final List<String> NO_PERMISSIONS = List.of();
 
@@ -93,29 +97,41 @@ final class AuditRows {
     }
 
     /**
-     * What a membership change did to a User's power: the Permissions before and after, the
-     * Superuser marker, and — on the dormancy job's revocation — the Groups removed.
+     * What a change of power did to Permissions: those before and after, and — when the change
+     * was a User's membership — the Superuser marker and, on the dormancy job's revocation, the
+     * Groups removed. A Group's own Permissions set by a Superuser fill only the two sets.
      *
      * @param superuserChanged {@code null} for every event that is no membership change
      */
-    private record Membership(
+    private record PermissionDelta(
             List<String> permissionsBefore,
             List<String> permissionsAfter,
             Boolean superuserChanged,
             List<UUID> groupIds) {
 
-        /** What every event but a membership change fills: nothing. */
-        static final Membership NONE = new Membership(List.of(), List.of(), null, List.of());
+        /** What every event that changes no Permissions fills: nothing. */
+        static final PermissionDelta NONE =
+                new PermissionDelta(List.of(), List.of(), null, List.of());
 
-        static Membership of(AuditPermissionChange change, List<UUID> groupIds) {
-            return new Membership(change.beforeValues(), change.afterValues(),
+        /** A User's effective Permissions moved by a membership change. */
+        static PermissionDelta ofMembership(AuditPermissionChange change, List<UUID> groupIds) {
+            return new PermissionDelta(change.beforeValues(), change.afterValues(),
                     change.superuserChanged(), groupIds);
+        }
+
+        /**
+         * A Group's own Permissions before and after a Superuser set them: no membership moved,
+         * so there is no Superuser marker and no Group list.
+         */
+        static PermissionDelta ofGroup(Set<Permission> before, Set<Permission> after) {
+            return new PermissionDelta(Permission.valuesOf(before), Permission.valuesOf(after),
+                    null, List.of());
         }
     }
 
     /**
      * The fields only some events fill: a bulk read's count and filter shape, a token's
-     * Permissions and ids, a Login's method and MFA factor, and a membership change's Permissions.
+     * Permissions and ids, a Login's method and MFA factor, and a change of power's Permissions.
      */
     private record Particulars(
             Integer resultCount,
@@ -124,15 +140,15 @@ final class AuditRows {
             String loginMethod,
             String mfaFactor,
             Tokens tokens,
-            Membership membership) {
+            PermissionDelta delta) {
 
         /** What every other event fills: nothing. */
         static final Particulars NONE = new Particulars(
-                null, null, NO_PERMISSIONS, null, null, Tokens.NONE, Membership.NONE);
+                null, null, NO_PERMISSIONS, null, null, Tokens.NONE, PermissionDelta.NONE);
 
-        static Particulars membership(Membership membership) {
+        static Particulars of(PermissionDelta delta) {
             return new Particulars(
-                    null, null, NO_PERMISSIONS, null, null, Tokens.NONE, membership);
+                    null, null, NO_PERMISSIONS, null, null, Tokens.NONE, delta);
         }
     }
 
@@ -188,7 +204,7 @@ final class AuditRows {
         return row(stamp, stamp.requests().current(), change, AuditEvent.USER_RESOURCE_TYPE,
                 change.subjectId(), new Particulars(null, null, NO_PERMISSIONS,
                         method.value(), factor == null ? null : factor.value(), Tokens.NONE,
-                        Membership.NONE));
+                        PermissionDelta.NONE));
     }
 
     /**
@@ -219,7 +235,7 @@ final class AuditRows {
         return row(stamp, stamp.requests().current(), change, AuditEvent.CONNECTOR_RESOURCE_TYPE,
                 change.subjectId(), new Particulars(null, null,
                         Permission.valuesOf(permissions),
-                        null, null, tokens, Membership.NONE));
+                        null, null, tokens, PermissionDelta.NONE));
     }
 
     /**
@@ -236,7 +252,7 @@ final class AuditRows {
         return row(stamp, stamp.requests().current(),
                 Change.success(operation, connectorId, null, Audited.NO_PATHS), resourceType, null,
                 new Particulars(resultCount, filter == null ? null : filter.render(),
-                        NO_PERMISSIONS, null, null, Tokens.NONE, Membership.NONE));
+                        NO_PERMISSIONS, null, null, Tokens.NONE, PermissionDelta.NONE));
     }
 
     /**
@@ -255,7 +271,20 @@ final class AuditRows {
         return row(stamp, stamp.requests().current(),
                 Change.success(operation, connectorId, userId, MEMBERSHIP_PATHS),
                 AuditEvent.GROUP_RESOURCE_TYPE, groupId,
-                Particulars.membership(Membership.of(change, List.of())));
+                Particulars.of(PermissionDelta.ofMembership(change, List.of())));
+    }
+
+    /**
+     * A Superuser setting a Group's Permissions: the Group as subject and resource,
+     * {@code permissions} as the changed path, and the Group's Permissions before and after.
+     */
+    static AuditEvent groupPermissionsChange(Audited.Stamp stamp, UUID actorId, UUID groupId,
+            Set<Permission> before, Set<Permission> after) {
+        return row(stamp, stamp.requests().current(),
+                Change.success(AuditOperation.GROUP_PERMISSIONS_CHANGE, actorId, groupId,
+                        GROUP_PERMISSIONS_PATHS),
+                AuditEvent.GROUP_RESOURCE_TYPE, groupId,
+                Particulars.of(PermissionDelta.ofGroup(before, after)));
     }
 
     /**
@@ -269,7 +298,7 @@ final class AuditRows {
                 Change.success(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, userId,
                         AuditAttribute.paths(Set.of(AuditUserAttribute.GROUPS))),
                 AuditEvent.USER_RESOURCE_TYPE, userId,
-                Particulars.membership(Membership.of(change, groupIds.stream().distinct()
+                Particulars.of(PermissionDelta.ofMembership(change, groupIds.stream().distinct()
                         .sorted(Comparator.comparing(UUID::toString)).toList())));
     }
 
@@ -328,9 +357,9 @@ final class AuditRows {
                 particulars.mfaFactor(),
                 particulars.tokens().concerned(),
                 particulars.tokens().replacement(),
-                particulars.membership().permissionsBefore(),
-                particulars.membership().permissionsAfter(),
-                particulars.membership().superuserChanged(),
-                particulars.membership().groupIds());
+                particulars.delta().permissionsBefore(),
+                particulars.delta().permissionsAfter(),
+                particulars.delta().superuserChanged(),
+                particulars.delta().groupIds());
     }
 }

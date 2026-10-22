@@ -50,6 +50,7 @@ export const AUDIT_OPERATIONS = [
   "ACCESS_DENIED",
   "PERMISSION_GRANT",
   "PERMISSION_REVOKE",
+  "GROUP_PERMISSIONS_CHANGE",
 ] as const;
 
 export type AuditOperation = (typeof AUDIT_OPERATIONS)[number];
@@ -94,11 +95,12 @@ export interface AuditEvent {
   /** How a login was attempted; `null` for every event that is not a login. */
   loginMethod: AuditLoginMethod | null;
   /**
-   * A membership change's subject's effective Permissions before it, sorted;
-   * empty for every other event.
+   * A membership change's subject's effective Permissions before it, or a
+   * `GROUP_PERMISSIONS_CHANGE`'s Group's Permissions before it, sorted; empty
+   * for every other event.
    */
   permissionsBefore: string[];
-  /** The same User's effective Permissions after the change; empty otherwise. */
+  /** The same User's, or Group's, Permissions after the change; empty otherwise. */
   permissionsAfter: string[];
   /**
    * Whether a membership change granted or removed the Superuser; `null` for

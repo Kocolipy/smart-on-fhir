@@ -120,22 +120,23 @@ class AdminAccountControllerTests {
     void theGroupsAdapterListsWhatTheServiceReports() {
         GroupSummary engineering =
                 new GroupSummary(ENG, "Engineering", 3, false, List.of("ops:read"));
-        AdminGroupController controller =
-                new AdminGroupController(new RecordingService(List.of(), List.of(engineering)));
+        // No Group Permissions service: a listing never reaches one.
+        AdminGroupController controller = new AdminGroupController(
+                new RecordingService(List.of(), List.of(engineering)), null);
 
         assertThat(controller.listGroups()).containsExactly(engineering);
     }
 
     /**
      * The read-only criterion, as the adapters declare it: the only unsafe handlers are Unlock and
-     * the forced change, both of which write application-owned state, and the Groups adapter has
-     * none at all. A handler added for Disable, a rename or a membership change fails here.
+     * the forced change, and setting a Group's Permissions — each of which writes application-owned
+     * state (ADR 0015). A handler added for Disable, a rename or a membership change fails here.
      */
     @Test
     void noHandlerWritesADirectoryOwnedAttribute() {
         assertThat(unsafeHandlers(AdminAccountController.class))
                 .containsExactlyInAnyOrder("unlock", "forcePasswordChange");
-        assertThat(unsafeHandlers(AdminGroupController.class)).isEmpty();
+        assertThat(unsafeHandlers(AdminGroupController.class)).containsExactly("setPermissions");
         assertThat(unsafeHandlers(AdminPermissionController.class)).isEmpty();
     }
 

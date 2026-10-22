@@ -17,8 +17,12 @@ Permission. There are no Roles, no role mapping and no `app.authorization`
 block, so a Group created over SCIM can be given access without a redeploy.
 
 No SCIM path reads or sets a Group's Permissions. They are set by the Superuser
-alone (`PUT /api/admin/groups/{id}/permissions`, #159); until that lands, the only
-writer is the development fixtures below. A holder of `group:read` reads them on
+alone, at runtime: `PUT /api/admin/groups/{id}/permissions` replaces a Group's set
+with the complete set its body names (never on the Admin group), and a set that
+lacks a Permission the Group carried ends its direct members' sessions after the
+commit (`docs/domain/authorization.md`). Migration `V7` grants the application
+login the `DELETE` that replacement needs. Besides it, only the development
+fixtures below write them, at startup. A holder of `group:read` reads them on
 `GET /api/admin/groups`, and every Permission a Group may carry on
 `GET /api/admin/permissions`.
 

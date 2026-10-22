@@ -265,6 +265,19 @@ describe("decodeAuditEventPage", () => {
       expect(decodeOneEvent(change)).toStrictEqual(change);
     });
 
+    it("decodes a Group Permissions change, the Group's Permissions before and after", () => {
+      const change = {
+        ...AUDIT_EVENT,
+        operation: "GROUP_PERMISSIONS_CHANGE",
+        resourceType: "Group",
+        changedPaths: ["permissions"],
+        permissionsBefore: ["audit:read", "user:read"],
+        permissionsAfter: ["audit:read"],
+      };
+
+      expect(decodeOneEvent(change)).toStrictEqual(change);
+    });
+
     it("decodes each Superuser marker, and none for an event that is no membership change", () => {
       expect(
         [true, false, null].map(

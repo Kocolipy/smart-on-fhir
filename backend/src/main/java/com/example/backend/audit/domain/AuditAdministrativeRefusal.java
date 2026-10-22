@@ -23,9 +23,11 @@ public enum AuditAdministrativeRefusal {
     SELF_DISABLE,
 
     /**
-     * The target is the Bootstrap Admin, the deployment's recovery identity, and the operation
-     * is one nobody may perform on it — today, a forced password change. Also stored, from
-     * before the Disable action was removed, for a refused attempt to disable it.
+     * The target is a resource the operation may not touch: the Bootstrap Admin, the deployment's
+     * recovery identity, for a forced password change; or the Admin group, whose direct members'
+     * power is the Superuser rather than a Permission, for a change of a Group's Permissions. Also
+     * stored, from before the Disable action was removed, for a refused attempt to disable the
+     * Bootstrap Admin.
      */
     PROTECTED_RESOURCE,
 
@@ -51,5 +53,15 @@ public enum AuditAdministrativeRefusal {
     TOKEN_ALREADY_ROTATED,
 
     /** A connector token rotation addressing a token whose expiry has passed. */
-    TOKEN_EXPIRED
+    TOKEN_EXPIRED,
+
+    /**
+     * A change of a Group's Permissions whose body was not a set of Permissions a Group may carry:
+     * missing, not an array, or naming something that is not a delegatable Permission. Which value
+     * it was is never recorded.
+     */
+    INVALID_PERMISSIONS,
+
+    /** A change of a Group's Permissions addressing a Group that does not exist, or no longer does. */
+    UNKNOWN_RESOURCE
 }

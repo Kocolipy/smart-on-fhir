@@ -98,6 +98,9 @@ id, never its `userName`, so a rename cannot hide one. The triggers in force:
 - a SCIM write that removes it from a Group that carries Permissions — `PATCH`,
   `PUT` or the Group's `DELETE` (an addition takes effect at its next Login, since
   authority is derived only then);
+- the Superuser taking a Permission off a Group it is a direct member of
+  (`PUT /api/admin/groups/{id}/permissions`; a Permission added takes effect at
+  its next Login);
 - its own successful Login, which ends every other session it holds — one
   session per User;
 - its own successful self-service password change;
@@ -106,20 +109,21 @@ id, never its `userName`, so a rename cannot hide one. The triggers in force:
 
 Every one of those triggers but the startup sweep goes through one Session revocation
 module, which takes the User, the cause and the actor — the connector for a SCIM
-write, the Admin for a forced change, nobody otherwise. It defers the revocation
+write, the Admin for a forced change, the Superuser for a Group's Permissions
+reduced, nobody otherwise. It defers the revocation
 until after its transaction commits, so a write that was refused, stale or rolled
 back revokes nothing, and one SCIM write that moves several of those attributes
 revokes once. Every revocation that ended at least one session is audited as its
 own `USER_SESSIONS_REVOKE` event after the commit, its causes as the reason —
 `DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `MEMBERSHIP_REVOKED`
-(`ROLE_REVOKED` on rows recorded before #158),
+(`ROLE_REVOKED` on rows recorded before #158), `GROUP_PERMISSIONS_REDUCED`,
 `DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT`, `FORCED_PASSWORD_CHANGE` or
 `REPLACED_BY_LOGIN` — and logged as `session-end` under the same names. One that
 ended nothing (the User was signed in nowhere else) records nothing. If the session
 store fails, the failure is always audited, with outcome `FAILURE`, and alerted;
 the change stands, and the request answers as ADR 0004 sets out: one that would
 otherwise succeed — a SCIM write, the dormancy job, a password change, a forced
-change, an accepted Login — receives an error, while a rejected Login or a
+change, a Group's Permissions set, an accepted Login — receives an error, while a rejected Login or a
 rejected self-service change whose failure run imposed the lockout still answers
 with its bare refusal.
 

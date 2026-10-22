@@ -72,7 +72,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForList(SCHEMA_HISTORY, String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6");
+                .containsExactly("1", "2", "3", "4", "5", "6", "7");
     }
 
     /**
@@ -106,7 +106,7 @@ class MigrationStepIntegrationTests {
         MigrationStep.main(migrate(url));
 
         assertThat(asOwner(url).queryForObject(OWNER_PRINCIPAL_AND_MIGRATIONS, String.class))
-                .isEqualTo("backend_owner/1/6");
+                .isEqualTo("backend_owner/1/7");
     }
 
     /** The step leaves nothing running once it has migrated: the context it started is closed. */

@@ -351,9 +351,10 @@ public class SecurityConfig {
                         .requestMatchers(read("/api/admin/connectors"))
                                 .hasAuthority(Permission.CONNECTOR_READ.value())
                         // ---- Superuser only (backstop; see above) ----
-                        // Connector existence and credentials: create and delete, and issue,
-                        // rotate and revoke a token. Not a Permission, so no Group can carry it
-                        // and no number of Permissions stands in for it (ADR 0015).
+                        // Connector existence and credentials — create and delete, and issue,
+                        // rotate and revoke a token — and a Group's Permissions. Not a Permission,
+                        // so no Group can carry it and no number of Permissions stands in for it
+                        // (ADR 0015).
                         .requestMatchers(HttpMethod.POST, "/api/admin/connectors")
                                 .hasRole(SUPERUSER_ROLE)
                         .requestMatchers(HttpMethod.DELETE, "/api/admin/connectors/*")
@@ -362,6 +363,10 @@ public class SecurityConfig {
                                         "/api/admin/connectors/*/tokens",
                                         "/api/admin/connectors/*/tokens/*/rotate",
                                         "/api/admin/connectors/*/tokens/*/revoke")
+                                .hasRole(SUPERUSER_ROLE)
+                        // A Group's Permissions: what it confers is set by the Superuser alone,
+                        // and never over SCIM (ADR 0015).
+                        .requestMatchers(HttpMethod.PUT, "/api/admin/groups/*/permissions")
                                 .hasRole(SUPERUSER_ROLE)
                         .requestMatchers(read("/api/patient/*"))
                                 .hasAuthority(Permission.PATIENT_READ.value())

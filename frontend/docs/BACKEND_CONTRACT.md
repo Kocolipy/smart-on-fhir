@@ -97,6 +97,25 @@ change, when the backend side moves. What the SPA has to honour:
   change) and `useGatedWrite`, and both name that type; a bodiless request
   names none. The unit suites' fake backend keeps this rule, so a body sent
   under any other type fails there too.
+- **A Group's Permissions are set by one `PUT`, the complete set, by the
+  Superuser alone.** `PUT /api/admin/groups/{id}/permissions` takes a JSON
+  array of delegatable Permission names (`GET /api/admin/permissions` lists
+  them) and replaces the Group's set with it — an empty array clears it, a
+  name sent twice is carried once, and there is no ETag or `If-Match`: the last
+  writer wins. It answers `200` with the Group's row as it now stands, the same
+  shape as a `GET /api/admin/groups` row, which the Accounts page puts in place
+  of the old one (`SET_GROUP_PERMISSIONS`, `src/pages/accounts-api.ts`). Each
+  refusal carries the generic `ApiError`: `400` (`invalid-request`) for a
+  missing, non-JSON or non-array body, an element that is not a string, or a
+  name that is not delegatable (`user:write`, `group:write`, `patient:read`, an
+  unknown name), or a path id that is not a UUID; `404` (`request-refused`) for
+  a Group that does not exist or was deleted; `409` (`request-refused`) for the
+  Admin group, whose members' power is the Superuser rather than a Permission;
+  and the generic `403` for a session that is not the Superuser's, whatever it
+  holds. The SPA offers it only to `superuser: true`, never on the Admin group,
+  and reads the status alone. Taking a Permission away ends every direct
+  member's sessions after the commit, which those members' browsers meet as the
+  ordinary `401` path above; adding one reaches them at their next sign-in.
 - **Pages reach the backend through the session seam; only `src/auth/`
   reaches `apiFetch`.** A page requests through `useGatedRead` /
   `useGatedWrite`, which go through `useSessionRequest`. A direct `fetch` call

@@ -134,12 +134,7 @@ public class IdentityAdministrationService {
         Map<UUID, Set<Permission>> carried =
                 groupPermissions.carriedBy(all.stream().map(ScimGroup::id).toList());
         return all.stream()
-                .map(group -> new GroupSummary(
-                        group.id(),
-                        group.displayName(),
-                        group.members().size(),
-                        group.reservedName() == ReservedResourceName.ADMIN_GROUP,
-                        Permission.valuesOf(carried.getOrDefault(group.id(), Set.of()))))
+                .map(group -> GroupSummary.of(group, carried.getOrDefault(group.id(), Set.of())))
                 .toList();
     }
 

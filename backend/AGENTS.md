@@ -70,7 +70,7 @@ Preserve these boundaries. **Read `docs/ARCHITECTURE.md` before changing any of 
 
 - Spring Security owns authentication; authentication state lives in the HTTP session, which Spring Session persists in Redis.
 - Login, CSRF and health, the Epic JWKS and Epic Login's three browser routes are public (the Epic ones `404` while Epic Login is off); everything else on the application chain is deny-by-default (ADR 0010).
-- Every protected handler declares its Permission (or, for connector administration, `hasRole('SUPERUSER')`) with `@PreAuthorize` on the handler method, and the chain repeats it as a URL rule. A new operation needs three things that agree: the declaration, the chain's rule, and the `security` requirement in `docs/openapi.yaml`.
+- Every protected handler declares its Permission (or, for connector administration and setting a Group's Permissions, `hasRole('SUPERUSER')`) with `@PreAuthorize` on the handler method, and the chain repeats it as a URL rule. A new operation needs three things that agree: the declaration, the chain's rule, and the `security` requirement in `docs/openapi.yaml`.
 - Authority is derived from Group membership, once, at login — never stored, never recomputed per request. `ROLE_ADMIN` does not exist; a direct member of the Admin group is the Superuser (`ROLE_SUPERUSER`, ADR 0015).
 - The Admin group and the Bootstrap Admin are recognised by the reservation marker, never by a name a connector can change.
 - A credential never reaches a web adapter: the application layer hands out projections with no field a password hash could go in.
