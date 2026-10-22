@@ -69,8 +69,10 @@ declares nothing is refused. Four kinds of operation:
   lists audit events; `connector:read` lists connectors; `ops:read` reaches every
   actuator endpoint but health, on whichever port actuator is served.
   `patient:read` reads a Patient (`GET /api/patient/{id}`, [patient](patient.md)).
-- **Superuser only** — connector creation and deletion, and issuing, rotating and
-  revoking a token, declared as `hasRole('SUPERUSER')` on the handler, repeated by
+- **Superuser only** — connector creation and deletion, issuing, rotating and
+  revoking a token, and setting a Group's Permissions
+  (`PUT /api/admin/groups/{id}/permissions`), declared as `hasRole('SUPERUSER')`
+  on the handler, repeated by
   the chain as a backstop, and as `sessionCookie: [superuser]` in the API
   document. **Rule:** any endpoint that changes Group Permissions, Admin-group
   state, or connector existence or credentials is Superuser-only. Minting a token
@@ -128,7 +130,13 @@ access without a configuration change or a redeploy (ADR 0015). The rules:
   power stops at the User's next request. Deleting a Group is a shrink to empty.
   The rule is decided on the stored membership before and after, so a User
   removed and re-added in one `PATCH` keeps its sessions. Adding a User to a Group
-  leaves its live sessions alone: its Permissions apply from its next Login.
+  leaves its live sessions alone: its Permissions apply from its next Login. The
+  same holds when the Superuser changes the Group itself: a new set lacking a
+  Permission the Group carried ends every direct member's sessions once the change
+  commits — each revocation recorded with the reason `GROUP_PERMISSIONS_REDUCED`
+  and the Superuser as actor — and a change that rolls back ends none, while a set
+  that only grows reaches the members at their next Login. There is no step-up
+  re-authentication for it, as for no Superuser-only operation.
 - **Deletion is safe.** A Group's rows go with it when it is deleted over SCIM
   (the foreign key cascades), so nothing names a deleted Group and the next
   startup has nothing to refuse.
@@ -137,8 +145,17 @@ access without a configuration change or a redeploy (ADR 0015). The rules:
   does not have and one no Group may carry (anything not delegatable). Removing a
   Permission from code therefore needs a migration that deletes its rows.
 - **Set by the Superuser alone, never over SCIM.** Otherwise `group:write` would
-  mean "grant anything to anyone". Until the Superuser's endpoint lands (#159),
-  the only writer is the `local` profile's development fixtures.
+  mean "grant anything to anyone". `PUT /api/admin/groups/{id}/permissions`
+  replaces a Group's set with the complete set the body names — an array of
+  delegatable Permission names, an empty one clearing it, a name given twice
+  carried once — with no precondition: the last writer wins. It refuses, before
+  anything is written, a body that is missing, not an array of names, or naming
+  anything that is not delegatable (`400`), a Group that does not exist (`404`),
+  and the Admin group (`409`), whose members' power is the Superuser rather than a
+  Permission; a caller who is not the Superuser gets the generic `403`. The SPA's
+  Groups table offers it to the Superuser alone
+  ([administration](./administration.md)). Besides it, only the `local` profile's
+  development fixtures write a Group's Permissions, at startup.
 
 **Admin group** — the Group with the `admin-group` reservation marker, and no
 other: it is recognised by the marker, never by its id or name. A direct member
@@ -170,13 +187,18 @@ Group carried before it went. Beside it is an `INFO` log record classified
 `user-administration` / `change` / `success` with `user.target.id`, `group.id`
 and `app.authorization.group_permissions`, and a grant of the Superuser is
 counted on `authorization.changes{operation="superuser-grant"}`. A membership
-change of a Group that confers nothing is none of this.
+change of a Group that confers nothing is none of this. The Superuser setting a
+Group's Permissions is audited as `GROUP_PERMISSIONS_CHANGE`, with the Group's own
+Permissions before and after, and counted on
+`authorization.changes{operation="group-permissions-change"}`
+([administration](./administration.md)).
 
 **Groups projection and Permissions listing** — `GET /api/admin/groups`, by a
 holder of `group:read`, lists every Group with its Group Permissions, sorted by
 name (none for the Admin group); the SPA's Groups table shows them, and the Admin
 group as "Superuser". `GET /api/admin/permissions`, by the same holder, lists
-every delegatable Permission: what any Group could carry. Both are read-only;
+every delegatable Permission: what any Group could carry, and what the
+Superuser's editor offers. Both are reads;
 `GET /api/admin/roles` is gone and is refused like any undeclared route.
 
 **Development fixtures** — the shipped `authorization.yaml` seeds, with

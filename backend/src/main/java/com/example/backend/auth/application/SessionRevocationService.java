@@ -162,8 +162,8 @@ public class SessionRevocationService implements ScimUserSessions {
 
     /**
      * The attribute whose change each cause is, as the event's changed paths. A deletion, a
-     * lockout, a forced change and a Login changed no attribute a connector reads, so none
-     * contributes one; the reason names them instead.
+     * lockout, a forced change, a Group's Permissions reduced and a Login changed no attribute of
+     * the User a connector reads, so none contributes one; the reason names them instead.
      */
     private static Set<AuditUserAttribute> paths(Set<SessionRevocationCause> causes) {
         Set<AuditUserAttribute> paths = EnumSet.noneOf(AuditUserAttribute.class);
@@ -174,7 +174,7 @@ public class SessionRevocationService implements ScimUserSessions {
                 case USER_NAME_CHANGED -> paths.add(AuditUserAttribute.USER_NAME);
                 case MEMBERSHIP_REVOKED -> paths.add(AuditUserAttribute.GROUPS);
                 case DELETED, DORMANCY_LOCKOUT, FAILURE_RUN_LOCKOUT, FORCED_PASSWORD_CHANGE,
-                        REPLACED_BY_LOGIN -> { }
+                        GROUP_PERMISSIONS_REDUCED, REPLACED_BY_LOGIN -> { }
             }
         }
         return paths;

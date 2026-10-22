@@ -83,8 +83,8 @@ Group again.
 
 **Rule (MUST).** Any endpoint that changes Group Permissions, Admin-group state, or
 connector existence or credentials is Superuser-only. Today that is connector create
-and delete, token issue, rotate and revoke, and (from #159) `PUT
-/api/admin/groups/{id}/permissions`. `connector:read` stays delegatable.
+and delete, token issue, rotate and revoke, and `PUT
+/api/admin/groups/{id}/permissions` (#159). `connector:read` stays delegatable.
 
 Each is declared like a Permission so the authorization contract covers it:
 `@PreAuthorize("hasRole('SUPERUSER')")` on the handler, a backstop rule in the
@@ -207,5 +207,7 @@ method security.
   next, then Groups carrying Permissions from the database with Roles removed
   (#158): migration V6's `group_permission` table, seeded only by the `local`
   profile's development fixtures, validated at startup, and cascaded away with a
-  deleted Group. `PUT /api/admin/groups/{id}/permissions` (#159) follows; until it
-  lands no endpoint sets a Group's Permissions.
+  deleted Group. `PUT /api/admin/groups/{id}/permissions` (#159) then landed: the
+  Superuser sets a Group's Permissions from the Groups table, a shrink ends the
+  members' sessions after commit, and each change is audited as
+  `GROUP_PERMISSIONS_CHANGE`. With it every part of this decision is in force.

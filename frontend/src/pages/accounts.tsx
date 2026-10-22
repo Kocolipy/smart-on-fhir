@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { holds } from "@/auth/permissions";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
@@ -11,6 +12,7 @@ import { formatDate, formatInstant } from "@/lib/time";
 import {
   GROUPS,
   namesSameUser,
+  SET_GROUP_PERMISSIONS,
   USER_ACTION,
   USERS,
   type GroupRow,
@@ -18,6 +20,7 @@ import {
   type UserRow,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
+import { GroupPermissionsDialog } from "./group-permissions-dialog";
 import { ListingBody } from "./listing-body";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
@@ -244,7 +247,23 @@ function confersOf(group: GroupRow): string {
   return group.permissions.join(", ") || "—";
 }
 
-function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
+/**
+ * Whether the Superuser may set this Group's Permissions: every Group but the
+ * Admin group, whose direct members' power is the Superuser, which is not a
+ * Permission — the backend refuses it `409`.
+ */
+const offersPermissionEdit = (group: GroupRow): boolean => !group.adminGroup;
+
+function GroupsTable({
+  groups,
+  onEdit,
+  pending,
+}: {
+  groups: readonly GroupRow[];
+  /** `null` when the session is not the Superuser's, which alone sets Group Permissions. */
+  onEdit: ((group: GroupRow) => void) | null;
+  pending: boolean;
+}) {
   return (
     <table className="w-full border-collapse text-left text-sm">
       <caption className="sr-only">Groups</caption>
@@ -256,9 +275,14 @@ function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
           <th className="py-2 pr-4 font-medium" scope="col">
             Members
           </th>
-          <th className="py-2 font-medium" scope="col">
+          <th className="py-2 pr-4 font-medium" scope="col">
             Permissions
           </th>
+          {onEdit === null ? null : (
+            <th className="py-2 font-medium" scope="col">
+              Actions
+            </th>
+          )}
         </tr>
       </thead>
       <tbody>
@@ -268,7 +292,21 @@ function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
               {group.displayName}
             </th>
             <td className="py-3 pr-4 text-muted-foreground">{group.memberCount}</td>
-            <td className="py-3 text-muted-foreground">{confersOf(group)}</td>
+            <td className="py-3 pr-4 text-muted-foreground">{confersOf(group)}</td>
+            {onEdit === null ? null : (
+              <td className="py-3">
+                {offersPermissionEdit(group) ? (
+                  <Button
+                    disabled={pending}
+                    onClick={() => onEdit(group)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Edit permissions for {group.displayName}
+                  </Button>
+                ) : null}
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -358,7 +396,32 @@ function useDirectory() {
       },
     });
 
-  return { groups, pending: write.pending, runAction, users };
+  /**
+   * Replaces the Group's Permissions with the complete set, and its row from
+   * the response, which states the Group as the backend now holds it.
+   * `settled` runs once the write has answered, whatever it came to.
+   */
+  const setGroupPermissions = (
+    target: GroupRow,
+    permissions: readonly Permission[],
+    settled: () => void,
+  ) =>
+    write.run(SET_GROUP_PERMISSIONS, {
+      after: async () => settled(),
+      args: [target.id, permissions],
+      messages: {
+        404: `${target.displayName} no longer exists. Reload the page for the current list.`,
+        409: `Refused: the Permissions of ${target.displayName} cannot be set.`,
+        default: `Unable to set the Permissions of ${target.displayName}. Please try again.`,
+      },
+      onOk: (updated) => {
+        groups.update((current) =>
+          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
+        );
+      },
+    });
+
+  return { groups, pending: write.pending, runAction, setGroupPermissions, users };
 }
 
 /**
@@ -379,10 +442,12 @@ function useDirectory() {
  */
 export function Accounts() {
   const { user } = useAuth();
-  const { groups, pending, runAction, users } = useDirectory();
+  const { groups, pending, runAction, setGroupPermissions, users } = useDirectory();
+  const [editing, setEditing] = useState<GroupRow | null>(null);
   const onAction: OnAction | null = holds(user, USER_ACTION.permission)
     ? (target, action) => void runAction(target, action)
     : null;
+  const onEdit = holds(user, SET_GROUP_PERMISSIONS.permission) ? setEditing : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -408,8 +473,19 @@ export function Accounts() {
         title="Groups"
         view={groups.view}
       >
-        {(rows) => <GroupsTable groups={rows} />}
+        {(rows) => <GroupsTable groups={rows} onEdit={onEdit} pending={pending} />}
       </ProjectionCard>
+
+      {editing === null ? null : (
+        <GroupPermissionsDialog
+          group={editing}
+          onCancel={() => setEditing(null)}
+          onSave={(permissions) =>
+            void setGroupPermissions(editing, permissions, () => setEditing(null))
+          }
+          pending={pending}
+        />
+      )}
 
       {/* The connector panel reports to the page's one error line, the layout's. */}
       <Connectors />

@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -682,5 +682,259 @@ describe("Accounts by Permission", () => {
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
     expect(paths(requests)).toEqual(["/api/admin/connectors"]);
+  });
+});
+
+/**
+ * Group Permissions (ADR 0015): only the Superuser sets them, from the Groups
+ * table, and never on the Admin group, whose members' power is the Superuser.
+ */
+describe("Accounts: a Superuser sets a Group's Permissions", () => {
+  /** The Superuser's session: holding every Permission is not being the Superuser. */
+  const THE_SUPERUSER = holding(EVERY_PERMISSION, { superuser: true });
+
+  const VOCABULARY = "GET /api/admin/permissions";
+  const DELEGATABLE = [
+    "account:unlock",
+    "audit:read",
+    "connector:read",
+    "group:read",
+    "ops:read",
+    "user:read",
+  ];
+
+  const AUDITORS_ID = "00000000-0000-4000-8000-0000000000a1";
+  const auditors = groupRow({
+    displayName: "Auditors",
+    id: AUDITORS_ID,
+    permissions: ["audit:read", "user:read"],
+  });
+  const putAuditors = `PUT /api/admin/groups/${AUDITORS_ID}/permissions`;
+
+  const threeGroups = json([
+    groupRow({ adminGroup: true, displayName: "Admins", id: "a" }),
+    auditors,
+    groupRow(),
+  ]);
+
+  const openEditor = async () => {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit permissions for Auditors" }));
+    return { dialog: await screen.findByRole("dialog", { name: "Permissions of Auditors" }), user };
+  };
+
+  const columns = () =>
+    within(groupsTable())
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent);
+
+  const ticks = (dialog: HTMLElement) =>
+    within(dialog)
+      .getAllByRole("checkbox")
+      .map((box) => [box.getAttribute("name"), (box as HTMLInputElement).checked]);
+
+  const puts = <T extends { method: string }>(requests: () => readonly T[]) =>
+    requests().filter(({ method }) => method === "PUT");
+
+  it("offers the Superuser Edit permissions on every Group but the Admin group", async () => {
+    await renderAccounts({ [GROUPS]: threeGroups }, THE_SUPERUSER);
+
+    expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
+    expect(row("Auditors", groupsTable()).getByRole("button")).toHaveTextContent(
+      "Edit permissions for Auditors",
+    );
+    expect(row("Engineering", groupsTable()).getByRole("button")).toHaveTextContent(
+      "Edit permissions for Engineering",
+    );
+    expect(row("Admins", groupsTable()).queryByRole("button")).toBeNull();
+    expect(columns()).toEqual(["Group", "Members", "Permissions", "Actions"]);
+  });
+
+  it("offers no Edit permissions to a session holding every Permission but not the Superuser", async () => {
+    await renderAccounts({ [GROUPS]: threeGroups }, holding(EVERY_PERMISSION));
+
+    expect(await screen.findByRole("rowheader", { name: "Auditors" })).toBeInTheDocument();
+    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(columns()).toEqual(["Group", "Members", "Permissions"]);
+  });
+
+  it.each([
+    [409, "Refused: the Permissions of Auditors cannot be set."],
+    [503, "Unable to set the Permissions of Auditors. Please try again."],
+  ])("reports a save refused %i with the Group's own copy", async (status, copy) => {
+    await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE), [putAuditors]: bare(status) },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+
+    await within(dialog).findByRole("checkbox", { name: "group:read" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(copy);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("closes on Escape without a write", async () => {
+    const { requests } = await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
+      THE_SUPERUSER,
+    );
+    const { dialog } = await openEditor();
+    await within(dialog).findByRole("checkbox", { name: "group:read" });
+
+    const escape = new Event("cancel", { cancelable: true });
+    fireEvent(dialog, escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(puts(requests)).toEqual([]);
+  });
+
+  it("stays open on Escape while the save is in flight, every control disabled", async () => {
+    const saving = deferred();
+    await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE), [putAuditors]: saving.answer },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+    await user.click(await within(dialog).findByRole("checkbox", { name: "group:read" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+
+    expect(screen.getByRole("dialog", { name: "Permissions of Auditors" })).toBeInTheDocument();
+    expect(
+      [...within(dialog).getAllByRole("checkbox"), ...within(dialog).getAllByRole("button")].every(
+        (control) => (control as HTMLInputElement | HTMLButtonElement).disabled,
+      ),
+    ).toBe(true);
+    await saving.settle(
+      json({ ...auditors, permissions: ["audit:read", "group:read", "user:read"] }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("says the vocabulary is loading until it is read", async () => {
+    const vocabulary = deferred();
+    await renderAccounts({ [GROUPS]: threeGroups, [VOCABULARY]: vocabulary.answer }, THE_SUPERUSER);
+    const { dialog } = await openEditor();
+
+    expect(within(dialog).getByText("Loading Permissions…")).toBeInTheDocument();
+    await vocabulary.settle(json(DELEGATABLE));
+    expect(within(dialog).queryByText("Loading Permissions…")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(6);
+  });
+
+  it("lists every delegatable Permission, ticked with the Group's current set", async () => {
+    const { requests } = await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
+      THE_SUPERUSER,
+    );
+
+    const { dialog } = await openEditor();
+
+    await within(dialog).findByRole("checkbox", { name: "user:read" });
+    expect(ticks(dialog)).toEqual([
+      ["account:unlock", false],
+      ["audit:read", true],
+      ["connector:read", false],
+      ["group:read", false],
+      ["ops:read", false],
+      ["user:read", true],
+    ]);
+    expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/permissions" });
+  });
+
+  it("saves the full set with one PUT and shows the Group as the answer states it", async () => {
+    const { requests } = await renderAccounts(
+      {
+        [GROUPS]: threeGroups,
+        [VOCABULARY]: json(DELEGATABLE),
+        [putAuditors]: json({ ...auditors, permissions: ["audit:read", "group:read"] }),
+      },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "group:read" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "user:read" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(
+      await row("Auditors", groupsTable()).findByText("audit:read, group:read"),
+    ).toBeInTheDocument();
+    expect(puts(requests)).toEqual([
+      {
+        body: ["audit:read", "group:read"],
+        method: "PUT",
+        path: `/api/admin/groups/${AUDITORS_ID}/permissions`,
+      },
+    ]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("clears every Permission with an empty set", async () => {
+    const { requests } = await renderAccounts(
+      {
+        [GROUPS]: threeGroups,
+        [VOCABULARY]: json(DELEGATABLE),
+        [putAuditors]: json({ ...auditors, permissions: [] }),
+      },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "audit:read" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "user:read" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await row("Auditors", groupsTable()).findByText("—")).toBeInTheDocument();
+    expect(puts(requests)).toEqual([
+      { body: [], method: "PUT", path: `/api/admin/groups/${AUDITORS_ID}/permissions` },
+    ]);
+  });
+
+  it("closes without a write on Cancel", async () => {
+    const { requests } = await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "group:read" }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(puts(requests)).toEqual([]);
+    expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
+  });
+
+  it("reports a Group that has since been deleted and keeps its row as it was", async () => {
+    await renderAccounts(
+      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE), [putAuditors]: bare(404) },
+      THE_SUPERUSER,
+    );
+    const { dialog, user } = await openEditor();
+
+    await within(dialog).findByRole("checkbox", { name: "group:read" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Auditors no longer exists. Reload the page for the current list.",
+    );
+    expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
+  });
+
+  it("offers no Save until the vocabulary is read, and reports a failed read", async () => {
+    await renderAccounts({ [GROUPS]: threeGroups, [VOCABULARY]: bare(503) }, THE_SUPERUSER);
+    const { dialog } = await openEditor();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load the Permissions. Please try again.",
+    );
+    expect(within(dialog).getByText("The Permissions could not be loaded.")).toBeInTheDocument();
+    expect(within(dialog).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

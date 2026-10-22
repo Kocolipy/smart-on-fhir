@@ -45,6 +45,9 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
     private static final String COUNT_FOR_GROUP = """
             SELECT COUNT(*) FROM group_permission WHERE group_id = :groupId""";
 
+    private static final String DELETE_FOR_GROUP = """
+            DELETE FROM group_permission WHERE group_id = :groupId""";
+
     private static final String INSERT = """
             INSERT INTO group_permission (group_id, permission) VALUES (:groupId, :permission)""";
 
@@ -90,6 +93,16 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
         Long count = jdbc.queryForObject(COUNT_FOR_GROUP,
                 new MapSqlParameterSource("groupId", groupId), Long.class);
         return count != null && count > 0;
+    }
+
+    /**
+     * Deletes the Group's rows and inserts the new set, in the caller's transaction: a reader in
+     * another transaction sees the old set or the new one, never the gap between (RCSI).
+     */
+    @Override
+    public void replace(UUID groupId, Set<Permission> permissions) {
+        jdbc.update(DELETE_FOR_GROUP, new MapSqlParameterSource("groupId", groupId));
+        add(groupId, permissions);
     }
 
     @Override

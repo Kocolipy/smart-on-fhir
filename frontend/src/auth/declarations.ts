@@ -51,7 +51,7 @@ interface WriteTarget<A extends readonly unknown[]> {
    * write is never sent.
    */
   readonly permission: Requirement;
-  readonly method: "POST" | "DELETE";
+  readonly method: "POST" | "PUT" | "DELETE";
   readonly path: (...args: A) => string;
   /** The JSON body, when the endpoint takes one; `apiFetch` adds the CSRF header itself. */
   readonly body?: (...args: A) => unknown;

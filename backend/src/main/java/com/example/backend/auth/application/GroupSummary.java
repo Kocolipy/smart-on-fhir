@@ -1,6 +1,10 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -30,5 +34,18 @@ public record GroupSummary(
 
     public GroupSummary {
         permissions = List.copyOf(permissions);
+    }
+
+    /**
+     * The row a Group projects to, given the Permissions it carries: the Admin group recognised
+     * by its reservation marker, and the Permissions by name, sorted.
+     */
+    static GroupSummary of(ScimGroup group, Set<Permission> carried) {
+        return new GroupSummary(
+                group.id(),
+                group.displayName(),
+                group.members().size(),
+                group.reservedName() == ReservedResourceName.ADMIN_GROUP,
+                Permission.valuesOf(carried));
     }
 }

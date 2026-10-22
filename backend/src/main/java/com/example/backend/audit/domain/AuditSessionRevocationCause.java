@@ -27,6 +27,9 @@ public enum AuditSessionRevocationCause {
      */
     MEMBERSHIP_REVOKED,
 
+    /** A Superuser took a Permission away from a Group the User is a direct member of. */
+    GROUP_PERMISSIONS_REDUCED,
+
     /** The dormancy job locked the User. */
     DORMANCY_LOCKOUT,
 

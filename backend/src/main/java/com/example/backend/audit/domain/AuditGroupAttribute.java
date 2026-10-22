@@ -24,7 +24,13 @@ public enum AuditGroupAttribute implements AuditAttribute {
      * The calling connector's own {@code externalId} alias changed. The path is recorded; the
      * alias value never is.
      */
-    EXTERNAL_ID("externalId");
+    EXTERNAL_ID("externalId"),
+
+    /**
+     * The Permissions the Group confers changed — set by a Superuser, never by a connector, so no
+     * SCIM write records it.
+     */
+    PERMISSIONS("permissions");
 
     private final String path;
 

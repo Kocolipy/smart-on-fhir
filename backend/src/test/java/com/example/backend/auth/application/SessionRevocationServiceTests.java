@@ -109,6 +109,9 @@ class SessionRevocationServiceTests {
                         "SUCCESS:USER_NAME:USER_NAME_CHANGED"),
                 Arguments.of(SessionRevocationCause.DELETED, "SUCCESS::DELETED"),
                 Arguments.of(SessionRevocationCause.MEMBERSHIP_REVOKED, "SUCCESS:GROUPS:MEMBERSHIP_REVOKED"),
+                // No attribute of the User moved: the Group's Permissions did.
+                Arguments.of(SessionRevocationCause.GROUP_PERMISSIONS_REDUCED,
+                        "SUCCESS::GROUP_PERMISSIONS_REDUCED"),
                 Arguments.of(SessionRevocationCause.DORMANCY_LOCKOUT, "SUCCESS::DORMANCY_LOCKOUT"),
                 Arguments.of(SessionRevocationCause.FAILURE_RUN_LOCKOUT,
                         "SUCCESS::FAILURE_RUN_LOCKOUT"),

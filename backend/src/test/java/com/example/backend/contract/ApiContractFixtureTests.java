@@ -11,6 +11,7 @@ import com.example.backend.ForcedDeadlock;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.web.ErrorDocumentFilter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
@@ -79,6 +80,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     private static final String OWN_PASSWORD = "own-chosen-passphrase-1";
 
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
+
+    private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
     /** Documented statuses no fixture can produce here, each with the reason. */
     private static final Set<String> NOT_PRODUCIBLE = Set.of(
@@ -401,6 +404,24 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.csrf(t.post(path.formatted(UUID.randomUUID()))).cookie(admin), 404);
             t.expect(t.csrf(t.post(path.formatted(credentialless))).cookie(admin), 409);
         });
+        add(all, "group permissions: every documented outcome", t -> {
+            Cookie superuser = t.logIn(ADMIN, ADMIN_PASSWORD);
+            Cookie user = t.settle(t.provision(true));
+            UUID group = t.group();
+            String path = "/api/admin/groups/%s/permissions";
+            t.expect(t.json(t.csrf(t.put(path.formatted(group))).cookie(superuser),
+                    "[\"audit:read\",\"user:read\"]"), 200);
+            t.expect(t.json(t.csrf(t.put(path.formatted(group))).cookie(superuser),
+                    "[\"user:write\"]"), 400);
+            t.expect(t.json(t.csrf(t.put(path.formatted("not-a-uuid"))).cookie(superuser),
+                    "[]"), 400);
+            t.expect(t.json(t.csrf(t.put(path.formatted(group))), "[]"), 401);
+            t.expect(t.json(t.csrf(t.put(path.formatted(group))).cookie(user), "[]"), 403);
+            t.expect(t.json(t.csrf(t.put(path.formatted(UUID.randomUUID()))).cookie(superuser),
+                    "[]"), 404);
+            t.expect(t.json(t.csrf(t.put(path.formatted(ScimSeedService.ADMIN_GROUP_ID)))
+                    .cookie(superuser), "[]"), 409);
+        });
     }
 
     // ---- /api/admin/connectors --------------------------------------------------------
@@ -517,6 +538,14 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                         .cookie(admin));
             }
         });
+        add(all, "group permissions: 503 with Retry-After when deadlocked twice", t -> {
+            Cookie superuser = t.logIn(ADMIN, ADMIN_PASSWORD);
+            UUID group = t.group();
+            try (ForcedDeadlock victim = t.deadlocked("group_permission", "group_id", group)) {
+                t.expectDeadlocked(t.json(t.csrf(t.put("/api/admin/groups/" + group
+                        + "/permissions")).cookie(superuser), "[\"audit:read\"]"));
+            }
+        });
     }
 
     // ---- /api/admin/audit-events ------------------------------------------------------
@@ -592,6 +621,10 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         return call(HttpMethod.POST, path);
     }
 
+    MockHttpServletRequestBuilder put(String path) {
+        return call(HttpMethod.PUT, path);
+    }
+
     MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder request, String body) {
         return request.contentType(MediaType.APPLICATION_JSON).content(body);
     }
@@ -651,6 +684,20 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 .contentType(MediaType.valueOf("application/scim+json")).content(body), 201);
         created.add(UUID.fromString(json(result).get("id").asText()));
         return userName;
+    }
+
+    /** A fresh Group over SCIM, carrying nothing and with no members; removed after the fixture. */
+    UUID group() throws Exception {
+        String displayName = "api-" + HexFormat.of().toHexDigits(
+                ThreadLocalRandom.current().nextInt());
+        MvcResult result = expect(call(HttpMethod.POST, "/scim/v2/Groups")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
+                .contentType(MediaType.valueOf("application/scim+json"))
+                .content("{\"schemas\":[\"%s\"],\"displayName\":\"%s\"}"
+                        .formatted(GROUP_SCHEMA, displayName)), 201);
+        UUID id = UUID.fromString(json(result).get("id").asText());
+        created.add(id);
+        return id;
     }
 
     /** Replaces the connector-set password, leaving an unconfined User, and logs it in. */

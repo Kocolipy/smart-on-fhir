@@ -69,8 +69,9 @@ class BackendApplicationTests {
             // (ADR 0013's 2026-10-16 addendum) were folded into it. V2 adds the patients table
             // (ADR 0014), V3 drops a table V1 created that nothing maps any more, and V4 makes a
             // patient's id its EHR's FHIR id. V5 rewrites the audit trail in Permissions, and V6
-            // stores each Group's Permissions (ADR 0015).
-            assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
+            // stores each Group's Permissions (ADR 0015). V7 grants the DELETE a Superuser's
+            // replacement of a Group's Permissions needs (#159).
+            assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7");
         }
     }
 }

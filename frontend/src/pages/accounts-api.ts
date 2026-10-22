@@ -135,6 +135,7 @@ export interface TokenRequest {
 }
 
 const USERS_PATH = "/api/admin/accounts";
+const GROUPS_PATH = "/api/admin/groups";
 const CONNECTORS_PATH = "/api/admin/connectors";
 
 /** `encodeURIComponent` although ids are UUIDs: a path segment is never trusted to be one. */
@@ -246,6 +247,13 @@ export const decodeGroupRows = (value: unknown): GroupRow[] =>
 export const decodeConnectors = (value: unknown): Connector[] =>
   decodeArray(value, decodeConnector, "Connector[]");
 
+/** One name of the vocabulary a Group may carry, checked against the session vocabulary. */
+const decodeDelegatablePermission = permissionDecoder("DelegatablePermission");
+
+/** The vocabulary a Group may carry, `GET /api/admin/permissions`: Permission names. */
+const decodeDelegatablePermissions = (value: unknown): Permission[] =>
+  decodeArray(value, decodeDelegatablePermission, "DelegatablePermission[]");
+
 // ---- declarations ------------------------------------------------------------------
 //
 // Every gated request the Accounts page and its connector panel make, each with the
@@ -263,7 +271,17 @@ export const USERS: ReadDeclaration<UserRow[]> = {
 /** The Groups projection, `GET /api/admin/groups`. */
 export const GROUPS: ReadDeclaration<GroupRow[]> = {
   decode: jsonDecoder(decodeGroupRows),
-  path: () => "/api/admin/groups",
+  path: () => GROUPS_PATH,
+  permission: "group:read",
+};
+
+/**
+ * Every Permission a Group may carry, sorted by name, `GET /api/admin/permissions`:
+ * what the Group Permissions editor offers. The Superuser is not one of them.
+ */
+export const DELEGATABLE_PERMISSIONS: ReadDeclaration<Permission[]> = {
+  decode: jsonDecoder(decodeDelegatablePermissions),
+  path: () => "/api/admin/permissions",
   permission: "group:read",
 };
 
@@ -289,6 +307,23 @@ export const USER_ACTION: WriteDeclaration<[id: string, action: UserAction], Use
   method: "POST",
   path: (id, action) => `${USERS_PATH}/${encodeURIComponent(id)}/${action}`,
   permission: "account:unlock",
+};
+
+/**
+ * Replaces a Group's Permissions with exactly `permissions` — the complete set,
+ * an empty one clearing it — by the Group's stable id; answers the Group's new
+ * row. Superuser-only, and never offered on the Admin group, which the backend
+ * refuses `409` (ADR 0015).
+ */
+export const SET_GROUP_PERMISSIONS: WriteDeclaration<
+  [groupId: string, permissions: readonly Permission[]],
+  GroupRow
+> = {
+  body: (_groupId, permissions) => permissions,
+  decode: jsonDecoder(decodeGroupRow),
+  method: "PUT",
+  path: (groupId) => `${GROUPS_PATH}/${encodeURIComponent(groupId)}/permissions`,
+  permission: SUPERUSER,
 };
 
 /** A new connector by its name; answers the connector. */

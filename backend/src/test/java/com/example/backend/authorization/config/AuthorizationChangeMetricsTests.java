@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,5 +43,21 @@ class AuthorizationChangeMetricsTests {
         metrics.superuserGranted();
 
         assertThat(count("superuser-grant")).isEqualTo(2.0);
+    }
+
+    /** A Group's Permissions set by a Superuser is a series of its own, there from the start. */
+    @Test
+    void theGroupPermissionsChangeSeriesExistsFromTheStartAtZero() {
+        assertThat(count("group-permissions-change")).isZero();
+    }
+
+    @Test
+    void eachGroupPermissionsChangeCountsOnceOnItsOwnSeries() {
+        metrics.groupPermissionsChanged();
+        metrics.groupPermissionsChanged();
+        metrics.groupPermissionsChanged();
+
+        assertThat(List.of(count("group-permissions-change"), count("superuser-grant")))
+                .containsExactly(3.0, 0.0);
     }
 }

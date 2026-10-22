@@ -34,8 +34,8 @@ info:
     `account:unlock`, `group:read`, `audit:read`, `connector:read`, `ops:read`,
     `patient:read` (`user:write` and `group:write` are a connector token's alone);
     `sessionCookie: [superuser]` names the Superuser instead, which is not a
-    Permission: connector creation and deletion and every token operation
-    require it (ADR 0015). A session's Permissions are
+    Permission: connector creation and deletion, every token operation and
+    setting a Group's Permissions require it (ADR 0015). A session's Permissions are
     the baseline `patient:read`, which every active User holds, and the union of
     the Permissions its direct Groups carry; a Group with none confers nothing.
     `GET /api/auth/me` reports them. A User is a Superuser when it is a direct
@@ -945,12 +945,12 @@ paths:
         Permissions it confers on its direct members (ADR 0015). Requires
         `group:read`.
 
-        READ-ONLY here. Groups and their membership are written by a connector
-        over SCIM; a Group's Permissions are stored by the application and never
-        set over SCIM. This namespace declares no write operation on them,
-        so `POST`, `PUT`, `PATCH` and `DELETE` here or on `/api/admin/groups/{id}`
-        are undeclared and refused with 403 by the application chain, which
-        denies by default.
+        Groups and their membership are READ-ONLY here: a connector writes them
+        over SCIM, and `POST`, `PUT`, `PATCH` and `DELETE` here or on
+        `/api/admin/groups/{id}` are undeclared and refused with 403 by the
+        application chain, which denies by default. A Group's Permissions are
+        stored by the application and set only by the Superuser, through
+        `PUT /api/admin/groups/{id}/permissions` — never over SCIM.
       operationId: listGroups
       security:
         - sessionCookie: [group:read]
@@ -967,6 +967,92 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
+  /api/admin/groups/{id}/permissions:
+    put:
+      tags: [Administration]
+      summary: Set a Group's Permissions
+      description: |
+        Replaces what the Group confers on its direct members with exactly the
+        body: the complete set, as an array of Permission names, each a
+        delegatable Permission (`GET /api/admin/permissions` lists them). An
+        empty array clears it; a name given twice is carried once. There is no
+        ETag and no precondition: the last writer wins. Superuser-only, and never
+        over SCIM (ADR 0015).
+
+        **Session effects.** When the new set lacks a Permission the Group
+        carried, every direct member's sessions end once the change commits
+        (ADR 0002), each recorded as a `USER_SESSIONS_REVOKE` with the reason
+        `GROUP_PERMISSIONS_REDUCED` and the Superuser as actor; a change that
+        rolls back ends none. A Permission added reaches the members at their
+        next sign-in, and their live sessions keep what they held. There is no
+        step-up re-authentication.
+
+        **Audit.** An accepted change is one `GROUP_PERMISSIONS_CHANGE` naming
+        the Superuser, the Group and its Permissions before and after, logged at
+        `INFO`, and counted on `authorization.changes` under the
+        `group-permissions-change` tag. A `400`, `404` or `409` is a
+        `GROUP_PERMISSIONS_CHANGE` with outcome `FAILURE` and a generic reason
+        (`INVALID_PERMISSIONS`, `UNKNOWN_RESOURCE`, `PROTECTED_RESOURCE`) that
+        names no Permission, logged at `WARN`. A `403` is the authorization
+        refusal every operation records (`ACCESS_DENIED`).
+      operationId: setGroupPermissions
+      security:
+        - sessionCookie: [superuser]
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              description: The complete set the Group is to carry.
+              items:
+                $ref: "#/components/schemas/DelegatablePermission"
+            example: ["audit:read", "user:read"]
+      responses:
+        "200":
+          description: The Group as it now stands, its Permissions the set sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupSummary"
+        "400":
+          description: |
+            The body is missing, is not JSON, is not an array of strings, or names
+            something that is not a delegatable Permission — an unknown name, a
+            token-only write half (`user:write`, `group:write`) or the baseline
+            `patient:read`; or the path's id is not a UUID. Nothing is written. The
+            generic `invalid-request` `ApiError`, naming neither the value nor the
+            rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
+        "404":
+          description: |
+            No Group has that id: it never existed, or a connector deleted it. The
+            generic `request-refused` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: |
+            The Group is the Admin group, whose direct members' power is the
+            Superuser, which is not a Permission: it carries none and none can be
+            set on it. The generic `request-refused` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/permissions:
     get:
       tags: [Administration]
@@ -2731,6 +2817,16 @@ components:
       schema:
         type: string
         format: uuid
+    GroupId:
+      name: id
+      in: path
+      required: true
+      description: |
+        The Group to act on, by its stable SCIM resource id — never its
+        `displayName`, which a connector may change.
+      schema:
+        type: string
+        format: uuid
     CsrfToken:
       name: X-CSRF-TOKEN
       in: header
@@ -3519,7 +3615,9 @@ components:
           type: string
     GroupSummary:
       type: object
-      description: One row of the read-only Groups projection.
+      description: |
+        One row of the Groups projection: read-only but for its Permissions,
+        which the Superuser sets.
       required: [id, displayName, memberCount, adminGroup, permissions]
       properties:
         id:
@@ -3845,7 +3943,9 @@ components:
             `DORMANCY_MEMBERSHIP_REVOCATION` — the subject User's effective
             Permissions before it: what its direct Group memberships conferred,
             every delegatable Permission included for the Superuser, the baseline
-            `patient:read` not; sorted by name. Empty for every other event. An
+            `patient:read` not; sorted by name. On an accepted
+            `GROUP_PERMISSIONS_CHANGE`, the Group's own Permissions before it,
+            sorted by name. Empty for every other event. An
             event recorded under a Role, before the trail spoke in Permissions,
             carries the Role's name here when the change took it away.
         permissionsAfter:
@@ -3853,8 +3953,9 @@ components:
           items:
             type: string
           description: |
-            The same User's effective Permissions after the membership change,
-            sorted by name. Empty for every other event. An event recorded under a
+            The same User's effective Permissions after the membership change, or
+            the Group's after a `GROUP_PERMISSIONS_CHANGE`, sorted by name. Empty
+            for every other event. An event recorded under a
             Role carries the Role's name here when the change granted it.
         superuserChanged:
           type: [boolean, "null"]
@@ -3909,6 +4010,7 @@ components:
         - ACCESS_DENIED
         - PERMISSION_GRANT
         - PERMISSION_REVOKE
+        - GROUP_PERMISSIONS_CHANGE
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
@@ -3931,7 +4033,13 @@ components:
         the Group's `DELETE` — with the connector as actor, the User as subject,
         the Group as resource, the User's effective Permissions in
         `permissionsBefore` and `permissionsAfter`, and `superuserChanged`. A Group
-        that confers nothing records neither.
+        that confers nothing records neither. `GROUP_PERMISSIONS_CHANGE` is the
+        Superuser setting a Group's Permissions: the Superuser as actor, the Group
+        as subject and resource, `changedPaths` `permissions`, and the GROUP's
+        Permissions in `permissionsBefore` and `permissionsAfter`, with
+        `superuserChanged` `null`. A refused one is a `FAILURE` naming the Group
+        addressed and one generic `errorCode` — `INVALID_PERMISSIONS`,
+        `UNKNOWN_RESOURCE` or `PROTECTED_RESOURCE` — and no Permission.
     ConnectorTokenPermissions:
       type: array
       minItems: 1

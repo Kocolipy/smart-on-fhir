@@ -227,8 +227,9 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     /**
-     * The Superuser-only operations are exactly connector creation and deletion and the three
-     * token operations: the document names no Permission for them, and a session holding every
+     * The Superuser-only operations are exactly connector creation and deletion, the three token
+     * operations and setting a Group's Permissions: the document names no Permission for them,
+     * and a session holding every
      * Permission but not {@code ROLE_SUPERUSER} is refused {@code 403} where one holding that role
      * alone is refused neither {@code 401} nor {@code 403}.
      */
@@ -240,7 +241,8 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 "POST /api/admin/connectors", "DELETE /api/admin/connectors/{connectorId}",
                 "POST /api/admin/connectors/{connectorId}/tokens",
                 "POST /api/admin/connectors/{connectorId}/tokens/{tokenId}/rotate",
-                "POST /api/admin/connectors/{connectorId}/tokens/{tokenId}/revoke");
+                "POST /api/admin/connectors/{connectorId}/tokens/{tokenId}/revoke",
+                "PUT /api/admin/groups/{id}/permissions");
         List<String> failures = new ArrayList<>();
         for (Operation operation : superuserOnly) {
             int everyPermission = call(operation, session(EVERY_PERMISSION));
@@ -621,7 +623,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     @Test
     void each_superuser_only_handler_holds_the_superuser_requirement_itself() {
         List<Operation> handled = withAccess(Access.SUPERUSER);
-        assertThat(handled).hasSize(5);
+        assertThat(handled).hasSize(6);
         List<String> failures = new ArrayList<>();
         for (Operation operation : handled) {
             HandlerMethod handler = handlerOf(operation);

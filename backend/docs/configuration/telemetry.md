@@ -34,4 +34,5 @@ revoked; `app_dormancy_users_roles_revoked_total` before #158, see
 spike on an existing series. Authorization changes are counted on
 `authorization_changes_total{operation}` (`AuthorizationChangeMetrics`), also at
 zero from startup: `operation="superuser-grant"` counts a User gaining direct
-membership of the Admin group.
+membership of the Admin group, and `operation="group-permissions-change"` counts
+the Superuser setting a Group's Permissions.

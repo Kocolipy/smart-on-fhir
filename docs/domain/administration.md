@@ -18,6 +18,7 @@ owns, plus the application-owned operations:
   way a lockout ends — one that also requires the User to change its password;
 - the **forced password change**, offered only on a credentialed User not already
   flagged;
+- **Group Permissions**, set by the Superuser from the Groups projection;
 - connector and token management with one-time plaintext disclosure.
 
 Both User operations address the User by its stable id. It offers neither
@@ -27,9 +28,10 @@ backend's [refusals](./authentication.md) are visible before the click. There is
 no Deactivate or Activate: `active` is the directory's, and the backend has no
 endpoint that would accept a write to any directory-owned field. Each view and
 action is shown by its own Permission — the Users projection by `user:read`, its
-Unlock and forced change by `account:unlock`, the Groups projection by `group:read`,
-connectors by `connector:read` (create, delete and every token action are shown
-only to a Superuser) — and the page renders for a User who may see at least one view;
+Unlock and forced change by `account:unlock`, the Groups projection by `group:read`
+(its "Edit permissions" action only to a Superuser), connectors by `connector:read`
+(create, delete and every token action are shown only to a Superuser) — and the
+page renders for a User who may see at least one view;
 a deep link from anyone else is routed to Home. The page never decides
 authorization: the backend refuses each operation to a caller lacking its
 Permission regardless.
@@ -60,9 +62,32 @@ for.
   so "not locked" would describe a condition that could change.
 
 **Groups projection** — what identity administration may know about a Group, one
-row per Group (`GET /api/admin/groups`): its name, its direct member count, and
-whether it is the protected Admin group, decided by the reservation marker.
-Read-only in its entirety; Groups and membership are the directory's.
+row per Group (`GET /api/admin/groups`): its name, its direct member count,
+whether it is the protected Admin group, decided by the reservation marker, and
+the Permissions it carries. Its name and membership are the directory's and
+read-only here; its Permissions are the application's.
+
+**Group Permissions** — what a Group confers, set only by the Superuser (ADR 0015):
+in the Groups projection a Superuser sees "Edit permissions" on every Group but the
+Admin group, which opens a dialog of one checkbox per delegatable Permission, fed
+by `GET /api/admin/permissions` and pre-ticked with what the Group carries. Save
+sends the complete set (`PUT /api/admin/groups/{id}/permissions`), replacing the
+Group's — an empty set clears it, and the last writer wins — and the row shows the
+Group as the response states it. Nobody else is offered the action, and nothing
+sets a Group's Permissions over SCIM. The session effects — a Permission taken
+away ends every direct member's sessions at once, one added reaches them at their
+next sign-in — are [authorization's](./authorization.md). Every change is audited:
+
+
+- an accepted change is one `GROUP_PERMISSIONS_CHANGE` naming the Superuser, the
+  Group and the Group's Permissions before and after, logged at `INFO` and counted
+  on `authorization.changes{operation="group-permissions-change"}`;
+- a refused one — a body that is not a set of delegatable Permissions (`400`), a
+  Group that does not exist (`404`), the Admin group (`409`) — is a
+  `GROUP_PERMISSIONS_CHANGE` failure naming the Group addressed and one generic
+  reason (`INVALID_PERMISSIONS`, `UNKNOWN_RESOURCE`, `PROTECTED_RESOURCE`), never
+  a Permission, logged at `WARN`. A caller who is not the Superuser gets the
+  generic `403`, recorded as every authorization refusal is (`ACCESS_DENIED`).
 
 ## SCIM audit trail
 

@@ -68,6 +68,19 @@ const MEMBERSHIP_OPERATIONS: readonly AuditOperation[] = [
 const listed = (values: readonly string[]): string =>
   values.length === 0 ? "none" : values.join(", ");
 
+const permissionChange = (event: AuditEvent): string =>
+  `permissions: ${listed(event.permissionsBefore)} → ${listed(event.permissionsAfter)}`;
+
+/**
+ * A Group Permissions change's part of Details: the Group's Permissions before
+ * and after. A refused one changed nothing and names none — its reason is the
+ * Status column's.
+ */
+function groupPermissionsParts(event: AuditEvent): string[] {
+  if (event.operation !== "GROUP_PERMISSIONS_CHANGE" || event.outcome !== "SUCCESS") return [];
+  return [permissionChange(event)];
+}
+
 /**
  * A membership change's part of Details: the User's effective Permissions
  * before and after, whether it granted or removed the Superuser, and the
@@ -78,7 +91,7 @@ function membershipParts(event: AuditEvent): (string | null)[] {
   const superuser =
     event.operation === "PERMISSION_GRANT" ? "Superuser granted" : "Superuser removed";
   return [
-    `permissions: ${listed(event.permissionsBefore)} → ${listed(event.permissionsAfter)}`,
+    permissionChange(event),
     event.superuserChanged === true ? superuser : null,
     event.groupIds.length === 0 ? null : `groups: ${event.groupIds.join(", ")}`,
   ];
@@ -97,6 +110,7 @@ function detailsCell(event: AuditEvent): string {
     event.filterShape,
     event.permissions.length === 0 ? null : event.permissions.join(", "),
     ...membershipParts(event),
+    ...groupPermissionsParts(event),
   ].filter((part): part is string => part !== null);
   return parts.length === 0 ? "—" : parts.join(" · ");
 }

@@ -1235,6 +1235,51 @@ class AuditTrailServiceTests {
         });
     }
 
+    /**
+     * A Superuser setting a Group's Permissions names the Superuser as actor and the Group as
+     * subject and resource, and records the GROUP's Permissions before and after, sorted by name:
+     * not a membership change, so there is no Superuser marker and no Group list.
+     */
+    @Test
+    void aGroupPermissionsChangeNamesTheGroupAndItsPermissionsBeforeAndAfter() {
+        trail.append(new Audited.GroupPermissionsChanged(ACTOR, GROUP,
+                EnumSet.of(Permission.USER_READ, Permission.AUDIT_READ),
+                EnumSet.of(Permission.GROUP_READ, Permission.AUDIT_READ)));
+
+        AuditEvent changed = events.only();
+        assertThat(Arrays.<Object>asList(changed.operation(), changed.outcome(), changed.actorId(),
+                        changed.subjectId(), changed.resourceType(), changed.resourceId(),
+                        changed.statusClass(), changed.errorCode(), changed.superuserChanged()))
+                .containsExactly(AuditOperation.GROUP_PERMISSIONS_CHANGE, AuditOutcome.SUCCESS,
+                        ACTOR, GROUP, AuditEvent.GROUP_RESOURCE_TYPE, GROUP, "ok", null, null);
+        assertThat(List.<List<?>>of(changed.changedPaths(), changed.permissionsBefore(),
+                        changed.permissionsAfter(), changed.permissions(), changed.groupIds()))
+                .containsExactly(List.of("permissions"), List.of("audit:read", "user:read"),
+                        List.of("audit:read", "group:read"), List.of(), List.of());
+    }
+
+    /**
+     * A refused change — a body that is not a set of delegatable Permissions, a Group that does not
+     * exist, the Admin group — is a failure on the same operation, naming the Group addressed and
+     * one generic reason, and no Permission at all: nothing changed.
+     */
+    @Test
+    void aRefusedGroupPermissionsChangeNamesTheGroupAndAGenericReasonAndNoPermission() {
+        trail.append(new Audited.GroupPermissionsChangeRefused(
+                ACTOR, GROUP, AuditAdministrativeRefusal.INVALID_PERMISSIONS));
+
+        AuditEvent refused = events.only();
+        assertThat(Arrays.<Object>asList(refused.operation(), refused.outcome(), refused.actorId(),
+                        refused.subjectId(), refused.resourceType(), refused.resourceId(),
+                        refused.statusClass(), refused.errorCode(), refused.superuserChanged()))
+                .containsExactly(AuditOperation.GROUP_PERMISSIONS_CHANGE, AuditOutcome.FAILURE,
+                        ACTOR, GROUP, AuditEvent.GROUP_RESOURCE_TYPE, GROUP, "client_error",
+                        "INVALID_PERMISSIONS", null);
+        assertThat(List.<List<?>>of(refused.changedPaths(), refused.permissionsBefore(),
+                        refused.permissionsAfter(), refused.permissions()))
+                .containsExactly(List.of(), List.of(), List.of(), List.of());
+    }
+
     // The two failure semantics, kind by kind
 
     /** How an append behaved against the forced failure: whether it propagated, and the alerts. */
@@ -1291,6 +1336,9 @@ class AuditTrailServiceTests {
             Map.entry(Audited.DormancyMembershipRevocation.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PermissionGranted.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PermissionRevoked.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.GroupPermissionsChanged.class, Semantics.FAIL_CLOSED),
+            // A body, a Group or the Admin group the change cannot be made to: already refused.
+            Map.entry(Audited.GroupPermissionsChangeRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.PasswordChangeRequired.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PasswordChangeRequirementRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.PasswordChanged.class, Semantics.FAIL_CLOSED),

@@ -205,12 +205,18 @@ class IdentityAdministrationServiceTests {
         ScimGroup empty = groups.create(ScimIdentities.group("Empty"));
         groupPermissions.carrying(lookalike.id(), Permission.USER_READ, Permission.OPS_READ);
 
-        // Normalized display-name order: "administrators" sorts before "admins".
-        assertThat(service.listGroups()).containsExactly(
-                new GroupSummary(lookalike.id(), "Administrators", 2, false,
-                        List.of("ops:read", "user:read")),
-                new GroupSummary(admins.id(), "Admins", 1, true, List.of()),
-                new GroupSummary(empty.id(), "Empty", 0, false, List.of()));
+        // Normalized display-name order: "administrators" sorts before "admins". Read field by
+        // field rather than compared as records, so the expected rows cannot share a defect of
+        // the record they would be built with.
+        assertThat(service.listGroups())
+                .extracting(GroupSummary::id, GroupSummary::displayName,
+                        GroupSummary::memberCount, GroupSummary::adminGroup,
+                        GroupSummary::permissions)
+                .containsExactly(
+                        tuple(lookalike.id(), "Administrators", 2, false,
+                                List.of("ops:read", "user:read")),
+                        tuple(admins.id(), "Admins", 1, true, List.of()),
+                        tuple(empty.id(), "Empty", 0, false, List.of()));
     }
 
     @Test
