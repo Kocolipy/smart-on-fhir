@@ -301,8 +301,8 @@ public class AuthController {
 
     /**
      * @param permissions            the Permissions the session was issued with, by name, sorted
-     *                               by name; empty for a User in no mapped Group and while a
-     *                               password change is required. A Superuser's include every
+     *                               by name: the baseline and what the User's direct Groups
+     *                               carry; empty while a password change is required. A Superuser's include every
      *                               delegatable Permission
      * @param superuser              whether the session is the Superuser's: its User is a direct
      *                               member of the Admin group. Not a Permission, so never among

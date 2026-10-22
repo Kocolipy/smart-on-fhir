@@ -22,8 +22,8 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
  * are written in.
  *
  * <p>Beside the run metrics every job has, two counters make an unexpected mass lockout or
- * revocation visible as a spike: {@value #LOCKED_USERS} and {@value #ROLES_REVOKED_USERS}. They
- * are moved by the same counts the run's {@code job-end} record carries, once the run has
+ * revocation visible as a spike: {@value #LOCKED_USERS} and
+ * {@value #MEMBERSHIPS_REVOKED_USERS}. They are moved by the same counts the run's {@code job-end} record carries, once the run has
  * returned — after its transaction committed — so a rolled-back or skipped run counts nothing.
  */
 @Configuration
@@ -36,14 +36,14 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     /** What the dormancy job does, on its startup record. */
     public static final String DESCRIPTION =
             "Locks every User that has not authenticated within the dormancy lockout window, and"
-                    + " removes the mapped Group memberships of every User that has not"
-                    + " authenticated within the role revocation window";
+                    + " removes every Group membership of every User that has not"
+                    + " authenticated within the membership revocation window";
 
     /** Users the dormancy job locked, counted per run. */
     static final String LOCKED_USERS = "app.dormancy.users.locked";
 
-    /** Users whose Roles the dormancy job revoked, counted per run. */
-    static final String ROLES_REVOKED_USERS = "app.dormancy.users.roles.revoked";
+    /** Users whose Group memberships the dormancy job removed, counted per run. */
+    static final String MEMBERSHIPS_REVOKED_USERS = "app.dormancy.users.memberships.revoked";
 
     private final DormancyService dormancy;
     private final DormancyPolicy policy;
@@ -67,11 +67,12 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
                         SCHEDULE, DESCRIPTION, dormancy::run)
                 .startupField(DormancyLogFields.DORMANCY_LOCKOUT_WINDOW,
                         policy.lockoutWindow().toString())
-                .startupField(DormancyLogFields.DORMANCY_ROLE_REVOCATION_WINDOW,
+                .startupField(DormancyLogFields.DORMANCY_MEMBERSHIP_REVOCATION_WINDOW,
                         policy.membershipRevocationWindow().toString())
                 .countedAs(DormancyLogFields.DORMANCY_LOCKED_COUNT, LOCKED_USERS,
                         "Users the dormancy job locked")
-                .countedAs(DormancyLogFields.DORMANCY_ROLES_REVOKED_COUNT, ROLES_REVOKED_USERS,
-                        "Users whose mapped Group memberships the dormancy job removed"));
+                .countedAs(DormancyLogFields.DORMANCY_MEMBERSHIPS_REVOKED_COUNT,
+                        MEMBERSHIPS_REVOKED_USERS,
+                        "Users whose Group memberships the dormancy job removed"));
     }
 }

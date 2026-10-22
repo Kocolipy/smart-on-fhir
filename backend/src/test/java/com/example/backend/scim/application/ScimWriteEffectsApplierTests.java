@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -36,7 +36,7 @@ class ScimWriteEffectsApplierTests {
             new InMemoryScimGroupRepository(users),
             (connectorId, userId, causes) -> revoked.add(userId),
             audit,
-            TestRoleMappings.superuserOnly(),
+            TestGroupPermissions.superuserOnly(),
             () -> {
             });
 

@@ -13,7 +13,7 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.LoginIdentityService;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.observability.RequestIdFilter;
@@ -703,7 +703,7 @@ class PasswordChangeLifecycleIntegrationTests {
         // holds; null, a confined session holding none.
         assertThat(body.has("role")).isFalse();
         int expected = role == null ? 0
-                : "ADMIN".equals(role) ? TestRoleMappings.EVERY_PERMISSION.size()
+                : "ADMIN".equals(role) ? TestGroupPermissions.EVERY_PERMISSION.size()
                 : LoginIdentityService.BASELINE_PERMISSIONS.size();
         assertThat(body.get("permissions").size()).isEqualTo(expected);
         Cookie session = login.getResponse().getCookie(sessionCookieName);

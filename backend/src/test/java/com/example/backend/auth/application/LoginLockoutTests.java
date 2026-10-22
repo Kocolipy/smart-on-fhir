@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.LoginStateModules;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
@@ -20,6 +20,7 @@ import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -100,7 +101,7 @@ class LoginLockoutTests {
                 ScimIdentities.group("Admins", recovery), ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 sessions,
                 transaction,
@@ -121,7 +122,8 @@ class LoginLockoutTests {
                 groups,
                 loginState,
                 revocation,
-                audit);
+                audit,
+                InMemoryGroupPermissions.over(groups));
     }
 
     @Test

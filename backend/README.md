@@ -32,10 +32,9 @@ make infra-up        # from the repository root
 Spring Boot does not read `.env` itself, so export it first (`make dev` from the
 repository root does). It carries `DATABASE_URL` and the three database logins,
 none of which has a default, and `SPRING_PROFILES_ACTIVE=local`, the profile
-that runs the migrations at startup. Without `APP_DEV_FIXTURES_ENABLED=true` and
-`APP_DEV_FIXTURES_PASSWORD`, startup refuses the shipped development role
-mapping, because the Groups it names do not exist
-([Role mapping](docs/configuration/role-mapping.md)).
+that runs the migrations at startup and, with `APP_DEV_FIXTURES_ENABLED=true` and
+`APP_DEV_FIXTURES_PASSWORD`, seeds the development Groups' Permissions
+([Group Permissions](docs/configuration/group-permissions.md)).
 
 The service listens on `http://localhost:8080`; its health endpoint is
 `GET /actuator/health`.
@@ -48,8 +47,8 @@ table. Startup seeds the **Bootstrap Admin** (`APP_BOOTSTRAP_USERNAME` /
 production) and the **Admin group**. With the development fixtures on, a freshly
 seeded Bootstrap Admin owes no first-login password change; an existing one keeps
 whatever flag it has. With the development fixtures on, there is
-also a User per development Role, all with `APP_DEV_FIXTURES_PASSWORD`
-([Role mapping](docs/configuration/role-mapping.md)). Lockout (the threshold is
+also a User per development Group, all with `APP_DEV_FIXTURES_PASSWORD`
+([Group Permissions](docs/configuration/group-permissions.md)). Lockout (the threshold is
 `APP_LOCKOUT_MAX_ATTEMPTS`), session windows and their defaults are in
 `/docs/domain/authentication.md` and `/docs/domain/sessions.md`.
 

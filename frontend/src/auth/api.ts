@@ -24,7 +24,8 @@ export type Permission = (typeof PERMISSIONS)[number];
 export interface AuthUser {
   /**
    * What the session may do, as the backend issued it at sign-in: the union of
-   * the Roles its Groups confer. Empty for a User in no mapped Group, and while
+   * the baseline and the Permissions its direct Groups carry — for a Superuser,
+   * every delegatable one. Empty while
    * `passwordChangeRequired` is set. The SPA decides what to SHOW from this;
    * the backend alone decides what is allowed.
    */
@@ -48,15 +49,20 @@ export interface AuthUser {
 }
 
 /**
- * One Permission name, checked against `PERMISSIONS` rather than trusted: an
- * unknown string would otherwise reach a guard as if it granted something.
+ * A decoder for one Permission name in the `field` of a response, checked
+ * against `PERMISSIONS` rather than trusted: an unknown string would otherwise
+ * reach a guard as if it granted something. The one Permission decoder; each
+ * response that lists Permissions names its own field in the error.
  */
-function decodePermission(value: unknown): Permission {
-  const permission = PERMISSIONS.find((candidate) => candidate === value);
-  if (permission === undefined)
-    throw new DecodeError("UserResponse.permissions holds an unknown value");
-  return permission;
-}
+export const permissionDecoder =
+  (field: string) =>
+  (value: unknown): Permission => {
+    const permission = PERMISSIONS.find((candidate) => candidate === value);
+    if (permission === undefined) throw new DecodeError(`${field} holds an unknown value`);
+    return permission;
+  };
+
+const decodePermission = permissionDecoder("UserResponse.permissions");
 
 /**
  * The `/me` and login `UserResponse`, read the same way for both. A body that

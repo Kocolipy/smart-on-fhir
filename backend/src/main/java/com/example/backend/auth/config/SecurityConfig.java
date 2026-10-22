@@ -334,8 +334,8 @@ public class SecurityConfig {
                         // ROLE_USER, not merely authenticated: a session issued while a password
                         // change was required does not hold it, so it is refused here with 403,
                         // as it is everywhere but the three routes above. Every active User
-                        // without the flag holds ROLE_USER, whatever Roles it has or lacks, so
-                        // a misconfigured mapping can never take it away.
+                        // without the flag holds ROLE_USER, whatever its Groups carry, so no
+                        // Group can take it away.
                         .requestMatchers(read("/api/self")).hasRole(USER_ROLE)
                         // ---- Permission per operation (backstop; see above) ----
                         .requestMatchers(read("/api/admin/accounts"))
@@ -344,7 +344,7 @@ public class SecurityConfig {
                                         "/api/admin/accounts/*/unlock",
                                         "/api/admin/accounts/*/force-password-change")
                                 .hasAuthority(Permission.ACCOUNT_UNLOCK.value())
-                        .requestMatchers(read("/api/admin/groups"), read("/api/admin/roles"))
+                        .requestMatchers(read("/api/admin/groups"), read("/api/admin/permissions"))
                                 .hasAuthority(Permission.GROUP_READ.value())
                         .requestMatchers(read("/api/admin/audit-events"))
                                 .hasAuthority(Permission.AUDIT_READ.value())

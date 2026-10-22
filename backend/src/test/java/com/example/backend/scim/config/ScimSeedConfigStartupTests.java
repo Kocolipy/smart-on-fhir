@@ -1,15 +1,15 @@
 package com.example.backend.scim.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.LoginStateModules;
-import com.example.backend.authorization.TestRoleMappings;
-import com.example.backend.authorization.domain.InvalidRoleMappingException;
-import com.example.backend.authorization.domain.RoleMapping;
-import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
-import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
+import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.authorization.domain.InvalidGroupPermissionsException;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
@@ -17,27 +17,31 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * The startup step that seeds the directory, then the development fixtures when enabled, then
- * refuses a role mapping naming a Group that does not exist.
+ * The startup step that seeds the directory, then the development fixtures when enabled — their
+ * Group Permissions after their Groups — then refuses a directory without its Admin group or with
+ * a stored Group Permission no Group may carry.
  *
  * <p>The runner is taken from a real context, with {@code app.dev-fixtures} bound as a deployment's
  * configuration is, and run as startup runs it; a runner that throws is a failed startup. The
  * directory behind it is in memory, so each test controls exactly which Groups exist.
- * {@code DevelopmentRoleMappingIntegrationTests} proves the same step against SQL Server, by starting
- * with the shipped development mapping at all.
+ * {@code DevelopmentFixturesIntegrationTests} proves the same step against SQL Server.
  */
 class ScimSeedConfigStartupTests {
 
@@ -49,19 +53,14 @@ class ScimSeedConfigStartupTests {
 
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
 
-    /** The Superuser Group, plus a Helpdesk Group that only the fixtures create. */
-    private final RoleMapping mapping = RoleMapping.of(
-            List.of(new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                    new RoleDefinition("Helpdesk", List.of("user:read"))),
-            List.of(new GroupAssignment(TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
-                    new GroupAssignment(HELPDESK, "Helpdesk", false)));
+    private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups);
 
     private final ApplicationContextRunner contexts = new ApplicationContextRunner()
             .withBean(ScimSeedService.class, () -> new ScimSeedService(
                     users, groups, new InMemoryScimWriteLocks(), () -> { },
                     new RecordingAuditTrail(),
                     new MarkingPasswordEncoder(),
-                    Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping,
+                    Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), groupPermissions,
                     LoginStateModules.over(
                             users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC))))
             .withBean(DormancyPolicy.class, DormancyPolicy::defaults)
@@ -72,18 +71,18 @@ class ScimSeedConfigStartupTests {
 
     /**
      * Fixtures off: the Bootstrap Admin is the only User seeded — the baseline member, though
-     * configured, is a fixture and is not. (The Helpdesk Group is then missing, so the check after
-     * seeding refuses; seeding has already run by then.)
+     * configured, is a fixture and is not — and startup succeeds with the Admin group alone.
      */
     @Test
     void withTheFixturesOffTheBootstrapAdminIsTheOnlyUserSeeded() {
         contexts.withPropertyValues("app.dev-fixtures.baseline-member=user")
-                .run(context -> assertThatThrownBy(
+                .run(context -> assertThatCode(
                         () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
-                        .isInstanceOf(InvalidRoleMappingException.class));
+                        .doesNotThrowAnyException());
 
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isPresent();
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isEmpty();
+        assertThat(groups.findById(TestGroupPermissions.SUPERUSER_GROUP_ID)).isPresent();
     }
 
     /** Fixtures on with a baseline member: it is seeded in no Group, on the fixture password. */
@@ -106,9 +105,7 @@ class ScimSeedConfigStartupTests {
     /** Fixtures off: the Bootstrap Admin owes its first-login change, as in a deployment. */
     @Test
     void withTheFixturesOffTheBootstrapAdminOwesAPasswordChange() {
-        contexts.run(context -> assertThatThrownBy(
-                () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
-                .isInstanceOf(InvalidRoleMappingException.class));
+        contexts.run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(users.require("admin").login().isPasswordChangeRequired()).isTrue();
     }
@@ -127,20 +124,9 @@ class ScimSeedConfigStartupTests {
         assertThat(users.require("admin").login().isPasswordChangeRequired()).isFalse();
     }
 
-    /** Fixtures off: the Helpdesk Group was never created, so startup refuses, naming it. */
+    /** Fixtures on: the Group they create exists, with its User in it. */
     @Test
-    void aMappedGroupThatDoesNotResolveFailsStartup() {
-        contexts.run(context -> assertThatThrownBy(
-                        () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
-                .isInstanceOf(InvalidRoleMappingException.class)
-                .hasMessage("Invalid role mapping: Group " + HELPDESK + " does not exist"));
-        // Seeding ran first: the check refused a directory that had been seeded.
-        assertThat(groups.findById(TestRoleMappings.SUPERUSER_GROUP_ID)).isPresent();
-    }
-
-    /** Fixtures on: they run before the check, so the Group they create satisfies it. */
-    @Test
-    void theFixturesRunBeforeTheCheckSoTheirGroupsResolve() {
+    void theFixturesCreateTheirGroupsWithTheirUsers() {
         contexts.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
@@ -151,6 +137,99 @@ class ScimSeedConfigStartupTests {
 
         assertThat(groups.findById(HELPDESK).orElseThrow().hasMember(users.require("helpdesk").id()))
                 .isTrue();
+    }
+
+    /** The fixture Group Permissions apply after the fixture Groups, so the Group they name exists. */
+    @Test
+    void theFixtureGroupPermissionsApplyToTheGroupTheFixturesCreate() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk",
+                        "app.dev-fixtures.group-permissions[0].group=" + HELPDESK,
+                        "app.dev-fixtures.group-permissions[0].permissions=user:read,account:unlock")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groupPermissions.carriedBy(List.of(HELPDESK))).isEqualTo(Map.of(
+                HELPDESK, Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK)));
+    }
+
+    /** With the fixtures off, their Group Permissions are not applied either. */
+    @Test
+    void withTheFixturesOffNoGroupPermissionIsSeeded() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.group-permissions[0].group=" + HELPDESK,
+                        "app.dev-fixtures.group-permissions[0].permissions=user:read")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groupPermissions.findAll()).isEmpty();
+    }
+
+    /**
+     * A stored Group Permission naming one no Group may carry — a Permission removed from code
+     * whose rows no migration deleted — fails startup with a message naming it, after seeding.
+     */
+    @Test
+    void aStoredGroupPermissionNoGroupMayCarryFailsStartup() {
+        groups.given(ScimGroup.created(HELPDESK, "Helpdesk", List.of(), ScimIdentities.NOW));
+        groupPermissions.store(HELPDESK, "connector:write");
+
+        contexts.run(context -> assertThatThrownBy(
+                        () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
+                .isInstanceOf(InvalidGroupPermissionsException.class)
+                .hasMessage("Invalid Group Permissions: Group " + HELPDESK
+                        + " carries unknown Permission 'connector:write'."
+                        + " Delete the rows, or restore the Permission in code"));
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isPresent();
+    }
+
+    // ---- the shipped development fixtures --------------------------------------------------
+
+    /** The shipped document, enabled as a local run enables it, under these profiles. */
+    private ApplicationContextRunner shipped(String profiles) {
+        return contexts
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues(
+                        "spring.config.location=classpath:authorization.yaml",
+                        "spring.profiles.active=" + profiles,
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password");
+    }
+
+    /**
+     * The {@code local} profile seeds each development Group's Permissions — the access levels the
+     * e2e suite signs in at — and the Admin group none.
+     */
+    @Test
+    void theLocalProfileSeedsTheDevelopmentGroupsPermissions() {
+        shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groupPermissions.carriedBy(List.of(
+                        group("a001"), group("a002"), group("a003"), group("a004"), group("a005"),
+                        group("a006"), group("a007"))))
+                .isEqualTo(Map.of(
+                        group("a002"), Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK,
+                                Permission.GROUP_READ),
+                        group("a003"), Set.of(Permission.AUDIT_READ),
+                        group("a004"), Set.of(Permission.CONNECTOR_READ),
+                        group("a005"), Set.of(Permission.OPS_READ),
+                        group("a006"), Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK),
+                        group("a007"), Set.of(Permission.AUDIT_READ)));
+    }
+
+    /** Any other profile seeds the same Groups and no Group Permission at all. */
+    @Test
+    void anotherProfileSeedsNoGroupPermission() {
+        shipped("dev").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groups.findById(group("a002"))).isPresent();
+        assertThat(groupPermissions.findAll()).isEmpty();
+    }
+
+    private static UUID group(String suffix) {
+        return UUID.fromString("00000000-0000-4000-8000-00000000" + suffix);
     }
 
     /**
@@ -219,18 +298,6 @@ class ScimSeedConfigStartupTests {
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD"));
         assertThat(groups.findById(HELPDESK)).isEmpty();
-    }
-
-    /** Enabled with no fixture Groups listed seeds nothing extra, and the check still runs. */
-    @Test
-    void enabledFixturesWithNoGroupsStillRunTheCheck() {
-        contexts.withPropertyValues(
-                        "app.dev-fixtures.enabled=true",
-                        "app.dev-fixtures.password=fixture-password")
-                .run(context -> assertThatThrownBy(
-                                () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
-                        .isInstanceOf(InvalidRoleMappingException.class)
-                        .hasMessageContaining(HELPDESK.toString()));
     }
 
     /** A deterministic stand-in: hashing is not what these tests are about. */

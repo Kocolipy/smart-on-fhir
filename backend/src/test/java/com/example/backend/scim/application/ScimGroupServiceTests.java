@@ -7,10 +7,11 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.MutableClock;
-import com.example.backend.authorization.TestRoleMappings;
-import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
@@ -62,17 +63,17 @@ class ScimGroupServiceTests {
     private static final UUID HELPDESK_GROUP_ID =
             UUID.fromString("00000000-0000-4000-8000-0000000b0002");
 
-    /** The Superuser Group, as the test configuration maps it, plus one ordinary mapped Group. */
-    private static final RoleMapping ROLE_MAPPING = RoleMapping.of(
-            List.of(new RoleMapping.RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                    new RoleMapping.RoleDefinition("Helpdesk", List.of("user:read", "account:unlock"))),
-            List.of(new RoleMapping.GroupAssignment(
-                            TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
-                    new RoleMapping.GroupAssignment(HELPDESK_GROUP_ID, "Helpdesk", false)));
-
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
+
+    /**
+     * The Groups' stored Permissions over this directory: the Helpdesk Group carries its two, and
+     * the Admin group — by its marker — none. A deleted Group's rows go with it, as the cascade
+     * takes them in the database.
+     */
+    private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups)
+            .carrying(HELPDESK_GROUP_ID, Permission.USER_READ, Permission.ACCOUNT_UNLOCK);
 
     private final InMemoryScimExternalIdRepository aliases =
             new InMemoryScimExternalIdRepository();
@@ -132,7 +133,7 @@ class ScimGroupServiceTests {
             audit,
             clock,
             queries,
-            ROLE_MAPPING,
+            groupPermissions,
             () -> superuserGrants++);
 
     private ScimUser alice;
@@ -690,14 +691,17 @@ class ScimGroupServiceTests {
 
     // ---- a membership of a Group that confers Permissions is a change of power -------------------
 
-    /** What the Helpdesk Role holds, sorted by name. */
+    /** What the Helpdesk Group carries, sorted by name. */
     private static final String HELPDESK_PERMISSIONS = "account:unlock,user:read";
 
-    /** What the Superuser Role holds — every Permission a session can hold — sorted by name. */
+    /**
+     * What the Superuser holds beyond the baseline — every delegatable Permission, expanded in
+     * code, since the Admin group carries none — sorted by name.
+     */
     private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
-            + "group:read,ops:read,patient:read,user:read";
+            + "group:read,ops:read,user:read";
 
-    /** The Group conferring Permissions, stored under the id the mapping names, with these members. */
+    /** The Group conferring Permissions, stored under the id its rows name, with these members. */
     private ScimGroup helpdeskWith(ScimUser... members) {
         return groups.create(ScimGroup.created(
                 HELPDESK_GROUP_ID,
@@ -709,9 +713,9 @@ class ScimGroupServiceTests {
     }
 
     /** The revocation a removal from a conferring Group asks for, on behalf of this connector. */
-    private Revocation roleRevocation(ScimUser user) {
+    private Revocation membershipRevocation(ScimUser user) {
         return new Revocation(CONNECTOR.connectorId(), user.id(),
-                Set.of(ScimUserSessions.Cause.ROLE_REVOKED));
+                Set.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED));
     }
 
     /**
@@ -737,7 +741,7 @@ class ScimGroupServiceTests {
         service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
                 List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
 
-        assertThat(revocations).containsExactly(roleRevocation(alice));
+        assertThat(revocations).containsExactly(membershipRevocation(alice));
         assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(permissionChange(
                 AuditOperation.PERMISSION_REVOKE, alice, HELPDESK_GROUP_ID,
                 HELPDESK_PERMISSIONS, "", false));
@@ -837,7 +841,7 @@ class ScimGroupServiceTests {
                 .isTrue();
 
         assertThat(groups.findById(HELPDESK_GROUP_ID)).isEmpty();
-        assertThat(revocations).containsExactlyInAnyOrder(roleRevocation(alice), roleRevocation(bob));
+        assertThat(revocations).containsExactlyInAnyOrder(membershipRevocation(alice), membershipRevocation(bob));
         assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactlyInAnyOrder(
                 permissionChange(AuditOperation.PERMISSION_REVOKE, alice, HELPDESK_GROUP_ID,
                         HELPDESK_PERMISSIONS, "", false),
@@ -997,6 +1001,17 @@ class ScimGroupServiceTests {
         assertThat(tombstones.recorded()).containsExactly(
                 new InMemoryScimTombstoneRepository.Tombstone(
                         ScimResourceType.GROUP, created.id(), ScimIdentities.NOW));
+    }
+
+    /** A Group carrying no Permissions confers nothing, so deleting it is no change of power. */
+    @Test
+    void deleting_a_group_carrying_nothing_ends_no_members_session() {
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id(), bob.id()), null));
+
+        assertThat(service.delete(CONNECTOR, created.id(), current(created.id()))).isTrue();
+
+        assertThat(revocations).isEmpty();
     }
 
     @Test
@@ -1337,7 +1352,7 @@ class ScimGroupServiceTests {
                 ScimIdentities.user("bootstrap"), ReservedResourceName.BOOTSTRAP_ADMIN);
         return groups.createReserved(
                 ScimGroup.created(
-                        TestRoleMappings.SUPERUSER_GROUP_ID,
+                        TestGroupPermissions.SUPERUSER_GROUP_ID,
                         "Admins",
                         List.of(ScimGroupMember.reference(recovery.id())),
                         ScimIdentities.NOW),

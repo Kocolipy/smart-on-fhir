@@ -22,15 +22,15 @@ public class DormancyPolicyConfig {
 
     /**
      * Binds the configured windows — {@code APP_DORMANCY_LOCKOUT_WINDOW} and
-     * {@code APP_DORMANCY_ROLE_REVOCATION_WINDOW} through relaxed binding — leaving both defaults
-     * to the policy. A zero or negative window, or a role-revocation window not longer than the
-     * lockout window, makes this bean's creation throw, which fails startup rather than locking
+     * {@code APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW} through relaxed binding — leaving both
+     * defaults to the policy. A zero or negative window, or a revocation window not longer than
+     * the lockout window, makes this bean's creation throw, which fails startup rather than locking
      * every User on the next run.
      */
     @Bean
     public DormancyPolicy dormancyPolicy(
             @Value("${app.dormancy.lockout.window:#{null}}") Duration lockoutWindow,
-            @Value("${app.dormancy.role.revocation.window:#{null}}")
+            @Value("${app.dormancy.membership.revocation.window:#{null}}")
                     Duration membershipRevocationWindow) {
         return new DormancyPolicy(lockoutWindow, membershipRevocationWindow);
     }

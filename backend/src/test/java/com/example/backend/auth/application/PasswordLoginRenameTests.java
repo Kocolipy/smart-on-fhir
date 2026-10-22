@@ -14,7 +14,7 @@ import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -71,7 +71,7 @@ class PasswordLoginRenameTests {
         hash = passwordEncoder.encode(PASSWORD);
         ada = users.given(withPassword("ada", 0)).id();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 sessions, transaction, audit, new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(

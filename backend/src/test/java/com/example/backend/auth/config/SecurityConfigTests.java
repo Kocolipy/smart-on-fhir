@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -372,7 +372,7 @@ class SecurityConfigTests {
     /** Every Permission but ops:read — an account administrator's included — is refused. */
     @Test
     void everyOtherPermissionIsRefusedTheActuatorEndpoints() throws Exception {
-        String[] allButOps = java.util.stream.Stream.of(TestRoleMappings.SUPERUSER_AUTHORITIES)
+        String[] allButOps = java.util.stream.Stream.of(TestGroupPermissions.SUPERUSER_AUTHORITIES)
                 .filter(authority -> !authority.equals("ops:read"))
                 .toArray(String[]::new);
         mvc.perform(get("/actuator/prometheus").session(authenticatedSession(allButOps)))

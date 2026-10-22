@@ -469,7 +469,7 @@ already on `http.server.requests`.
 changes behaviour:
 
 - `app.scim.enabled`;
-- `app.dormancy.lockout.window` and `app.dormancy.role_revocation.window`;
+- `app.dormancy.lockout.window` and `app.dormancy.membership_revocation.window`;
 - `app.audit.retention.period`;
 - Epic Login's `app.epic.enabled` and its two `kid`s (ADR 0012, D14), from its own
   startup record.
@@ -620,7 +620,7 @@ afterwards. There is no line per batch. A run skipped on a held lock is the one
 are one record per User, naming it as `user.target.id`. A revocation also names the Permissions the User lost — held before the
 removals and not after — as `app.authorization.permissions_lost`, sorted and
 comma-joined; the Groups removed are the audit event's to list. The run's `job-end` carries
-`dormancy.locked_count` and `dormancy.roles_revoked_count`, and the schedule record
+`dormancy.locked_count` and `dormancy.memberships_revoked_count`, and the schedule record
 carries both windows. A dormancy lockout is `WARN`, not the `ERROR` the
 authentication recipe gives a lockout, because it signals inactivity rather than an
 attack.

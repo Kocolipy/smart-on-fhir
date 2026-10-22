@@ -94,7 +94,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *
  * <p>The caller's session is built directly — its security context and principal index set on a
  * {@link MockHttpSession}, which the chain reads exactly as it reads one a login wrote — so each
- * case can hold precisely the Permissions it needs without a Role per combination. The principal
+ * case can hold precisely the Permissions it needs without a Group per combination. The principal
  * is the seeded {@code test-user}, a real User, so handlers that resolve the caller find it.
  */
 @SpringBootTest
@@ -477,13 +477,13 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"POST", "/api/admin/accounts"},
                 new String[] {"PUT", "/api/admin/accounts/" + UUID.randomUUID()},
                 new String[] {"DELETE", "/api/admin/groups"},
-                // Roles and the mapping are configuration: nothing writes one at runtime.
-                new String[] {"POST", "/api/admin/roles"},
-                new String[] {"PUT", "/api/admin/roles"},
-                new String[] {"PATCH", "/api/admin/roles"},
-                new String[] {"DELETE", "/api/admin/roles"},
-                new String[] {"PUT", "/api/admin/roles/Superuser"},
-                new String[] {"DELETE", "/api/admin/roles/Superuser"},
+                // There are no Roles (ADR 0015): the retired listing answers no one.
+                new String[] {"GET", "/api/admin/roles"},
+                // The vocabulary a Group may carry is code's: nothing writes it at runtime.
+                new String[] {"POST", "/api/admin/permissions"},
+                new String[] {"PUT", "/api/admin/permissions"},
+                new String[] {"PATCH", "/api/admin/permissions"},
+                new String[] {"DELETE", "/api/admin/permissions"},
                 new String[] {"GET", "/api/admin"})) {
             MockHttpServletRequestBuilder request =
                     request(HttpMethod.valueOf(undeclared[0]), undeclared[1])

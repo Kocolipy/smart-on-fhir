@@ -19,7 +19,7 @@ import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
@@ -65,7 +65,7 @@ class EpicLoginDecisionTests {
         SecurityConfig config = new SecurityConfig();
         PasswordEncoder passwordEncoder = config.passwordEncoder();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(),
                 new PendingCommit(),
@@ -106,14 +106,6 @@ class EpicLoginDecisionTests {
         Object principal = attested("eACTIVE").authentication().getPrincipal();
 
         assertThat(((UserDetails) principal).getPassword()).isNull();
-    }
-
-    @Test
-    void anAcceptedEpicLoginNamesTheRoleMappingItsAuthoritiesWereResolvedUnder() {
-        users.given(ScimIdentities.user("eACTIVE"));
-
-        assertThat(attested("eACTIVE").roleMappingHash())
-                .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 
     /** D17: the factor the Login was made with is on its {@code LOGIN_SUCCESS}. */

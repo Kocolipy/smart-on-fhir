@@ -1,70 +1,20 @@
-# The role mapping, and the development fixtures that make its default usable.
+# The development fixtures: the Users and Groups a local run and the e2e suite
+# sign in as, and — under the `local` profile only — what each Group confers.
 #
 # Imported by the main `application.yaml`. The test resources' `application.yaml`
-# shadows the main one and does NOT import this file: test contexts carry a
-# Superuser-only mapping of their own, and a test that needs the development
-# mapping imports this document explicitly.
+# shadows the main one and does NOT import this file: a test that needs the
+# fixtures imports this document explicitly (the `dev-fixtures` test profile).
 #
-# Configuration reference: backend/docs/configuration/role-mapping.md.
+# There is no role mapping. A Group's Permissions are data, stored per Group in
+# the database (ADR 0015); a Group with none confers nothing, and the Admin group,
+# whose direct members are the Superuser, carries none. Configuration reference:
+# backend/docs/configuration/group-permissions.md.
 
 app:
-  authorization:
-    # Roles: a name and the Permissions it holds. The Permission names are a
-    # closed set defined in code (authorization.domain.Permission); an unknown
-    # name fails startup, and so does a token-only one (user:write, group:write):
-    # no session holds those, a Superuser's included. The Superuser Role holds
-    # every other Permission: the Superuser session is that Role's Permissions
-    # plus ROLE_SUPERUSER plus every delegatable Permission, in code (ADR 0015).
-    roles:
-      - name: Superuser
-        permissions:
-          - user:read
-          - account:unlock
-          - group:read
-          - audit:read
-          - connector:read
-          - ops:read
-          - patient:read
-      - name: Account admin
-        permissions: [user:read, account:unlock, group:read]
-      - name: Helpdesk
-        # The helpdesk power alone: see the Users and Unlock or force-change one.
-        permissions: [user:read, account:unlock]
-      - name: Auditor
-        permissions: [audit:read]
-      - name: Connector admin
-        # Lists connectors and administers none: creating or deleting one and
-        # minting or rotating a token are the Superuser's alone (ADR 0015), so
-        # no Role can hold them and none lists them here.
-        permissions: [connector:read]
-      - name: Monitoring
-        permissions: [ops:read]
-    # The DEVELOPMENT DEFAULT mapping: Group stable id -> Role. Exactly one entry
-    # is the Superuser Group; startup seeds the reserved Admin group with that id.
-    # Every other id must resolve to an existing Group at startup, and on a
-    # deployment that has not enabled the development fixtures below none of
-    # these do — so a deployment that forgot to replace this list fails startup
-    # instead of running with it. Replace it whole (a list from a
-    # higher-precedence source replaces this one; see docs/configuration/role-mapping.md).
-    groups:
-      - id: 00000000-0000-4000-8000-00000000a001
-        role: Superuser
-        superuser: true
-      - id: 00000000-0000-4000-8000-00000000a002
-        role: Account admin
-      - id: 00000000-0000-4000-8000-00000000a003
-        role: Auditor
-      - id: 00000000-0000-4000-8000-00000000a004
-        role: Connector admin
-      - id: 00000000-0000-4000-8000-00000000a005
-        role: Monitoring
-      - id: 00000000-0000-4000-8000-00000000a006
-        role: Helpdesk
-
-  # One Group per non-Superuser Role above, each with one User in it, so local
-  # runs and the e2e suite have a User per Role to sign in as, plus a User with
-  # no Role at all. The Superuser's User is the Bootstrap Admin, which is the
-  # only User seeded regardless.
+  # One Group per development access level, each with one User in it, so local
+  # runs and the e2e suite have a User per Group to sign in as, plus a User in no
+  # Group at all. The Superuser's User is the Bootstrap Admin, which is the only
+  # User seeded regardless.
   #
   # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it). The
   # password has no fallback here: this remote is public, so a deployment that
@@ -82,7 +32,8 @@ app:
     # it: the e2e suite's dormancy journey signs in as it.
     dormant-member: dormant
     # Put back into these at every startup, so the startup dormancy run has
-    # memberships to remove (Auditors and Monitoring, each conferring a Permission).
+    # memberships to remove (Auditors and Monitoring, each conferring a Permission
+    # under the `local` profile below).
     dormant-groups:
       - 00000000-0000-4000-8000-00000000a003
       - 00000000-0000-4000-8000-00000000a005
@@ -102,3 +53,41 @@ app:
       - id: 00000000-0000-4000-8000-00000000a006
         display-name: Helpdesk
         member: helpdesk
+      # The Group the e2e suite deletes over SCIM, to watch its member's session
+      # end: no other spec relies on it, and the next startup creates it again.
+      - id: 00000000-0000-4000-8000-00000000a007
+        display-name: Disposable auditors
+        member: disposable-auditor
+
+---
+# What each development Group confers, by its stable id: the `local` profile's
+# alone, so no other profile — a deployment's included — seeds a Group
+# Permission. Applied at startup, after the fixture Groups exist, and only to a
+# Group that carries no Permission yet, so a Group whose Permissions were set
+# since keeps them. Each name must be a delegatable Permission (user:read,
+# account:unlock, group:read, audit:read, ops:read, connector:read); any other
+# fails startup, and so does naming the Admin group or a Group that does not
+# exist. A list rather than a map, so a higher-precedence source replaces it whole.
+spring:
+  config:
+    activate:
+      on-profile: local
+app:
+  dev-fixtures:
+    group-permissions:
+      - group: 00000000-0000-4000-8000-00000000a002
+        # Account admins: read the Users and Groups, Unlock and force a change.
+        permissions: [user:read, account:unlock, group:read]
+      - group: 00000000-0000-4000-8000-00000000a003
+        permissions: [audit:read]
+      - group: 00000000-0000-4000-8000-00000000a004
+        # Lists connectors and administers none: creating or deleting one and
+        # minting or rotating a token are the Superuser's alone (ADR 0015).
+        permissions: [connector:read]
+      - group: 00000000-0000-4000-8000-00000000a005
+        permissions: [ops:read]
+      - group: 00000000-0000-4000-8000-00000000a006
+        # The helpdesk power alone: see the Users and Unlock or force-change one.
+        permissions: [user:read, account:unlock]
+      - group: 00000000-0000-4000-8000-00000000a007
+        permissions: [audit:read]

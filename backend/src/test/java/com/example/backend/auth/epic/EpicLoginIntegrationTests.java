@@ -17,10 +17,8 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.application.EpicLoginLogFields;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
 import com.example.backend.auth.epic.EpicBrowser.Launched;
-import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -99,11 +97,11 @@ class EpicLoginIntegrationTests {
 
     private static final String PASSWORD = EpicPractitioners.PASSWORD;
 
-    /** The Admin group, which the test role mapping maps to the Superuser Role. */
+    /** The Admin group, whose direct members are the Superuser. */
     private static final UUID ADMIN_GROUP = UUID.fromString("00000000-0000-4000-8000-00000000a001");
 
     /**
-     * Every Permission the Superuser Role holds — every one a session may hold, the token-only
+     * Every Permission a Superuser's session holds — every one a session may hold, the token-only
      * writes never — sorted as {@code /api/auth/me} reports them.
      */
     private static final List<String> SUPERUSER_PERMISSIONS = List.of(
@@ -142,9 +140,6 @@ class EpicLoginIntegrationTests {
 
     @Autowired
     private RedisConnectionFactory redis;
-
-    @Autowired
-    private RoleMapping roleMapping;
 
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
@@ -323,17 +318,6 @@ class EpicLoginIntegrationTests {
         assertThat(sessionRepository.findByPrincipalName(
                 EPIC.practitioners().idOf(practitioner).toString()))
                 .containsOnlyKeys(sessionId(landing.signedIn()));
-    }
-
-    @Test
-    void theSessionRecordsTheRoleMappingItsPermissionsWereResolvedUnder() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-
-        Landing landing = EPIC.signInFromEpic(practitioner, null);
-
-        Object recorded = stored(landing.signedIn())
-                .getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE);
-        assertThat(recorded).isEqualTo(roleMapping.hash());
     }
 
     /** A token fetched while the launch was pending is the pre-login one, and is refused after. */

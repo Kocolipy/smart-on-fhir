@@ -5,6 +5,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.AuthorizationChangeCounts;
 import com.example.backend.authorization.domain.GroupPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -317,7 +318,9 @@ public class ScimGroupService {
      *
      * <p>Any other Group can be: deleting one that confers Permissions removes them from every
      * member, so each member is recorded as losing them and has its sessions ended after the
-     * commit, exactly as removing them one by one would.
+     * commit, exactly as removing them one by one would — a shrink to empty (ADR 0002, ADR 0015).
+     * The deletion takes the Group's stored Permissions with it, so what it carried is read
+     * before the delete and recorded from that.
      *
      * <p>The Group and every member are locked first, through the lock module and in its order:
      * each member's version advances.
@@ -344,6 +347,11 @@ public class ScimGroupService {
             throw new ProtectedResourceException(group.reservedName());
         }
         Instant now = clock.instant();
+        // Read before the delete, whose cascade takes the rows. The Admin group, the one Group
+        // that confers power without carrying any, was refused above, so what this Group
+        // carries is the whole of what its membership confers.
+        Set<Permission> carried = permissions.permissionsOf(List.of(id));
+        boolean confersPermissions = !carried.isEmpty();
         boolean deleted = groups.deleteById(id, now);
         if (deleted) {
             // Only for a row this transaction removed: a Group deleted by another between the
@@ -352,9 +360,9 @@ public class ScimGroupService {
         }
         audit.append(new Audited.ScimGroupDeleted(connector.connectorId(), id));
         if (deleted) {
-            effects.apply(ScimWriteEffectsApplier.Writer.connector(connector.connectorId()),
-                    ScimWriteEffects.ofGroupDeletion(
-                            id, memberIdSet(group), permissions.confersPermissions(id)),
+            effects.afterDeleting(id, carried).apply(
+                    ScimWriteEffectsApplier.Writer.connector(connector.connectorId()),
+                    ScimWriteEffects.ofGroupDeletion(id, memberIdSet(group), confersPermissions),
                     now);
         }
         return deleted;

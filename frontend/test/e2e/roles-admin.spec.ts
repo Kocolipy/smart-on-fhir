@@ -1,6 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-import { DEV_ROLES, adminRequest, postAdminAction, userIdOf } from "./auth.helpers";
+import {
+  DELEGATABLE_PERMISSIONS,
+  DEV_FIXTURES,
+  adminRequest,
+  groupPermissionsOf,
+  postAdminAction,
+  userIdOf,
+  type DevFixture,
+} from "./auth.helpers";
 
 test.describe("ADMIN route guards", () => {
   test("may view the accounts page", async ({ page }) => {
@@ -22,7 +30,7 @@ test.describe("ADMIN Permissions", () => {
 
     const body = (await me.json()) as { permissions: string[]; superuser: boolean };
     expect(body.superuser).toBe(true);
-    expect(body.permissions).toEqual(DEV_ROLES.superuser.permissions);
+    expect(body.permissions).toEqual(DEV_FIXTURES.superuser.permissions);
   });
 });
 
@@ -65,7 +73,9 @@ test.describe("ADMIN directory projections", () => {
     expect(Number.isNaN(Date.parse(String(admin!.createdAt)))).toBe(false);
   });
 
-  test("lists every Group with its member count and the Admin marker", async ({ page }) => {
+  test("lists every Group with its member count, the Admin marker and its Permissions", async ({
+    page,
+  }) => {
     const response = await page.request.get("/api/admin/groups");
     expect(response.status()).toBe(200);
 
@@ -73,6 +83,40 @@ test.describe("ADMIN directory projections", () => {
     const adminGroups = groups.filter((group) => group.adminGroup === true);
     expect(adminGroups).toHaveLength(1);
     expect(adminGroups[0]!.memberCount).toEqual(expect.any(Number));
+    // The Admin group carries no Permission: its direct members are the Superuser.
+    expect(adminGroups[0]!.permissions).toEqual([]);
+  });
+
+  /**
+   * The access every development fixture signs in with (`dev-roles.spec.ts`)
+   * is its Group's stored Permissions, read back the way an operator reviews
+   * them — there is no Role and no mapping between the two (ADR 0015).
+   */
+  test("shows each development Group carrying what its fixture User holds", async ({ page }) => {
+    const groups = (await (await page.request.get("/api/admin/groups")).json()) as Array<{
+      id: string;
+      permissions: string[];
+    }>;
+    const fixtures = (Object.keys(DEV_FIXTURES) as DevFixture[]).filter(
+      (fixture): fixture is Exclude<DevFixture, "superuser"> => fixture !== "superuser",
+    );
+
+    for (const fixture of fixtures) {
+      const group = groups.find((candidate) => candidate.id === DEV_FIXTURES[fixture].group);
+      expect(group, `the ${fixture} Group should be listed`).toBeTruthy();
+      expect(group!.permissions, `the ${fixture} Group's Permissions`).toEqual(
+        groupPermissionsOf(fixture),
+      );
+    }
+  });
+
+  test("lists every Permission a Group may carry, and no Role", async ({ page }) => {
+    const permissions = await page.request.get("/api/admin/permissions");
+    expect(permissions.status()).toBe(200);
+    expect(await permissions.json()).toEqual([...DELEGATABLE_PERMISSIONS]);
+
+    // There are no Roles: the retired listing answers even the Superuser 403.
+    expect((await page.request.get("/api/admin/roles")).status()).toBe(403);
   });
 
   /**

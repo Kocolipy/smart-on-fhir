@@ -6,7 +6,7 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.AuthorizationChangeCounts;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.RoleLogFields;
+import com.example.backend.authorization.domain.PermissionLogFields;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -121,6 +121,9 @@ final class ScimWriteEffectsApplier {
 
         /** The dormancy job removed the User from every one of these Groups. */
         void dormancyRevoked(UUID userId, List<UUID> groupIds);
+
+        /** This recording, reading {@code groupId} as still carrying {@code carried}. */
+        Recording remembering(UUID groupId, Set<Permission> carried);
     }
 
     /** Refuses every membership change, as the mistake of the write that produced it. */
@@ -139,6 +142,11 @@ final class ScimWriteEffectsApplier {
         @Override
         public void dormancyRevoked(UUID userId, List<UUID> groupIds) {
             throw refused();
+        }
+
+        @Override
+        public Recording remembering(UUID groupId, Set<Permission> carried) {
+            return this;
         }
 
         private static IllegalStateException refused() {
@@ -175,6 +183,11 @@ final class ScimWriteEffectsApplier {
         public void revoked(UUID connectorId, ScimWriteEffects.MembershipChange change) {
             connectorChange(connectorId, change, Operation.PERMISSION_REVOKE, false,
                     Audited.PermissionRevoked::new);
+        }
+
+        @Override
+        public Recording remembering(UUID groupId, Set<Permission> carried) {
+            return new PowerRecording(audit, counts, groups, permissions.remembering(groupId, carried));
         }
 
         @Override
@@ -303,6 +316,16 @@ final class ScimWriteEffectsApplier {
     }
 
     /**
+     * This apply step, for a write that has just deleted the Group {@code groupId}: the deletion
+     * took the Group's Permissions with it, so what its former members held before it is read as
+     * though the Group still carried {@code carried}, which the write read before deleting it.
+     */
+    ScimWriteEffectsApplier afterDeleting(UUID groupId, Set<Permission> carried) {
+        return new ScimWriteEffectsApplier(
+                users, groups, sessions, recording.remembering(groupId, carried));
+    }
+
+    /**
      * Carries out the effects of a write to the resource they name.
      *
      * @param now the {@code lastModified} a version advanced here records
@@ -329,7 +352,7 @@ final class ScimWriteEffectsApplier {
         LogEvent.success(log, Operation.DORMANCY_MEMBERSHIP_REVOCATION, Category.PROCESS,
                         Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
-                .addKeyValue(RoleLogFields.PERMISSIONS_LOST, joined(lost))
+                .addKeyValue(PermissionLogFields.PERMISSIONS_LOST, joined(lost))
                 .log();
     }
 
@@ -344,12 +367,11 @@ final class ScimWriteEffectsApplier {
         LogEvent.success(log, operation, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, change.userId().toString())
                 .addKeyValue(LogEvent.GROUP_ID, change.groupId().toString())
-                .addKeyValue(RoleLogFields.GROUP_PERMISSIONS, joined(conferred))
+                .addKeyValue(PermissionLogFields.GROUP_PERMISSIONS, joined(conferred))
                 .log();
     }
 
     private static String joined(Set<Permission> permissions) {
-        return permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value)
-                .collect(Collectors.joining(","));
+        return String.join(",", Permission.valuesOf(permissions));
     }
 }

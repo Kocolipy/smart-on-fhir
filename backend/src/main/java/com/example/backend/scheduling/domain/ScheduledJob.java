@@ -24,8 +24,8 @@ import com.example.backend.observability.LogEvent.Operation;
  */
 public enum ScheduledJob {
 
-    /** Locks Users past the dormancy lockout window and revokes the Roles of those past the
-     *  role-revocation window. */
+    /** Locks Users past the dormancy lockout window and removes the Group memberships of those
+     *  past the revocation window. */
     DORMANCY("dormancy", Operation.DORMANCY),
 
     /** Deletes audit events older than the retention period. */

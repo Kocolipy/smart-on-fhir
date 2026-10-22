@@ -1,9 +1,0 @@
-# Activated by tests that exercise the shipped DEVELOPMENT role mapping and its
-# fixtures rather than the Superuser-only mapping the base test configuration
-# carries. Importing the shipped document (rather than copying it) is the point:
-# the mapping these tests sign in under is the one local runs and the e2e suite
-# get. The fixtures' `enabled` and `password` are set by the test itself, because
-# the imported document's own values take precedence over this file's.
-spring:
-  config:
-    import: classpath:authorization.yaml

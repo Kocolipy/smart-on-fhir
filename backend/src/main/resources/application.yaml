@@ -9,10 +9,10 @@ spring:
     # `application.yaml` — which shadows this file entirely — can import the same
     # documents instead of restating them. How every connection reaches the
     # database — encryption, the TLS floor, the login timeout — lives in
-    # `database.yaml`, imported by both for the same reason. The role mapping and
-    # the development fixtures live in `authorization.yaml`, which the test
-    # resources do NOT import: their contexts carry a Superuser-only mapping of
-    # their own.
+    # `database.yaml`, imported by both for the same reason. The development
+    # fixtures, and the `local` profile's Group Permissions for them, live in
+    # `authorization.yaml`, which the test resources do NOT import: their contexts
+    # start with the seeded Admin group and nothing else.
     import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml,classpath:database.yaml,classpath:authorization.yaml
   # The main pool (DataSourceConfig), as the APP LOGIN: a member of `backend_app`
   # only, with full DML on the tables the application owns the lifecycle of and
@@ -148,12 +148,12 @@ app:
       # APP_AUDIT_RETENTION_SCHEDULE; see docs/configuration/audit.md for
       # the exact default and floor. A value below 90 days fails startup.
   dormancy:
-    # `lockout.window` and `role.revocation.window` are deliberately absent, for
+    # `lockout.window` and `membership.revocation.window` are deliberately absent, for
     # the reason the retention settings are: both defaults — 90 days and 180
     # days — belong to DormancyPolicy, so an unset setting reaches the rule as
     # unset. Override with APP_DORMANCY_LOCKOUT_WINDOW and
-    # APP_DORMANCY_ROLE_REVOCATION_WINDOW (e.g. 60d); see docs/configuration/dormancy.md.
-    # A zero or negative window, or a role revocation
+    # APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW (e.g. 60d); see docs/configuration/dormancy.md.
+    # A zero or negative window, or a membership revocation
     # window not longer than the lockout window, fails startup.
 
 

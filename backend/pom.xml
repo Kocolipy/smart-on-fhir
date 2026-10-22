@@ -395,7 +395,7 @@
                         <excludedEnvironmentVariable>APP_AUDIT_RETENTION_PERIOD</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_AUDIT_RETENTION_SCHEDULE</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_DORMANCY_LOCKOUT_WINDOW</excludedEnvironmentVariable>
-                        <excludedEnvironmentVariable>APP_DORMANCY_ROLE_REVOCATION_WINDOW</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_ENABLED</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_CLIENT_ID</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_CLIENT_KEY</excludedEnvironmentVariable>

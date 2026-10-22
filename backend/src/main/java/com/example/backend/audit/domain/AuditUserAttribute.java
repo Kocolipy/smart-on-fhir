@@ -26,7 +26,7 @@ public enum AuditUserAttribute implements AuditAttribute {
     /**
      * The User's read-only {@code groups} view. No SCIM write moves it directly; it changes when a
      * membership does, and is named when that change is what ends the User's sessions — the
-     * dormancy job's Role revocation or a connector's Group write removing its Admin-group
+     * dormancy job's membership revocation or a connector's Group write removing its Admin-group
      * membership.
      */
     GROUPS("groups");

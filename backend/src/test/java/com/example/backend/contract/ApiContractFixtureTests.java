@@ -343,7 +343,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                     + " VALUES (?, ?, 'Contract Fixture', 'unknown', '1990-01-02')", id, nric);
             try {
                 // patient:read is baseline: every active User holds it, the Superuser and a User
-                // in no mapped Group alike. Only a confined session lacks it.
+                // whose Groups carry nothing alike. Only a confined session lacks it.
                 Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                 Cookie user = t.settle(t.provision(true));
                 Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
@@ -365,12 +365,12 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     // ---- /api/admin/accounts, /api/admin/groups ---------------------------------------
 
     private static void administration(List<Fixture> all) {
-        add(all, "accounts, groups and roles listings: 200 for an Admin, 403 for a User, 401 for none",
+        add(all, "accounts, groups and permissions listings: 200 for an Admin, 403 for a User, 401 for none",
                 t -> {
                     Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                     Cookie user = t.settle(t.provision(true));
                     for (String path : List.of(
-                            "/api/admin/accounts", "/api/admin/groups", "/api/admin/roles")) {
+                            "/api/admin/accounts", "/api/admin/groups", "/api/admin/permissions")) {
                         t.expect(t.get(path).cookie(admin), 200);
                         t.expect(t.get(path).cookie(user), 403);
                         t.expect(t.get(path), 401);

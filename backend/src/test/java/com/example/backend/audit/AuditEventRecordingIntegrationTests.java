@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import ch.qos.logback.classic.Level;
 
 import com.example.backend.SessionCsrf;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.InMemorySessionRegistryConfiguration;
@@ -590,7 +590,7 @@ class AuditEventRecordingIntegrationTests {
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(
                 new TestingAuthenticationToken(
-                        username, null, TestRoleMappings.SUPERUSER_AUTHORITIES));
+                        username, null, TestGroupPermissions.SUPERUSER_AUTHORITIES));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

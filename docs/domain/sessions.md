@@ -95,11 +95,9 @@ id, never its `userName`, so a rename cannot hide one. The triggers in force:
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
 - a SCIM `DELETE` of the User;
-- a SCIM write that removes it from a mapped Group — `PATCH`, `PUT` or the
-  Group's `DELETE` (an addition takes effect at its next Login, since authority
-  is derived only then);
-- a startup whose role mapping hash differs from the one the session was issued
-  under;
+- a SCIM write that removes it from a Group that carries Permissions — `PATCH`,
+  `PUT` or the Group's `DELETE` (an addition takes effect at its next Login, since
+  authority is derived only then);
 - its own successful Login, which ends every other session it holds — one
   session per User;
 - its own successful self-service password change;
@@ -113,7 +111,8 @@ until after its transaction commits, so a write that was refused, stale or rolle
 back revokes nothing, and one SCIM write that moves several of those attributes
 revokes once. Every revocation that ended at least one session is audited as its
 own `USER_SESSIONS_REVOKE` event after the commit, its causes as the reason —
-`DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `ROLE_REVOKED`,
+`DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `MEMBERSHIP_REVOKED`
+(`ROLE_REVOKED` on rows recorded before #158),
 `DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT`, `FORCED_PASSWORD_CHANGE` or
 `REPLACED_BY_LOGIN` — and logged as `session-end` under the same names. One that
 ended nothing (the User was signed in nowhere else) records nothing. If the session
@@ -122,9 +121,7 @@ the change stands, and the request answers as ADR 0004 sets out: one that would
 otherwise succeed — a SCIM write, the dormancy job, a password change, a forced
 change, an accepted Login — receives an error, while a rejected Login or a
 rejected self-service change whose failure run imposed the lockout still answers
-with its bare refusal. The startup sweep of sessions issued under another role
-mapping is the [role mapping's](./authorization.md), ends sessions of every User
-at once, and is not audited per User.
+with its bare refusal.
 
 Nothing else revokes: an ordinary profile or email change, a reactivation, an
 alias, a Group rename and Unlock touch no session. Reactivation gives nothing back

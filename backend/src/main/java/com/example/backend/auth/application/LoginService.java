@@ -191,7 +191,7 @@ public class LoginService {
      * carries.
      */
     private AcceptedLogin accepted(Authentication authentication, SignedIn signedIn) {
-        return new AcceptedLogin(authentication, signedIn, identities.roleMappingHash());
+        return new AcceptedLogin(authentication, signedIn);
     }
 
     /**
@@ -199,13 +199,10 @@ public class LoginService {
      * the security context and the identity's stable id — the SCIM resource id the
      * web adapter writes into the session index, so application-owned session
      * lookups survive a later {@code userName} change instead of following
-     * {@code authentication.getName()} — and the hash of the role mapping the
-     * authentication's Permissions were resolved under, which the session records. Its
-     * {@link SignedIn} is the outcome the caller records once the session is signed in, and names
+     * {@code authentication.getName()}. Its {@link SignedIn} is the outcome the caller records once the session is signed in, and names
      * the login method the session is signed in by.
      */
-    public record AcceptedLogin(
-            Authentication authentication, SignedIn signedIn, String roleMappingHash) {
+    public record AcceptedLogin(Authentication authentication, SignedIn signedIn) {
 
         /** The identity's stable id, which the session is indexed and logged by. */
         public UUID userId() {

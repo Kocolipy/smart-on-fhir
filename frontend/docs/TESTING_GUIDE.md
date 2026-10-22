@@ -160,7 +160,7 @@ The `setup` project signs in the fixture `user` and the Bootstrap Admin once and
 Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
 The `user` and `admin` projects reuse those sessions; `guest`
 and `dormancy` start with explicitly empty browser storage
-and sign in for real. Role-guard specs are split by identity so a spec can
+and sign in for real. Permission-guard specs are split by identity so a spec can
 never accidentally run with a more privileged session than it names.
 
 The backend keeps **one session per User**: an accepted login ends every other
@@ -213,7 +213,7 @@ doubly-matched spec, so adding a spec means adding it to a `testMatch`.
 
 Route a spec by the identity it needs: `user` or `admin` replays that seeded
 identity's saved session, and `guest` starts signed out for specs that exercise
-sign-in itself. A spec that signs in as a development Role User, or consumes a
+sign-in itself. A spec that signs in as a development fixture User, or consumes a
 fixture's one-shot state, goes in its own project appended to the end of the
 chain above, as `dormancy` does. Do not call `login()` in each test. Per-test `login()` under
 `fullyParallel` fires N concurrent logins that can throttle and time out, and

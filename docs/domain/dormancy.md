@@ -22,7 +22,7 @@ not a SCIM attribute, absent from `/Schemas`, and writing it moves no version.
 dormancy window. Dormancy is relative to a window, not a stored state: the same
 User can be dormant for the lockout (90 days by default,
 `APP_DORMANCY_LOCKOUT_WINDOW`) and not yet for membership revocation (180 days,
-`APP_DORMANCY_ROLE_REVOCATION_WINDOW`, which keeps its name). Startup fails on a
+`APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW`, which keeps its name). Startup fails on a
 non-positive window, or on a revocation window not longer than the lockout window. The Bootstrap
 Admin is never treated as dormant, by its reservation marker, for the reason it is
 exempt from lockout.
@@ -57,7 +57,7 @@ The job never writes `active`, which stays the directory's, and never deletes:
 deprovisioning stays with SCIM `DELETE`. A connector re-asserting `active=true`
 resets nothing and lifts no lock. The Bootstrap Admin is exempt from both steps.
 Its runs are counted (`app.job.runs{job="dormancy"}`) and so are their changes
-(`app.dormancy.users.locked`, and `app.dormancy.users.roles.revoked` counting Users
+(`app.dormancy.users.locked`, and `app.dormancy.users.memberships.revoked` counting Users
 whose memberships were revoked), so a mass lockout or revocation shows as a
 spike. With the development fixtures on (`APP_DEV_FIXTURES_ENABLED=true`), the job
 also runs once at startup, so the `dormant` fixture — backdated past the

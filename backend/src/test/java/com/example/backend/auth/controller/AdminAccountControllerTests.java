@@ -118,7 +118,8 @@ class AdminAccountControllerTests {
 
     @Test
     void theGroupsAdapterListsWhatTheServiceReports() {
-        GroupSummary engineering = new GroupSummary(ENG, "Engineering", 3, false);
+        GroupSummary engineering =
+                new GroupSummary(ENG, "Engineering", 3, false, List.of("ops:read"));
         AdminGroupController controller =
                 new AdminGroupController(new RecordingService(List.of(), List.of(engineering)));
 
@@ -135,6 +136,18 @@ class AdminAccountControllerTests {
         assertThat(unsafeHandlers(AdminAccountController.class))
                 .containsExactlyInAnyOrder("unlock", "forcePasswordChange");
         assertThat(unsafeHandlers(AdminGroupController.class)).isEmpty();
+        assertThat(unsafeHandlers(AdminPermissionController.class)).isEmpty();
+    }
+
+    /**
+     * What a Group may carry is every delegatable Permission, by name and sorted: never the
+     * baseline {@code patient:read}, and never a token-only write half (ADR 0015).
+     */
+    @Test
+    void thePermissionsAdapterListsWhatAGroupMayCarry() {
+        assertThat(new AdminPermissionController().listDelegatablePermissions())
+                .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
+                        "ops:read", "user:read");
     }
 
     /**
@@ -160,7 +173,7 @@ class AdminAccountControllerTests {
                 .containsExactly("id", "displayName");
         assertThat(GroupSummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
-                .containsExactly("id", "displayName", "memberCount", "adminGroup");
+                .containsExactly("id", "displayName", "memberCount", "adminGroup", "permissions");
     }
 
     private static List<String> unsafeHandlers(Class<?> controller) {
@@ -201,7 +214,7 @@ class AdminAccountControllerTests {
         }
 
         RecordingService(List<IdentitySummary> summaries, List<GroupSummary> groupSummaries) {
-            super(null, null, null, null, null);
+            super(null, null, null, null, null, null);
             this.summaries = summaries;
             this.groupSummaries = groupSummaries;
         }

@@ -1022,7 +1022,7 @@ class AuditTrailServiceTests {
                 Set.of(AuditSessionRevocationCause.PASSWORD_CHANGED), true));
         trail.append(new Audited.UserSessionsRevoked(
                 null, SUBJECT, Set.of(AuditUserAttribute.GROUPS),
-                Set.of(AuditSessionRevocationCause.ROLE_REVOKED), false));
+                Set.of(AuditSessionRevocationCause.MEMBERSHIP_REVOKED), false));
 
         AuditEvent revoked = events.appended.get(0);
         assertThat(revoked.operation()).isEqualTo(AuditOperation.USER_SESSIONS_REVOKE);

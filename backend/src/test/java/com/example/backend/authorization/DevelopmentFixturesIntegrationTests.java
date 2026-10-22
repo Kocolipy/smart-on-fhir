@@ -6,15 +6,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DevFixtures;
+import com.example.backend.ScimTestRows;
 import com.example.backend.SessionCsrf;
-import com.example.backend.auth.domain.SignedInSession;
-import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
@@ -31,8 +32,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
@@ -48,24 +51,25 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A User's Permissions, resolved at sign-in from the shipped development role mapping, as the
+ * A User's Permissions, resolved at sign-in from the Groups' stored Permissions (ADR 0015), as the
  * caller sees them on {@code /api/auth/me} and as the session stores them.
  *
- * <p>Everything is real: the application started with {@code authorization.yaml}'s mapping and
- * its development fixtures enabled, so the Groups and Users signed in as here are the ones startup
- * seeded into SQL Server; logins go through the real filter chain, and the session is read back out
- * of the indexed Redis store. Starting at all is itself the evidence that every mapped Group id
- * resolved, since startup refuses a mapping naming a Group that does not exist.
+ * <p>Everything is real: the application started with {@code authorization.yaml}'s development
+ * fixtures enabled under the {@code local} profile, so the Groups, their Permissions and the Users
+ * signed in as here are the ones startup seeded into SQL Server; logins go through the real filter
+ * chain, and the session is read back out of the indexed Redis store.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
-@ActiveProfiles("dev-mapping")
+@ActiveProfiles({"dev-fixtures", "local"})
 @TestPropertySource(properties = {
     "app.dev-fixtures.enabled=true",
-    "app.dev-fixtures.password=" + DevelopmentRoleMappingIntegrationTests.FIXTURE_PASSWORD})
-class DevelopmentRoleMappingIntegrationTests {
+    "app.dev-fixtures.password=" + DevelopmentFixturesIntegrationTests.FIXTURE_PASSWORD})
+class DevelopmentFixturesIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
+
+    private static final String MEMBER_PASSWORD = "group-permission-member-password";
 
     private static final UUID ACCOUNT_ADMINS =
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
@@ -104,7 +108,10 @@ class DevelopmentRoleMappingIntegrationTests {
     private PlatformTransactionManager transactions;
 
     @Autowired
-    private RoleMapping roleMapping;
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
@@ -119,11 +126,11 @@ class DevelopmentRoleMappingIntegrationTests {
     }
 
     /**
-     * One fixture User per Role, each holding exactly its Role's Permissions plus the baseline
-     * Permissions every User holds, sorted by name.
+     * One fixture User per development Group, each holding exactly what its Group carries plus the
+     * baseline Permissions every User holds, sorted by name.
      */
     @Test
-    void eachDevelopmentRolesUserSignsInHoldingThatRolesPermissions() throws Exception {
+    void eachDevelopmentGroupsUserSignsInHoldingThatGroupsPermissions() throws Exception {
         assertThat(permissionsOnMe(logIn("account-admin", FIXTURE_PASSWORD)))
                 .containsExactly("account:unlock", "group:read", "patient:read", "user:read");
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
@@ -136,14 +143,17 @@ class DevelopmentRoleMappingIntegrationTests {
                 .containsExactly("account:unlock", "patient:read", "user:read");
     }
 
-    /** The Superuser Group is the seeded Admin group, so the Bootstrap Admin holds everything. */
+    /**
+     * The Bootstrap Admin is a direct member of the Admin group, which carries no Permission: it
+     * holds everything because it is the Superuser, expanded in code.
+     */
     @Test
-    void theBootstrapAdminHoldsEveryPermissionThroughTheSuperuserGroup() throws Exception {
+    void theBootstrapAdminHoldsEveryPermissionAsTheSuperuser() throws Exception {
         assertThat(permissionsOnMe(logIn("test-admin", "test-admin-password")))
                 .containsExactlyElementsOf(EVERY_PERMISSION_SORTED);
     }
 
-    /** Only a direct member of the Admin group is the Superuser, whatever its Role holds. */
+    /** Only a direct member of the Admin group is the Superuser, whatever its Groups carry. */
     @Test
     void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
         assertThat(me(logIn("test-admin", "test-admin-password")).get("superuser").asBoolean())
@@ -155,9 +165,9 @@ class DevelopmentRoleMappingIntegrationTests {
         }
     }
 
-    /** Holding an extra Role never takes a power away: the result is the union. */
+    /** Belonging to an extra Group never takes a power away: the result is the union. */
     @Test
-    void aUserInSeveralMappedGroupsHoldsTheUnionOfTheirRoles() throws Exception {
+    void aUserInSeveralGroupsHoldsTheUnionOfWhatTheyCarry() throws Exception {
         UUID auditor = userId("auditor");
         addMember(ACCOUNT_ADMINS, auditor);
         try {
@@ -170,11 +180,10 @@ class DevelopmentRoleMappingIntegrationTests {
     }
 
     /**
-     * A User in no mapped Group holds no Role's Permission: only the baseline Permissions,
-     * and its baseline access.
+     * A User in no Group holds only the baseline Permissions, and its baseline access.
      */
     @Test
-    void aUserInNoMappedGroupHoldsNoneAndKeepsBaselineAccess() throws Exception {
+    void aUserInNoGroupHoldsOnlyTheBaselineAndKeepsBaselineAccess() throws Exception {
         Cookie session = logIn("test-user", "test-password");
 
         JsonNode me = me(session);
@@ -187,9 +196,9 @@ class DevelopmentRoleMappingIntegrationTests {
                 .isEqualTo(200);
     }
 
-    /** The stored session carries the resolved Permissions and the running mapping's hash. */
+    /** The stored session carries the resolved Permissions, and no role mapping hash. */
     @Test
-    void theSessionRecordsTheResolvedPermissionsAndTheMappingHash() throws Exception {
+    void theSessionRecordsTheResolvedPermissions() throws Exception {
         logIn("account-admin", FIXTURE_PASSWORD);
 
         Map<String, ? extends Session> stored =
@@ -197,9 +206,7 @@ class DevelopmentRoleMappingIntegrationTests {
         assertThat(stored).hasSize(1);
         Session session = stored.values().iterator().next();
 
-        assertThat((String) session.getAttribute(SignedInSession.ROLE_MAPPING_HASH_ATTRIBUTE))
-                .isEqualTo(roleMapping.hash())
-                .matches("[0-9a-f]{64}");
+        assertThat((Object) session.getAttribute("app.authorization.roleMappingHash")).isNull();
         SecurityContext security = session.getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(security.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
@@ -235,6 +242,55 @@ class DevelopmentRoleMappingIntegrationTests {
                         status(post("/api/admin/accounts/{id}/force-password-change", other),
                                 auditor)))
                 .containsExactly(403, 403);
+    }
+
+    /**
+     * A Group made in the directory confers what is stored for it, with no configuration change:
+     * a row inserted for a new Group reaches its member at the next sign-in, and a Group carrying
+     * no row confers nothing.
+     */
+    @Test
+    void aNewGroupConfersWhatIsStoredForItAtTheNextSignIn() throws Exception {
+        String userName = "group-permission-member-" + UUID.randomUUID().toString().substring(0, 8);
+        UUID member = new TransactionTemplate(transactions).execute(status -> users.create(
+                ScimUser.created(UUID.randomUUID(),
+                        new ScimUserProfile(userName, null, userName, null, null, null, true,
+                                List.of()),
+                        passwordEncoder.encode(MEMBER_PASSWORD), Instant.now())).id());
+        UUID group = new TransactionTemplate(transactions).execute(status -> groups.create(
+                        ScimGroup.created(UUID.randomUUID(),
+                                "Stored " + UUID.randomUUID().toString().substring(0, 8),
+                                List.of(ScimGroupMember.reference(member)), Instant.now()))
+                .id());
+        try {
+            assertThat(permissionsOnMe(logIn(userName, MEMBER_PASSWORD)))
+                    .as("a Group carrying no row confers nothing")
+                    .containsExactly("patient:read");
+
+            jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
+                    group, "ops:read");
+
+            assertThat(permissionsOnMe(logIn(userName, MEMBER_PASSWORD)))
+                    .containsExactly("ops:read", "patient:read");
+        } finally {
+            ScimTestRows.delete(jdbc, group);
+            ScimTestRows.delete(jdbc, member);
+        }
+    }
+
+    /** The {@code local} profile's rows, as startup stored them: the Admin group carries none. */
+    @Test
+    void theLocalProfileStoredEachDevelopmentGroupsPermissions() {
+        assertThat(jdbc.queryForList("""
+                        SELECT permission FROM group_permission
+                         WHERE group_id = '00000000-0000-4000-8000-00000000a002'
+                         ORDER BY permission""", String.class))
+                .containsExactly("account:unlock", "group:read", "user:read");
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM group_permission
+                         WHERE group_id = '00000000-0000-4000-8000-00000000a001'""",
+                        Integer.class))
+                .isZero();
     }
 
     private int status(MockHttpServletRequestBuilder action, Cookie session) throws Exception {

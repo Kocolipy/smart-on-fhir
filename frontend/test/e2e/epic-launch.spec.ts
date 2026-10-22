@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { expect, test } from "@playwright/test";
 
-import { DEV_ROLES } from "./auth.helpers";
+import { DEV_FIXTURES, groupPermissionsOf } from "./auth.helpers";
 import {
   expectNoPatientInContext,
   expectPatientInContext,
@@ -127,19 +127,22 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
   expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
   expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
 
-  // The Group conferring the Account admin Role, read the way an operator would find it.
-  const roles = (await (await adminPage.request.get("/api/admin/roles")).json()) as Array<{
-    name: string;
-    groups: Array<{ id: string }>;
+  // The Group carrying the Account admin's Permissions, read the way an operator
+  // reviews them: the Groups listing, where each row carries its Permissions.
+  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+    id: string;
+    permissions: string[];
   }>;
-  const accountAdmin = roles.find((role) => role.name === "Account admin");
-  expect(accountAdmin?.groups, "the Account admin Role is conferred by one Group").toHaveLength(1);
+  const accountAdmins = groups.find((group) => group.id === DEV_FIXTURES.accountAdmin.group);
+  expect(accountAdmins?.permissions, "the Account admins Group's Permissions").toEqual(
+    groupPermissionsOf("accountAdmin"),
+  );
 
   const id = await provisionUser(directory.scim, PRACTITIONER);
   const clinician = await freshBrowser(browser);
   try {
     await settlePassword(PRACTITIONER);
-    const added = await scimPatch(directory.scim, `/scim/v2/Groups/${accountAdmin!.groups[0].id}`, [
+    const added = await scimPatch(directory.scim, `/scim/v2/Groups/${accountAdmins!.id}`, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
     expect(added.status(), "adding the User to the Account admin Group").toBe(200);
@@ -158,7 +161,7 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
     };
     expect(me).toEqual(
       expect.objectContaining({
-        permissions: [...DEV_ROLES.accountAdmin.permissions],
+        permissions: [...DEV_FIXTURES.accountAdmin.permissions],
         username: PRACTITIONER,
       }),
     );

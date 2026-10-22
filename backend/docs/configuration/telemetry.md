@@ -28,8 +28,9 @@ retention job is `job="audit-retention"` and the dormancy job `job="dormancy"` (
 the alert rules select on). Each run is also its own trace, so every record
 a run emits carries one `trace.id`, and is timed as `app_job_run_seconds{job}`. The
 dormancy job also counts what it changed: `app_dormancy_users_locked_total` and
-`app_dormancy_users_roles_revoked_total` (Users whose Group memberships were
-revoked), registered at zero from startup, so a mass lockout or revocation is a
+`app_dormancy_users_memberships_revoked_total` (Users whose Group memberships were
+revoked; `app_dormancy_users_roles_revoked_total` before #158, see
+[Dormancy](dormancy.md)), registered at zero from startup, so a mass lockout or revocation is a
 spike on an existing series. Authorization changes are counted on
 `authorization_changes_total{operation}` (`AuthorizationChangeMetrics`), also at
 zero from startup: `operation="superuser-grant"` counts a User gaining direct

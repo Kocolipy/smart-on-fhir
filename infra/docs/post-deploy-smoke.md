@@ -31,7 +31,7 @@ JAR prompt, so every deploy scans the boot.
    connector, then over SCIM creates a User, finds it in the list, finds **no
    development fixture account** — none of the userNames
    `backend/src/main/resources/authorization.yaml` gives its fixtures
-   (`app.authorization.dev-fixtures`), read from that file so that a fixture
+   (`app.dev-fixtures`), read from that file so that a fixture
    added there is checked too — deletes the User and confirms it is gone,
    then deletes the connector (revoking the token) and signs out. On a fresh
    stack the first sign-in must replace the seeded password: the smoke generates

@@ -49,6 +49,7 @@ const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
   displayName: "Engineering",
   id: "00000000-0000-4000-8000-0000000000e0",
   memberCount: 2,
+  permissions: [],
   ...overrides,
 });
 
@@ -107,7 +108,7 @@ describe("Accounts", () => {
         .map((header) => header.textContent),
     ).toEqual([
       "User",
-      "Role",
+      "Access",
       "Active",
       "Password",
       "Lockout",
@@ -128,7 +129,7 @@ describe("Accounts", () => {
     expect(grace.getByText("2026-01-03")).toBeInTheDocument();
     expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
 
-    expect(row("ada").getByText("Admin")).toBeInTheDocument();
+    expect(row("ada").getByText("Superuser")).toBeInTheDocument();
     expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/accounts" });
   });
 
@@ -166,24 +167,41 @@ describe("Accounts", () => {
     expect(row("open").getByText("Not locked")).toBeInTheDocument();
   });
 
-  it("lists every Group with its member count and marks the protected Admin group", async () => {
+  it("lists every Group with its member count and the Permissions it confers", async () => {
     const { requests } = await renderAccounts({
       [GROUPS]: json([
         groupRow({ adminGroup: true, displayName: "Admins", id: "a", memberCount: 1 }),
+        groupRow({ displayName: "Auditors", id: "b", permissions: ["audit:read", "user:read"] }),
         groupRow(),
       ]),
       [USERS]: json([userRow()]),
     });
 
     expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
+    expect(
+      within(groupsTable()).getByRole("columnheader", { name: "Permissions" }),
+    ).toBeInTheDocument();
+    expect(within(groupsTable()).queryByRole("columnheader", { name: "Authority" })).toBeNull();
     expect(row("Admins", groupsTable()).getByText("1")).toBeInTheDocument();
-    expect(row("Admins", groupsTable()).getByText("Protected Admin group")).toBeInTheDocument();
+    expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("—")).toBeInTheDocument();
-    expect(
-      row("Engineering", groupsTable()).queryByText("Protected Admin group"),
-    ).not.toBeInTheDocument();
     expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/groups" });
+  });
+
+  it("shows the Admin group as conferring the Superuser, whatever Permissions it reports", async () => {
+    await renderAccounts({
+      [GROUPS]: json([
+        groupRow({ adminGroup: true, displayName: "Admins", id: "a" }),
+        groupRow({ displayName: "Superusers", id: "b", permissions: ["ops:read"] }),
+      ]),
+      [USERS]: json([userRow()]),
+    });
+
+    expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
+    expect(row("Admins", groupsTable()).getByText("Superuser")).toBeInTheDocument();
+    expect(row("Superusers", groupsTable()).queryByText("Superuser")).toBeNull();
+    expect(row("Superusers", groupsTable()).getByText("ops:read")).toBeInTheDocument();
   });
 
   /**

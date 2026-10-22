@@ -13,7 +13,7 @@ import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -60,7 +60,7 @@ class PasswordLoginEdgeWhitespaceTests {
                 passwordEncoder.encode(CORRECT_PASSWORD), ScimIdentities.NOW));
 
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(), new PendingCommit(), audit,
                 new RecordingOperationalAlerts());

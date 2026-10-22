@@ -8,10 +8,9 @@ import java.util.UUID;
 
 /**
  * The signed-in session's own state, and the one place that reads or writes it: whose session it
- * is, the role mapping its Permissions were resolved under, and the Epic tokens an Epic Login kept
- * on it. Its callers ask it questions — who owns this session, was it issued under this mapping,
- * which tokens does it hold — rather than reading the attribute map, so the shape is defined once
- * and every caller gets the same answer from it.
+ * is, and the Epic tokens an Epic Login kept on it. Its callers ask it questions — who owns this
+ * session, which tokens does it hold — rather than reading the attribute map, so the shape is
+ * defined once and every caller gets the same answer from it.
  *
  * <ul>
  *   <li><b>The owner</b> is the User's stable id (the SCIM resource id), written at sign-in under
@@ -20,8 +19,6 @@ import java.util.UUID;
  *       parsed here and nowhere else: a session with no index, an index of another type, or one
  *       that is not a well-formed id, identifies nobody — the answer an anonymous request gets —
  *       never a failure.
- *   <li><b>The role-mapping hash</b> is written beside the owner, so a session minted under
- *       another mapping can be told apart from one minted under the running one.
  *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0012,
  *       D29), and are never handed out once the session has outlived its absolute lifetime,
  *       whatever the store still holds.
@@ -47,9 +44,6 @@ public final class SignedInSession {
      */
     public static final String OWNER_ATTRIBUTE =
             "org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME";
-
-    /** The attribute the role mapping's hash is written under, read by {@link RoleMappingSessions}. */
-    public static final String ROLE_MAPPING_HASH_ATTRIBUTE = "app.authorization.roleMappingHash";
 
     /** The attribute an Epic Login keeps its tokens under, read by {@link EpicTokens}. */
     public static final String EPIC_TOKENS_ATTRIBUTE = "app.epic.tokens";
@@ -88,14 +82,9 @@ public final class SignedInSession {
         return new SignedInSession(session);
     }
 
-    /**
-     * Signs the session in to {@code owner}, under the role mapping {@code roleMappingHash}: the
-     * session is indexed by the User's stable id, and records the mapping its Permissions were
-     * resolved under.
-     */
-    public void signIn(UUID owner, String roleMappingHash) {
+    /** Signs the session in to {@code owner}: the session is indexed by the User's stable id. */
+    public void signIn(UUID owner) {
         session.setAttribute(OWNER_ATTRIBUTE, owner.toString());
-        session.setAttribute(ROLE_MAPPING_HASH_ATTRIBUTE, roleMappingHash);
     }
 
     /**
@@ -113,15 +102,6 @@ public final class SignedInSession {
         } catch (IllegalArgumentException notAnId) {
             return Optional.empty();
         }
-    }
-
-    /**
-     * Whether the session's Permissions were resolved under the role mapping {@code roleMappingHash}
-     * — false for one issued under another, and for one carrying no hash at all, which predates the
-     * hash being recorded.
-     */
-    public boolean issuedUnder(String roleMappingHash) {
-        return roleMappingHash.equals(session.attribute(ROLE_MAPPING_HASH_ATTRIBUTE));
     }
 
     /** Whether the session has outlived {@code lifetime} as of {@code now}. */

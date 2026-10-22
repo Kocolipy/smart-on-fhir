@@ -27,10 +27,10 @@ import org.testcontainers.utility.DockerImageName;
  * needs to know the containers exist.
  *
  * <p>A database per context, not one for the whole run. Contexts differ in configuration — the
- * development role mapping and its fixtures, the release gate — and some tests rely on a store
- * no other context has written: {@code RolePropagationIntegrationTests} deletes a fixture Group
- * that {@code DevelopmentRoleMappingIntegrationTests} signs in through, and seeding never repairs
- * a Group that exists. Each context therefore starts on an empty database and its own Redis
+ * development fixtures and their Group Permissions, the release gate — and some tests rely on a
+ * store no other context has written: {@code GroupPermissionPropagationIntegrationTests} deletes a
+ * fixture Group that {@code DevelopmentFixturesIntegrationTests} signs in through, and seeding
+ * never repairs a Group that exists. Each context therefore starts on an empty database and its own Redis
  * database number, exactly as it did when every context started containers of its own; what is
  * shared is only the containers, whose start was most of a context's boot.
  *

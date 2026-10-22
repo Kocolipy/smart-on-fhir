@@ -46,7 +46,13 @@ const USER_ROW = {
   groups: [DIRECT_GROUP],
 };
 
-const GROUP_ROW = { id: "g-1", displayName: "Engineering", memberCount: 2, adminGroup: false };
+const GROUP_ROW = {
+  id: "g-1",
+  displayName: "Engineering",
+  memberCount: 2,
+  adminGroup: false,
+  permissions: ["audit:read", "user:read"],
+};
 
 const CONNECTOR_TOKEN = {
   id: "t-1",
@@ -155,6 +161,7 @@ describeDecoder("GroupRow", decodeGroupRow, GROUP_ROW, {
   displayName: [null, "a string"],
   memberCount: ["2", "an integer"],
   adminGroup: BOOLEAN,
+  permissions: [null, "an array"],
 });
 
 describeDecoder("Connector", decodeConnector, CONNECTOR, {
@@ -242,6 +249,24 @@ describe("the listing decoders", () => {
     refusal(() => decode(row), `${list} is not an array`);
     refusal(() => decode(null), `${list} is not an array`);
   });
+});
+
+describe("Group permissions", () => {
+  it("decodes a Group that carries none, as the Admin group always is", () => {
+    expect(
+      decodeGroupRow({ ...GROUP_ROW, adminGroup: true, permissions: [] }).permissions,
+    ).toStrictEqual([]);
+  });
+
+  it.each([["user:write"], ["superuser"], ["Audit:Read"], [7], [null]])(
+    "refuses %s, which no Group can carry",
+    (value) => {
+      refusal(
+        () => decodeGroupRow({ ...GROUP_ROW, permissions: ["user:read", value] }),
+        "GroupRow.permissions holds an unknown value",
+      );
+    },
+  );
 });
 
 describe("token permissions", () => {

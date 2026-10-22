@@ -203,6 +203,9 @@ method security.
   administration behind it while Roles still exist: the Superuser's session is
   additive to whatever the role mapping confers. `account:unlock` then replaced
   `user:write` as the guard on Unlock and the forced password change (#157), and
-  `user:write` became token-only. Dormancy and the audit Permissions (#156), Groups
-  carrying Permissions from the database with Roles removed (#158) and `PUT
-  /api/admin/groups/{id}/permissions` (#159) follow.
+  `user:write` became token-only. Dormancy and the audit Permissions (#156) came
+  next, then Groups carrying Permissions from the database with Roles removed
+  (#158): migration V6's `group_permission` table, seeded only by the `local`
+  profile's development fixtures, validated at startup, and cascaded away with a
+  deleted Group. `PUT /api/admin/groups/{id}/permissions` (#159) follows; until it
+  lands no endpoint sets a Group's Permissions.

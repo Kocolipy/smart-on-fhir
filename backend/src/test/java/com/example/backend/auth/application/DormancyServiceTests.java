@@ -10,16 +10,14 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
-import com.example.backend.authorization.TestRoleMappings;
-import com.example.backend.authorization.domain.RoleMapping;
-import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
-import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
 import com.example.backend.scheduling.RecordingTransactionManager;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
@@ -47,7 +45,7 @@ import org.springframework.core.env.StandardEnvironment;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The dormancy job against the in-memory directory: whom it locks, whose mapped Group memberships
+ * The dormancy job against the in-memory directory: whom it locks, whose Group memberships
  * it removes, what it leaves in place, and what each change records. The same rules against
  * SQL Server, with the real seeded Bootstrap Admin, are {@code DormancyIntegrationTests}.
  *
@@ -63,11 +61,11 @@ class DormancyServiceTests {
 
     private static final Duration LOCKOUT = DormancyPolicy.DEFAULT_LOCKOUT_WINDOW;
 
-    private static final Duration ROLE_REVOCATION =
+    private static final Duration MEMBERSHIP_REVOCATION =
             DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW;
 
     /** When the job runs: far enough past {@link #CREATED} that a creation basis is long dormant. */
-    private static final Instant RUN_AT = CREATED.plus(ROLE_REVOCATION.multipliedBy(10));
+    private static final Instant RUN_AT = CREATED.plus(MEMBERSHIP_REVOCATION.multipliedBy(10));
 
     /** Sorts before {@link #SUPERUSER_GROUP}, so the Groups removed read in a fixed order. */
     private static final UUID ACCOUNT_ADMINS =
@@ -76,24 +74,23 @@ class DormancyServiceTests {
     private static final UUID SUPERUSER_GROUP =
             UUID.fromString("00000000-0000-4000-8000-00000000a001");
 
-    /** A Group the mapping does not name, which confers nothing; sorts after the other two. */
+    /** A Group carrying no Permission, which confers nothing; sorts after the other two. */
     private static final UUID ENGINEERING =
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
 
-    /** What the Superuser Role holds — every Permission a session can hold — sorted by name. */
+    /**
+     * What the Superuser holds beyond the baseline — every delegatable Permission, expanded in
+     * code, since the Admin group carries none — sorted by name.
+     */
     private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
-            + "group:read,ops:read,patient:read,user:read";
-
-    private static final RoleMapping MAPPING = RoleMapping.of(
-            List.of(
-                    new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                    new RoleDefinition("Account admin", List.of("user:read", "account:unlock"))),
-            List.of(
-                    new GroupAssignment(SUPERUSER_GROUP, "Superuser", true),
-                    new GroupAssignment(ACCOUNT_ADMINS, "Account admin", false)));
+            + "group:read,ops:read,user:read";
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
+
+    /** The Account admins carry their Permissions; the Admin group, by its marker, none. */
+    private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups)
+            .carrying(ACCOUNT_ADMINS, Permission.USER_READ, Permission.ACCOUNT_UNLOCK);
 
     private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
     private final InMemoryAccountSessions accountSessions = new InMemoryAccountSessions();
@@ -130,7 +127,7 @@ class DormancyServiceTests {
 
         assertThat(run.skipped()).isFalse();
         assertThat(run.locked()).containsExactly(ada.id());
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         ScimUser after = users.require("ada");
         assertThat(after.login().lockedAt()).isEqualTo(clock.instant());
         assertThat(after.login().lockCause()).isEqualTo(LockCause.DORMANCY);
@@ -227,9 +224,9 @@ class DormancyServiceTests {
         assertThat(after.login().lockCause()).isEqualTo(LockCause.DORMANCY);
     }
 
-    /** Past the lockout window but not the role-revocation window: locked, Roles kept. */
+    /** Past the lockout window but not the membership-revocation window: locked, memberships kept. */
     @Test
-    void aUserLockedButNotYetPastTheRoleRevocationWindowKeepsItsRoles() {
+    void aUserLockedButNotYetPastTheMembershipRevocationWindowKeepsItsMemberships() {
         ScimUser ada = users.given(
                 ScimIdentities.userAuthenticatedAt("ada", ago(LOCKOUT.plusDays(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
@@ -237,7 +234,7 @@ class DormancyServiceTests {
         DormancyRun run = job.run();
 
         assertThat(run.locked()).containsExactly(ada.id());
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         assertThat(groups.findById(superusers.id()).orElseThrow().hasMember(ada.id())).isTrue();
         assertThat(writeLocks.requests()).as("no Group is locked with nothing to revoke")
                 .containsExactly(Set.of(ada.id()));
@@ -254,7 +251,7 @@ class DormancyServiceTests {
     @Test
     void aUserPastTheRevocationWindowLosesEveryMembership() {
         ScimUser ada = users.given(
-                ScimIdentities.userAuthenticatedAt("ada", ago(ROLE_REVOCATION.plusSeconds(1))));
+                ScimIdentities.userAuthenticatedAt("ada", ago(MEMBERSHIP_REVOCATION.plusSeconds(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
         ScimGroup accountAdmins = groups.create(
                 ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
@@ -265,7 +262,7 @@ class DormancyServiceTests {
 
         DormancyRun run = job.run();
 
-        assertThat(run.rolesRevoked()).containsExactly(ada.id());
+        assertThat(run.membershipsRevoked()).containsExactly(ada.id());
         assertThat(run.locked()).containsExactly(ada.id());
         ScimGroup superusersAfter = groups.findById(superusers.id()).orElseThrow();
         assertThat(superusersAfter.hasMember(ada.id())).isFalse();
@@ -292,20 +289,20 @@ class DormancyServiceTests {
         // The membership revocation ended the session, so the lockout's revocation that follows
         // it ended none and is not on record.
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
-                AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS:ROLE_REVOKED"));
+                AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS:MEMBERSHIP_REVOKED"));
     }
 
     /** A boundary case, so the clock moves, as for the lockout window. */
     @Test
-    void theRoleRevocationWindowIsExclusiveAtItsBoundary() {
+    void theMembershipRevocationWindowIsExclusiveAtItsBoundary() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", RUN_AT));
         superuserGroupOf(bootstrap, ada);
 
-        clock.advanceBy(ROLE_REVOCATION);
-        assertThat(job.run().rolesRevoked()).isEmpty();
+        clock.advanceBy(MEMBERSHIP_REVOCATION);
+        assertThat(job.run().membershipsRevoked()).isEmpty();
 
         clock.advanceBy(Duration.ofNanos(1));
-        assertThat(job.run().rolesRevoked()).containsExactly(ada.id());
+        assertThat(job.run().membershipsRevoked()).containsExactly(ada.id());
     }
 
     /**
@@ -316,7 +313,7 @@ class DormancyServiceTests {
     @Test
     void aReAddedMembershipIsRemovedAgainWhileTheUserStaysDormant() {
         ScimUser ada = users.given(
-                ScimIdentities.userAuthenticatedAt("ada", ago(ROLE_REVOCATION.plusSeconds(1))));
+                ScimIdentities.userAuthenticatedAt("ada", ago(MEMBERSHIP_REVOCATION.plusSeconds(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
         job.run();
         ScimGroup afterFirst = groups.findById(superusers.id()).orElseThrow();
@@ -335,7 +332,7 @@ class DormancyServiceTests {
         clock.advanceBy(Duration.ofDays(1));
         DormancyRun second = job.run();
 
-        assertThat(second.rolesRevoked()).containsExactly(ada.id());
+        assertThat(second.membershipsRevoked()).containsExactly(ada.id());
         assertThat(second.locked()).as("already locked").isEmpty();
         assertThat(groups.findById(superusers.id()).orElseThrow().hasMember(ada.id())).isFalse();
         assertThat(audit.recorded()).containsExactly(new Recorded(
@@ -352,7 +349,7 @@ class DormancyServiceTests {
 
         DormancyRun run = job.run();
 
-        assertThat(run.rolesRevoked()).containsExactly(gone.id());
+        assertThat(run.membershipsRevoked()).containsExactly(gone.id());
         assertThat(run.locked()).isEmpty();
         assertThat(users.require("gone").login().lockCause()).isEqualTo(LockCause.FAILURES);
     }
@@ -369,7 +366,7 @@ class DormancyServiceTests {
 
         DormancyRun run = job.run();
 
-        assertThat(run.rolesRevoked()).containsExactly(ada.id());
+        assertThat(run.membershipsRevoked()).containsExactly(ada.id());
         assertThat(groups.findById(engineering.id()).orElseThrow().hasMember(ada.id())).isFalse();
         assertThat(audit.of(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION)).containsExactly(
                 new Recorded(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
@@ -411,7 +408,7 @@ class DormancyServiceTests {
 
         DormancyRun run = job.run();
 
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         assertThat(audit.of(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION)).isEmpty();
     }
 
@@ -460,7 +457,7 @@ class DormancyServiceTests {
         transaction.commit();
 
         assertThat(run.locked()).isEmpty();
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         assertThat(users.findById(bootstrap.id()).orElseThrow().login().isLocked()).isFalse();
         assertThat(groups.findById(superusers.id()).orElseThrow().hasMember(bootstrap.id()))
                 .isTrue();
@@ -490,7 +487,7 @@ class DormancyServiceTests {
         DormancyRun run = job.run();
 
         assertThat(run.locked()).isEmpty();
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         ScimGroup after = groups.findById(superusers.id()).orElseThrow();
         assertThat(after.hasMember(bootstrap.id())).isTrue();
         assertThat(after.hasMember(fresh.id())).isTrue();
@@ -502,7 +499,7 @@ class DormancyServiceTests {
 
     /**
      * The job asks the policy it was given, not the defaults: under 5- and 10-day windows a User
-     * six days dormant is locked and keeps its Roles, one eleven days dormant loses them too.
+     * six days dormant is locked and keeps its Groups, one eleven days dormant loses them too.
      * Where exactly each window falls is {@code DormancyVerdictTests}'.
      */
     @Test
@@ -519,7 +516,7 @@ class DormancyServiceTests {
         DormancyRun run = job.run();
 
         assertThat(run.locked()).containsExactlyInAnyOrder(ada.id(), bob.id());
-        assertThat(run.rolesRevoked()).containsExactly(bob.id());
+        assertThat(run.membershipsRevoked()).containsExactly(bob.id());
     }
 
     // ---- serialization ---------------------------------------------------------------------
@@ -533,7 +530,7 @@ class DormancyServiceTests {
 
         assertThat(run.skipped()).isTrue();
         assertThat(run.locked()).isEmpty();
-        assertThat(run.rolesRevoked()).isEmpty();
+        assertThat(run.membershipsRevoked()).isEmpty();
         assertThat(users.require("ada").login().isLocked()).isFalse();
         assertThat(audit.recorded()).isEmpty();
         assertThat(lock.attempts()).containsExactly(ScheduledJob.DORMANCY);
@@ -551,7 +548,7 @@ class DormancyServiceTests {
         DormancyRun second = job.run();
 
         assertThat(second.locked()).isEmpty();
-        assertThat(second.rolesRevoked()).isEmpty();
+        assertThat(second.membershipsRevoked()).isEmpty();
         assertThat(users.writes()).isEqualTo(writes);
         assertThat(audit.recorded()).isEmpty();
     }
@@ -651,7 +648,7 @@ class DormancyServiceTests {
             assertThat(end.at("/event/type").get(0).asText()).isEqualTo("job-end");
             assertThat(end.at("/event/duration_ms").isNumber()).isTrue();
             assertThat(end.at("/dormancy/locked_count").asInt()).isEqualTo(2);
-            assertThat(end.at("/dormancy/roles_revoked_count").asInt()).isEqualTo(1);
+            assertThat(end.at("/dormancy/memberships_revoked_count").asInt()).isEqualTo(1);
         }
     }
 
@@ -689,7 +686,7 @@ class DormancyServiceTests {
                 users,
                 groups,
                 writeLocks,
-                new ScimMembershipRevocationService(users, groups, sessions, audit, MAPPING,
+                new ScimMembershipRevocationService(users, groups, sessions, audit, groupPermissions,
                         () -> {
                         }),
                 sessions,

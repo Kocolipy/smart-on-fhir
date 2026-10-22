@@ -172,3 +172,12 @@ with the standard's soft-delete and tombstone requirements.
   removed Group id and the User's effective Permissions before and after, with the
   Superuser marker — the record that makes an unexpected mass removal reversible
   by hand. The 90-day lockout and its behaviour are unchanged.
+- 2026-10-22 (#158, ADR 0015): with Roles gone, the step and its settings take
+  the glossary's name, **Membership revocation**. The window is
+  `APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW` (`app.dormancy.membership.revocation.window`);
+  the old variable is no longer read. The startup fields, the `job-end` count
+  `dormancy.memberships_revoked_count`, the counter
+  `app.dormancy.users.memberships.revoked` and the session revocation cause
+  `MEMBERSHIP_REVOKED` were renamed with it. Audit rows recorded before carry the
+  cause as `ROLE_REVOKED` and are left as written. Windows, defaults and behaviour
+  are unchanged.

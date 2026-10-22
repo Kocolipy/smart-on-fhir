@@ -379,6 +379,8 @@ public class ArchitectureTest {
                     "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedDormantDevFixture",
                     "startup seeding of the development fixtures: the next start seeds"),
+            Map.entry("com.example.backend.scim.application.ScimSeedService#seedGroupPermissionFixtures",
+                    "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.patient.application.PatientSeedService#seedDevFixtures",
                     "startup seeding of the development patient fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimMembershipRevocationService"
@@ -712,8 +714,9 @@ public class ArchitectureTest {
      * edge fails {@link #module_dependencies_follow_the_declared_graph} until it is added.
      */
     private static final Map<String, Set<String>> MODULE_DEPENDENCIES = Map.ofEntries(
-            // The Permission vocabulary and role mapping are read by both the session and the SCIM
-            // side, so they know neither; a Group id is checked against the directory by scim.
+            // The Permission vocabulary and what a Group's memberships confer are read by both the
+            // session and the SCIM side, so they know neither; the stored Group Permissions are
+            // scim's, beside the Groups they belong to.
             Map.entry("authorization", Set.of()),
             // The shared base every module logs through, so it knows none of them.
             Map.entry("observability", Set.of()),

@@ -319,8 +319,8 @@ class ScimWriteEffectsTests {
         return new MembershipChange(MembershipChange.Kind.REVOKED, userId, GROUP_ID);
     }
 
-    private static SessionRevocation roleRevocation(UUID userId) {
-        return new SessionRevocation(userId, EnumSet.of(Cause.ROLE_REVOKED));
+    private static SessionRevocation membershipRevocation(UUID userId) {
+        return new SessionRevocation(userId, EnumSet.of(Cause.MEMBERSHIP_REVOKED));
     }
 
     @Test
@@ -330,7 +330,7 @@ class ScimWriteEffectsTests {
                 CONFERS);
 
         assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE));
-        assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
+        assertThat(effects.revocations()).containsExactly(membershipRevocation(ALICE));
     }
 
     /** Gaining Permissions leaves live sessions alone: the Permissions arrive at the next sign-in. */
@@ -353,7 +353,7 @@ class ScimWriteEffectsTests {
                 CONFERS);
 
         assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE), granted(dave));
-        assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
+        assertThat(effects.revocations()).containsExactly(membershipRevocation(ALICE));
     }
 
     @Test
@@ -364,7 +364,7 @@ class ScimWriteEffectsTests {
 
         assertThat(effects.membershipChanges()).containsExactly(revoked(BOB), revoked(ALICE));
         assertThat(effects.revocations())
-                .containsExactly(roleRevocation(BOB), roleRevocation(ALICE));
+                .containsExactly(membershipRevocation(BOB), membershipRevocation(ALICE));
     }
 
     /**
@@ -416,7 +416,7 @@ class ScimWriteEffectsTests {
         assertThat(effects.audited()).isEmpty();
         assertThat(effects.membershipChanges()).containsExactly(revoked(ALICE), revoked(BOB));
         assertThat(effects.revocations())
-                .containsExactly(roleRevocation(ALICE), roleRevocation(BOB));
+                .containsExactly(membershipRevocation(ALICE), membershipRevocation(BOB));
     }
 
     @Test
@@ -448,7 +448,7 @@ class ScimWriteEffectsTests {
         assertThat(effects.membershipChanges()).containsExactly(
                 revoked(ALICE),
                 new MembershipChange(MembershipChange.Kind.REVOKED, ALICE, other));
-        assertThat(effects.revocations()).containsExactly(roleRevocation(ALICE));
+        assertThat(effects.revocations()).containsExactly(membershipRevocation(ALICE));
         assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
     }
 
@@ -614,7 +614,7 @@ class ScimWriteEffectsTests {
 
             Set<Cause> causes = EnumSet.of(Cause.DELETED);
             SessionRevocation revocation = new SessionRevocation(USER_ID, causes);
-            causes.add(Cause.ROLE_REVOKED);
+            causes.add(Cause.MEMBERSHIP_REVOKED);
             assertThat(revocation.userId()).isEqualTo(USER_ID);
             assertThat(revocation.causes()).containsExactly(Cause.DELETED);
 
@@ -634,7 +634,7 @@ class ScimWriteEffectsTests {
                     .isInstanceOf(UnsupportedOperationException.class);
             assertThatThrownBy(() -> before.memberIds().add(BOB))
                     .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> revocation.causes().add(Cause.ROLE_REVOKED))
+            assertThatThrownBy(() -> revocation.causes().add(Cause.MEMBERSHIP_REVOKED))
                     .isInstanceOf(UnsupportedOperationException.class);
         }
     }

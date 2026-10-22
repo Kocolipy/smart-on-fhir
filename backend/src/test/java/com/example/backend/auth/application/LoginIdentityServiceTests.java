@@ -3,11 +3,9 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.RoleMapping;
-import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
-import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -22,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -32,8 +29,6 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentMatchers;
-import org.mockito.Mockito;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -62,7 +57,7 @@ class LoginIdentityServiceTests {
     private final CountingPasswordEncoder passwordEncoder = new CountingPasswordEncoder();
 
     private final LoginIdentityService service =
-            new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
+            new LoginIdentityService(users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups));
 
     // Reporting the stored identity to Spring Security
 
@@ -194,8 +189,8 @@ class LoginIdentityServiceTests {
     /**
      * Only a password Login is confined by the change-required flag: an Epic Login presents no
      * password of ours (D20), so the imposed credential is not what it used. A flagged User signed
-     * in through Epic holds {@code ROLE_USER}, the baseline Permissions and its Role mapping
-     * Permissions, exactly as an unflagged one does.
+     * in through Epic holds {@code ROLE_USER}, the baseline Permissions and what its Groups
+     * carry, exactly as an unflagged one does.
      */
     @Test
     void anEpicLoginOfAUserWithTheChangeRequiredFlagHoldsTheAuthoritiesOfAnUnflaggedOne() {
@@ -352,7 +347,7 @@ class LoginIdentityServiceTests {
         users.given(ScimIdentities.credentiallessUser("nopass"));
         GatedPasswordEncoder gatedEncoder = new GatedPasswordEncoder();
         LoginIdentityService gated = new LoginIdentityService(
-                users, groups, gatedEncoder, TestRoleMappings.superuserOnly());
+                users, groups, gatedEncoder, InMemoryGroupPermissions.over(groups));
         FutureTask<UserDetails> first = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
         FutureTask<UserDetails> second = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
         new Thread(first).start();
@@ -461,16 +456,20 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * There is no administrative role any more (ADR 0010): a member of the Admin group holds
-     * baseline access and its Role's Permissions, never {@code ROLE_ADMIN}. The Admin group's id
-     * here is not the mapping's Superuser Group, so it confers nothing at all.
+     * There is no administrative role any more: a direct member of the Admin group is the
+     * Superuser, never {@code ROLE_ADMIN}. The Admin group is the Group holding the reservation
+     * marker, whatever its id — here not the id the seed uses — so its member is the Superuser
+     * all the same (ADR 0015).
      */
     @Test
-    void anIdentityInTheAdminGroupHoldsNoAdministrativeRole() {
+    void anIdentityInTheAdminGroupIsTheSuperuserWhateverTheGroupsId() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenAdminGroup(ada);
 
-        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
+        assertThat(authoritiesOf("ada"))
+                .contains("ROLE_SUPERUSER")
+                .doesNotContain("ROLE_ADMIN")
+                .containsAll(TestGroupPermissions.EVERY_PERMISSION);
     }
 
     /** With no Admin group seeded at all, nobody is an administrator. */
@@ -512,7 +511,7 @@ class LoginIdentityServiceTests {
     /**
      * Authority is read at login and never recomputed, and that is the specified behaviour
      * rather than a limitation: a session carries the authorities it was issued with, so
-     * adding an identity to a mapped Group grants its Role's Permissions at its NEXT login
+     * adding an identity to a Group grants what the Group carries at its NEXT login
      * and never mid-session.
      *
      * <p>Both halves are needed. The already-issued principal proves nothing was
@@ -554,7 +553,7 @@ class LoginIdentityServiceTests {
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
     }
 
-    /** An inactive member of a mapped Group is still reported with its Permissions; it is simply disabled. */
+    /** An inactive member of a Group is still reported with its Permissions; it is simply disabled. */
     @Test
     void anInactiveMemberIsStillReportedWithItsPermissions() {
         ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
@@ -567,47 +566,43 @@ class LoginIdentityServiceTests {
         assertThat(details.isEnabled()).isFalse();
     }
 
-    // Permissions from the role mapping
+    // Permissions from the Groups (ADR 0015)
 
     private static final UUID HELPDESK = UUID.fromString(
             "00000000-0000-4000-8000-0000000000b1");
     private static final UUID AUDITORS = UUID.fromString(
             "00000000-0000-4000-8000-0000000000b2");
 
-    /** Two Roles and a Superuser, each conferred by its own Group. */
+    /**
+     * Two Groups carrying Permissions, as their stored rows say, over the in-memory directory: the
+     * Admin group is the one holding the reservation marker, and carries none.
+     */
     private final LoginIdentityService mapped = new LoginIdentityService(
-            users, groups, passwordEncoder, RoleMapping.of(
-                    List.of(
-                            new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                            new RoleDefinition("Helpdesk", List.of("account:unlock", "user:read")),
-                            new RoleDefinition("Auditor", List.of("audit:read", "user:read"))),
-                    List.of(
-                            new GroupAssignment(
-                                    TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
-                            new GroupAssignment(HELPDESK, "Helpdesk", false),
-                            new GroupAssignment(AUDITORS, "Auditor", false))));
+            users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups)
+                    .carrying(HELPDESK, Permission.ACCOUNT_UNLOCK, Permission.USER_READ)
+                    .carrying(AUDITORS, Permission.AUDIT_READ, Permission.USER_READ));
 
     /**
-     * The union of the Roles of every mapped Group the User is directly in — each Permission once,
-     * sorted by name, after the roles — and an unmapped Group adds nothing.
+     * The union of what every Group the User is directly in carries — each Permission once,
+     * sorted by name, after the roles — and a Group carrying nothing adds nothing.
      */
     @Test
-    void aUserInSeveralMappedGroupsHoldsTheUnionOfTheirPermissions() {
+    void aUserInSeveralGroupsHoldsTheUnionOfTheirPermissions() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
         groups.given(ScimGroup.created(AUDITORS, "Auditors",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
-        groups.given(ScimIdentities.group("Unmapped", ada));
+        groups.given(ScimIdentities.group("Carries nothing", ada));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .containsExactly("ROLE_USER", "account:unlock", "audit:read", "patient:read",
                         "user:read");
     }
 
-    /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
+    /** One Group: exactly what it carries, and another Group's Permissions are not leaked in. */
     @Test
-    void aUserInOneMappedGroupHoldsExactlyThatRolesPermissions() {
+    void aUserInOneGroupHoldsExactlyWhatItCarries() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         groups.given(ScimGroup.created(AUDITORS, "Auditors",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
@@ -617,18 +612,29 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * No mapped Group: no Role's Permission, and baseline access all the same — which includes
-     * the baseline Permissions, held by every active User whatever its Groups.
+     * A Group carrying no Permission confers nothing: baseline access all the same — which
+     * includes the baseline Permissions, held by every active User whatever its Groups.
      */
     @Test
-    void aUserInNoMappedGroupHoldsOnlyTheBaselinePermissions() {
+    void aUserWhoseGroupsCarryNothingHoldsOnlyTheBaselinePermissions() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
-        groups.given(ScimIdentities.group("Unmapped", ada));
+        groups.given(ScimIdentities.group("Carries nothing", ada));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
     }
 
-    /** A confined session holds no Permission either, whatever Groups confer. */
+    /** What a Group carries reaches only its own direct members. */
+    @Test
+    void aGroupsPermissionsReachOnlyItsDirectMembers() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        groups.given(ScimGroup.created(AUDITORS, "Auditors",
+                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+    }
+
+    /** A confined session holds no Permission either, whatever its Groups carry. */
     @Test
     void aUserRequiredToChangeItsPasswordHoldsNoPermission() {
         ScimUser grace = users.given(ScimIdentities.userWithLoginState(
@@ -641,42 +647,20 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * A direct member of the Superuser Group is the Superuser: {@code ROLE_SUPERUSER} beside
-     * baseline access and every Permission, and no {@code ROLE_ADMIN}.
+     * A direct member of the Admin group is the Superuser: {@code ROLE_SUPERUSER} beside baseline
+     * access and every Permission a session may hold, and no {@code ROLE_ADMIN} — though the
+     * Admin group carries no Permission at all: the expansion is in code.
      */
     @Test
-    void aDirectMemberOfTheSuperuserGroupHoldsRoleSuperuserAndEveryPermission() {
+    void aDirectMemberOfTheAdminGroupHoldsRoleSuperuserAndEveryPermission() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenSuperuserGroup(ada);
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .contains("ROLE_USER", "ROLE_SUPERUSER")
                 .doesNotContain("ROLE_ADMIN")
-                .hasSize(2 + TestRoleMappings.EVERY_PERMISSION.size())
-                .containsAll(TestRoleMappings.EVERY_PERMISSION);
-    }
-
-    /**
-     * The Superuser's Permissions are expanded in code, not read from the Role the mapping
-     * assigns: with a mapping that confers nothing, membership alone yields every delegatable one.
-     */
-    @Test
-    void theSuperuserHoldsEveryDelegatablePermissionEvenWhenTheMappingConfersNone() {
-        RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
-        Mockito.when(conferringNothing.confersSuperuser(ArgumentMatchers.anyCollection()))
-                .thenAnswer(call -> call.<java.util.Collection<?>>getArgument(0)
-                        .contains(TestRoleMappings.SUPERUSER_GROUP_ID));
-        Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
-                .thenReturn(Set.of());
-        Mockito.when(conferringNothing.effectivePermissionsOf(ArgumentMatchers.anyCollection()))
-                .thenCallRealMethod();
-        LoginIdentityService bare = new LoginIdentityService(
-                users, groups, passwordEncoder, conferringNothing);
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        givenSuperuserGroup(ada);
-
-        assertThat(authoritiesOf(bare.loadUserByUsername("ada")))
-                .containsAll(Permission.allDelegatable().stream().map(Permission::value).toList());
+                .hasSize(2 + TestGroupPermissions.EVERY_PERMISSION.size())
+                .containsAll(TestGroupPermissions.EVERY_PERMISSION);
     }
 
     /**
@@ -685,43 +669,39 @@ class LoginIdentityServiceTests {
      */
     @Test
     void theSuperuserHoldsAccountUnlockAndNoTokenOnlyWrite() {
-        RoleMapping conferringNothing = Mockito.mock(RoleMapping.class);
-        Mockito.when(conferringNothing.confersSuperuser(ArgumentMatchers.anyCollection()))
-                .thenAnswer(call -> call.<java.util.Collection<?>>getArgument(0)
-                        .contains(TestRoleMappings.SUPERUSER_GROUP_ID));
-        Mockito.when(conferringNothing.permissionsOf(ArgumentMatchers.anyCollection()))
-                .thenReturn(Set.of());
-        Mockito.when(conferringNothing.effectivePermissionsOf(ArgumentMatchers.anyCollection()))
-                .thenCallRealMethod();
-        LoginIdentityService bare = new LoginIdentityService(
-                users, groups, passwordEncoder, conferringNothing);
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenSuperuserGroup(ada);
 
-        assertThat(authoritiesOf(bare.loadUserByUsername("ada")))
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .contains("account:unlock")
                 .doesNotContain("user:write", "group:write");
     }
 
     /**
-     * Superuser is not any Permission, and no number of Permissions makes one: a User holding every
-     * delegatable Permission through Roles, not in the Superuser Group, holds no
+     * The Admin group is recognised by its reservation marker alone: a Group under the id the
+     * seed uses that does not hold the marker is an ordinary Group, conferring what it carries.
+     */
+    @Test
+    void aGroupUnderTheAdminGroupsIdWithoutTheMarkerConfersNoSuperuser() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.given(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Impostors",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+    }
+
+    /**
+     * Superuser is not any Permission, and no number of Permissions makes one: a User whose Group
+     * carries every delegatable Permission, not in the Admin group, holds no
      * {@code ROLE_SUPERUSER}.
      */
     @Test
-    void holdingEveryDelegatablePermissionThroughARoleDoesNotMakeAUserASuperuser() {
+    void holdingEveryDelegatablePermissionThroughAGroupDoesNotMakeAUserASuperuser() {
         UUID everything = UUID.fromString("00000000-0000-4000-8000-0000000000b3");
         LoginIdentityService delegating = new LoginIdentityService(
-                users, groups, passwordEncoder, RoleMapping.of(
-                        List.of(
-                                new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
-                                new RoleDefinition("Delegated", List.of("user:read",
-                                        "account:unlock", "group:read", "audit:read", "ops:read",
-                                        "connector:read"))),
-                        List.of(
-                                new GroupAssignment(
-                                        TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
-                                new GroupAssignment(everything, "Delegated", false))));
+                users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups)
+                        .carrying(everything,
+                                Permission.allDelegatable().toArray(Permission[]::new)));
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         groups.given(ScimGroup.created(everything, "Delegated",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
@@ -749,7 +729,18 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
                 .contains("ROLE_SUPERUSER")
-                .containsAll(TestRoleMappings.EVERY_PERMISSION);
+                .containsAll(TestGroupPermissions.EVERY_PERMISSION);
+    }
+
+    /** An Epic Login holds what its Groups carry, as a password Login does. */
+    @Test
+    void anEpicLoginHoldsWhatItsGroupsCarry() {
+        ScimUser ada = users.given(ScimIdentities.user("eABC"));
+        groups.given(ScimGroup.created(AUDITORS, "Auditors",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
+                .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read");
     }
 
     /** A confined password session is not yet a Superuser's: the change comes first. */
@@ -763,16 +754,6 @@ class LoginIdentityServiceTests {
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
-    /** The hash the session records is the mapping's own. */
-    @Test
-    void reportsTheHashOfTheMappingItResolvesUnder() {
-        RoleMapping mapping = TestRoleMappings.superuserOnly();
-
-        assertThat(new LoginIdentityService(users, groups, passwordEncoder, mapping)
-                        .roleMappingHash())
-                .isEqualTo(mapping.hash());
-    }
-
     /**
      * The reservation is applied through the port, because production has no other way to
      * produce one.
@@ -782,9 +763,9 @@ class LoginIdentityServiceTests {
                 ScimIdentities.group("Admins", members), ReservedResourceName.ADMIN_GROUP);
     }
 
-    /** The reserved Admin group under the id the mapping names as the Superuser Group's. */
+    /** The reserved Admin group, under the id the seed creates it under. */
     private ScimGroup givenSuperuserGroup(ScimUser... members) {
-        return groups.createReserved(ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+        return groups.createReserved(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
                         Stream.of(members).map(member -> ScimGroupMember.reference(member.id()))
                                 .toList(),
                         ScimIdentities.NOW),
@@ -803,13 +784,13 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * What every active User holds with no mapped Group: {@code ROLE_USER} and the baseline
+     * What every active User holds whose Groups carry nothing: {@code ROLE_USER} and the baseline
      * Permissions, sorted by name as Spring Security's {@code User} keeps them.
      */
     private static final String[] BASELINE =
             {"ROLE_USER", "patient:read"};
 
-    /** The baseline beside the Helpdesk Role's {@code user:read} and {@code account:unlock}, sorted. */
+    /** The baseline beside the Helpdesk Group's {@code user:read} and {@code account:unlock}, sorted. */
     private static final String[] HELPDESK_AUTHORITIES =
             {"ROLE_USER", "account:unlock", "patient:read", "user:read"};
 

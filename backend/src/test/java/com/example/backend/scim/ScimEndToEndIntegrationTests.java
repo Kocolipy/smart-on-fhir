@@ -10,7 +10,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
-import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -293,7 +293,7 @@ class ScimEndToEndIntegrationTests {
         assertThat(body.has("role")).isFalse();
         assertThat(body.get("permissions").size())
                 .isEqualTo("ADMIN".equals(expectedRole)
-                        ? TestRoleMappings.EVERY_PERMISSION.size()
+                        ? TestGroupPermissions.EVERY_PERMISSION.size()
                         : LoginIdentityService.BASELINE_PERMISSIONS.size());
         return (MockHttpSession) login.getRequest().getSession(false);
     }

@@ -265,7 +265,7 @@ record ScimWriteEffects<A extends Enum<A>>(
                 new MembershipChange(MembershipChange.Kind.REVOKED, userId, groupId)));
         Set<ScimUserSessions.Cause> causes = changes.isEmpty()
                 ? EnumSet.noneOf(ScimUserSessions.Cause.class)
-                : EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED);
+                : EnumSet.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED);
         return new ScimWriteEffects<>(
                 Resource.user(userId),
                 EnumSet.noneOf(AuditUserAttribute.class),
@@ -291,7 +291,7 @@ record ScimWriteEffects<A extends Enum<A>>(
             if (!after.contains(userId)) {
                 changes.add(new MembershipChange(MembershipChange.Kind.REVOKED, userId, groupId));
                 revocations.add(new SessionRevocation(
-                        userId, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED)));
+                        userId, EnumSet.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED)));
             }
         }
         for (UUID userId : after) {

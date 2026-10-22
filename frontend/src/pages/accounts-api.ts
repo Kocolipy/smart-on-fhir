@@ -10,7 +10,7 @@
  * decoder and the Permission it requires — once.
  */
 
-import type { Permission } from "@/auth/api";
+import { permissionDecoder, type Permission } from "@/auth/api";
 import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
 import { SUPERUSER } from "@/auth/permissions";
 import { decodeArray, DecodeError, jsonDecoder, readObject } from "@/lib/decode";
@@ -62,12 +62,21 @@ const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
 
 export type LockCause = (typeof LOCK_CAUSES)[number];
 
-/** One row of the read-only **Groups projection**, from `GET /api/admin/groups`. */
+/**
+ * One row of the read-only **Groups projection**, from `GET /api/admin/groups`.
+ *
+ * `permissions` are what the Group confers on its direct members, sorted by
+ * name: data the backend stores per Group, empty for a Group that confers
+ * nothing. The Admin group carries none — its direct members are the
+ * Superuser, which is not a Permission — so `adminGroup` is what says it
+ * confers the Superuser.
+ */
 export interface GroupRow {
   id: string;
   displayName: string;
   memberCount: number;
   adminGroup: boolean;
+  permissions: Permission[];
 }
 
 /**
@@ -173,6 +182,9 @@ export const decodeUserRow = (value: unknown): UserRow => {
   };
 };
 
+/** One Permission a Group carries, checked against the session vocabulary rather than trusted. */
+const decodeGroupPermission = permissionDecoder("GroupRow.permissions");
+
 export const decodeGroupRow = (value: unknown): GroupRow => {
   const row = readObject(value, "GroupRow");
   return {
@@ -180,6 +192,7 @@ export const decodeGroupRow = (value: unknown): GroupRow => {
     displayName: row.string("displayName"),
     memberCount: row.integer("memberCount"),
     adminGroup: row.boolean("adminGroup"),
+    permissions: row.array("permissions", decodeGroupPermission),
   };
 };
 

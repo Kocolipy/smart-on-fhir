@@ -36,7 +36,7 @@ import org.springframework.stereotype.Component;
  * {@code fhirUser} claim is read as a Practitioner ID ({@link FhirUserReference}), and the Login
  * is completed by {@link LoginCompletion}, the steps password Login ends in too: the login
  * decision ({@link LoginService#logInFromEpic}), then the session signed in exactly as a password
- * one is — rotated id, saved context, principal index, role mapping hash, pre-login CSRF token
+ * one is — rotated id, saved context, principal index, pre-login CSRF token
  * dropped, and a {@code session-start} naming method {@code sso} — then the ending recorded,
  * naming that session. Between the last two, on the signed-in session alone, Epic's tokens — the
  * access token, any refresh token and the {@code id_token} — are kept there

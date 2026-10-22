@@ -43,6 +43,6 @@ public record AuditPermissionChange(
     }
 
     private static List<String> values(Set<Permission> permissions) {
-        return permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList();
+        return Permission.valuesOf(permissions);
     }
 }

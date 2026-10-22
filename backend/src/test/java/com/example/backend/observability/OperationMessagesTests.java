@@ -136,16 +136,14 @@ class OperationMessagesTests {
 
     /**
      * The other direction: a declared message some call site needs, so the table cannot keep a
-     * message after the last record that wrote it is gone. {@code SUCCESS_ON_CHANGE} is chosen
-     * by a record's type, not by the shape, so the reading cannot see it;
-     * {@code LogEventTests.theRoleMappingChangeRecordNamesTheSessionsItEnded} pins the one there is.
+     * message after the last record that wrote it is gone.
      */
     @Test
     void everyDeclaredMessageIsOneACallSiteNeeds() {
         Set<String> unneeded = new TreeSet<>();
         for (Operation operation : Operation.values()) {
             for (MessageSlot slot : MessageSlot.values()) {
-                if (slot != MessageSlot.SUCCESS_ON_CHANGE && operation.declares(slot)
+                if (operation.declares(slot)
                         && !needs.getOrDefault(operation, Set.of()).contains(slot)) {
                     unneeded.add(operation + " declares a " + slot + " message no call site needs");
                 }

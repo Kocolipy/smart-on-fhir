@@ -64,8 +64,8 @@ public class ApplicationLifecycleLog {
 
     static final String DORMANCY_LOCKOUT_WINDOW = "app.dormancy.lockout.window";
 
-    static final String DORMANCY_ROLE_REVOCATION_WINDOW =
-            "app.dormancy.role_revocation.window";
+    static final String DORMANCY_MEMBERSHIP_REVOCATION_WINDOW =
+            "app.dormancy.membership_revocation.window";
 
     static final String AUDIT_RETENTION_PERIOD = "app.audit.retention.period";
 
@@ -106,7 +106,7 @@ public class ApplicationLifecycleLog {
                 .addKeyValue(SCIM_ENABLED, scimGate.open())
                 .addKeyValue(DORMANCY_LOCKOUT_WINDOW,
                         dormancy.lockoutWindow().toString())
-                .addKeyValue(DORMANCY_ROLE_REVOCATION_WINDOW,
+                .addKeyValue(DORMANCY_MEMBERSHIP_REVOCATION_WINDOW,
                         dormancy.membershipRevocationWindow().toString())
                 .addKeyValue(AUDIT_RETENTION_PERIOD, retention.period().toString());
         epicLogin.addStartupFields(record).log();

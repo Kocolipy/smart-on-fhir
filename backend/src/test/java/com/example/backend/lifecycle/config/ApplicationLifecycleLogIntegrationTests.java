@@ -101,7 +101,7 @@ class ApplicationLifecycleLogIntegrationTests {
                 .as("the lockout threshold is an authentication-flow value the standard keeps out")
                 .isTrue();
         assertThat(record.at("/app/dormancy/lockout/window").asText()).isEqualTo("PT1464H");
-        assertThat(record.at("/app/dormancy/role_revocation/window").asText())
+        assertThat(record.at("/app/dormancy/membership_revocation/window").asText())
                 .as("unset, so the policy's 180-day default")
                 .isEqualTo("PT4320H");
         assertThat(record.at("/app/audit/retention/period").asText()).isEqualTo("PT9600H");
@@ -171,8 +171,8 @@ class ApplicationLifecycleLogIntegrationTests {
 
     /**
      * The records of the operation whose ECS action this is and which has no local name of its
-     * own — so {@code application-startup} is the lifecycle record alone, not the role mapping's
-     * startup records, which share the action and carry {@code app.event.action}.
+     * own — so {@code application-startup} is the lifecycle record alone, not another startup
+     * record, which shares the action and carries {@code app.event.action}.
      */
     private List<String> linesWithAction(String action) {
         return capture.get().lines().lines()

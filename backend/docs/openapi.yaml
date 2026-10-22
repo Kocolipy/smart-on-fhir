@@ -36,10 +36,12 @@ info:
     `sessionCookie: [superuser]` names the Superuser instead, which is not a
     Permission: connector creation and deletion and every token operation
     require it (ADR 0015). A session's Permissions are
-    the baseline `patient:read`, which every active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
-    reports them. A User is a Superuser when it is a direct member of the Admin
-    group; its session holds every delegatable Permission beside whatever its
-    Roles confer, and `GET /api/auth/me` reports `superuser: true`. A caller lacking the
+    the baseline `patient:read`, which every active User holds, and the union of
+    the Permissions its direct Groups carry; a Group with none confers nothing.
+    `GET /api/auth/me` reports them. A User is a Superuser when it is a direct
+    member of the Admin group; its session holds every delegatable Permission
+    beside whatever its other Groups carry, and `GET /api/auth/me` reports
+    `superuser: true`. A caller lacking the
     declared Permission, or the Superuser, gets a `403` that
     never names it (see `PermissionRequired`). The application chain
     denies by default: a route or method this document does not declare is
@@ -290,9 +292,10 @@ paths:
         to the change flow.
 
         `permissions` lists the Permissions the session was issued with, sorted
-        by name: the baseline `patient:read`, which every active User holds, and those the role mapping confers through
-        the User's direct Group memberships at sign-in. A User in no mapped Group
-        gets only the baseline Permissions and keeps baseline access. There is no role field: what a User may
+        by name: the baseline `patient:read`, which every active User holds, and the
+        union of the Permissions the User's direct Groups carry at sign-in. A User
+        whose Groups carry none gets only the baseline Permissions and keeps
+        baseline access. There is no role field: what a User may
         do is its Permissions, and whether it is the Superuser.
 
         `superuser` is true exactly when the session's User was a direct member of
@@ -938,11 +941,13 @@ paths:
       summary: List the Groups projection
       description: |
         The Accounts page's Groups view: every SCIM Group with its direct member
-        count and whether it is the protected, server-seeded Admin group.
-        Requires `group:read`.
+        count, whether it is the protected, server-seeded Admin group, and the
+        Permissions it confers on its direct members (ADR 0015). Requires
+        `group:read`.
 
-        READ-ONLY in its entirety. Groups and their membership are written by a
-        connector over SCIM; this namespace declares no write operation on them,
+        READ-ONLY here. Groups and their membership are written by a connector
+        over SCIM; a Group's Permissions are stored by the application and never
+        set over SCIM. This namespace declares no write operation on them,
         so `POST`, `PUT`, `PATCH` and `DELETE` here or on `/api/admin/groups/{id}`
         are undeclared and refused with 403 by the application chain, which
         denies by default.
@@ -962,38 +967,33 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
-  /api/admin/roles:
+  /api/admin/permissions:
     get:
       tags: [Administration]
-      summary: List the Roles and the role mapping
+      summary: List the Permissions a Group may carry
       description: |
-        Every Role the deployment's role mapping defines, with the Permissions it
-        holds and the Groups that confer it — each Group by its stable id and its
-        current `displayName` — and the Superuser Group marked. Requires
-        `group:read`: the Groups projection answers who is in which Group, this
-        answers what each Group grants.
+        Every delegatable Permission, by name, sorted by name: the closed
+        vocabulary in code a Group may carry (ADR 0015). Never the baseline
+        `patient:read`, which every active User holds whatever its Groups, and
+        never a token-only write half (`user:write`, `group:write`). The
+        Superuser is not a Permission and is not listed. Requires `group:read`,
+        the Permission that reads what every Group carries.
 
-        READ-ONLY in its entirety. Roles and the mapping are deployment
-        configuration, fixed for the life of the process (see the backend
-        README's "Role mapping"); no endpoint creates, changes or deletes a Role
-        or a mapping entry, so `POST`, `PUT`, `PATCH` and `DELETE` here are
-        undeclared and refused with 403 by the application chain, which denies by
-        default. A Role is ASSIGNED by Group membership, which a connector writes
-        over SCIM — so `group:write` on a mapped Group is Role assignment.
-      operationId: listRoles
+        READ-ONLY in its entirety. The vocabulary is code's; `POST`, `PUT`,
+        `PATCH` and `DELETE` here are undeclared and refused with 403 by the
+        application chain, which denies by default.
+      operationId: listDelegatablePermissions
       security:
         - sessionCookie: [group:read]
       responses:
         "200":
-          description: |
-            Every defined Role, ordered by name, each with its Permissions ordered
-            by name and its Groups in mapping order.
+          description: Every delegatable Permission, sorted by name.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/RoleSummary"
+                  $ref: "#/components/schemas/DelegatablePermission"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2912,7 +2912,7 @@ components:
         this on every endpoint but the change flow, a Superuser's included.
 
         The body is the generic `request-refused` `ApiError`, generic on purpose:
-        it never names the missing Permission, a Role or the rule that refused.
+        it never names the missing Permission, a Group or the rule that refused.
         The refusal is audited (`ACCESS_DENIED`) and logged at `WARN` with the
         caller, the operation and the reason `insufficient-permissions`.
       content:
@@ -3231,10 +3231,10 @@ components:
               - user:read
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
-            are the baseline `patient:read`, which every active User holds, together with the union of the Roles of every mapped Group the User was a
-            direct member of when it signed in (the role mapping, see the
-            backend/docs/configuration/role-mapping.md), so a change of membership is seen
-            at the next sign-in. Only the baseline Permissions for a User in no mapped Group, and
+            are the baseline `patient:read`, which every active User holds, together with the
+            union of the Permissions carried by every Group the User was a direct member of
+            when it signed in (ADR 0015), so a change of membership is seen at the next
+            sign-in. Only the baseline Permissions for a User whose Groups carry none, and
             empty while `passwordChangeRequired` is true.
             What the SPA shows is decided from this list; what the server allows is
             decided by each operation's own declaration, never by the SPA.
@@ -3520,7 +3520,7 @@ components:
     GroupSummary:
       type: object
       description: One row of the read-only Groups projection.
-      required: [id, displayName, memberCount, adminGroup]
+      required: [id, displayName, memberCount, adminGroup, permissions]
       properties:
         id:
           type: string
@@ -3534,58 +3534,29 @@ components:
         adminGroup:
           type: boolean
           description: |
-            Whether this is the protected, server-seeded Admin group whose direct
-            members hold administrative authority. Decided by the reservation
-            marker, never by the name.
-    RoleSummary:
-      type: object
-      description: One Role of the role mapping, read-only.
-      required: [name, permissions, groups]
-      properties:
-        name:
-          type: string
-          description: The Role's name, unique within the mapping.
+            Whether this is the protected, server-seeded Admin group, whose direct
+            members are the Superuser. Decided by the reservation marker, never
+            by the name.
         permissions:
           type: array
-          description: The Permissions the Role holds, sorted by name, each once.
+          description: |
+            What the Group confers on its direct members, sorted by name, each
+            once. Empty for a Group that confers nothing, and always for the
+            Admin group, which carries none: the Superuser is not a Permission.
           items:
-            type: string
-            enum:
-              - account:unlock
-              - audit:read
-              - connector:read
-              - group:read
-              - ops:read
-              - patient:read
-              - user:read
-        groups:
-          type: array
-          description: |
-            The Groups the mapping assigns this Role to, in mapping order; empty for
-            a Role no Group confers. A direct member of any of them holds the Role.
-          items:
-            $ref: "#/components/schemas/MappedGroup"
-    MappedGroup:
-      type: object
-      description: A Group named by the role mapping.
-      required: [id, displayName, superuser]
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: The Group's stable id, as the mapping names it.
-        displayName:
-          type: [string, "null"]
-          description: |
-            The directory's current name for the Group, or `null` when no live
-            Group has that id: every mapped Group but the Superuser Group may be
-            deleted over SCIM, and a deleted one confers nothing.
-        superuser:
-          type: boolean
-          description: |
-            Whether this is the Superuser Group — the server-seeded Admin group,
-            whose Role holds every Permission, which cannot be renamed or deleted
-            and whose Bootstrap Admin membership is frozen.
+            $ref: "#/components/schemas/DelegatablePermission"
+    DelegatablePermission:
+      type: string
+      description: |
+        A Permission a Group may carry: the delegatable part of the closed
+        vocabulary in code.
+      enum:
+        - account:unlock
+        - audit:read
+        - connector:read
+        - group:read
+        - ops:read
+        - user:read
     FhirPatient:
       type: object
       description: |

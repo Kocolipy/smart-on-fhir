@@ -43,7 +43,7 @@ class DormancyPolicyStartupTests {
     void configuredWindowsReachThePolicy() {
         contexts.withPropertyValues(
                         "app.dormancy.lockout.window=60d",
-                        "app.dormancy.role.revocation.window=120d")
+                        "app.dormancy.membership.revocation.window=120d")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
@@ -58,7 +58,7 @@ class DormancyPolicyStartupTests {
         contexts.withInitializer(context -> context.getEnvironment().getPropertySources()
                         .addFirst(new SystemEnvironmentPropertySource("test-env", Map.<String, Object>of(
                                 "APP_DORMANCY_LOCKOUT_WINDOW", "30d",
-                                "APP_DORMANCY_ROLE_REVOCATION_WINDOW", "45d"))))
+                                "APP_DORMANCY_MEMBERSHIP_REVOCATION_WINDOW", "45d"))))
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
@@ -84,8 +84,8 @@ class DormancyPolicyStartupTests {
     @CsvSource({
             "app.dormancy.lockout.window=0d,                 lockout window is configured at PT0S",
             "app.dormancy.lockout.window=-1d,                lockout window is configured at PT-24H",
-            "app.dormancy.role.revocation.window=0d,         role revocation window is configured at PT0S",
-            "app.dormancy.role.revocation.window=-5d,        role revocation window is configured at PT-120H"
+            "app.dormancy.membership.revocation.window=0d,   membership revocation window is configured at PT0S",
+            "app.dormancy.membership.revocation.window=-5d,  membership revocation window is configured at PT-120H"
     })
     void aNonPositiveWindowFailsStartupNamingTheWindow(String setting, String message) {
         contexts.withPropertyValues(setting)
@@ -104,11 +104,11 @@ class DormancyPolicyStartupTests {
             "90d,  60d",
             "200d, 180d"
     })
-    void aRoleRevocationWindowNotLongerThanTheLockoutWindowFailsStartup(
-            String lockout, String roleRevocation) {
+    void aMembershipRevocationWindowNotLongerThanTheLockoutWindowFailsStartup(
+            String lockout, String membershipRevocation) {
         contexts.withPropertyValues(
                         "app.dormancy.lockout.window=" + lockout,
-                        "app.dormancy.role.revocation.window=" + roleRevocation)
+                        "app.dormancy.membership.revocation.window=" + membershipRevocation)
                 .run(context -> assertThat(context)
                         .hasFailed()
                         .getFailure()

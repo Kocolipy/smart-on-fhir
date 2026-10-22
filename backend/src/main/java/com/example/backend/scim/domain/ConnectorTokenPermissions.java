@@ -69,6 +69,6 @@ public record ConnectorTokenPermissions(Set<Permission> values) {
 
     /** The Permissions spelled as the wire spells them, sorted by that spelling. */
     public List<String> sortedValues() {
-        return values.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList();
+        return Permission.valuesOf(values);
     }
 }

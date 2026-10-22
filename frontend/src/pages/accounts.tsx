@@ -77,10 +77,14 @@ function offersForcedChange(user: UserRow, self: boolean): boolean {
 const offersUnlock = (user: UserRow, self: boolean): boolean =>
   user.locked && !user.bootstrapAdmin && !self;
 
-/** The role column: the recovery identity first, then the derived Admin flag. */
-function roleOf(user: UserRow): string {
+/**
+ * The access column: the recovery identity first, then the Superuser — a
+ * direct member of the Admin group, the derived `admin` flag — then everyone
+ * else, whose Permissions come from their Groups.
+ */
+function accessOf(user: UserRow): string {
   if (user.bootstrapAdmin) return "Bootstrap Admin";
-  return user.admin ? "Admin" : "User";
+  return user.admin ? "Superuser" : "User";
 }
 
 type OnAction = (user: UserRow, action: UserAction) => void;
@@ -146,7 +150,7 @@ function UserRowView({
           <span className="block font-normal text-muted-foreground">{user.displayName}</span>
         ) : null}
       </th>
-      <td className={MUTED_CELL}>{roleOf(user)}</td>
+      <td className={MUTED_CELL}>{accessOf(user)}</td>
       <td className="py-3 pr-4">
         {user.active ? (
           <span className="text-muted-foreground">Active</span>
@@ -180,7 +184,7 @@ function UserRowView({
 
 const USER_COLUMNS = [
   "User",
-  "Role",
+  "Access",
   "Active",
   "Password",
   "Lockout",
@@ -229,6 +233,17 @@ function UsersTable({
   );
 }
 
+/**
+ * What a Group confers, as its Permissions column shows it: the Admin group
+ * confers the Superuser, which is not a Permission and so is read from the
+ * reservation flag, never from the list; any other Group its Permissions, or
+ * nothing.
+ */
+function confersOf(group: GroupRow): string {
+  if (group.adminGroup) return "Superuser";
+  return group.permissions.join(", ") || "—";
+}
+
 function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
@@ -242,7 +257,7 @@ function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
             Members
           </th>
           <th className="py-2 font-medium" scope="col">
-            Authority
+            Permissions
           </th>
         </tr>
       </thead>
@@ -253,9 +268,7 @@ function GroupsTable({ groups }: { groups: readonly GroupRow[] }) {
               {group.displayName}
             </th>
             <td className="py-3 pr-4 text-muted-foreground">{group.memberCount}</td>
-            <td className="py-3 text-muted-foreground">
-              {group.adminGroup ? "Protected Admin group" : "—"}
-            </td>
+            <td className="py-3 text-muted-foreground">{confersOf(group)}</td>
           </tr>
         ))}
       </tbody>
@@ -390,7 +403,7 @@ export function Accounts() {
       </ProjectionCard>
 
       <ProjectionCard
-        description="Groups and their membership come from the directory and are read-only here. A Group mapped to a Role grants that Role's Permissions to its direct members from their next sign-in."
+        description="Groups and their membership come from the directory and are read-only here. A Group grants its Permissions to its direct members from their next sign-in, and a Group with none grants nothing. The Admin group's direct members are the Superuser."
         empty="No groups are provisioned."
         title="Groups"
         view={groups.view}

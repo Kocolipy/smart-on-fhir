@@ -7,9 +7,8 @@ import org.springframework.session.Session;
 
 /**
  * A Spring Session {@link Session}, found in the store by id, as {@link SignedInSession} reads
- * and writes it: how the store adapters here ({@link EpicTokensAdapter},
- * {@link RoleMappingSessionsAdapter}) ask a session they did not receive with a request its
- * questions.
+ * and writes it: how a store adapter here ({@link EpicTokensAdapter}) asks a session it did not
+ * receive with a request its questions.
  *
  * <p>Delegation only; the shape is the module's. A read-only view: reading an attribute touches
  * neither the session's last-access time nor the store, so asking never keeps a session alive,

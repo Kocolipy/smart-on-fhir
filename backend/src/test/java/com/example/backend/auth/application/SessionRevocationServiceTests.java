@@ -108,7 +108,7 @@ class SessionRevocationServiceTests {
                 Arguments.of(SessionRevocationCause.USER_NAME_CHANGED,
                         "SUCCESS:USER_NAME:USER_NAME_CHANGED"),
                 Arguments.of(SessionRevocationCause.DELETED, "SUCCESS::DELETED"),
-                Arguments.of(SessionRevocationCause.ROLE_REVOKED, "SUCCESS:GROUPS:ROLE_REVOKED"),
+                Arguments.of(SessionRevocationCause.MEMBERSHIP_REVOKED, "SUCCESS:GROUPS:MEMBERSHIP_REVOKED"),
                 Arguments.of(SessionRevocationCause.DORMANCY_LOCKOUT, "SUCCESS::DORMANCY_LOCKOUT"),
                 Arguments.of(SessionRevocationCause.FAILURE_RUN_LOCKOUT,
                         "SUCCESS::FAILURE_RUN_LOCKOUT"),
@@ -218,7 +218,7 @@ class SessionRevocationServiceTests {
                 Arguments.of(ScimUserSessions.Cause.USER_NAME_CHANGED,
                         "SUCCESS:USER_NAME:USER_NAME_CHANGED"),
                 Arguments.of(ScimUserSessions.Cause.DELETED, "SUCCESS::DELETED"),
-                Arguments.of(ScimUserSessions.Cause.ROLE_REVOKED, "SUCCESS:GROUPS:ROLE_REVOKED"));
+                Arguments.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED, "SUCCESS:GROUPS:MEMBERSHIP_REVOKED"));
     }
 
     @Test

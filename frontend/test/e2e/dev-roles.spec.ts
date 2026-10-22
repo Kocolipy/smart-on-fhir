@@ -1,21 +1,23 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
-  DEV_ROLES,
+  DEV_FIXTURES,
   adminRequest,
-  loginAsRole,
+  loginAsFixture,
   postAdminAction,
-  type DevRole,
+  type DevFixture,
 } from "./auth.helpers";
 import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 import { BACKEND_URL, E2E_PREFIX } from "./scim.helpers";
 
-// The development role mapping's fixture Users: each signs in through the login
-// page, holds exactly its Role's Permissions on `GET /api/auth/me`, sees exactly
-// the pages and actions those Permissions allow, and is refused every direct
-// API call outside them. None of them is the Superuser: connector
-// administration is refused to each, the Connector admin included, whose
-// `connector:read` lists connectors and does no more.
+// The development fixtures' Users: each signs in through the login page, holds
+// exactly what its Group carries (the `local` profile's stored Group
+// Permissions, ADR 0015) on `GET /api/auth/me`, sees exactly the pages and
+// actions those Permissions allow, and is refused every direct API call outside
+// them. `roles-admin.spec.ts` reads each Group's stored Permissions back. None
+// of them is the Superuser: connector administration is refused to each, the
+// Connector admin included, whose `connector:read` lists connectors and does no
+// more.
 //
 // In the `guest` project — empty `storageState` — because signing in is the
 // subject. The Superuser is left out on purpose: its User is the Bootstrap
@@ -32,14 +34,14 @@ const GUARDED_READS = {
   "/api/admin/audit-events": "audit:read",
   "/api/admin/connectors": "connector:read",
   "/api/admin/groups": "group:read",
-  "/api/admin/roles": "group:read",
+  "/api/admin/permissions": "group:read",
 } as const;
 
-/** What the Accounts page shows a Role, or `null` when its deep link routes away. */
+/** What the Accounts page shows a fixture, or `null` when its deep link routes away. */
 type AccountsView = { users: boolean; groups: boolean; connectors: boolean } | null;
 
 const EXPECTED: Record<
-  Exclude<DevRole, "superuser">,
+  Exclude<DevFixture, "superuser">,
   { accounts: AccountsView; audit: boolean; unlock: boolean; createConnector: boolean }
 > = {
   accountAdmin: {
@@ -68,7 +70,7 @@ async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: bo
   const patientRequests = recordPatientRequests(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
-  // Every fixture Role's User holds the baseline patient:read, but a password
+  // Every fixture's User holds the baseline patient:read, but a password
   // login puts no patient in context: the Patient card says so and reads nothing.
   await expectNoPatientInContext(page);
   expect(patientRequests()).toEqual([]);
@@ -121,15 +123,15 @@ async function expectAudit(page: Page, canView: boolean) {
   await expect(page.getByRole("table", { name: "Audit events" })).toBeVisible();
 }
 
-test.describe("development Roles", () => {
-  for (const role of Object.keys(EXPECTED) as (keyof typeof EXPECTED)[]) {
-    const { permissions, username } = DEV_ROLES[role];
-    const expected = EXPECTED[role];
+test.describe("development Group Permissions", () => {
+  for (const fixture of Object.keys(EXPECTED) as (keyof typeof EXPECTED)[]) {
+    const { permissions, username } = DEV_FIXTURES[fixture];
+    const expected = EXPECTED[fixture];
 
-    test(`${username} sees and reaches exactly what its ${role} Permissions allow`, async ({
+    test(`${username} sees and reaches exactly what its ${fixture} Group's Permissions allow`, async ({
       page,
     }) => {
-      await loginAsRole(page, role);
+      await loginAsFixture(page, fixture);
 
       // Its Permissions, and no role field beside them.
       const me = await page.request.get("/api/auth/me");
@@ -154,7 +156,7 @@ test.describe("development Roles", () => {
       // unknown id answers 404 to a holder of account:unlock, and 403 to anyone else.
       const unlock = await postAdminAction(page, crypto.randomUUID(), "unlock");
       expect(unlock.status(), `unlock for ${username}`).toBe(expected.unlock ? 404 : 403);
-      // Connector administration is the Superuser's alone: refused to every Role, with
+      // Connector administration is the Superuser's alone: refused to every Group, with
       // the generic 403 whatever the body, and nothing is created.
       const created = await adminRequest(page, "POST", "/api/admin/connectors", {
         displayName: `${E2E_PREFIX}refused-${username}`,
