@@ -618,6 +618,19 @@ class ScimSeedServiceTests {
         assertThat(groupPermissions.findAll()).isEmpty();
     }
 
+    /** One failed startup names every bad fixture, whatever is wrong with each, so one fix covers all. */
+    @Test
+    void the_group_permission_fixtures_name_every_problem_at_once() {
+        groups.given(ScimGroup.created(AUDITORS, "Auditors", List.of(), ScimIdentities.NOW));
+
+        assertThatThrownBy(() -> seeding.seedGroupPermissionFixtures(List.of(
+                        new GroupPermissionFixture(AUDITORS, List.of("audit:frobnicate")),
+                        new GroupPermissionFixture(HELPDESK, List.of("ops:read")))))
+                .isInstanceOf(InvalidGroupPermissionsException.class)
+                .hasMessageContaining("Group " + AUDITORS + " carries unknown Permission"
+                        + " 'audit:frobnicate'; Group " + HELPDESK + " does not exist");
+    }
+
     /** The Admin group carries no Permissions: its members are the Superuser. */
     @Test
     void a_group_permission_fixture_naming_the_admin_group_is_refused() {
