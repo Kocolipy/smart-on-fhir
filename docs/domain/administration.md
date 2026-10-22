@@ -81,7 +81,6 @@ sets a Group's Permissions over SCIM. The session effects — a Permission taken
 away ends every direct member's sessions at once, one added reaches them at their
 next sign-in — are [authorization's](./authorization.md). Every change is audited:
 
-
 - an accepted change is one `GROUP_PERMISSIONS_CHANGE` naming the Superuser, the
   Group and the Group's Permissions before and after, logged at `INFO` and counted
   on `authorization.changes{operation="group-permissions-change"}`;
@@ -119,6 +118,14 @@ never update or delete one; only the [audit retention job](./dormancy.md) delete
   SCIM (`invalidSyntax`), a malformed PATCH path (`invalidPath`, `invalidFilter`),
   a `404` for an id naming no resource, a path segment that is not an id at all,
   and any refusal of a read are answered and logged but not recorded.
+- A refused administrative operation — an Unlock, a change of a Group's
+  Permissions, a connector or token operation — is one failure event naming the
+  administrator, what the operation addressed and one closed-set reason, recorded
+  by what the refusal is, from one table, whichever use case refused it. Every
+  one is recorded, an id that names nothing included (`UNKNOWN_RESOURCE`): a
+  User, a Group, a connector or a token. Only a token request of a shape no token
+  may have — a lifetime past the ceiling, a Permission no token may carry — is
+  answered `400` and not recorded.
 
 **Audit listing** — `GET /api/admin/audit-events`, by a holder of `audit:read`:
 newest first, paginated, filterable by operation, outcome, actor, resource and time

@@ -1,7 +1,7 @@
 package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.example.backend.ContainerTestConfiguration;
@@ -16,6 +16,7 @@ import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.ConnectorTokenSummary;
 import com.example.backend.scim.application.IssuedConnectorToken;
+import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -100,9 +101,10 @@ class ConnectorTokenRotationRaceIntegrationTests {
     }
 
     /**
-     * The trail names the tokens, as stored ids, on both write paths: the rotation, appended in
-     * the rotation's own transaction, names the rotated token and its replacement; the refusal of
-     * a second rotation, appended on the audit pool, names the token it addressed and why.
+     * The trail names the tokens a rotation concerns, as stored ids, appended in the rotation's own
+     * transaction: the rotated token and its replacement. The refusal of a second rotation names
+     * the token it addressed and why, and records nothing itself — the administrative edge appends
+     * it on the audit pool, which {@code ScimConnectorLifecycleIntegrationTests} drives over HTTP.
      */
     @Test
     void a_rotation_and_the_refusal_of_a_second_name_the_tokens_they_concern() {
@@ -113,9 +115,12 @@ class ConnectorTokenRotationRaceIntegrationTests {
                 TokenPermissions.READ, null, null);
         IssuedConnectorToken replacement = connectors.rotateToken(
                 original.tokenId(), null, null, null);
-        assertThatThrownBy(() -> connectors.rotateToken(
-                        original.tokenId(), null, null, null))
-                .isInstanceOf(ConnectorTokenNotRotatableException.class);
+        assertThatExceptionOfType(ConnectorTokenNotRotatableException.class)
+                .isThrownBy(() -> connectors.rotateToken(original.tokenId(), null, null, null))
+                .satisfies(refused -> assertThat(List.of(refused.connectorId(),
+                                refused.rotatedId(), refused.reason()))
+                        .containsExactly(connector.id(), original.tokenId(),
+                                ConnectorTokenRotationRefusal.ALREADY_ROTATED));
 
         List<AuditEvent> rotations = trail.find(new AuditEventQuery(
                 AuditOperation.CONNECTOR_TOKEN_ROTATE, null, null, connector.id(), null, null, 0,
@@ -124,11 +129,9 @@ class ConnectorTokenRotationRaceIntegrationTests {
         assertThat(rotations)
                 .extracting(AuditEvent::outcome, AuditEvent::errorCode, AuditEvent::tokenId,
                         AuditEvent::replacementTokenId)
-                .containsExactlyInAnyOrder(
+                .containsExactly(
                         tuple(AuditOutcome.SUCCESS, null, original.tokenId(),
-                                replacement.tokenId()),
-                        tuple(AuditOutcome.FAILURE, "TOKEN_ALREADY_ROTATED", original.tokenId(),
-                                null));
+                                replacement.tokenId()));
     }
 
     /** Runs both calls released together; reports each as its result or its failure's name. */

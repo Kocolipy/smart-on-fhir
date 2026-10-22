@@ -4,10 +4,7 @@ import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
-import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.IssuedConnectorToken;
-import com.example.backend.scim.application.UnknownConnectorException;
-import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -24,7 +21,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -61,6 +57,11 @@ import org.springframework.web.bind.annotation.RestController;
  * a {@code null} id here is passed on and recorded as an event with no actor: no rule of
  * connector administration turns on who the actor is, and this slice cannot read the
  * {@code auth} module's session without closing the {@code auth -> scim} dependency into a cycle.
+ *
+ * <p>A refused operation — an unknown connector or token, a token that can no longer be rotated,
+ * a token request of a shape no token may have — is answered, logged and audited by the
+ * administrative edge, from the one table of administrative refusals. That edge is the
+ * {@code auth} module's, which may reach this one; nothing here names it.
  */
 @RestController
 @RequestMapping("/api/admin/connectors")
@@ -206,42 +207,5 @@ public class AdminConnectorController {
                     new InvalidConnectorTokenPermissionsException("Not a Permission")));
         }
         return permissions;
-    }
-
-    @ExceptionHandler(UnknownConnectorException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public void unknownConnector() {
-        // The caller is already an administrator, so naming what is missing reveals
-        // nothing they could not read from the listing.
-    }
-
-    /**
-     * A lifetime past the ceiling is a bad request rather than a conflict: the request
-     * itself is out of range, and reporting it lets the Admin see that the token they
-     * would have received is not the one they asked for.
-     */
-    @ExceptionHandler(InvalidConnectorTokenLifetimeException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public void invalidLifetime() {
-    }
-
-    /**
-     * No Permission, a name that is no Permission, or one a token cannot carry: the request
-     * itself cannot be granted, whoever makes it.
-     */
-    @ExceptionHandler(InvalidConnectorTokenPermissionsException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public void invalidPermissions() {
-    }
-
-    /**
-     * A rotation of a token that is revoked, has expired or was rotated already — the second of
-     * two concurrent rotations of one token included. {@code 409}, bodiless: the request is
-     * well-formed and the caller may rotate tokens, but this token's state forbids it, and the
-     * listing shows which state that is. Already audited, naming the token and why, by the service.
-     */
-    @ExceptionHandler(ConnectorTokenNotRotatableException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public void notRotatable() {
     }
 }

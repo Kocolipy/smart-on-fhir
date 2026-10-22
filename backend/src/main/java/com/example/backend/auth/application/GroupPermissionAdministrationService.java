@@ -1,6 +1,5 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.SessionRevocationCause;
@@ -39,16 +38,21 @@ import org.springframework.transaction.annotation.Transactional;
  * membership change, never interleave: the members whose sessions a shrink ends are the members
  * the Group has when the new set is stored.
  *
- * <p>Refused before anything is written, each audited as a {@code GROUP_PERMISSIONS_CHANGE}
- * failure with one generic reason and logged at {@code WARN}, naming no Permission:
+ * <p>Refused before anything is written, in this order, by throwing a
+ * {@link GroupPermissionsRefusedException} naming the Superuser, the Group addressed and one
+ * generic reason — never a Permission. The administrative edge answers, logs and audits it as a
+ * {@code GROUP_PERMISSIONS_CHANGE} failure ({@code auth.controller.AdminRefusals}); nothing here
+ * records it:
  *
  * <ul>
  *   <li>a body that is not a set of Permissions a Group may carry — missing, not an array of names,
  *       or naming something that is not a {@linkplain Permission#delegatable() delegatable}
- *       Permission ({@link InvalidGroupPermissionsRequestException});
- *   <li>a Group that does not exist, or no longer does ({@link UnknownGroupException});
+ *       Permission ({@code INVALID_PERMISSIONS}), judged before the Group is locked or looked up;
+ *       a body that is not JSON at all never reaches this use case, and the edge refuses it the
+ *       same way;
+ *   <li>a Group that does not exist, or no longer does ({@code UNKNOWN_GROUP});
  *   <li>the Admin group, recognised by its reservation marker, whose direct members' power is the
- *       Superuser rather than a Permission ({@link ProtectedGroupException}).
+ *       Superuser rather than a Permission ({@code ADMIN_GROUP}).
  * </ul>
  *
  * <p>A change that goes through is audited with the Group's Permissions before and after, logged at
@@ -108,20 +112,20 @@ public class GroupPermissionAdministrationService {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
         Optional<Set<Permission>> named = delegatable(requested);
         if (named.isEmpty()) {
-            refused(actorId, groupId, AuditAdministrativeRefusal.INVALID_PERMISSIONS);
-            throw new InvalidGroupPermissionsRequestException();
+            throw new GroupPermissionsRefusedException(
+                    GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, actorId, groupId);
         }
         Set<Permission> after = named.get();
         writeLocks.lock(List.of(groupId));
         Optional<ScimGroup> found = groups.findById(groupId);
         if (found.isEmpty()) {
-            refused(actorId, groupId, AuditAdministrativeRefusal.UNKNOWN_RESOURCE);
-            throw new UnknownGroupException();
+            throw new GroupPermissionsRefusedException(
+                    GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, actorId, groupId);
         }
         ScimGroup group = found.get();
         if (group.reservedName() == ReservedResourceName.ADMIN_GROUP) {
-            refused(actorId, groupId, AuditAdministrativeRefusal.PROTECTED_RESOURCE);
-            throw new ProtectedGroupException();
+            throw new GroupPermissionsRefusedException(
+                    GroupPermissionsRefusedException.Reason.ADMIN_GROUP, actorId, groupId);
         }
         Set<Permission> before =
                 permissions.carriedBy(List.of(groupId)).getOrDefault(groupId, Set.of());
@@ -136,19 +140,6 @@ public class GroupPermissionAdministrationService {
             }
         }
         return GroupSummary.of(group, after);
-    }
-
-    /**
-     * Records the refusal of a change whose body could not be read as JSON at all — refused by
-     * the web adapter's binder before {@link #setPermissions} could be called — exactly as a body
-     * that is not a set of names is: audited and logged as {@code INVALID_PERMISSIONS}.
-     *
-     * @param groupId the Group the request's path addressed
-     * @param actorId the Superuser's stable id, as its signed-in session holds it
-     */
-    public void refuseUnreadableBody(UUID groupId, UUID actorId) {
-        Objects.requireNonNull(actorId, ACTOR_REQUIRED);
-        refused(actorId, groupId, AuditAdministrativeRefusal.INVALID_PERMISSIONS);
     }
 
     /**
@@ -169,16 +160,6 @@ public class GroupPermissionAdministrationService {
             named.add(permission.get());
         }
         return Optional.of(named);
-    }
-
-    /** Audits and logs a refusal made before anything was written. */
-    private void refused(UUID actorId, UUID groupId, AuditAdministrativeRefusal reason) {
-        LogEvent.refused(log, Operation.GROUP_PERMISSIONS_CHANGE, Category.PROCESS, Type.ADMIN,
-                        Type.GROUP, Type.DENIED)
-                .addKeyValue(LogEvent.GROUP_ID, groupId.toString())
-                .addKeyValue(LogEvent.REASON, reason.name())
-                .log();
-        audit.append(new Audited.GroupPermissionsChangeRefused(actorId, groupId, reason));
     }
 
     /**

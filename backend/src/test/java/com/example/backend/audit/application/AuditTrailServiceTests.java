@@ -936,6 +936,47 @@ class AuditTrailServiceTests {
         assertThat(refused.permissions()).isEmpty();
     }
 
+    /**
+     * A connector or token operation addressing a connector or token that does not exist, or no
+     * longer does: a failure on that operation with {@code UNKNOWN_RESOURCE}, naming the connector
+     * addressed — none when only a token was named and it is unknown — and the token addressed,
+     * and changing nothing.
+     */
+    @Test
+    void anOperationOnAnUnknownConnectorOrTokenIsRecordedAsARefusalNamingWhatItAddressed() {
+        trail.append(new Audited.ConnectorDeleteRefused(
+                ACTOR, GROUP, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+        trail.append(new Audited.ConnectorTokenIssueRefused(
+                ACTOR, GROUP, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+        trail.append(new Audited.ConnectorTokenNotRotatable(
+                ACTOR, null, ISSUED, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+        trail.append(new Audited.ConnectorTokenRevokeRefused(
+                ACTOR, null, ISSUED, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+
+        assertThat(events.appended)
+                .extracting(AuditEvent::operation, AuditEvent::subjectId, AuditEvent::resourceId,
+                        AuditEvent::tokenId)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                AuditOperation.CONNECTOR_DELETE, GROUP, GROUP, null),
+                        org.assertj.core.groups.Tuple.tuple(
+                                AuditOperation.CONNECTOR_TOKEN_ISSUE, GROUP, GROUP, null),
+                        org.assertj.core.groups.Tuple.tuple(
+                                AuditOperation.CONNECTOR_TOKEN_ROTATE, null, null, ISSUED),
+                        org.assertj.core.groups.Tuple.tuple(
+                                AuditOperation.CONNECTOR_TOKEN_REVOKE, null, null, ISSUED));
+        assertThat(events.appended).allSatisfy(refused -> {
+            assertThat(List.<Object>of(refused.outcome(), refused.errorCode(),
+                            refused.statusClass(), refused.resourceType()))
+                    .containsExactly(AuditOutcome.FAILURE, "UNKNOWN_RESOURCE", "client_error",
+                            AuditEvent.CONNECTOR_RESOURCE_TYPE);
+            assertThat(refused.actorId()).isEqualTo(ACTOR);
+            assertThat(refused.replacementTokenId()).isNull();
+            assertThat(refused.changedPaths()).isEmpty();
+            assertThat(refused.permissions()).isEmpty();
+        });
+    }
+
     /** The refusal is already the caller's 409: fail-open, with an alert, like every refusal. */
     @Test
     void aRefusedRotationFailsOpenAndAGrantFailsClosed() {
@@ -1305,6 +1346,10 @@ class AuditTrailServiceTests {
             // A rotation of a revoked, expired or already rotated token: already a 409.
             Map.entry(Audited.ConnectorTokenNotRotatable.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.ConnectorTokenRevoked.class, Semantics.FAIL_CLOSED),
+            // An operation addressing an unknown connector or token: already a 404.
+            Map.entry(Audited.ConnectorDeleteRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorTokenIssueRefused.class, Semantics.FAIL_OPEN),
+            Map.entry(Audited.ConnectorTokenRevokeRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.ScimUserCreated.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ScimUserCreateRejected.class, Semantics.FAIL_OPEN),
             // A read, but a bulk one: fail-closed.

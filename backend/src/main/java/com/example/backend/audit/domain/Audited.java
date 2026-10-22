@@ -368,14 +368,54 @@ public sealed interface Audited {
     }
 
     /**
-     * A rotation refused because the token it addressed can no longer be rotated: it was revoked,
-     * has expired, or was rotated already — the second of two concurrent rotations of one token
-     * among them. Nothing was minted and nothing written; the caller is already receiving a
-     * {@code 409}, so the append is fail-open.
+     * A connector's deletion refused: the connector it addressed does not exist, or was deleted
+     * already. Nothing was written; the caller is already receiving a {@code 404}, so the append is
+     * fail-open.
      *
-     * @param rotatedId the stable id of the token the rotation addressed
-     * @param reason    which of the three it was: {@code TOKEN_REVOKED}, {@code TOKEN_EXPIRED} or
-     *                  {@code TOKEN_ALREADY_ROTATED}
+     * @param connectorId the connector the request addressed, which may not exist
+     * @param reason      {@code UNKNOWN_RESOURCE}
+     */
+    record ConnectorDeleteRefused(
+            UUID actorId, UUID connectorId, AuditAdministrativeRefusal reason) implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.resource(stamp, AuditRows.Change.refusal(
+                    AuditOperation.CONNECTOR_DELETE, actorId, connectorId, reason),
+                    AuditEvent.CONNECTOR_RESOURCE_TYPE);
+        }
+    }
+
+    /**
+     * A token's issue refused: the connector it was to be issued for does not exist, or was
+     * deleted. Nothing was minted; the caller is already receiving a {@code 404}, so the append is
+     * fail-open. It names no token, because none was addressed.
+     *
+     * @param connectorId the connector the request addressed, which may not exist
+     * @param reason      {@code UNKNOWN_RESOURCE}
+     */
+    record ConnectorTokenIssueRefused(
+            UUID actorId, UUID connectorId, AuditAdministrativeRefusal reason) implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.token(stamp, AuditRows.Change.refusal(
+                    AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, reason),
+                    AuditRows.Tokens.NONE, Set.of());
+        }
+    }
+
+    /**
+     * A rotation refused. Either the token it addressed can no longer be rotated — it was revoked,
+     * has expired, or was rotated already, the second of two concurrent rotations of one token
+     * among them — or it addressed nothing: no token has that id, or the token's connector was
+     * deleted. Nothing was minted and nothing written; the caller is already receiving a
+     * {@code 409} or a {@code 404}, so the append is fail-open.
+     *
+     * @param connectorId the token's connector, or {@code null} when no token has the id addressed
+     * @param rotatedId   the stable id of the token the rotation addressed
+     * @param reason      {@code TOKEN_REVOKED}, {@code TOKEN_EXPIRED}, {@code TOKEN_ALREADY_ROTATED}
+     *                    or {@code UNKNOWN_RESOURCE}
      */
     record ConnectorTokenNotRotatable(
             UUID actorId, UUID connectorId, UUID rotatedId, AuditAdministrativeRefusal reason)
@@ -407,6 +447,26 @@ public sealed interface Audited {
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.token(stamp, AuditRows.Change.success(
                     AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, PATHS),
+                    AuditRows.Tokens.one(revokedId), Set.of());
+        }
+    }
+
+    /**
+     * A revocation refused: no token has the id it addressed. Nothing was written; the caller is
+     * already receiving a {@code 404}, so the append is fail-open.
+     *
+     * @param connectorId the token's connector, or {@code null} when no token has the id addressed
+     * @param revokedId   the stable id of the token the revocation addressed
+     * @param reason      {@code UNKNOWN_RESOURCE}
+     */
+    record ConnectorTokenRevokeRefused(
+            UUID actorId, UUID connectorId, UUID revokedId, AuditAdministrativeRefusal reason)
+            implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.token(stamp, AuditRows.Change.refusal(
+                    AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, reason),
                     AuditRows.Tokens.one(revokedId), Set.of());
         }
     }

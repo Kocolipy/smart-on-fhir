@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
@@ -9,7 +10,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditSessionRevocationCause;
 import com.example.backend.audit.domain.Audited;
@@ -31,14 +31,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * A Superuser sets a Group's Permissions (ADR 0015, #159): the complete set replaces the Group's,
- * every success and every refusal is audited, and taking a Permission away ends every direct
- * member's sessions once the write commits (ADR 0002).
+ * every success is audited, every refusal is thrown before anything is written for the
+ * administrative edge to record, and taking a Permission away ends every direct member's sessions
+ * once the write commits (ADR 0002).
  */
 class GroupPermissionAdministrationServiceTests {
 
@@ -227,19 +229,15 @@ class GroupPermissionAdministrationServiceTests {
         assertThat(changesCounted()).isEqualTo(2.0);
     }
 
-    // Refusals: each audited, logged at WARN, and nothing written
+    // Refusals: each thrown naming who, what and why, before anything is written
 
     @Test
     void aMissingBodyIsRefusedAsInvalidAndChangesNothing() {
         ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ);
 
-        Throwable refused = catchThrowable(
-                () -> service.setPermissions(auditors.id(), null, SUPERUSER));
-
-        assertThat(refused).isInstanceOf(InvalidGroupPermissionsRequestException.class);
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, auditors.id(), AuditAdministrativeRefusal.INVALID_PERMISSIONS));
-        assertThat(carried(auditors)).containsExactly(Permission.AUDIT_READ);
+        assertRefused(() -> service.setPermissions(auditors.id(), null, SUPERUSER),
+                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
+        assertNothingWritten(auditors, Permission.AUDIT_READ);
     }
 
     /**
@@ -252,22 +250,29 @@ class GroupPermissionAdministrationServiceTests {
     void aValueNoGroupMayCarryRefusesTheWholeSet(String value) {
         ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ);
 
-        assertThatThrownBy(() -> service.setPermissions(
-                auditors.id(), List.of("ops:read", value), SUPERUSER))
-                .isInstanceOf(InvalidGroupPermissionsRequestException.class);
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, auditors.id(), AuditAdministrativeRefusal.INVALID_PERMISSIONS));
-        assertThat(carried(auditors)).containsExactly(Permission.AUDIT_READ);
+        assertRefused(() -> service.setPermissions(
+                        auditors.id(), List.of("ops:read", value), SUPERUSER),
+                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
+        assertNothingWritten(auditors, Permission.AUDIT_READ);
+    }
+
+    /** The body is judged before the Group is locked or looked up. */
+    @Test
+    void anInvalidBodyIsRefusedBeforeTheGroupIsLockedOrLookedUp() {
+        UUID nowhere = UUID.fromString("00000000-0000-4000-8000-0000000dead0");
+
+        assertRefused(() -> service.setPermissions(nowhere, List.of("user:write"), SUPERUSER),
+                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, nowhere);
+        assertThat(writeLocks.requests()).isEmpty();
     }
 
     @Test
     void aGroupThatDoesNotExistIsRefusedAsUnknown() {
         UUID nowhere = UUID.fromString("00000000-0000-4000-8000-0000000dead0");
 
-        assertThatThrownBy(() -> service.setPermissions(nowhere, List.of("audit:read"), SUPERUSER))
-                .isInstanceOf(UnknownGroupException.class);
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, nowhere, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+        assertRefused(() -> service.setPermissions(nowhere, List.of("audit:read"), SUPERUSER),
+                GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, nowhere);
+        assertThat(audit.events()).isEmpty();
     }
 
     @Test
@@ -275,10 +280,9 @@ class GroupPermissionAdministrationServiceTests {
         ScimGroup gone = givenGroup("Gone", Permission.AUDIT_READ);
         groups.deleteById(gone.id(), ScimIdentities.NOW);
 
-        assertThatThrownBy(() -> service.setPermissions(gone.id(), List.of("ops:read"), SUPERUSER))
-                .isInstanceOf(UnknownGroupException.class);
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, gone.id(), AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
+        assertRefused(() -> service.setPermissions(gone.id(), List.of("ops:read"), SUPERUSER),
+                GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, gone.id());
+        assertThat(audit.events()).isEmpty();
     }
 
     /** The Admin group's members are the Superuser, which is not a Permission: nothing to set. */
@@ -287,33 +291,28 @@ class GroupPermissionAdministrationServiceTests {
         ScimGroup admins = groups.createReserved(
                 ScimIdentities.group("Admins", member("root")), ReservedResourceName.ADMIN_GROUP);
 
-        assertThatThrownBy(() -> service.setPermissions(
-                admins.id(), List.of("audit:read"), SUPERUSER))
-                .isInstanceOf(ProtectedGroupException.class);
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, admins.id(), AuditAdministrativeRefusal.PROTECTED_RESOURCE));
-        assertThat(carried(admins)).isEmpty();
+        assertRefused(() -> service.setPermissions(admins.id(), List.of("audit:read"), SUPERUSER),
+                GroupPermissionsRefusedException.Reason.ADMIN_GROUP, admins.id());
+        assertNothingWritten(admins);
     }
 
+    /**
+     * A refusal writes no record of its own and counts nothing: the administrative edge records it
+     * once ({@code AdminRefusalsTests}).
+     */
     @Test
-    void aRefusalIsLoggedAtWarnWithItsReasonAndCountsNothing() {
+    void aRefusalLogsNothingHereAndCountsNothing() {
         ScimGroup auditors = givenGroup("Auditors");
 
         List<ILoggingEvent> records;
         try (CapturedLog log = CapturedLog.attach()) {
             catchThrowable(() -> service.setPermissions(
                     auditors.id(), List.of("user:write"), SUPERUSER));
-            records = log.withAction(Level.INFO, LogEvent.LOCAL_ACTION,
+            records = log.withAction(Level.TRACE, LogEvent.LOCAL_ACTION,
                     "authorization.group_permissions_change");
         }
 
-        assertThat(records).singleElement().satisfies(record -> {
-            assertThat(record.getLevel()).isEqualTo(Level.WARN);
-            assertThat(CapturedLog.fields(record))
-                    .containsEntry(LogEvent.OUTCOME, "failure")
-                    .containsEntry(LogEvent.REASON, "INVALID_PERMISSIONS")
-                    .containsEntry(LogEvent.GROUP_ID, auditors.id().toString());
-        });
+        assertThat(records).isEmpty();
         assertThat(changesCounted()).isZero();
     }
 
@@ -323,10 +322,7 @@ class GroupPermissionAdministrationServiceTests {
 
         assertThatThrownBy(() -> service.setPermissions(auditors.id(), List.of(), null))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> service.refuseUnreadableBody(auditors.id(), null))
-                .isInstanceOf(NullPointerException.class);
-        assertThat(audit.events()).isEmpty();
-        assertThat(carried(auditors)).containsExactly(Permission.AUDIT_READ);
+        assertNothingWritten(auditors, Permission.AUDIT_READ);
     }
 
     /**
@@ -344,18 +340,6 @@ class GroupPermissionAdministrationServiceTests {
         assertThat(writeLocks.requests()).containsExactly(Set.of(auditors.id()));
     }
 
-    /** A body that was not JSON at all is refused, audited and logged as one that is no set. */
-    @Test
-    void anUnreadableBodyIsAuditedAsInvalidAndChangesNothing() {
-        ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ);
-
-        service.refuseUnreadableBody(auditors.id(), SUPERUSER);
-
-        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChangeRefused(
-                SUPERUSER, auditors.id(), AuditAdministrativeRefusal.INVALID_PERMISSIONS));
-        assertThat(carried(auditors)).containsExactly(Permission.AUDIT_READ);
-    }
-
     /** A refusal before anything was written ends no session, whatever the Group carried. */
     @Test
     void aRefusalEndsNoSession() {
@@ -367,6 +351,22 @@ class GroupPermissionAdministrationServiceTests {
         transaction.commit();
 
         assertThat(sessions.isLive("ada-session")).isTrue();
+    }
+
+    /** The change is refused for {@code reason}, naming the Superuser and the Group addressed. */
+    private static void assertRefused(
+            ThrowingCallable change, GroupPermissionsRefusedException.Reason reason, UUID groupId) {
+        assertThatExceptionOfType(GroupPermissionsRefusedException.class)
+                .isThrownBy(change)
+                .satisfies(refused -> assertThat(List.<Object>of(
+                                refused.reason(), refused.actorId(), refused.groupId()))
+                        .containsExactly(reason, SUPERUSER, groupId));
+    }
+
+    /** Nothing audited, and the Group still carries exactly {@code kept}. */
+    private void assertNothingWritten(ScimGroup group, Permission... kept) {
+        assertThat(audit.events()).isEmpty();
+        assertThat(carried(group)).containsExactlyInAnyOrder(kept);
     }
 
     // Helpers

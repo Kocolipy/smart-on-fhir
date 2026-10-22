@@ -69,6 +69,11 @@ public enum AuditAdministrativeRefusal {
      */
     INVALID_PERMISSIONS,
 
-    /** A change of a Group's Permissions addressing a Group that does not exist, or no longer does. */
+    /**
+     * An administrative operation addressing something that does not exist, or no longer does: an
+     * Unlock's User, a Group whose Permissions were to be set, a connector to delete or to issue a
+     * token for, or a token to rotate or revoke — a token whose connector was deleted among them.
+     * The id addressed is recorded, though it names nothing.
+     */
     UNKNOWN_RESOURCE
 }

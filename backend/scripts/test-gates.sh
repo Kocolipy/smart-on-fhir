@@ -71,6 +71,7 @@ FAST_GATE=(
   com/example/backend/auth/config/SecurityConfigPasswordEncoderTests
   com/example/backend/auth/controller/AbsoluteSessionLifetimeFilterTests
   com/example/backend/auth/controller/AdminAccountControllerTests
+  com/example/backend/auth/controller/AdminRefusalsTests
   com/example/backend/auth/controller/AuthControllerTests
   com/example/backend/auth/controller/HttpSessionAttributesTests
   com/example/backend/auth/controller/LoginCompletionTests
