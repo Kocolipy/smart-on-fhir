@@ -241,7 +241,8 @@ baseline Permission `patient:read`, which no Group carries.
 **Development fixtures**:
 The development Groups and their Users, the dummy Patients, and — under the
 `local` profile alone — the development Groups' Permissions, seeded only when
-`APP_DEV_FIXTURES_ENABLED` is on.
+`APP_DEV_FIXTURES_ENABLED` is on. Turned on outside the `local` profile they
+fail startup, because they waive the Bootstrap Admin's first-login change.
 
 **Self-service**:
 An operation needing a signed-in session and no Permission, acting only on the

@@ -21,7 +21,8 @@ change was last required. There is no deadline for the change; see
   since a credential that sat unused across a deactivation is not trusted on
   return, and by seeding the Bootstrap Admin, whose first password comes from
   deployment configuration — except with the development fixtures on
-  (`APP_DEV_FIXTURES_ENABLED`), which are never on in a deployment. A
+  (`APP_DEV_FIXTURES_ENABLED`), which startup refuses outside the `local`
+  profile, so they are never on in a deployment. A
   credentialless User is unlocked or reactivated without it, having no password
   to replace.
 - It is **cleared** only by a successful self-service change; a connector write

@@ -29,8 +29,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
+import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.ContextConsumer;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -55,7 +59,8 @@ class ScimSeedConfigStartupTests {
 
     private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups);
 
-    private final ApplicationContextRunner contexts = new ApplicationContextRunner()
+    /** The seeding step over the in-memory directory, with no configuration at all. */
+    private final ApplicationContextRunner directory = new ApplicationContextRunner()
             .withBean(ScimSeedService.class, () -> new ScimSeedService(
                     users, groups, new InMemoryScimWriteLocks(), () -> { },
                     new RecordingAuditTrail(),
@@ -64,10 +69,16 @@ class ScimSeedConfigStartupTests {
                     LoginStateModules.over(
                             users, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC))))
             .withBean(DormancyPolicy.class, DormancyPolicy::defaults)
-            .withUserConfiguration(ScimSeedConfig.class)
-            .withPropertyValues(
-                    "app.auth.bootstrap-username=admin",
-                    "app.auth.bootstrap-password=admin-password");
+            .withUserConfiguration(ScimSeedConfig.class);
+
+    /** The same, with a Bootstrap Admin configured. */
+    private final ApplicationContextRunner contexts = directory.withPropertyValues(
+            "app.auth.bootstrap-username=admin",
+            "app.auth.bootstrap-password=admin-password");
+
+    /** The same, under the {@code local} profile a developer's run has: the fixtures' one home. */
+    private final ApplicationContextRunner local =
+            contexts.withPropertyValues("spring.profiles.active=local");
 
     /**
      * Fixtures off: the Bootstrap Admin is the only User seeded — the baseline member, though
@@ -88,7 +99,7 @@ class ScimSeedConfigStartupTests {
     /** Fixtures on with a baseline member: it is seeded in no Group, on the fixture password. */
     @Test
     void theBaselineFixtureIsSeededInNoGroup() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.baseline-member=user",
@@ -102,6 +113,24 @@ class ScimSeedConfigStartupTests {
         assertThat(groups.findAllOrderedByNormalizedDisplayName()).noneMatch(group -> group.hasMember(baseline.id()));
     }
 
+    /**
+     * Fixtures on with no Groups configured: the baseline member is seeded, and no Group beside the
+     * Admin group every directory gets.
+     */
+    @Test
+    void fixturesWithNoGroupsConfiguredSeedTheBaselineMemberAlone() {
+        local.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.baseline-member=user")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.require("user").login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(groups.findAllOrderedByNormalizedDisplayName())
+                .extracting(ScimGroup::id)
+                .containsExactly(TestGroupPermissions.SUPERUSER_GROUP_ID);
+    }
+
     /** Fixtures off: the Bootstrap Admin owes its first-login change, as in a deployment. */
     @Test
     void withTheFixturesOffTheBootstrapAdminOwesAPasswordChange() {
@@ -113,7 +142,7 @@ class ScimSeedConfigStartupTests {
     /** Fixtures on: a developer's Bootstrap Admin signs straight in. */
     @Test
     void withTheFixturesOnTheBootstrapAdminOwesNoPasswordChange() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
@@ -127,7 +156,7 @@ class ScimSeedConfigStartupTests {
     /** Fixtures on: the Group they create exists, with its User in it. */
     @Test
     void theFixturesCreateTheirGroupsWithTheirUsers() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
@@ -142,7 +171,7 @@ class ScimSeedConfigStartupTests {
     /** The fixture Group Permissions apply after the fixture Groups, so the Group they name exists. */
     @Test
     void theFixtureGroupPermissionsApplyToTheGroupTheFixturesCreate() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
@@ -219,13 +248,29 @@ class ScimSeedConfigStartupTests {
                         group("a007"), Set.of(Permission.AUDIT_READ)));
     }
 
-    /** Any other profile seeds the same Groups and no Group Permission at all. */
+    /**
+     * The Epic e2e run's profiles, {@code local,dev} ({@code scripts/integration-test.sh}): the
+     * fixtures seed as a plain local run seeds them.
+     */
     @Test
-    void anotherProfileSeedsNoGroupPermission() {
-        shipped("dev").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+    void theLocalProfileBesideTheDevProfileSeedsTheFixtures() {
+        shipped("local,dev").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        assertThat(groups.findById(group("a002"))).isPresent();
-        assertThat(groupPermissions.findAll()).isEmpty();
+        assertThat(groups.findById(group("a002")).orElseThrow()
+                        .hasMember(users.require("account-admin").id()))
+                .isTrue();
+    }
+
+    /** Any other profile refuses the shipped fixtures outright, rather than seeding them bare. */
+    @Test
+    void anotherProfileRefusesTheShippedFixtures() {
+        shipped("dev").run(refusesStartup("'local' profile is not active"));
+        assertThat(groups.findById(group("a002"))).isEmpty();
+    }
+
+    /** A context that failed to start, its root cause naming {@code fragment}. */
+    private static ContextConsumer<AssertableApplicationContext> refusesStartup(String fragment) {
+        return context -> assertThat(context).getFailure().rootCause().hasMessageContaining(fragment);
     }
 
     private static UUID group(String suffix) {
@@ -239,7 +284,7 @@ class ScimSeedConfigStartupTests {
      */
     @Test
     void theDormantFixtureIsSeededADayPastTheRevocationWindowInItsGroups() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.dormant-member=dormant",
@@ -259,7 +304,7 @@ class ScimSeedConfigStartupTests {
     /** A dormant fixture with no Groups configured for it is seeded in none. */
     @Test
     void aDormantFixtureWithNoGroupsConfiguredJoinsNone() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.dormant-member=dormant",
@@ -274,7 +319,7 @@ class ScimSeedConfigStartupTests {
     /** No dormant fixture configured: none is seeded. */
     @Test
     void noDormantFixtureIsSeededUnlessOneIsNamed() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
@@ -285,10 +330,108 @@ class ScimSeedConfigStartupTests {
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("dormant"))).isEmpty();
     }
 
+    // ---- the fixtures are confined to the `local` profile --------------------------------------
+
+    /**
+     * The fixtures on with no profile active — a deployment that set APP_DEV_FIXTURES_ENABLED and
+     * nothing else — fail startup naming the setting and the profile, before anything is seeded:
+     * the fixtures waive the Bootstrap Admin's first-login change, so outside a developer's machine
+     * they would ship a Superuser signing in on a configured first password.
+     */
+    @Test
+    void enabledFixturesWithNoProfileActiveFailStartup() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password")
+                .run(context -> assertThat(context).getFailure()
+                        .rootCause()
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessage("app.dev-fixtures.enabled (APP_DEV_FIXTURES_ENABLED) is true,"
+                                + " but the 'local' profile is not active: the development"
+                                + " fixtures run on a developer's machine only"));
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isEmpty();
+    }
+
+    /**
+     * The review's case through the deployed {@code application.yaml}: a Bootstrap Admin password
+     * set, APP_DEV_FIXTURES_ENABLED turned on, and no profile — refused.
+     */
+    @Test
+    void theDeployedConfigurationRefusesTheFixturesWithNoProfileActive() {
+        deployed().withPropertyValues(
+                        "APP_BOOTSTRAP_PASSWORD=configured-password",
+                        "APP_DEV_FIXTURES_ENABLED=true",
+                        "APP_DEV_FIXTURES_PASSWORD=fixture-password")
+                .run(refusesStartup("'local' profile is not active"));
+    }
+
+    /** A deployment's profile does not admit them either, nor does the {@code test} profile. */
+    @Test
+    void enabledFixturesUnderAnotherProfileFailStartup() {
+        contexts.withPropertyValues(
+                        "spring.profiles.active=prod,dev,test",
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password")
+                .run(refusesStartup("APP_DEV_FIXTURES_ENABLED"));
+    }
+
+    // ---- the Bootstrap Admin's first password has no fallback ---------------------------------
+
+    /**
+     * The deployed {@code application.yaml}, read from disk: the test resources' copy shadows it on
+     * the classpath. Surefire drops {@code APP_BOOTSTRAP_PASSWORD} from the test environment, so
+     * only what a test sets reaches it. Placeholders resolve strictly, as the running service's
+     * auto-configured resolver has them: without it a context leaves an unresolvable one in place
+     * as its literal text, which would seed that text as the password.
+     */
+    private ApplicationContextRunner deployed() {
+        return directory
+                .withConfiguration(AutoConfigurations.of(PropertyPlaceholderAutoConfiguration.class))
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues("spring.config.location=file:src/main/resources/application.yaml");
+    }
+
+    /**
+     * A deployment that sets no APP_BOOTSTRAP_PASSWORD fails startup naming it, rather than seeding
+     * a Superuser on a password this public repository publishes.
+     */
+    @Test
+    void theDeployedConfigurationWithoutABootstrapPasswordFailsStartup() {
+        deployed().run(refusesStartup("APP_BOOTSTRAP_PASSWORD"));
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isEmpty();
+    }
+
+    /** A blank one is refused as an absent one is, naming the setting and its variable. */
+    @Test
+    void aBlankBootstrapPasswordFailsStartup() {
+        directory.withPropertyValues(
+                        "app.auth.bootstrap-username=admin",
+                        "app.auth.bootstrap-password= ")
+                .run(context -> assertThat(context).getFailure()
+                        .rootCause()
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessage("app.auth.bootstrap-password (APP_BOOTSTRAP_PASSWORD) must be"
+                                + " set: it is the Bootstrap Admin's first password, and has no"
+                                + " fallback"));
+    }
+
+    /**
+     * With APP_BOOTSTRAP_PASSWORD set, the deployed configuration seeds the Bootstrap Admin on it,
+     * under the username's {@code admin} fallback — a name, not a credential, so it stays.
+     */
+    @Test
+    void theDeployedConfigurationSeedsTheBootstrapAdminOnTheConfiguredPassword() {
+        deployed().withPropertyValues("APP_BOOTSTRAP_PASSWORD=configured-password")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.require("admin").login().passwordHash())
+                .isEqualTo("encoded:configured-password");
+    }
+
     /** Enabled with no password is refused rather than seeding Users with no usable credential. */
     @Test
     void enabledFixturesWithoutAPasswordFailStartup() {
-        contexts.withPropertyValues(
+        local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
