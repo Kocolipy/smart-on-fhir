@@ -11,7 +11,6 @@ import { formatDate, formatInstant } from "@/lib/time";
 
 import {
   GROUPS,
-  namesSameUser,
   SET_GROUP_PERMISSIONS,
   UNLOCK_USER,
   USERS,
@@ -112,12 +111,17 @@ const MUTED_CELL = "py-3 pr-4 text-muted-foreground";
 function UserRowView({
   onUnlock,
   pending,
-  signedIn,
+  sessionUserId,
   user,
 }: {
   onUnlock: OnUnlock | null;
   pending: boolean;
-  signedIn: string | undefined;
+  /**
+   * The stable id the session is signed in to. The row carrying it is the
+   * caller's own — compared by id, as the backend compares, never by
+   * `userName`, which a connector can rename mid-session.
+   */
+  sessionUserId: string | undefined;
   user: UserRow;
 }) {
   return (
@@ -152,7 +156,7 @@ function UserRowView({
         <UnlockButton
           onUnlock={onUnlock}
           pending={pending}
-          self={namesSameUser(user.userName, signedIn)}
+          self={user.id === sessionUserId}
           user={user}
         />
       </td>
@@ -176,12 +180,12 @@ const USER_COLUMNS = [
 function UsersTable({
   onUnlock,
   pending,
-  signedIn,
+  sessionUserId,
   users,
 }: {
   onUnlock: OnUnlock | null;
   pending: boolean;
-  signedIn: string | undefined;
+  sessionUserId: string | undefined;
   users: readonly UserRow[];
 }) {
   return (
@@ -202,7 +206,7 @@ function UsersTable({
             key={user.id}
             onUnlock={onUnlock}
             pending={pending}
-            signedIn={signedIn}
+            sessionUserId={sessionUserId}
             user={user}
           />
         ))}
@@ -433,12 +437,7 @@ export function Accounts() {
         view={users.view}
       >
         {(rows) => (
-          <UsersTable
-            onUnlock={onUnlock}
-            pending={pending}
-            signedIn={user?.username}
-            users={rows}
-          />
+          <UsersTable onUnlock={onUnlock} pending={pending} sessionUserId={user?.id} users={rows} />
         )}
       </ProjectionCard>
 

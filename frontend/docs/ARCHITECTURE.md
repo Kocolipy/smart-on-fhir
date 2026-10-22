@@ -152,7 +152,8 @@ decide where a visitor goes.
   every Group but the Admin group — "Edit permissions". An action replaces the
   affected row from its response, which _is_ that User's or Group's new state,
   rather than re-reading. Nothing the directory owns has a control, and the page
-  hides the actions the backend would refuse (its own row; Unlock on a User
+  hides the actions the backend would refuse (its own row, the one whose stable
+  id the session's `AuthUser.id` holds; Unlock on a User
   that is not locked, the Bootstrap Admin always among them; the Admin group's
   Permissions). An Unlock the backend still refuses `409` — another
   administrator unlocked the User first — says the User is no longer locked.

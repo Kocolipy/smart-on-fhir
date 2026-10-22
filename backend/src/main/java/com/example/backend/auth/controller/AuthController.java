@@ -117,8 +117,13 @@ public class AuthController {
     }
 
     /**
-     * The signed-in account as the SPA is told it: its name, the Permissions its session was
-     * issued with, whether it is confined to the password change, and its idle bound.
+     * The signed-in account as the SPA is told it: its stable id, its name, the Permissions its
+     * session was issued with, whether it is confined to the password change, and its idle bound.
+     *
+     * <p>The id is the one the session's principal index holds — the id every self-target check
+     * compares — never derived from the principal's name, which a connector can rename
+     * mid-session or hand to another User. A session that identifies nobody, with no index or one
+     * that is no stable id, is refused with the {@code 401} an anonymous request gets.
      *
      * <p>No role is reported. The SPA decides what to show by Permission, as the server decides
      * what to allow, and a confined session holds none, so it reports none.
@@ -132,6 +137,7 @@ public class AuthController {
                 .anyMatch(authority -> LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY
                         .equals(authority.getAuthority()));
         return new UserResponse(
+                HttpSessionAttributes.ownerOf(session),
                 authentication.getName(),
                 permissionsOf(authentication),
                 isSuperuser(authentication),
@@ -300,6 +306,11 @@ public class AuthController {
     }
 
     /**
+     * @param id                     the stable id of the User the session is signed in to: the
+     *                               id an operation's self-target check compares, and so the one
+     *                               the SPA recognises the caller's own row by — never the
+     *                               {@code username}
+     * @param username               the User's {@code userName} at sign-in; a display value only
      * @param permissions            the Permissions the session was issued with, by name, sorted
      *                               by name: the baseline and what the User's direct Groups
      *                               carry; empty while a password change is required. A Superuser's include every
@@ -313,6 +324,7 @@ public class AuthController {
      *                               an inactive user out by this figure, so it never outlasts it
      */
     public record UserResponse(
+            UUID id,
             String username,
             List<String> permissions,
             boolean superuser,
