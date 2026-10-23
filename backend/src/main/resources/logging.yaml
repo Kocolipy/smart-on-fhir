@@ -41,8 +41,8 @@ logging:
       # requires, without moving the JVM's default zone; and moves the
       # `error_code`/`error_category`/`error_follow_up_action` keys the call sites
       # write into the `error` object, where `Log_Schema.md` §Error defines them.
-      # See the classes, and the 2026-10-01 (#66) and 2026-10-02 (#94) addenda to
-      # ADR 0003.
+      # See the classes, and ADR 0003's "Format and envelope" and "Error
+      # classification".
       customizer:
         - com.example.backend.observability.EcsTimestampCustomizer
         - com.example.backend.observability.EcsErrorFieldsCustomizer

@@ -42,7 +42,7 @@ import org.springframework.boot.logging.structured.StructuredLoggingJsonMembersC
  * of them.
  *
  * <p>Applied through {@code logging.structured.json.customizer} in {@code logging.yaml}, with
- * {@link EcsTimestampCustomizer}. See the 2026-10-02 (#94) addendum to
+ * {@link EcsTimestampCustomizer}. See "Error classification" in
  * {@code docs/adr/0003-ecs-structured-logging-with-redaction.md}.
  */
 public final class EcsErrorFieldsCustomizer

@@ -38,7 +38,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code semgrep/rules/service-security.yml} holds the property against future code
  * in this package.
  *
- * <p><strong>The handler decides; this filter is the backstop (ADR 0010).</strong> Each SCIM
+ * <p><strong>The handler decides; this filter is the backstop (ADR 0015).</strong> Each SCIM
  * handler declares the Permission it needs with method security, against the authorities this
  * filter puts on the principal — the one authorization mechanism both chains share, and the one
  * that judges the operation the dispatcher actually selected. Before dispatch this filter also

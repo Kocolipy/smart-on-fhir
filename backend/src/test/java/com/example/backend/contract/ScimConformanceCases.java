@@ -176,7 +176,7 @@ final class ScimConformanceCases {
             assertThat(paged.get("Resources")).isEqualTo(plain.get("Resources"));
         });
 
-        // ADR 0010: discovery needs a valid token and no Permission. Every discovery case here
+        // ADR 0015: discovery needs a valid token and no Permission. Every discovery case here
         // reads with a token holding the write Permissions alone, so none of them needs a read.
         add(all, "discovery: needs a token", t -> {
             MvcResult refused = t.expect(
@@ -1611,7 +1611,7 @@ final class ScimConformanceCases {
             assertThat(unauthenticated.getResponse().getContentAsByteArray()).isEmpty();
         });
 
-        // ADR 0010: the base search returns only the types the token may read.
+        // ADR 0015: the base search returns only the types the token may read.
         add(all, "Base search: a user:read-only token gets Users and no Groups", t -> {
             Resource user = t.create(Kind.USER);
             Resource group = t.create(Kind.GROUP);

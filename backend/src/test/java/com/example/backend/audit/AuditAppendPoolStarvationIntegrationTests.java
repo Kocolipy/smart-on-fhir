@@ -28,7 +28,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * A fail-open append never waits for the main connection pool (ADR 0004, 2026-10-13 addendum).
+ * A fail-open append never waits for the main connection pool (ADR 0004).
  *
  * <p>The starvation it closes: a refusal is recorded while its caller still holds a connection —
  * a rejected Login holds one, and the User row's lock, while it appends {@code LOGIN_FAILURE} —

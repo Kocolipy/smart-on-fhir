@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * What a connector token may do: a set of Permissions from the shared vocabulary (ADR 0010).
+ * What a connector token may do: a set of Permissions from the shared vocabulary (ADR 0015).
  *
  * <p>The same names the session's vocabulary spells, so "this connector manages Groups but not
  * Users" is {@code group:read} and {@code group:write} and nothing else. A token can carry only

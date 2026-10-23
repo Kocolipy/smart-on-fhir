@@ -339,7 +339,7 @@ class AuditEventRecordingIntegrationTests {
 
     /**
      * An Unlock of a User serving no lockout has no effect: the failure run it holds is kept as
-     * evidence, where an Unlock used to clear it, and the refusal names no changed path.
+     * evidence, and the refusal names no changed path.
      */
     @Test
     void aRefusedUnlockOfAUserServingNoLockoutKeepsItsFailureRun() throws Exception {
@@ -455,7 +455,7 @@ class AuditEventRecordingIntegrationTests {
      * A signed-in User refused an operation for want of its Permission leaves exactly one
      * {@code ACCESS_DENIED} event: the caller as actor and subject, the operation as its method and
      * route TEMPLATE, and the one generic reason. A search of the row for the Permission's name,
-     * a Role's and the policy's vocabulary finds none of them — after first finding the reason,
+     * an authority's ({@code ROLE_}) and the policy's vocabulary finds none of them — after first finding the reason,
      * so the search is proven to read the row it searched.
      */
     @Test

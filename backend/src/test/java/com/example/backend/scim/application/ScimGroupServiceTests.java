@@ -358,9 +358,7 @@ class ScimGroupServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
                 .satisfies(event -> assertThat(event.detail()).isEmpty());
         // And the VERSION did not move either — the two halves of "this write changed nothing"
-        // have to agree. They previously did not: the audit recorded no changed attribute while
-        // the version advanced anyway, so a connector's idempotent re-send invalidated its own
-        // cached copy. Asserting only the audit detail is what let that through.
+        // have to agree, or a connector's idempotent re-send would invalidate its own cached copy.
         assertThat(replayed.version())
                 .as("a write that changed nothing must not move the resource's validator")
                 .isEqualTo(created.version());

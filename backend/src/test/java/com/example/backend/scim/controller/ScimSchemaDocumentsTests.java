@@ -125,9 +125,8 @@ class ScimSchemaDocumentsTests {
      * An unimplemented core attribute is absent from the document. A service advertising
      * {@code phoneNumbers} and dropping them is worse than one that says it has none.
      *
-     * <p>{@code groups} has left this list, and that is the inversion this ticket makes: the
-     * reverse membership view is computed and rendered now, so it is advertised — as
-     * {@code readOnly}, which the test above asserts.
+     * <p>{@code groups} is not in this list: the reverse membership view is computed and
+     * rendered, so it is advertised — as {@code readOnly}, which the test above asserts.
      */
     @ParameterizedTest
     @ValueSource(strings = {

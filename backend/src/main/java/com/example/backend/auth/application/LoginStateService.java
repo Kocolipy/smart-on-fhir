@@ -35,7 +35,7 @@ import org.springframework.stereotype.Service;
  *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
  *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}).
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
- *       moves unless the Login builds a Confined session (ADR 0008 and its addendum). A User found
+ *       moves unless the Login builds a Confined session (ADR 0008). A User found
  *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
  *       Login never lifts a Lockout (ADR 0007).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
@@ -81,8 +81,8 @@ import org.springframework.stereotype.Service;
  * {@link SessionRevocationCause#FAILURE_RUN_LOCKOUT}: it runs after the transaction commits,
  * because Redis is not in the transaction ({@code /docs/adr/0002-revoke-sessions-after-commit.md}),
  * and it is audited under that cause. It is the one revocation a refusal imposes, so a session
- * store that fails is recorded and alerted without changing the path's bare refusal (ADR 0004's
- * 2026-10-10 addendum). The {@code LOCKOUT_SET} append is fail-open, as everything on the failure
+ * store that fails is recorded and alerted without changing the path's bare refusal (ADR 0004).
+ * The {@code LOCKOUT_SET} append is fail-open, as everything on the failure
  * path is ({@link AuditTrail}).
  *
  * <h2>Narrow writes</h2>
@@ -316,7 +316,7 @@ public class LoginStateService implements ScimUserLoginState {
      * <p>A User serving no lockout is left exactly as it is stored, its run included, and nothing
      * is written: an Unlock has no effect on an unlocked User. Whether a lock stood is read from
      * the state under the User's lock ({@link LoginStateChange#before}), which the administration
-     * path refuses the Unlock on (ADR 0015's 2026-10-22 addendum).
+     * path refuses the Unlock on (ADR 0015).
      *
      * @return what the Unlock moved — the run when it held attempts, the lock, the basis and, for
      *     a User with a password, the change-required flag; nothing when no lock stood — and the

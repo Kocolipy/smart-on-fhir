@@ -21,7 +21,7 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>A path valid for either type is valid here; where one type lacks it, the filter treats it
  * as having no value and the projection does not apply to that type. A token needs at least one
- * read Permission — {@code user:read} or {@code group:read}, declared on the handler (ADR 0010) —
+ * read Permission — {@code user:read} or {@code group:read}, declared on the handler (ADR 0015) —
  * and gets only the types it may read, which the search itself narrows to; the request is audited
  * as one bulk read.
  */

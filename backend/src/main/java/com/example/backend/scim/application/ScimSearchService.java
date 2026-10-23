@@ -43,7 +43,7 @@ public class ScimSearchService {
 
     /**
      * The page of Users and Groups the query selects, in its order, and the total over both —
-     * narrowed to the types the connector's token may read (ADR 0010). A {@code user:read}-only
+     * narrowed to the types the connector's token may read (ADR 0015). A {@code user:read}-only
      * token gets Users and no Groups: its answer is the one a directory holding no Groups would
      * give, not a refusal, so a partially permitted connector still gets a conformant response.
      * The authorization rule refuses a token that may read neither before this runs.

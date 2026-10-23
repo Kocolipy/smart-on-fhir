@@ -68,9 +68,8 @@ class LoginLockoutTests {
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
     /**
-     * Ten years. The lockout used to lift after a configured window, so a small advance
-     * could not tell "permanent" from "long"; this one is past any window a deployment
-     * could plausibly have set.
+     * Ten years: past any window a deployment could plausibly set, so the advance tells
+     * "permanent" from "long".
      */
     private static final Duration A_LONG_TIME = Duration.ofDays(3650);
 

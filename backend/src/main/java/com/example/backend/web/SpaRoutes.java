@@ -14,8 +14,8 @@ import java.util.List;
  * true of paths that do not look like a file request: a missing asset must stay
  * a 404 rather than quietly become HTML.
  *
- * <p>Both questions share one reserved-prefix list, which is the knowledge that
- * was previously authored twice. A new reserved prefix is added here, once.
+ * <p>Both questions share one reserved-prefix list. A new reserved prefix is added
+ * here, once.
  */
 public final class SpaRoutes {
 

@@ -110,8 +110,8 @@ To launch by hand, provision a User over SCIM whose `userName` is the
 Practitioner ID you will launch as. A connector's write leaves a password change
 pending, which confines the User's password Login to `/change-password` but not
 its Epic Login: an Epic Login presents no password of ours, so it lands on
-Home (`/`) whether or not the change is pending (ADR 0008's 2026-10-09
-addendum). Then, in the launcher UI at
+Home (`/`) whether or not the change is pending (ADR 0008). Then, in the
+launcher UI at
 `http://localhost:9009`:
 
 - **Launch type** `Provider EHR Launch`; pick a patient, and set the provider to

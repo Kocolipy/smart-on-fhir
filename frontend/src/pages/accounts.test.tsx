@@ -288,9 +288,8 @@ describe("Accounts", () => {
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
-  // `account:unlock` has no effect on an unlocked User (ADR 0015's 2026-10-22
-  // addendum): no row that is not locked offers anything, whatever its
-  // credential, and no row offers a forced password change.
+  // `account:unlock` has no effect on an unlocked User (ADR 0015): no row that is not locked
+  // offers anything, whatever its credential.
   it("offers no action on an unlocked User, whatever its credential", async () => {
     await renderAccounts({
       [USERS]: json([
@@ -304,7 +303,7 @@ describe("Accounts", () => {
     expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("offers Unlock alone on a locked User, and no forced password change", async () => {
+  it("offers Unlock alone on a locked User", async () => {
     await renderAccounts({ [USERS]: json([userRow({ locked: true })]) });
 
     await screen.findByRole("rowheader", { name: /^grace/ });

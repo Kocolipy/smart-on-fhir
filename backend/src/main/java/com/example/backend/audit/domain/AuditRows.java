@@ -18,7 +18,7 @@ final class AuditRows {
 
     /**
      * The one reason an authorization refusal is recorded with, whichever rule refused: generic,
-     * so the trail never names a Permission, a Role or the policy.
+     * so the trail never names a Permission or the policy.
      */
     static final String INSUFFICIENT_PERMISSIONS = "INSUFFICIENT_PERMISSIONS";
 

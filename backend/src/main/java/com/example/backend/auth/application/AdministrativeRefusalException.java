@@ -10,7 +10,7 @@ package com.example.backend.auth.application;
  * ({@code auth.controller.AdminRefusals}), whose table is exhaustive over this sealed type, so a
  * new kind does not compile without its entry. The use case only decides that it refuses, and
  * throws; the edge appends the refusal's {@code Audited.Refused} event after the use case's
- * transaction has rolled back (ADR 0004's 2026-10-22 addendum).
+ * transaction has rolled back (ADR 0004).
  */
 public abstract sealed class AdministrativeRefusalException extends RuntimeException
         permits UnlockRefusedException, GroupPermissionsChangeRefusedException {

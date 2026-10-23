@@ -35,7 +35,7 @@ import tools.jackson.databind.JsonNode;
  * patch.
  *
  * <p>Each handler declares the Permission it needs with method security, as the application
- * chain's handlers do (ADR 0010): {@code user:read} to read or search, {@code user:write} to
+ * chain's handlers do (ADR 0015): {@code user:read} to read or search, {@code user:write} to
  * create, replace, patch or delete. The declaration is the authority, because it sits on the
  * operation the dispatcher actually selected; the namespace's bearer filter, which judges the
  * request line before dispatch, is the backstop. A handler added without a declaration fails

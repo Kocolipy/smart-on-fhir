@@ -31,7 +31,7 @@ import org.springframework.security.web.csrf.CsrfException;
  *
  * <p>An authorization refusal is also AUDITED, with the caller, the operation (method and route
  * template) and the one generic reason the log line carries. Neither record names the
- * Permission, Role or rule that refused it: a trail that did would be a map of the
+ * Permission or rule that refused it: a trail that did would be a map of the
  * authorization policy for whoever reads it, and the missing Permission is recoverable from
  * the operation's declaration in the API document, since each operation requires exactly one.
  * A CSRF refusal is not audited — it is not an authorization decision.

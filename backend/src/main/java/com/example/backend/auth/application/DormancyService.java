@@ -49,7 +49,7 @@ import org.springframework.stereotype.Service;
  *       {@code DORMANCY_MEMBERSHIP_REVOCATION} event names the User, every Group removed and its
  *       effective Permissions before and after, and its sessions end after the commit. This
  *       follows the access-control standard's "a user inactive for 180 days loses all roles"; a
- *       Group that confers nothing is removed too (ADR 0007, 2026-10-21 addendum). A connector may
+ *       Group that confers nothing is removed too (ADR 0007). A connector may
  *       re-add a membership; while the User stays dormant the next run removes it again.
  *   <li><strong>Lockout</strong> — the job reports each due User to the login-state module
  *       ({@link LoginStateService#dormancyLocked}), which decides the lock — {@code DORMANCY}, the

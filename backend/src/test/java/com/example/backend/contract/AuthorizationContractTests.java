@@ -66,7 +66,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 /**
  * The authorization contract, driven by the API document: for every documented operation of the
  * application chain, what its {@code security} requirement declares is what the running
- * application enforces (ADR 0010).
+ * application enforces (ADR 0015).
  *
  * <p>Every operation under {@code /api} and {@code /actuator} declares its own requirement — public,
  * self-service (authenticated, no Permission), exactly one Permission or the Superuser — and then,
@@ -82,8 +82,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li>a session — holding every Permission — cannot reach {@code /scim/**}, and a connector token
  *       cannot reach the application chain;
  *   <li>an undeclared {@code /api/} route, or a method a declared route does not serve, is refused;
- *   <li>Unlock on the caller's own account is refused whatever the caller holds, and the removed
- *       forced password change is an undeclared route;
+ *   <li>Unlock on the caller's own account is refused whatever the caller holds;
  *   <li>and each declared Permission, and the Superuser, is ALSO held by the handler itself, with
  *       method security, so the chain's matching rule is a backstop rather than the only line.
  * </ul>
@@ -258,7 +257,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     /**
      * The helpdesk power: Unlock, and nothing else, is declared under {@code account:unlock}, a
-     * Permission a Group may carry and a token may not (ADR 0015's 2026-10-22 addendum).
+     * Permission a Group may carry and a token may not (ADR 0015).
      */
     @Test
     void only_unlock_is_declared_under_account_unlock() {

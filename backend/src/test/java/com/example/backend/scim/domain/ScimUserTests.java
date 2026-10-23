@@ -80,7 +80,7 @@ class ScimUserTests {
      * The credentialless User is a supported state, not an incomplete one: SCIM allows a
      * create with no {@code password}, and such a User exists and can be read while being
      * unable to authenticate. {@code hasPassword} is how that is answered without the hash
-     * leaving the slice — asked of the login state, which is where the credential now lives.
+     * leaving the slice — asked of the login state, which is where the credential lives.
      */
     @Test
     void a_user_with_a_hash_has_a_password() {

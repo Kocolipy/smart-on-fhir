@@ -51,13 +51,13 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A value too long for its column, and any other integrity violation, against the real SQL Server
- * schema — the bug report's table, observed end to end.
+ * schema, observed end to end.
  *
- * <p>Every refusal here used to reach the database, whose integrity violation the persistence
- * adapters translated wholesale into "the name is taken": a 40-character email {@code type} came
- * back as {@code 409 uniqueness} naming {@code userName}, and an over-length {@code externalId}
- * as the servlet container's own {@code 500} body. The database is what decides those outcomes, so
- * they are asserted here rather than against the in-memory fakes, which have no columns.
+ * <p>Each refusal here reaches the database, whose integrity violation must not be translated
+ * wholesale into "the name is taken": a 40-character email {@code type} must not come back as
+ * {@code 409 uniqueness} naming {@code userName}, nor an over-length {@code externalId} as the
+ * servlet container's own {@code 500} body. The database is what decides those outcomes, so they
+ * are asserted here rather than against the in-memory fakes, which have no columns.
  *
  * <p>A U+0000 in any stored string is the same kind of refusal: it is hostile in logs and
  * terminals (ADR 0013 keeps the refusal as input hygiene), so it is refused as

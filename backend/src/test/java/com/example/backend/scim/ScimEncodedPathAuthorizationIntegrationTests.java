@@ -34,7 +34,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A SCIM operation's Permission holds however its path is spelled (ADR 0010).
+ * A SCIM operation's Permission holds however its path is spelled (ADR 0015).
  *
  * <p>The handler that serves a request is what declares the Permission it needs, so a path the
  * dispatcher resolves to the Users or Groups endpoints is held to that endpoint's Permission

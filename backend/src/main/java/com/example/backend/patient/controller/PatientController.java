@@ -17,7 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
  * Inbound HTTP adapter for reading a Patient as FHIR R5 (ADR 0014): {@code GET /api/patient/{id}}.
  *
  * <p>Requires {@code patient:read}, declared here with method security and repeated by the chain
- * as a backstop (ADR 0010). Read-only: the module has no write operation, and the dispatcher
+ * as a backstop (ADR 0015). Read-only: the module has no write operation, and the dispatcher
  * answers any other method {@code 405} before anything here runs.
  *
  * <p>The answer is FHIR JSON of version 5.0: the {@code Patient} itself, or an

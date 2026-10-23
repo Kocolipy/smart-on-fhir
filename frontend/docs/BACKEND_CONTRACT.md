@@ -110,9 +110,7 @@ change, when the backend side moves. What the SPA has to honour:
 /api/auth/me` and the login response carry `id`, the stable id the session is
   signed in to, and the caller's row is the one whose `id` equals it — never the
   one whose `userName` matches `username`, which a connector can rename
-  mid-session or hand to another User. There is
-  no forced password change: its old path is an undeclared route, refused
-  `403` like any other.
+  mid-session or hand to another User.
 - **A Group's Permissions are set by one `PUT`, the complete set, by the
   Superuser alone.** `PUT /api/admin/groups/{id}/permissions` takes a JSON
   array of delegatable Permission names (`GET /api/admin/permissions` lists

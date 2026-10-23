@@ -67,7 +67,7 @@ cannot get a connection within the timeout is lost behind the `ERROR`
 
 ## Membership operations
 
-The trail speaks in Permissions, not Roles (ADR 0015). Three operations record a
+The trail speaks in Permissions (ADR 0015). Three operations record a
 change of a User's power through its Group memberships; nothing here configures
 them, but they are what an operator searches the trail for:
 

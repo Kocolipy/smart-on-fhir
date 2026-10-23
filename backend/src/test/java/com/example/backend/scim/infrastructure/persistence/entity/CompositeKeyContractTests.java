@@ -20,9 +20,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * or an {@code externalId} alias attributed to the wrong connector. Neither failure is visible
  * from an integration test, because the wrong answer is still a well-formed one.
  *
- * <p>Tested rather than justified for exactly that reason. Both classes previously had every
- * {@code equals} branch unreached by any test: nothing in the application calls them in Java, so
- * only a direct test can reach them, and "the framework calls it" is not evidence that it does
+ * <p>Tested rather than justified for exactly that reason: nothing in the application calls
+ * either class's {@code equals} in Java, so only a direct test can reach its branches, and "the framework calls it" is not evidence that it does
  * the right thing when it does.
  *
  * <p>Each case runs against both keys and walks all four branches — same instance, wrong type, one

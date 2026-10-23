@@ -5,7 +5,7 @@
 # shadows the main one and does NOT import this file: a test that needs the
 # fixtures imports this document explicitly (the `dev-fixtures` test profile).
 #
-# There is no role mapping. A Group's Permissions are data, stored per Group in
+# A Group's Permissions are data, stored per Group in
 # the database (ADR 0015); a Group with none confers nothing, and the Admin group,
 # whose direct members are the Superuser, carries none. Configuration reference:
 # backend/docs/configuration/group-permissions.md.

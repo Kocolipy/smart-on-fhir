@@ -12,14 +12,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * The audit append pool: the small, dedicated connection pool fail-open appends — refusals, and
- * events recorded after their change committed — commit on (ADR 0004, 2026-10-13 addendum).
+ * events recorded after their change committed — commit on (ADR 0004).
  *
- * <p>A fail-open append used to run {@code PROPAGATION_REQUIRES_NEW} on the main pool, and
- * {@code REQUIRES_NEW} keeps the caller's connection checked out, so every such append inside an
- * open transaction needed a second connection. A refusal is recorded while its caller holds one —
+ * <p>{@code PROPAGATION_REQUIRES_NEW} on the main pool would keep the caller's connection checked
+ * out, so every fail-open append inside an open transaction would need a second connection. A refusal is recorded while its caller holds one —
  * a rejected Login holds the User row's lock while it appends — so as many overlapping refusals as
- * the pool has connections held all of them, each waited the pool's whole timeout for another,
- * and every other request failed meanwhile. A pool of its own breaks the cycle: an append never
+ * the pool has connections would hold all of them, each waiting the pool's whole timeout for
+ * another, and every other request would fail meanwhile. A pool of its own breaks the cycle: an append never
  * waits for a connection a refusing caller holds. A bigger main pool would only move the
  * threshold; deferring to after completion keeps the caller's connection checked out all the
  * same; and a nested transaction would lose the event with the caller's rollback.

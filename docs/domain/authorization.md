@@ -11,8 +11,8 @@ tags: [authorization, permissions, groups, superuser]
 (`user:read`, `user:write`, `account:unlock`, `group:read`, `group:write`,
 `audit:read`, `connector:read`, `ops:read`, `patient:read`); a new one is a code
 change, because it means something only once a protected action declares it.
-There are no Roles and no role mapping (ADR 0015): what a Group confers is its
-**Group Permissions**, below — data, not configuration.
+What a Group confers is its **Group Permissions**, below — data, not
+configuration (ADR 0015).
 
 **Delegatable** and **token-grantable** — the two flags the vocabulary carries
 (ADR 0015). A delegatable Permission is what a Group may carry: `user:read`,
@@ -57,7 +57,7 @@ what an Admin may do is exactly its Permissions — a helpdesk operator holding
 more. Its reach is every locked User but itself, a Superuser included; there is no
 rule refusing a target that holds more than the caller, because an Unlock has no
 effect on a User that is not locked — a lower-privileged User cannot use it to
-disturb a higher-privileged one that is working (ADR 0015's 2026-10-22 addendum).
+disturb a higher-privileged one that is working (ADR 0015).
 
 ## Deny by default
 
@@ -209,8 +209,7 @@ holder of `group:read`, lists every Group with its Group Permissions, sorted by
 name (none for the Admin group); the SPA's Groups table shows them, and the Admin
 group as "Superuser". `GET /api/admin/permissions`, by the same holder, lists
 every delegatable Permission: what any Group could carry, and what the
-Superuser's editor offers. Both are reads;
-`GET /api/admin/roles` is gone and is refused like any undeclared route.
+Superuser's editor offers. Both are reads.
 
 **Development fixtures** — the shipped `authorization.yaml` seeds, with
 `APP_DEV_FIXTURES_ENABLED=true`, one Group per development access level, each

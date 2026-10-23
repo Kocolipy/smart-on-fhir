@@ -1,7 +1,7 @@
 # Sourced, not run: one SQL Server for every test JVM of a gate run.
 #
-# Each Surefire fork used to start a SQL Server container of its own, and the
-# forks' servers together outgrew a developer machine's memory. A gate that
+# A SQL Server container per Surefire fork outgrows a developer machine's
+# memory (ADR 0013, "The test server"). A gate that
 # sources this file and calls start_test_sql_server instead starts one server
 # for the run, creates the three database logins on it, and exports the
 # TEST_SQL_SERVER_* variables, which every fork inherits;

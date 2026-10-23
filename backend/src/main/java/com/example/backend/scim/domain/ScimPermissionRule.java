@@ -5,7 +5,7 @@ import java.util.Set;
 
 /**
  * The SCIM chain's backstop: whether a connector token may make a SCIM request, judged from the
- * method and the path alone, before dispatch (ADR 0010).
+ * method and the path alone, before dispatch (ADR 0015).
  *
  * <p><strong>The authority is the handler, not this rule.</strong> Every Users and Groups handler,
  * and the base {@code .search}, declares the same Permission with method security, and that

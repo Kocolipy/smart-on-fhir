@@ -27,8 +27,8 @@ Admin's own row — the row whose stable id the session holds, which `GET
 /api/auth/me` reports, never one picked out by `userName` — on the Bootstrap
 Admin, or on any User that is not locked, so the backend's
 [refusals](./authentication.md) are visible before the click. There is no forced
-password change: the helpdesk Permission acts only on a locked User (ADR 0015's
-2026-10-22 addendum). There is
+password change: the helpdesk Permission acts only on a locked User (ADR 0015).
+There is
 no Deactivate or Activate: `active` is the directory's, and the backend has no
 endpoint that would accept a write to any directory-owned field. Each view and
 action is shown by its own Permission — the Users projection by `user:read`, its

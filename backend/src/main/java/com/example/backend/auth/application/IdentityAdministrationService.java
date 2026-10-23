@@ -36,19 +36,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The identity use cases an administrator drives: reviewing the directory, and the one operation on
- * application-owned state that the directory cannot perform — Unlock. The forced password change
- * that used to live beside it was removed (ADR 0015's 2026-10-22 addendum): a holder of
- * {@code account:unlock} could repeat it on any Superuser but the Bootstrap Admin, ending their
- * sessions each time, so the helpdesk Permission now acts only on a locked User.
+ * application-owned state that the directory cannot perform — Unlock, which acts only on a locked
+ * User, so the helpdesk Permission cannot disturb a higher-privileged User that is working (ADR
+ * 0015).
  *
  * <p>Separate from {@link LoginIdentityService}, which serves the login path. Keeping them apart
  * means the authentication path does not depend on a class that also mutates identities, and the
  * administrative guards below live beside nothing the login path could accidentally bypass.
  *
  * <p>Nothing here writes a directory-owned attribute. {@code userName}, {@code active} and Group
- * membership are a connector's to set over SCIM; the Deactivate and Activate operations that used
- * to live here were removed because an administrator overriding {@code active} from the browser
- * would only be overwritten by the next synchronization. Every operation that remains addresses
+ * membership are a connector's to set over SCIM: an administrator overriding {@code active} from
+ * the browser would only be overwritten by the next synchronization. Every operation that remains addresses
  * its User by the stable resource id, never by the mutable {@code userName}.
  *
  * <h2>Why this is here and not in the scim slice</h2>

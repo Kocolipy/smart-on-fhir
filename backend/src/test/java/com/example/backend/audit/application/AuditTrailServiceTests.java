@@ -1367,7 +1367,7 @@ class AuditTrailServiceTests {
             Map.entry(Audited.ScimResourcesQueried.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ReservedResourceSeeded.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.ReservedMembershipRestored.class, Semantics.FAIL_CLOSED),
-            // After the commit, even on success: fail-open (the 2026-10-10 addendum).
+            // After the commit, even on success: fail-open (ADR 0004).
             Map.entry(Audited.UserSessionsRevoked.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.DormancyLockout.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.DormancyMembershipRevocation.class, Semantics.FAIL_CLOSED),
@@ -1585,8 +1585,7 @@ class AuditTrailServiceTests {
 
     /**
      * A fail-closed append joins the caller's transaction — or opens one where there is none —
-     * rather than one of its own, so a failure marks the caller's change for rollback. What the
-     * {@code @Transactional} each fail-closed recorder used to carry asked for, asked for here once.
+     * rather than one of its own, so a failure marks the caller's change for rollback.
      */
     @Test
     void aFailClosedAppendJoinsTheCallersTransaction() {

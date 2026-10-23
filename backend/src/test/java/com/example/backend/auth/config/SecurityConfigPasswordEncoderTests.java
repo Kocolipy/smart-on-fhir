@@ -7,10 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * The password encoder bean directly, isolated from the beans around it: what
- * this ticket's acceptance criteria names — the stored-hash prefix, and that no
- * other decoder is reachable through it — are properties of the bean itself, not
- * of how it is wired into authentication.
+ * The password encoder bean directly, isolated from the beans around it: the
+ * stored-hash prefix, and that no other decoder is reachable through it, are
+ * properties of the bean itself, not of how it is wired into authentication.
  */
 class SecurityConfigPasswordEncoderTests {
 
@@ -27,8 +26,8 @@ class SecurityConfigPasswordEncoderTests {
 
     /**
      * A hash produced by any other encoder — bcrypt named explicitly, since it
-     * is the one this ticket calls out as no longer permitted to remain
-     * registered — has no decoder to read it: this Spring Security version's
+     * is the common default a delegating encoder would otherwise register — has
+     * no decoder to read it: this Spring Security version's
      * {@link org.springframework.security.crypto.password.DelegatingPasswordEncoder}
      * refuses an unmapped id loudly, by throwing, rather than by silently
      * returning {@code false}. Either behaviour would satisfy "no BCrypt

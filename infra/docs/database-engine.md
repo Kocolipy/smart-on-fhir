@@ -69,7 +69,7 @@ snapshot that is itself billed until you delete it.
   T-SQL `sp_executesql`: error 17750, "Could not load the DLL (server
   internal)". The seed lock is a row lock on `scim_seed_locks` (`V1`), and
   the bootstrap uses `EXEC (@ddl)` instead of `sys.sp_executesql` (ADR 0013,
-  "Addendum (2026-10-16)").
+  "Collation and the seed lock").
 - **Untested risk: Flyway on the Windows build.** Flyway guards every
   migration with `sp_getapplock`. On a BIN2_UTF8 server on the Linux image it
   fails with 17750. RDS runs SQL Server on Windows, and no RDS instance was

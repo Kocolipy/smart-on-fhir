@@ -36,7 +36,7 @@ import tools.jackson.databind.JsonNode;
  * delete.
  *
  * <p>Each handler declares the Permission it needs with method security, as the application chain's
- * handlers do (ADR 0010): {@code group:read} to read or search, {@code group:write} to create,
+ * handlers do (ADR 0015): {@code group:read} to read or search, {@code group:write} to create,
  * replace, patch or delete. The declaration is the authority, because it sits on the operation the
  * dispatcher actually selected; the namespace's bearer filter, which judges the request line before
  * dispatch, is the backstop. A handler added without a declaration fails
@@ -44,7 +44,7 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>Nor is there a protected-resource check here. Whether the Admin group may be renamed is a rule
  * about the directory, not about HTTP, so it lives in {@link ScimGroupService} where every write path
- * passes through it — including the ones a later ticket adds.
+ * passes through it.
  *
  * <p>The connector arrives as the authenticated principal and is passed on to the use case rather
  * than read from a static context there, because an {@code externalId} is connector-scoped and an

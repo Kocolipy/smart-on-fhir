@@ -99,8 +99,7 @@ class SignedInSessionTests {
     }
 
     /**
-     * Signing in records whose session it is and nothing else: there is no role mapping, so
-     * nothing records which one the session's Permissions were resolved under.
+     * Signing in records whose session it is and nothing else.
      */
     @Test
     void signingInRecordsTheOwnerAlone() {

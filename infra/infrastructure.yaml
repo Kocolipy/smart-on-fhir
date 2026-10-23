@@ -742,8 +742,8 @@ Resources:
       # build, which is untested. If it has the same defect, the first
       # deploy's migrate.sh fails loudly ("Unable to acquire SQL Server
       # application lock", 17750) and the service never starts; it does not
-      # fail silently (infra/docs/database-engine.md, "Collation and time zone"; ADR 0013,
-      # 2026-10-16 addendum).
+      # fail silently (infra/docs/database-engine.md, "Collation and time zone"; ADR
+      # 0013).
       CharacterSetName: Latin1_General_100_BIN2_UTF8
       # Storage is UTC only (ADR 0013): the server's clock and SYSDATETIMEOFFSET
       # are UTC, stated rather than defaulted.

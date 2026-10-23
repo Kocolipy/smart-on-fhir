@@ -53,10 +53,8 @@ import org.springframework.web.context.WebApplicationContext;
  * indexed Redis session store, in the configuration most classes share: the seeded Admin group and
  * nothing else, with every Group Permission a test needs inserted by the test (ADR 0015).
  *
- * <p>The startup runner is re-run as a restart runs it. While Roles were configuration, deleting a
- * mapped Group over SCIM left the mapping naming a Group that did not exist, and the next startup
- * refused with "Group &lt;id&gt; does not exist". Group Permissions are rows the deletion takes
- * with it, so the restart has nothing to refuse.
+ * <p>The startup runner is re-run as a restart runs it. Group Permissions are rows a Group's
+ * deletion takes with it, so a restart after one has nothing to refuse.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -144,8 +142,7 @@ class GroupPermissionStartupIntegrationTests {
 
     /**
      * Deleting over SCIM a Group carrying Permissions takes its rows with it, ends its member's
-     * session after the commit, records the member's loss — and the application restarts cleanly,
-     * where a deleted mapped Group once failed startup.
+     * session after the commit, records the member's loss — and the application restarts cleanly.
      */
     @Test
     void deletingAGroupCarryingPermissionsEndsItsMembersSessionsAndTheRestartIsClean()

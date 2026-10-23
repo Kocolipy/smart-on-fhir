@@ -40,7 +40,7 @@ breaks ties by `id`. The same query may be sent as a `SearchRequest` body to
 and treats an attribute one type lacks as having no value there.
 
 **SQL Server deviations** — documented in `backend/docs/openapi.yaml` and recorded
-in ADR 0013 ("Observable changes" and its 2026-10-15 addendum):
+in ADR 0013 ("Observable changes"):
 
 - `eq`, `ne`, `gt`, `ge`, `lt` and `le` on free text (`name.*`, `displayName`,
   `locale`, `timezone`, `preferredLanguage` and the like) ignore trailing spaces in

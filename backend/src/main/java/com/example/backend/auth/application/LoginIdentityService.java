@@ -164,7 +164,7 @@ public class LoginIdentityService implements UserDetailsService {
      * <p>The flag does not confine an Epic Login: an Epic Login presents no password of ours (D20),
      * so the imposed credential the flag marks is not what it used, and confining the session would
      * protect nothing. The flag itself is neither read into the session nor cleared, so a password
-     * Login by the same User is still confined until it replaces the password (ADR 0008 addendum).
+     * Login by the same User is still confined until it replaces the password (ADR 0008).
      *
      * <p>Found through the normal {@link NormalizedUserName} lookup, and then accepted only when
      * the stored {@code userName} equals the Practitioner ID character for character (D3):

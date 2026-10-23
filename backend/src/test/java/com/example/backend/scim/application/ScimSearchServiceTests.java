@@ -123,7 +123,7 @@ class ScimSearchServiceTests {
     }
 
     /**
-     * A token that may read Users alone searches Users alone (ADR 0010): the query reaching the
+     * A token that may read Users alone searches Users alone (ADR 0015): the query reaching the
      * port names only the type it may read, so the total and the page count Users and nothing else.
      */
     @Test

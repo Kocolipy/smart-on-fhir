@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean;
  * Tests start with a non-administrative User, {@code test-user} / {@code test-password}, beside
  * the seeded Bootstrap Admin.
  *
- * <p>Startup no longer seeds one in a deployment: the non-administrative {@code user} is a
+ * <p>Startup seeds none in a deployment: the non-administrative {@code user} is a
  * development fixture, seeded only with {@code app.dev-fixtures.enabled}. Enabling the fixtures
  * in every test context would also register the startup dormancy run, so instead this seeds the
  * one User through the same fixture path — {@link ScimSeedService#seedDevFixtures} with no Groups
