@@ -645,3 +645,29 @@ held that many Groups.
 The same day's review narrowed V1's grant on `scheduled_job_locks` to `SELECT`
 alone (ADR 0005): a locking read needs no more, and the application never updates
 a job row.
+
+## Addendum (2026-10-23): the test JVMs share one SQL Server
+
+V6 kept the fork count at 2 with a SQL Server container per test JVM. On a small
+development VM the two servers and the two JVMs outgrew memory and swapped, and a
+third fork made the run slower, not faster.
+
+- **The rule.** The backend's gate scripts (`scripts/verify.sh`, and the layers of
+  `scripts/test-gates.sh` that need Docker) start one SQL Server for the run
+  (`scripts/test-sql-server.sh`), create the owner, app and retention logins on it,
+  and name it to every fork in the `TEST_SQL_SERVER_*` variables; the container is
+  removed when the script exits. `ContainerTestConfiguration` then gives each
+  context a database on that server rather than starting one. Without the
+  variables — an IDE, a bare `./mvnw` — each JVM starts its own, as before.
+- **What stays per context.** Each context still gets an empty database created
+  with the deployment's creation options, now named with a token of its JVM's so
+  two JVMs never create the same one, and its own Redis database on a Redis
+  container per JVM.
+- **What it rests on.** The tests that read server-wide views
+  (`sys.dm_tran_locks`, `sys.dm_exec_requests`, `sys.dm_exec_sessions`) scope them
+  to `DB_ID()` or `@@SPID`, and no test changes a server principal or a server
+  setting, so another JVM's databases on the same server are invisible to them.
+- **The image** is read from `compose.yaml`'s `sqlserver` service, so the pin is
+  still held in the two places `/README.md` names.
+
+The fork count stays 2: with the server shared, the JVMs themselves bound memory.

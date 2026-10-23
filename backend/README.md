@@ -133,5 +133,9 @@ script does not name, and so stays fast. Subsystem names are the script's
 `SUBSYSTEM_NAMES`; a test package missing from it, and the root-package
 classes, run only in the broad gate.
 
+Every layer that needs Docker starts one SQL Server for the run and shares it
+across the test JVMs (`scripts/test-sql-server.sh`), rather than letting each
+JVM start its own; a bare `./mvnw test` still starts one per JVM.
+
 Live layers, run by hand and never by a gate: `npm run test:e2e` in
 `frontend/`, and `make integration-test` from the repository root.

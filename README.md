@@ -41,7 +41,8 @@ docker buildx imagetools inspect <image>:<tag> --format '{{println .Manifest.Dig
 ```
 
 The SQL Server image is pinned twice — `backend/compose.yaml` and
-`ContainerTestConfiguration.SQL_SERVER_IMAGE` — and the two must agree; it is
+`ContainerTestConfiguration.SQL_SERVER_IMAGE` — and the two must agree (the
+backend's gate scripts read their shared test server's from `compose.yaml`); it is
 reviewed monthly (ADR 0013, "Database patching"). It is x86_64 only: Apple
 Silicon is not a supported development platform
 (`backend/docs/configuration/database.md`, "Local setup"). The local Epic
