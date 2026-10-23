@@ -71,20 +71,16 @@ The trail speaks in Permissions, not Roles (ADR 0015). Three operations record a
 change of a User's power through its Group memberships; nothing here configures
 them, but they are what an operator searches the trail for:
 
-| Operation                        | Recorded when                                                                                        |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `PERMISSION_GRANT`               | A connector adds a User to a Group that confers Permissions, or to the Admin group                  |
-| `PERMISSION_REVOKE`              | A connector removes it — `PATCH`, `PUT`, the Group's `DELETE` or the User's `DELETE`                  |
-| `DORMANCY_MEMBERSHIP_REVOCATION` | The [dormancy job](dormancy.md) removes every direct Group membership of a User past its window      |
+| Operation                        | Recorded when                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `PERMISSION_GRANT`               | A connector adds a User to a Group that confers Permissions, or to the Admin group              |
+| `PERMISSION_REVOKE`              | A connector removes it — `PATCH`, `PUT`, the Group's `DELETE` or the User's `DELETE`            |
+| `DORMANCY_MEMBERSHIP_REVOCATION` | The [dormancy job](dormancy.md) removes every direct Group membership of a User past its window |
 
 Each carries `permissions_before` and `permissions_after` (the User's effective
 Permissions, comma-joined) and `superuser_changed`, set when the change granted or
 removed the Superuser; the dormancy event also lists every Group removed in
 `group_ids`. A Group that confers nothing records neither of the first two.
-Migration V5 rewrote the rows recorded before as `ROLE_GRANT`, `ROLE_REVOKE` and
-`DORMANCY_ROLE_REVOCATION`, moving each Role's name into the column on its side of
-the change, and dropped `role_name` — a one-off deviation from the audit-integrity
-rule, recorded in ADR 0015.
 
 ## Group Permissions operation
 
@@ -93,10 +89,10 @@ rule, recorded in ADR 0015.
 operation — no User's membership moves — so the Group is its subject and resource
 and the Superuser its actor:
 
-| Outcome   | Recorded when                                         | Carries                                                                                                       |
-| --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `SUCCESS` | The Group's set is replaced                           | `changed_paths` `permissions`, and the Group's own Permissions in `permissions_before` and `permissions_after` |
-| `FAILURE` | The change is refused before anything is written     | One generic `error_code`: `INVALID_PERMISSIONS` (`400`), `UNKNOWN_RESOURCE` (`404`), `PROTECTED_RESOURCE` (`409`) |
+| Outcome   | Recorded when                                    | Carries                                                                                                           |
+| --------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `SUCCESS` | The Group's set is replaced                      | `changed_paths` `permissions`, and the Group's own Permissions in `permissions_before` and `permissions_after`    |
+| `FAILURE` | The change is refused before anything is written | One generic `error_code`: `INVALID_PERMISSIONS` (`400`), `UNKNOWN_RESOURCE` (`404`), `PROTECTED_RESOURCE` (`409`) |
 
 A refusal never names a Permission, and `superuser_changed` is `NULL` on both. A
 caller who is not the Superuser is refused `403` before the operation runs and is

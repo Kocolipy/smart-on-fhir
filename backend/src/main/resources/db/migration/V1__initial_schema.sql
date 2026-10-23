@@ -1,8 +1,10 @@
 -- The complete schema, in T-SQL for SQL Server 2022. The application is
 -- pre-production and a fresh database is the only supported starting state, so the
 -- schema is one migration rather than a history of them; the earlier migrations
--- of the engine-neutral preparation (#62–#66) are folded into it. A change from here
--- on is a new migration.
+-- of the engine-neutral preparation (#62–#66), and V2 to V7 after them (the patients
+-- table, its FHIR ids, the per-User tally's removal, the audit trail in Permissions
+-- and each Group's Permissions), are folded into it. A change from here on is a new
+-- migration.
 --
 -- What this migration does NOT set: the database's collation
 -- (Latin1_General_100_BIN2_UTF8), its compatibility level (160), and
@@ -411,6 +413,46 @@ CREATE TABLE scim_group_members (
 -- membership in the directory.
 CREATE INDEX ix_scim_group_members_user ON scim_group_members (user_id);
 
+-- Groups carry Permissions (ADR 0015). A User's Permissions are the baseline
+-- plus the union of the Permissions of the Groups it is a DIRECT member of; a
+-- Group with no row here confers nothing. There is no configured role mapping, so
+-- a Group created over SCIM can be given access without a config change and a
+-- redeploy. Nothing here is set over SCIM: only the Superuser sets a Group's
+-- Permissions (#159), by replacing its set, and the `local` profile's development
+-- fixtures (authorization.yaml) seed them.
+--
+-- The Admin group carries no row. Its direct members are the Superuser, an
+-- authority expanded in code at sign-in, which is not a Permission and so cannot
+-- be stored here.
+--
+-- `permission` holds a Permission's NAME from the closed vocabulary in code
+-- (authorization.domain.Permission). There is deliberately no CHECK listing the
+-- names: the vocabulary is code's, and a CHECK would be a second copy of it that
+-- a code change could silently disagree with. Startup reads every row instead,
+-- and refuses to start when one names a Permission that does not exist or that
+-- no Group may carry (GroupPermissionValues), naming each. Removing a Permission
+-- from code therefore needs a migration that deletes its rows.
+--
+-- ON DELETE CASCADE from the Group: a Group's Permissions are meaningless
+-- without it. SCIM Group DELETE removes the Group's `scim_resources` row, which
+-- cascades to `scim_groups` and from there to here — one path, which SQL Server
+-- accepts (memberships, which a second path would reach, are deleted explicitly;
+-- see `scim_group_members` above). So deleting a Group takes its Permissions with
+-- it, and nothing names a deleted Group afterwards: the next startup has nothing
+-- to refuse.
+CREATE TABLE group_permission (
+    group_id   UNIQUEIDENTIFIER NOT NULL,
+
+    -- ASCII-only: a name from the vocabulary in code.
+    permission VARCHAR(32)      NOT NULL,
+
+    -- The pair is the key, so a Group carries a Permission at most once.
+    CONSTRAINT pk_group_permission PRIMARY KEY (group_id, permission),
+
+    CONSTRAINT fk_group_permission_group
+        FOREIGN KEY (group_id) REFERENCES scim_groups (resource_id) ON DELETE CASCADE
+);
+
 -- The privacy-minimal record a SCIM DELETE leaves behind.
 --
 -- A deleted User or Group is removed from `scim_resources`, and the deletion
@@ -520,7 +562,7 @@ CREATE INDEX ix_scim_connector_tokens_connector_id
     ON scim_connector_tokens (connector_id);
 
 -- The Permissions a token carries, a row per Permission, from the same
--- vocabulary a User's Roles grant, spelled as the wire spells them ('user:read').
+-- vocabulary a User's Groups grant, spelled as the wire spells them ('user:read').
 -- A child table because SQL Server has no arrays, and the table keeps the
 -- constraint the database enforced on the array column.
 --
@@ -587,9 +629,9 @@ CREATE INDEX ix_scim_external_ids_value
 -- 3. The audit trail
 -- =============================================================================
 
--- Every string here but `role_name` is a value from the service's own closed
--- vocabulary, never one a caller submitted, so they are ASCII-only and keep their
--- lengths; the unbounded ones are VARCHAR(MAX).
+-- The trail speaks in Permissions, never Roles (ADR 0015). Every string here is a
+-- value from the service's own closed vocabulary, never one a caller submitted, so
+-- they are ASCII-only and keep their lengths; the unbounded ones are VARCHAR(MAX).
 CREATE TABLE audit_events (
     id                   UNIQUEIDENTIFIER  NOT NULL,
 
@@ -654,16 +696,24 @@ CREATE TABLE audit_events (
     -- expressions).
     filter_shape         VARCHAR(MAX),
 
-    -- The Role a membership change on a mapped Group granted or revoked. The
-    -- Group's id alone does not say which power changed hands, because the role
-    -- mapping that turns it into a Role is deployment configuration and can be
-    -- replaced by the next deploy; so the event carries the Role's NAME as the
-    -- mapping stated it when the change happened. A name from deployment
-    -- configuration, never a value a caller submitted, but any text the mapping
-    -- holds: Unicode-capable. Unbounded: the mapping does not bound a Role's
-    -- name, and a fail-closed append that a long name could refuse would roll
-    -- back the membership change it records.
-    role_name            VARCHAR(MAX),
+    -- A membership change of power — a PERMISSION_GRANT, a PERMISSION_REVOKE, or
+    -- the dormancy job's DORMANCY_MEMBERSHIP_REVOCATION, which removes every
+    -- direct Group membership — records what it did to the subject User's
+    -- authority. All four are NULL for every other event.
+    --
+    --   permissions_before  the subject User's effective Permissions before the
+    --                       change: names from the closed vocabulary in code,
+    --                       sorted and comma-joined as `permissions` is.
+    --   permissions_after   the same, after the change.
+    --   superuser_changed   whether the change granted or removed the Superuser.
+    --   group_ids           every Group a DORMANCY_MEMBERSHIP_REVOCATION removed
+    --                       the User from, by stable id, comma-joined. A
+    --                       connector's membership change names its one Group as
+    --                       `resource_id`.
+    permissions_before   VARCHAR(MAX),
+    permissions_after    VARCHAR(MAX),
+    superuser_changed    BIT,
+    group_ids            VARCHAR(MAX),
 
     -- The Permissions a token was issued or rotated with, or — on a refused
     -- escalation — the Permissions that were asked for. Names from the closed
@@ -730,7 +780,7 @@ CREATE UNIQUE CLUSTERED INDEX ix_audit_events_occurred_at
 CREATE INDEX ix_audit_events_subject_id ON audit_events (subject_id);
 
 -- =============================================================================
--- 4. Scheduled-job serialization and counter data
+-- 4. Scheduled-job and seeding serialization
 -- =============================================================================
 
 -- One lock row per scheduled job. A run takes its own row inside the
@@ -774,16 +824,50 @@ CREATE TABLE scim_seed_locks (
 
 INSERT INTO scim_seed_locks (lock_name) VALUES ('ScimSeed');
 
-CREATE TABLE user_counters (
-    user_id UNIQUEIDENTIFIER NOT NULL,
-    count   BIGINT           NOT NULL,
-    CONSTRAINT pk_user_counters PRIMARY KEY (user_id),
-    CONSTRAINT fk_user_counters_user
-        FOREIGN KEY (user_id) REFERENCES scim_users (resource_id) ON DELETE CASCADE
+-- =============================================================================
+-- 5. Patients
+-- =============================================================================
+
+-- The patient module's one table (/docs/domain/patient.md). The FHIR R5
+-- `Patient` the service serves is rendered from these columns, not stored: there
+-- is no JSON column, and no `meta`.
+--
+-- Age is not a column. It is derived from `birth_date` wherever it is shown, so
+-- no stored value can go stale.
+CREATE TABLE patients (
+    -- A Patient is identified by its EHR's FHIR id rather than a UUID the service
+    -- assigns (ADR 0014), so the patient an EHR launch names can be read by that
+    -- id directly. FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}`, is at most 64 ASCII
+    -- characters. The grammar itself is checked in the service (PatientId),
+    -- where a refusal is the read's 400.
+    id          VARCHAR(64)      NOT NULL,
+
+    -- The one identifier, under Synapxe's NRIC NamingSystem. Its shape is not
+    -- checked: the values seeded today are dummies, each with a deliberately
+    -- wrong check letter. Unique, because an NRIC names one person. ASCII.
+    nric        VARCHAR(64)      NOT NULL,
+
+    -- The official HumanName. `text` is required and authoritative; the split
+    -- into family and given names is optional, because many Singapore names do
+    -- not split cleanly. `name_given` holds the given names in order, one space
+    -- between each. 256 code points each.
+    name_text   VARCHAR(1024)    NOT NULL,
+    name_family VARCHAR(1024),
+    name_given  VARCHAR(1024),
+
+    -- FHIR's administrative gender, as its code.
+    gender      VARCHAR(16)      NOT NULL,
+
+    birth_date  DATE             NOT NULL,
+
+    CONSTRAINT pk_patients PRIMARY KEY (id),
+    CONSTRAINT uq_patients_nric UNIQUE (nric),
+    CONSTRAINT ck_patients_gender
+        CHECK (gender IN ('male', 'female', 'other', 'unknown'))
 );
 
 -- =============================================================================
--- 5. Database principals and the append-only guard
+-- 6. Database principals and the append-only guard
 -- =============================================================================
 
 -- Three logins connect, each a member of exactly the role its work needs, so the
@@ -849,8 +933,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON scim_connectors                  TO back
 GRANT SELECT, INSERT, UPDATE, DELETE ON scim_connector_tokens            TO backend_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON scim_connector_token_permissions TO backend_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON scim_external_ids                TO backend_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON user_counters                    TO backend_app;
 GRANT SELECT, INSERT, DELETE         ON scim_user_password_history       TO backend_app;
+-- A Group's Permissions are read at sign-in, in the Groups projection and at
+-- startup, and written by the development fixtures and by the Superuser's
+-- replacement of a Group's set (#159), a DELETE of its rows and an INSERT of the
+-- new ones in one transaction. No UPDATE: a row is the pair, so nothing changes
+-- in place. A deleted Group's rows go by the cascade, which needs no grant.
+GRANT SELECT, INSERT, DELETE         ON group_permission                 TO backend_app;
+-- Patients are read for `GET /api/patient/{id}` and inserted by the development
+-- fixtures' seeder (PatientSeedService), which runs on the app pool because a
+-- deployed service never holds the owner login. No UPDATE and no DELETE: nothing
+-- in the service changes or removes a patient.
+GRANT SELECT, INSERT                 ON patients                         TO backend_app;
 -- Tombstones may be written and read, never changed or removed.
 GRANT SELECT, INSERT                 ON scim_tombstones                  TO backend_app;
 GRANT SELECT, INSERT                 ON audit_events                     TO backend_app;

@@ -219,12 +219,7 @@ resource has is exercised by real data.
 A Patient's id is its EHR's FHIR id, so each fixture borrows the id of one of
 Epic's public sandbox test patients (fhir.epic.com, "Sandbox Test Data"), named
 in the table. Only the id is borrowed: the name, NRIC, gender and birth date are
-the fixture's own. The fixtures were first seeded under UUIDs
-(`00000000-0000-4000-8000-00000000c001` to `…c004`, in this order); migration V4
-turned the id column into `VARCHAR(64)` and rewrote those four rows to the ids
-below, so a local database seeded before it upgrades in place and the seeder finds
-every fixture present. Deployed environments run without the fixtures, so the
-rewrite matches nothing there.
+the fixture's own.
 
 | Id (Epic sandbox patient it borrows from)    | `name.text`                  | `family`   | `given`             | Gender    | NRIC (valid letter) | Purpose                                                                                         |
 | -------------------------------------------- | ---------------------------- | ---------- | ------------------- | --------- | ------------------- | ----------------------------------------------------------------------------------------------- |
