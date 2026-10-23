@@ -11,6 +11,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scim.application.ScimWriteEffects.MembershipChange.Kind;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -52,7 +53,7 @@ import org.slf4j.LoggerFactory;
  *       the way its {@link Writer} records them, with the User's effective Permissions before and
  *       after ({@link GroupPermissions}). Read from the User's memberships as the write left them,
  *       in the write's own transaction: after is what it now holds, and before is that with the
- *       change undone.
+ *       write's changes to its memberships undone.
  *   <li><strong>Session revocations</strong>, requested of {@link ScimUserSessions}, which ends
  *       them only once the write commits (ADR 0002), so a write that rolls back ends none.
  * </ol>
@@ -79,20 +80,6 @@ final class ScimWriteEffectsApplier {
         this(users, groups, sessions, new PowerRecording(audit, counts, groups, permissions));
     }
 
-    /**
-     * The apply step of a User write, which moves no membership
-     * ({@link ScimWriteEffects#ofUserWrite}, {@link ScimWriteEffects#ofUserDeletion}): it records
-     * no change of power, so it is given nothing to ask what a Group confers or to count a grant
-     * with, and refuses a membership change that reaches it anyway.
-     */
-    ScimWriteEffectsApplier(
-            ScimUserRepository users,
-            ScimGroupRepository groups,
-            ScimUserSessions sessions,
-            AuditTrail audit) {
-        this(users, groups, sessions, Recording.NO_MEMBERSHIP_CHANGES);
-    }
-
     private ScimWriteEffectsApplier(
             ScimUserRepository users,
             ScimGroupRepository groups,
@@ -110,48 +97,17 @@ final class ScimWriteEffectsApplier {
      */
     sealed interface Recording {
 
-        /** The recording of a write that moves no membership: any change reaching it is refused. */
-        Recording NO_MEMBERSHIP_CHANGES = new NoMembershipChanges();
-
-        /** A connector's write added the User to a Group of power. */
-        void granted(UUID connectorId, ScimWriteEffects.MembershipChange change);
-
-        /** A connector's write removed the User from a Group of power. */
-        void revoked(UUID connectorId, ScimWriteEffects.MembershipChange change);
+        /**
+         * A connector's write added Users to Groups of power, or removed them, one event per
+         * change, in order.
+         */
+        void connectorChanges(UUID connectorId, List<ScimWriteEffects.MembershipChange> changes);
 
         /** The dormancy job removed the User from every one of these Groups. */
         void dormancyRevoked(UUID userId, List<UUID> groupIds);
 
         /** This recording, reading {@code groupId} as still carrying {@code carried}. */
         Recording remembering(UUID groupId, Set<Permission> carried);
-    }
-
-    /** Refuses every membership change, as the mistake of the write that produced it. */
-    private record NoMembershipChanges() implements Recording {
-
-        @Override
-        public void granted(UUID connectorId, ScimWriteEffects.MembershipChange change) {
-            throw refused();
-        }
-
-        @Override
-        public void revoked(UUID connectorId, ScimWriteEffects.MembershipChange change) {
-            throw refused();
-        }
-
-        @Override
-        public void dormancyRevoked(UUID userId, List<UUID> groupIds) {
-            throw refused();
-        }
-
-        @Override
-        public Recording remembering(UUID groupId, Set<Permission> carried) {
-            return this;
-        }
-
-        private static IllegalStateException refused() {
-            return new IllegalStateException("a User write moves no Group membership");
-        }
     }
 
     /**
@@ -164,25 +120,37 @@ final class ScimWriteEffectsApplier {
             ScimGroupRepository groups,
             GroupPermissions permissions) implements Recording {
 
-        /** The audit event a connector's change of one membership is recorded as. */
-        @FunctionalInterface
-        private interface MembershipEvent {
-            Audited of(UUID connectorId, UUID userId, UUID groupId, AuditPermissionChange change);
-        }
-
+        /**
+         * Each change its own {@code PERMISSION_GRANT} or {@code PERMISSION_REVOKE} event and log
+         * record, naming the connector. The User's Permissions before are read with every change
+         * the write made to its memberships undone, not only this one, so a User's deletion that
+         * took it out of two Groups of power records what it held before the deletion on both.
+         */
         @Override
-        public void granted(UUID connectorId, ScimWriteEffects.MembershipChange change) {
-            AuditPermissionChange power = connectorChange(connectorId, change,
-                    Operation.PERMISSION_GRANT, true, Audited.PermissionGranted::new);
-            if (power.superuserChanged()) {
-                counts.superuserGranted();
+        public void connectorChanges(
+                UUID connectorId, List<ScimWriteEffects.MembershipChange> changes) {
+            Map<UUID, List<UUID>> gainedByUser = groupsByUser(changes, Kind.GRANTED);
+            Map<UUID, List<UUID>> lostByUser = groupsByUser(changes, Kind.REVOKED);
+            for (ScimWriteEffects.MembershipChange change : changes) {
+                AuditPermissionChange power = powerChange(change.userId(),
+                        gainedByUser.getOrDefault(change.userId(), List.of()),
+                        lostByUser.getOrDefault(change.userId(), List.of()));
+                switch (change.kind()) {
+                    case GRANTED -> {
+                        audit.append(new Audited.PermissionGranted(
+                                connectorId, change.userId(), change.groupId(), power));
+                        logMembershipChange(Operation.PERMISSION_GRANT, change);
+                        if (power.superuserChanged()) {
+                            counts.superuserGranted();
+                        }
+                    }
+                    case REVOKED -> {
+                        audit.append(new Audited.PermissionRevoked(
+                                connectorId, change.userId(), change.groupId(), power));
+                        logMembershipChange(Operation.PERMISSION_REVOKE, change);
+                    }
+                }
             }
-        }
-
-        @Override
-        public void revoked(UUID connectorId, ScimWriteEffects.MembershipChange change) {
-            connectorChange(connectorId, change, Operation.PERMISSION_REVOKE, false,
-                    Audited.PermissionRevoked::new);
         }
 
         @Override
@@ -197,20 +165,24 @@ final class ScimWriteEffectsApplier {
             logDormancyMembershipRevocation(userId, power);
         }
 
-        /**
-         * Audits and logs one connector membership change: the User gained the Group, or lost it.
-         * Returns the change of power, so a grant can count what it granted.
-         */
-        private AuditPermissionChange connectorChange(UUID connectorId,
-                ScimWriteEffects.MembershipChange change, Operation operation, boolean gained,
-                MembershipEvent event) {
-            List<UUID> group = List.of(change.groupId());
-            AuditPermissionChange power = gained
-                    ? powerChange(change.userId(), group, List.of())
-                    : powerChange(change.userId(), List.of(), group);
-            audit.append(event.of(connectorId, change.userId(), change.groupId(), power));
-            logMembershipChange(operation, change, permissions.effectivePermissionsOf(group));
-            return power;
+        /** A connector's change of power in the application log, with what the Group confers. */
+        private void logMembershipChange(
+                Operation operation, ScimWriteEffects.MembershipChange change) {
+            ScimWriteEffectsApplier.logMembershipChange(operation, change,
+                    permissions.effectivePermissionsOf(List.of(change.groupId())));
+        }
+
+        /** The Groups each User gained, or lost, in the write: {@code kind}'s changes by User. */
+        private static Map<UUID, List<UUID>> groupsByUser(
+                List<ScimWriteEffects.MembershipChange> changes, Kind kind) {
+            Map<UUID, List<UUID>> byUser = new LinkedHashMap<>();
+            for (ScimWriteEffects.MembershipChange change : changes) {
+                if (change.kind() == kind) {
+                    byUser.computeIfAbsent(change.userId(), user -> new ArrayList<>())
+                            .add(change.groupId());
+                }
+            }
+            return byUser;
         }
 
         /**
@@ -270,12 +242,7 @@ final class ScimWriteEffectsApplier {
         @Override
         public void recordMembershipChanges(
                 Recording recording, List<ScimWriteEffects.MembershipChange> changes) {
-            for (ScimWriteEffects.MembershipChange change : changes) {
-                switch (change.kind()) {
-                    case GRANTED -> recording.granted(connectorId, change);
-                    case REVOKED -> recording.revoked(connectorId, change);
-                }
-            }
+            recording.connectorChanges(connectorId, changes);
         }
 
         @Override

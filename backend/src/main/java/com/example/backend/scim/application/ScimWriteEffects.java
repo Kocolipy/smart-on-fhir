@@ -116,7 +116,8 @@ record ScimWriteEffects<A extends Enum<A>>(
 
     /**
      * A User gaining or losing direct membership of a Group that confers Permissions — or of the
-     * Admin group — or, on the dormancy job's revocation, of any Group at all.
+     * Admin group — whether by a Group write or by the User's deletion, or, on the dormancy job's
+     * revocation, of any Group at all.
      */
     record MembershipChange(Kind kind, UUID userId, UUID groupId) {
 
@@ -157,7 +158,7 @@ record ScimWriteEffects<A extends Enum<A>>(
      * and {@code userName} changing — once, with every cause that applied. Reactivation, staying
      * inactive, and a profile, email or alias change are not among them: none is something a
      * Session was issued against. A User write changes no Permission: Permissions are conferred
-     * by Group membership, and a User write cannot move a membership.
+     * by Group membership, and a User write cannot move a membership — only its deletion can.
      */
     static ScimWriteEffects<AuditUserAttribute> ofUserWrite(
             UUID userId, UserState before, UserState after) {
@@ -193,16 +194,23 @@ record ScimWriteEffects<A extends Enum<A>>(
     }
 
     /**
-     * What deleting a User implies: its Sessions end. The deletion's audit event names no
-     * attribute, and the User's memberships go with it without being membership changes of a
-     * Group.
+     * What deleting a User implies: its Sessions end, once, for the deletion. Its memberships go
+     * with it, and each one of a Group that confers Permissions — or of the Admin group — is a
+     * change of power, a revocation as removing it from that Group would be; a membership of a
+     * Group that confers nothing is none. The deletion's audit event names no attribute.
+     *
+     * @param groupsOfPower each Group conferring Permissions the User was a direct member of
      */
-    static ScimWriteEffects<AuditUserAttribute> ofUserDeletion(UUID userId) {
+    static ScimWriteEffects<AuditUserAttribute> ofUserDeletion(
+            UUID userId, List<UUID> groupsOfPower) {
+        List<MembershipChange> changes = new ArrayList<>();
+        groupsOfPower.forEach(groupId -> changes.add(
+                new MembershipChange(MembershipChange.Kind.REVOKED, userId, groupId)));
         return new ScimWriteEffects<>(
                 Resource.user(userId),
                 EnumSet.noneOf(AuditUserAttribute.class),
                 revocationOf(userId, EnumSet.of(ScimUserSessions.Cause.DELETED)),
-                List.of(),
+                changes,
                 Stored.NOTHING);
     }
 

@@ -3,6 +3,8 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.authorization.domain.AuthorizationChangeCounts;
+import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -15,6 +17,7 @@ import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimAttributeLimits;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimQuery;
@@ -104,6 +107,7 @@ public class ScimUserService {
     private final AuditTrail audit;
     private final Clock clock;
     private final ScimQueryRepository queries;
+    private final GroupPermissions permissions;
     private final ScimWriteEffectsApplier effects;
     private final ScimWriteLocks writeLocks;
 
@@ -118,7 +122,9 @@ public class ScimUserService {
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
             Clock clock,
-            ScimQueryRepository queries) {
+            ScimQueryRepository queries,
+            GroupPermissions permissions,
+            AuthorizationChangeCounts counts) {
         this.queries = queries;
         this.users = users;
         this.writeLocks = writeLocks;
@@ -129,7 +135,9 @@ public class ScimUserService {
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
-        this.effects = new ScimWriteEffectsApplier(users, groups, sessions, audit);
+        this.permissions = permissions;
+        this.effects = new ScimWriteEffectsApplier(
+                users, groups, sessions, audit, permissions, counts);
     }
 
     /**
@@ -283,8 +291,10 @@ public class ScimUserService {
      * <p>The live rows go — profile, emails, credential, password history, memberships, connector
      * aliases — and a tombstone holding only the id, the type and the time is written in the same
      * transaction, beside the audit event. Nothing about the User is kept for uniqueness, so its
-     * former {@code userName} is free for the next create. The User's sessions end after the
-     * commit, so a delete that rolls back ends none.
+     * former {@code userName} is free for the next create. Each membership it held of a Group
+     * that confers Permissions, or of the Admin group, is audited as a change of power, as
+     * removing it from that Group would be. The User's sessions end after the commit, so a delete
+     * that rolls back ends none.
      *
      * @return whether a live User was there to delete
      */
@@ -303,11 +313,17 @@ public class ScimUserService {
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
         }
         Instant now = clock.instant();
+        // Read before the delete, which removes the memberships; the lock holds every Group
+        // the User is in, so none can start or stop conferring Permissions in between.
+        List<UUID> groupsOfPower = groups.findGroupsOfUser(id).stream()
+                .map(ScimGroupReference::id)
+                .filter(permissions::confersPermissions)
+                .toList();
         users.deleteById(id, now);
         tombstones.record(ScimResourceType.USER, id, now);
         audit.append(new Audited.ScimUserDeleted(connectorId, id));
         effects.apply(ScimWriteEffectsApplier.Writer.connector(connectorId),
-                ScimWriteEffects.ofUserDeletion(id), now);
+                ScimWriteEffects.ofUserDeletion(id, groupsOfPower), now);
         return true;
     }
 

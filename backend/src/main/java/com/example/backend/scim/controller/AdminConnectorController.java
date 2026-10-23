@@ -6,6 +6,7 @@ import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
+import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -64,6 +65,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code auth} module's, which may reach this one; nothing here names it.
  */
 @RestController
+@AdminApiHandler
 @RequestMapping("/api/admin/connectors")
 public class AdminConnectorController {
 

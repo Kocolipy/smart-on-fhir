@@ -74,7 +74,7 @@ them, but they are what an operator searches the trail for:
 | Operation                        | Recorded when                                                                                        |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `PERMISSION_GRANT`               | A connector adds a User to a Group that confers Permissions, or to the Admin group                  |
-| `PERMISSION_REVOKE`              | A connector removes it — `PATCH`, `PUT` or the Group's `DELETE`                                       |
+| `PERMISSION_REVOKE`              | A connector removes it — `PATCH`, `PUT`, the Group's `DELETE` or the User's `DELETE`                  |
 | `DORMANCY_MEMBERSHIP_REVOCATION` | The [dormancy job](dormancy.md) removes every direct Group membership of a User past its window      |
 
 Each carries `permissions_before` and `permissions_after` (the User's effective

@@ -258,12 +258,15 @@ class ScimWriteEffectsTests {
     }
 
     @Test
-    void deleting_a_user_ends_its_sessions_and_audits_no_attribute() {
-        var effects = ScimWriteEffects.ofUserDeletion(USER_ID);
+    void deleting_a_user_ends_its_sessions_once_audits_no_attribute_and_revokes_each_group_of_power() {
+        UUID other = UUID.randomUUID();
+        var effects = ScimWriteEffects.ofUserDeletion(USER_ID, List.of(GROUP_ID, other));
 
         assertThat(effects.revocations()).isEqualTo(userRevocation(Cause.DELETED));
         assertThat(effects.audited()).isEmpty();
-        assertThat(effects.membershipChanges()).isEmpty();
+        assertThat(effects.membershipChanges()).containsExactly(
+                new MembershipChange(MembershipChange.Kind.REVOKED, USER_ID, GROUP_ID),
+                new MembershipChange(MembershipChange.Kind.REVOKED, USER_ID, other));
     }
 
     // ---- Group writes: what is audited ----------------------------------------------------------
@@ -496,7 +499,8 @@ class ScimWriteEffectsTests {
         UserState credentialless = password(STORED_ADA, null);
         var absentRemoved = ScimWriteEffects.ofUserWrite(USER_ID, credentialless, credentialless);
 
-        assertThat(List.of(restated, absentRemoved, ScimWriteEffects.ofUserDeletion(USER_ID)))
+        assertThat(List.of(
+                restated, absentRemoved, ScimWriteEffects.ofUserDeletion(USER_ID, List.of())))
                 .allSatisfy(effects -> {
                     assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
                     assertThat(effects.stored().nothing()).isTrue();
@@ -555,7 +559,7 @@ class ScimWriteEffectsTests {
             GroupState group = new GroupState("Helpdesk", Set.of(ALICE), null);
             assertThat(List.of(
                     ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, STORED_ADA).written(),
-                    ScimWriteEffects.ofUserDeletion(USER_ID).written(),
+                    ScimWriteEffects.ofUserDeletion(USER_ID, List.of()).written(),
                     ScimWriteEffects.ofMembershipRevocation(USER_ID, List.of(GROUP_ID))
                             .written(),
                     ScimWriteEffects.ofGroupWrite(GROUP_ID, group, group, CONFERS_NOTHING)

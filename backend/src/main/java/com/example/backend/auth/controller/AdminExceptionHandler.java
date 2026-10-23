@@ -4,9 +4,9 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.AdministrativeRefusalException;
 import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.scim.application.ConnectorAdministrationRefusedException;
-import com.example.backend.scim.controller.AdminConnectorController;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
+import com.example.backend.web.AdminApiHandler;
 import com.example.backend.web.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
@@ -24,16 +24,16 @@ import org.springframework.web.servlet.HandlerMapping;
  * The edge of {@code /api/admin}: where every administrative refusal is answered, logged and
  * audited, once, from the one table that says how ({@link AdminRefusals}).
  *
- * <p>Scoped to the administrative controllers, whichever module each lives in — connector
- * administration is {@code scim}'s, served under {@code /api} — and ordered ahead of the
- * application API's advice, whose catch-all would otherwise answer a refusal as a {@code 500}.
+ * <p>Scoped to the administrative controllers by their {@link AdminApiHandler} mark, whichever
+ * module each lives in — connector administration is {@code scim}'s, served under {@code /api} —
+ * and ordered ahead of the application API's advice, whose catch-all would otherwise answer a
+ * refusal as a {@code 500}.
  * Everything else those controllers raise — a body failing validation, a fault — is still that
  * advice's, unchanged. The use cases throw and never record; this advice adapts each refusal to
  * its row, writes the row's record, appends its refused event — fail-open, after the use case's
  * transaction rolled back (ADR 0004) — and renders the answer.
  */
-@RestControllerAdvice(assignableTypes = {
-        AdminAccountController.class, AdminGroupController.class, AdminConnectorController.class})
+@RestControllerAdvice(annotations = AdminApiHandler.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AdminExceptionHandler {
 
