@@ -2,6 +2,7 @@ package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
@@ -51,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
  * place for the two to drift.
  */
 @RestController
+@AdminApiHandler
 @RequestMapping("/api/admin/accounts")
 public class AdminAccountController {
 

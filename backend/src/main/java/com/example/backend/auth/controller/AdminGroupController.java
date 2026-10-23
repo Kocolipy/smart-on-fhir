@@ -3,6 +3,7 @@ package com.example.backend.auth.controller;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +31,7 @@ import tools.jackson.databind.JsonNode;
  * reason {@link AdminAccountController} gives.
  */
 @RestController
+@AdminApiHandler
 @RequestMapping("/api/admin/groups")
 public class AdminGroupController {
 
