@@ -8,7 +8,7 @@ tags: [authorization, groups, permissions, configuration]
 # Group Permissions
 
 A Group's Permissions are **data**, stored per Group in the `group_permission`
-table (migration `V6`), not configuration (ADR 0015). A User's Permissions are
+table (migration `V1`), not configuration (ADR 0015). A User's Permissions are
 the baseline `patient:read` plus the union of the Permissions of the Groups it is
 a **direct** member of, resolved at login; a Group with no row confers nothing.
 The Admin group, recognised by its `admin-group` reservation marker, carries no
@@ -20,8 +20,8 @@ No SCIM path reads or sets a Group's Permissions. They are set by the Superuser
 alone, at runtime: `PUT /api/admin/groups/{id}/permissions` replaces a Group's set
 with the complete set its body names (never on the Admin group), and a set that
 lacks a Permission the Group carried ends its direct members' sessions after the
-commit (`docs/domain/authorization.md`). Migration `V7` grants the application
-login the `DELETE` that replacement needs. Besides it, only the development
+commit (`docs/domain/authorization.md`). The application login holds the
+`DELETE` that replacement needs. Besides it, only the development
 fixtures below write them, at startup. A holder of `group:read` reads them on
 `GET /api/admin/groups`, and every Permission a Group may carry on
 `GET /api/admin/permissions`.
@@ -83,9 +83,18 @@ app:
   dev-fixtures:
     group-permissions:
       - group: 00000000-0000-4000-8000-00000000a003 # Auditors
-        permissions: [user:read, group:read, ops:read, connector:read, audit:read]
+        permissions:
+          [user:read, group:read, ops:read, connector:read, audit:read]
       - group: 00000000-0000-4000-8000-00000000a006 # Helpdesk
-        permissions: [user:read, group:read, ops:read, connector:read, audit:read, account:unlock]
+        permissions:
+          [
+            user:read,
+            group:read,
+            ops:read,
+            connector:read,
+            audit:read,
+            account:unlock,
+          ]
 ```
 
 - It is applied at startup, after the fixture Groups are created, and **only to a

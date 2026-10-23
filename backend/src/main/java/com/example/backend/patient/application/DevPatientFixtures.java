@@ -13,8 +13,7 @@ import java.util.List;
  *
  * <p>A Patient's id is its EHR's FHIR id, so each fixture borrows the id of one of Epic's public
  * sandbox test patients (fhir.epic.com, "Sandbox Test Data"), named on each below. Only the id
- * is borrowed: the name, NRIC, gender and birth date are the fixture's own. V4 rewrote the
- * fixtures' earlier UUID ids to these, so a database seeded before it holds them already.
+ * is borrowed: the name, NRIC, gender and birth date are the fixture's own.
  *
  * <p>Four patients, covering Singapore's name styles and every gender code (the table in
  * /docs/domain/patient.md). Every NRIC here is well-formed but carries a deliberately wrong check
