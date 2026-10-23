@@ -36,7 +36,7 @@ Changes to Redis-backed session persistence require an integration-level check a
 
 The inner loop under the baseline gate. `README.md` ("Test layers") holds the layers and their measured times; `scripts/test-gates.sh` holds the lists.
 
-- Production authority: the Spring Boot service started by `BackendApplication` on SQL Server and Redis is the only path tests certify. Tests that pin a retired surface as gone (the `XSRF-TOKEN` cookie, the old disable/enable endpoints) are production coverage and stay.
+- Production authority: the Spring Boot service started by `BackendApplication` on SQL Server and Redis is the only path tests certify.
 - Default verification: `./scripts/test-gates.sh fast` after every edit; `./scripts/test-gates.sh subsystem <package>` for the boundary you touched; `./scripts/test-gates.sh broad` before a push. The baseline gate stays the completion criterion.
 - New tests: a class joins the fast gate's explicit list only when it starts no Spring context and no container and reads no environment value; the subsystem gates select by package, so they need no edit.
 - Environment: the Surefire forks drop every `.env.example` key (`excludedEnvironmentVariables` in `pom.xml`), so a shell that sourced `.env` runs the same tests as a clean one. Add a new runtime variable there when you add it to `.env.example`. Epic is faked on loopback (`FakeEpic`); a test that reaches a real host is a defect.
