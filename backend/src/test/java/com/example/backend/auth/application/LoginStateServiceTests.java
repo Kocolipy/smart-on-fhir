@@ -72,8 +72,9 @@ class LoginStateServiceTests {
     /** An event as its caller reports it. */
     private enum Event {
         FAILURE_COUNTED((module, user) -> module.failureCounted(user)),
-        PASSWORD_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.PASSWORD)),
-        EPIC_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.EPIC)),
+        PASSWORD_LOGIN((module, user) ->
+                module.credentialVerified(user, LoginKind.PASSWORD).change()),
+        EPIC_LOGIN((module, user) -> module.credentialVerified(user, LoginKind.EPIC).change()),
         PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
         UNLOCKED((module, user) -> module.unlocked(user)),
         DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
@@ -382,6 +383,126 @@ class LoginStateServiceTests {
     /** {@code user} as a caller might hold it from before a concurrent write: a clean record. */
     private static ScimUser staleCopyOf(ScimUser user) {
         return ScimIdentities.withActive(user, user.profile().active(), run(0));
+    }
+
+    // ---- an accepted Login refused on the standing found under the lock ----------------------
+
+    /**
+     * A Lockout committed while the password was being compared — after the authentication's own
+     * check read the User unlocked — refuses the Login, and the lock stands: an Unlock is the only
+     * exit (ADR 0007).
+     */
+    @ParameterizedTest(name = "{0} by a User locked for {1}")
+    @MethodSource("loginsAndLockCauses")
+    void aLoginByAUserLockedSinceTheCopyWasReadLeavesTheLockStanding(
+            LoginKind kind, LockCause cause) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", locked(cause)));
+
+        loginState.credentialVerified(staleCopyOf(stored), kind);
+
+        assertThat(users.require("ada").login()).isEqualTo(locked(cause));
+    }
+
+    @ParameterizedTest(name = "{0} by a User locked for {1}")
+    @MethodSource("loginsAndLockCauses")
+    void aLoginByAUserLockedSinceTheCopyWasReadIsRefusedAsLocked(
+            LoginKind kind, LockCause cause) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", locked(cause)));
+
+        assertThat(loginState.credentialVerified(staleCopyOf(stored), kind).refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.LOCKED);
+    }
+
+    static Stream<Arguments> loginsAndLockCauses() {
+        return Stream.of(LoginKind.values()).flatMap(kind -> Stream.of(LockCause.values())
+                .map(cause -> Arguments.of(kind, cause)));
+    }
+
+    @Test
+    void aLoginRefusedOnTheLockSaysItWasRefused() {
+        ScimUser stored = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        assertThat(loginState.credentialVerified(staleCopyOf(stored), LoginKind.PASSWORD)
+                .refused()).isTrue();
+    }
+
+    /** A refused Login hands back the state it read under the lock, and moved nothing. */
+    @Test
+    void aLoginRefusedOnTheLockHandsBackTheLockedStateUnmoved() {
+        ScimUser stored = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        LoginStateChange change =
+                loginState.credentialVerified(staleCopyOf(stored), LoginKind.PASSWORD).change();
+
+        assertThat(List.of(change.after(), change.moved()))
+                .containsExactly(locked(LockCause.FAILURES), Set.of());
+    }
+
+    @Test
+    void aLoginRefusedOnADeactivationHandsBackTheStateUnmoved() {
+        ScimUser stored = users.given(ScimIdentities.withActive(
+                ScimIdentities.userWithLoginState("ada", run(2)), false, run(2)));
+
+        LoginStateChange change = loginState.credentialVerified(
+                ScimIdentities.withActive(stored, true, run(0)), LoginKind.PASSWORD).change();
+
+        assertThat(List.of(change.after(), change.moved())).containsExactly(run(2), Set.of());
+    }
+
+    /** A deactivation committed since the copy was read refuses the Login, and clears no run. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(LoginKind.class)
+    void aLoginByAUserDeactivatedSinceTheCopyWasReadLeavesItsRun(LoginKind kind) {
+        ScimUser stored = users.given(ScimIdentities.withActive(
+                ScimIdentities.userWithLoginState("ada", run(2)), false, run(2)));
+
+        loginState.credentialVerified(ScimIdentities.withActive(stored, true, run(0)), kind);
+
+        assertThat(users.require("ada").login()).isEqualTo(run(2));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(LoginKind.class)
+    void aLoginByAUserDeactivatedSinceTheCopyWasReadIsRefusedAsDeactivated(LoginKind kind) {
+        ScimUser stored = users.given(ScimIdentities.withActive(
+                ScimIdentities.userWithLoginState("ada", run(2)), false, run(2)));
+
+        assertThat(loginState.credentialVerified(
+                        ScimIdentities.withActive(stored, true, run(0)), kind).refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.DEACTIVATED);
+    }
+
+    /** Locked and deactivated at once is refused as locked, the check made first. */
+    @Test
+    void aLoginByAUserBothLockedAndDeactivatedIsRefusedAsLocked() {
+        ScimUser stored = users.given(ScimIdentities.withActive(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)), false,
+                locked(LockCause.FAILURES)));
+
+        assertThat(loginState.credentialVerified(
+                        ScimIdentities.withActive(stored, true, run(0)), LoginKind.PASSWORD)
+                .refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.LOCKED);
+    }
+
+    /** A User gone by the lock is not one a Login can be accepted for. */
+    @Test
+    void aLoginByAUserGoneByTheLockIsRefusedAsDeactivated() {
+        ScimUser gone = ScimIdentities.userWithLoginState("ada", run(0));
+
+        assertThat(loginState.credentialVerified(gone, LoginKind.PASSWORD).refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.DEACTIVATED);
+    }
+
+    /** An admissible User's Login is accepted. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(LoginKind.class)
+    void aLoginByAnActiveUnlockedUserIsAccepted(LoginKind kind) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
+
+        assertThat(loginState.credentialVerified(stored, kind).refused()).isFalse();
     }
 
     // ---- the directory's events: what a SCIM write leaves ------------------------------------

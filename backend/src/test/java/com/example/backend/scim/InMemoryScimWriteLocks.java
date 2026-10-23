@@ -18,14 +18,28 @@ import java.util.UUID;
  * only the real module reads. That a granted lock actually excludes a second writer is the real
  * adapter's, proven only against a database ({@code ScimWriteLockAdapterIntegrationTests},
  * {@code LoginStateSerializationIntegrationTests}).
+ *
+ * <p>One interleaving can still be staged on a single thread: a second writer that held the lock
+ * and committed just before the next request was granted ({@link #beforeNextGrant}) — what a
+ * caller that read the User before asking for its lock must decide past.
  */
 public final class InMemoryScimWriteLocks implements ScimWriteLocks {
 
     private final List<Set<UUID>> requests = new ArrayList<>();
 
+    private Runnable beforeNextGrant;
+
+    /**
+     * Runs {@code writer} once, as the next request is granted and before its caller goes on: a
+     * second writer that held the lock commits what it wrote, and only then is the lock granted.
+     */
+    public void beforeNextGrant(Runnable writer) {
+        this.beforeNextGrant = writer;
+    }
+
     @Override
     public void lockUserWrite(UUID userId) {
-        requests.add(Set.of(userId));
+        granted(Set.of(userId));
     }
 
     @Override
@@ -33,12 +47,21 @@ public final class InMemoryScimWriteLocks implements ScimWriteLocks {
         Set<UUID> requested = new LinkedHashSet<>();
         requested.add(groupId);
         requested.addAll(namedUsers);
-        requests.add(Set.copyOf(requested));
+        granted(Set.copyOf(requested));
     }
 
     @Override
     public void lock(Collection<UUID> resourceIds) {
-        requests.add(Set.copyOf(resourceIds));
+        granted(Set.copyOf(resourceIds));
+    }
+
+    private void granted(Set<UUID> requested) {
+        requests.add(requested);
+        Runnable writer = beforeNextGrant;
+        beforeNextGrant = null;
+        if (writer != null) {
+            writer.run();
+        }
     }
 
     /** Every request, in call order, each as the set of ids it named. */

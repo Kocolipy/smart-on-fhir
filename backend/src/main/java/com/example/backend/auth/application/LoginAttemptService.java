@@ -119,14 +119,23 @@ public class LoginAttemptService {
      * gone by then fails the Login closed — nothing is written, and no {@code LOGIN_SUCCESS} is
      * silently skipped.
      *
+     * <p>The authentication refused a locked or deactivated User on a read taken before the
+     * User's lock, so a Lockout or a deactivation committed while the password was being compared
+     * reaches here. The login-state module re-reads the standing under the lock and refuses such a
+     * Login ({@link LoginStateService#credentialVerified}); then nothing at all is written here —
+     * no cleared run, no {@code LOGIN_SUCCESS}, no sweep — and the refusal is handed back for the
+     * caller to record as the refusal the authentication would have made a moment later.
+     *
      * @param userId            the stable id of the User the Login authenticated
      * @param retainedSessionId the id the caller's own session is stored under, which the login
      *     continues in and so is the one session kept; {@code null} when the caller holds none
+     * @return the standing the Login was refused on, or empty when it was accepted and recorded
      * @throws IllegalStateException if no User has {@code userId}
      */
     @Transactional
-    public void recordPasswordSuccess(UUID userId, String retainedSessionId) {
-        recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.PASSWORD,
+    public Optional<LoginStateService.StandingRefusal> recordPasswordSuccess(
+            UUID userId, String retainedSessionId) {
+        return recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.PASSWORD,
                 user -> audit.append(new Audited.LoginSuccess(
                         user.id(), AuditLoginMethod.PASSWORD)));
     }
@@ -138,15 +147,17 @@ public class LoginAttemptService {
      * factor it carries (D17), and in moving the dormancy basis even while the User's
      * change-required flag is set. An Epic Login is never confined by the flag
      * ({@link LoginIdentityService#loadEpicLinkedUser}), so it is real use of the account. The flag
-     * itself is left set: only a successful password change clears it.
+     * itself is left set: only a successful password change clears it. Refused on the standing
+     * found under the User's lock exactly as a password Login's success is.
      *
      * @param mfaFactor the MFA factor the Epic Login was made with
+     * @return the standing the Login was refused on, or empty when it was accepted and recorded
      */
     @Transactional
-    public void recordEpicSuccess(
+    public Optional<LoginStateService.StandingRefusal> recordEpicSuccess(
             UUID userId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
-        recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.EPIC,
+        return recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.EPIC,
                 user -> audit.append(new Audited.LoginSuccess(
                         user.id(), AuditLoginMethod.SSO, mfaFactor)));
     }
@@ -155,13 +166,18 @@ public class LoginAttemptService {
      * @param kind the kind of Login, which {@link LoginStateService} reads to decide whether it is
      *     confined and so whether it moves the dormancy basis
      */
-    private void recordSuccess(UUID userId, String retainedSessionId,
-            LoginStateService.LoginKind kind, Consumer<ScimUser> recordLoginSuccess) {
+    private Optional<LoginStateService.StandingRefusal> recordSuccess(UUID userId,
+            String retainedSessionId, LoginStateService.LoginKind kind,
+            Consumer<ScimUser> recordLoginSuccess) {
         ScimUser user = users.findById(userId).orElseThrow(() ->
                 new IllegalStateException("the authenticated User no longer exists"));
-        loginState.credentialVerified(user, kind);
+        LoginStateService.Verification verified = loginState.credentialVerified(user, kind);
+        if (verified.refused()) {
+            return Optional.of(verified.refusal());
+        }
         recordLoginSuccess.accept(user);
         sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
+        return Optional.empty();
     }
 
     /**

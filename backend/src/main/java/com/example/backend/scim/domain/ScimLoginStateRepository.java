@@ -41,6 +41,17 @@ public interface ScimLoginStateRepository {
     Optional<ScimLoginState> findLoginState(UUID id);
 
     /**
+     * Whether a live User with this id exists and is active, as the database holds it — read by a
+     * statement of its own, as {@link #findLoginState} is, never from an earlier copy.
+     *
+     * <p>The login-state module's second read under the User's lock, for an accepted Login: the
+     * authentication refused a Deactivated User on a read taken before the lock, and a deactivation
+     * a connector committed since must still refuse it. {@code active} is the directory's, so this
+     * reads it and nothing here writes it.
+     */
+    boolean isActive(UUID id);
+
+    /**
      * Writes what one login-state transition changed: {@code before} is the state the login-state
      * module read under the User's lock ({@link #findLoginState}), {@code after} the state it
      * decided. Of the four login-state column sets — the failure run, the lock (its instant and its

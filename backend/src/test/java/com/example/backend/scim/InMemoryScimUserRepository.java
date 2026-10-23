@@ -179,6 +179,11 @@ public final class InMemoryScimUserRepository
     }
 
     @Override
+    public boolean isActive(UUID id) {
+        return findById(id).map(user -> user.profile().active()).orElse(false);
+    }
+
+    @Override
     public Optional<ScimUser> findByReservedName(ReservedResourceName reservedName) {
         return stored.values().stream()
                 .filter(user -> reservedName == user.reservedName())

@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
@@ -34,7 +35,9 @@ import org.springframework.stereotype.Service;
  *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
  *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}).
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
- *       moves unless the Login builds a Confined session (ADR 0008 and its addendum).
+ *       moves unless the Login builds a Confined session (ADR 0008 and its addendum). A User found
+ *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
+ *       Login never lifts a Lockout (ADR 0007).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
@@ -154,6 +157,54 @@ public class LoginStateService implements ScimUserLoginState {
         EPIC
     }
 
+    /**
+     * The standing an accepted Login is refused on when the module finds it under the User's lock:
+     * what the authentication's own check, made on a read taken before the lock, refuses — so a
+     * Lockout or a deactivation committed while the password was being compared still refuses it.
+     *
+     * <p>Each standing carries the refusal reason both login routes report it as, so a standing
+     * added here cannot be reported by one route and missed by the other.
+     */
+    public enum StandingRefusal {
+        /** A Lockout stands, of either cause. */
+        LOCKED(PasswordRefusalReason.ACCOUNT_LOCKED, EpicLoginFailureReason.ACCOUNT_LOCKED),
+        /** The User is no longer active, or no longer there. */
+        DEACTIVATED(PasswordRefusalReason.ACCOUNT_DISABLED, EpicLoginFailureReason.ACCOUNT_DISABLED);
+
+        private final PasswordRefusalReason passwordReason;
+        private final EpicLoginFailureReason epicReason;
+
+        StandingRefusal(PasswordRefusalReason passwordReason, EpicLoginFailureReason epicReason) {
+            this.passwordReason = passwordReason;
+            this.epicReason = epicReason;
+        }
+
+        /** The reason a password Login refused on this standing is reported and recorded as. */
+        public PasswordRefusalReason passwordReason() {
+            return passwordReason;
+        }
+
+        /** The reason an Epic Login refused on this standing is reported and recorded as. */
+        public EpicLoginFailureReason epicReason() {
+            return epicReason;
+        }
+    }
+
+    /**
+     * What a verified credential came to: the login state it changed, or, when the User's standing
+     * under its lock refused the Login, the refusal and a change that moved nothing.
+     *
+     * @param change  what the Login moved; nothing when it was refused
+     * @param refusal the standing the Login was refused on, or {@code null} when it was accepted
+     */
+    public record Verification(LoginStateChange change, StandingRefusal refusal) {
+
+        /** Whether the standing refused the Login. */
+        public boolean refused() {
+            return refusal != null;
+        }
+    }
+
     private final ScimLoginStateRepository loginStates;
     private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
@@ -214,15 +265,29 @@ public class LoginStateService implements ScimUserLoginState {
      * Login builds a Confined session — a confined session can do nothing but change the password
      * or log out, so it is not use of the account, and counting it would let an imposed credential
      * nobody replaces stay live for as long as somebody keeps logging in with it (ADR 0008).
+     *
+     * <p>Unless the User's standing, read under its lock, refuses the Login: a Lockout, or a User
+     * no longer active or no longer there. The authentication checked both on a read taken before
+     * the lock, and a Lockout another attempt imposed, or a deactivation a connector committed,
+     * while the password was being compared would otherwise be cleared by the Login it should
+     * refuse — lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written
+     * and the caller is told why, locked first, as the authentication checks it. A lock never
+     * reaches {@link ScimLoginState#withFailureRunCleared} by this route.
      */
-    public LoginStateChange credentialVerified(ScimUser user, LoginKind kind) {
+    public Verification credentialVerified(ScimUser user, LoginKind kind) {
         ScimLoginState before = stateUnderLock(user);
+        if (before.isLocked()) {
+            return new Verification(LoginStateChange.none(before), StandingRefusal.LOCKED);
+        }
+        if (!loginStates.isActive(user.id())) {
+            return new Verification(LoginStateChange.none(before), StandingRefusal.DEACTIVATED);
+        }
         ScimLoginState after = before.withFailureRunCleared();
         if (!confines(kind, before)) {
             after = after.withDormancyBasisReset(clock.instant());
         }
         loginStates.writeChange(user.id(), before, after);
-        return LoginStateChange.between(before, after);
+        return new Verification(LoginStateChange.between(before, after), null);
     }
 
     /**

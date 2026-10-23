@@ -163,6 +163,33 @@ class LoginStateSerializationIntegrationTests {
             int failedLoginAttempts, boolean locked, boolean changeRequired, boolean basisMoved) {
     }
 
+    /**
+     * An accepted Login's success racing the failure that reaches the threshold ends as one of the
+     * two serial orders, and never lifts the Lockout (ADR 0007): the failure locks and the success,
+     * finding the User locked, is refused and writes nothing — or the success clears the run and
+     * the failure then counts one. The failure is queued for the lock first, so the order a Login
+     * that lifted the lock would need is the one the database grants.
+     */
+    @Test
+    void aSuccessRacingTheFailureThatLocksNeverLiftsTheLockout() throws Exception {
+        ScimUser user = userWithFailures("serialized-success", threshold - 1);
+        List<Callable<?>> both = new ArrayList<>(failedLogins(user, 1));
+        both.add(() -> attempts.recordPasswordSuccess(user.id(), null));
+
+        race(user.id(), both, true);
+
+        ScimLoginState after = stored(user);
+        SuccessOutcome failureThenSuccess = new SuccessOutcome(threshold, true, 0L);
+        SuccessOutcome successThenFailure = new SuccessOutcome(1, false, 1L);
+        assertThat(new SuccessOutcome(
+                        after.failedLoginAttempts(), after.isLocked(), loginSuccessesOf(user)))
+                .isIn(Set.of(failureThenSuccess, successThenFailure));
+    }
+
+    /** What a success racing a failure left: the run, the lock, and whether it was a success. */
+    private record SuccessOutcome(int failedLoginAttempts, boolean locked, long loginSuccesses) {
+    }
+
     private List<Callable<?>> failedLogins(ScimUser user, int count) {
         List<Callable<?>> logins = new ArrayList<>();
         for (int login = 0; login < count; login++) {
@@ -172,11 +199,19 @@ class LoginStateSerializationIntegrationTests {
         return logins;
     }
 
+    private void race(UUID userId, List<Callable<?>> work) throws Exception {
+        race(userId, work, false);
+    }
+
     /**
      * Runs {@code work} concurrently while a holder keeps every lock on the User's rows, and
      * releases the holder once every racer is waiting for one of them.
+     *
+     * @param queuedInOrder whether each racer is started only once the one before it is waiting,
+     *                      so they queue for the lock in the order given
      */
-    private void race(UUID userId, List<Callable<?>> work) throws Exception {
+    private void race(UUID userId, List<Callable<?>> work, boolean queuedInOrder)
+            throws Exception {
         CountDownLatch holding = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         Future<?> holder = racers.submit(() -> inTransaction(() -> {
@@ -192,6 +227,9 @@ class LoginStateSerializationIntegrationTests {
         List<Future<?>> running = new ArrayList<>();
         for (Callable<?> racer : work) {
             running.add(racers.submit(racer));
+            if (queuedInOrder) {
+                awaitWaitingSessions(running.size());
+            }
         }
         try {
             awaitWaitingSessions(work.size());
@@ -243,6 +281,12 @@ class LoginStateSerializationIntegrationTests {
     private long lockoutsSetOn(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
                 AuditOperation.LOCKOUT_SET, null, null, user.id(), null, null, 0, 50))
+                .totalElements();
+    }
+
+    private long loginSuccessesOf(ScimUser user) {
+        return auditEvents.find(new AuditEventQuery(
+                AuditOperation.LOGIN_SUCCESS, null, null, user.id(), null, null, 0, 50))
                 .totalElements();
     }
 

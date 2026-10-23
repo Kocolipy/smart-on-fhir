@@ -179,6 +179,65 @@ class LoginAttemptServiceTests {
         assertThat(transaction.pending()).as("nothing to revoke for nobody").isZero();
     }
 
+    // ---- a success refused on the standing found under the lock ------------------------------
+
+    /**
+     * The authentication read the User unlocked, and a Lockout landed while the password was being
+     * compared: the success is refused, so no {@code LOGIN_SUCCESS} is written for it.
+     */
+    @Test
+    void aSuccessForAUserLockedByThenRecordsNoLoginSuccess() {
+        failTimes(3);
+
+        attempts.recordPasswordSuccess(idOf("ada"), null);
+
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
+    }
+
+    @Test
+    void aSuccessForAUserLockedByThenEndsNoOtherSession() {
+        failTimes(3);
+        UUID ada = idOf("ada");
+        sessions.open(ada, "ada-current");
+        sessions.open(ada, "ada-elsewhere");
+
+        attempts.recordPasswordSuccess(ada, "ada-current");
+        transaction.commit();
+
+        assertThat(sessions.loginRevocations()).isEmpty();
+    }
+
+    @Test
+    void aSuccessForAUserLockedByThenIsReportedAsRefusedForTheLock() {
+        failTimes(3);
+
+        assertThat(attempts.recordPasswordSuccess(idOf("ada"), null))
+                .contains(LoginStateService.StandingRefusal.LOCKED);
+    }
+
+    @Test
+    void anAcceptedSuccessIsReportedAsRefusedForNothing() {
+        assertThat(attempts.recordPasswordSuccess(idOf("ada"), null)).isEmpty();
+    }
+
+    /** An Epic Login's success is refused on the standing as a password Login's is. */
+    @Test
+    void anEpicSuccessForAUserLockedByThenRecordsNoLoginSuccess() {
+        failTimes(3);
+
+        attempts.recordEpicSuccess(idOf("ada"), null, AuditMfaFactor.OTP);
+
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
+    }
+
+    @Test
+    void anEpicSuccessForAUserDeactivatedByThenIsReportedAsRefusedForIt() {
+        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+
+        assertThat(attempts.recordEpicSuccess(bob.id(), null, AuditMfaFactor.OTP))
+                .contains(LoginStateService.StandingRefusal.DEACTIVATED);
+    }
+
     @Test
     void anEpicLoginForAUserNoLongerThereFailsClosed() {
         assertThatIllegalStateException()

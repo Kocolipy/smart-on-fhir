@@ -67,6 +67,27 @@ public abstract class ScimLoginStateRepositoryContract {
         assertThat(loginStates().findLoginState(UUID.randomUUID())).isEmpty();
     }
 
+    // ---- isActive ------------------------------------------------------------------------------
+
+    @Test
+    void an_active_user_is_read_as_active() {
+        ScimUser user = stored(ScimLoginState.of("hash"));
+
+        assertThat(loginStates().isActive(user.id())).isTrue();
+    }
+
+    @Test
+    void a_deactivated_user_is_read_as_not_active() {
+        ScimUser user = users().create(ScimIdentities.inactiveUser(unique()));
+
+        assertThat(loginStates().isActive(user.id())).isFalse();
+    }
+
+    @Test
+    void a_missing_user_is_not_active() {
+        assertThat(loginStates().isActive(UUID.randomUUID())).isFalse();
+    }
+
     // ---- writeChange ---------------------------------------------------------------------------
     //
     // Each column case stores a state the change's two sides both disagree with everywhere but in

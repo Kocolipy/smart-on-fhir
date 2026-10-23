@@ -202,6 +202,12 @@ class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRe
         return users.findLoginState(id).map(ScimUserPersistenceAdapter::loginStateOf);
     }
 
+    /** The {@code active} column by a scalar query, which no managed copy can answer. */
+    @Override
+    public boolean isActive(UUID id) {
+        return users.findActive(id).orElse(false);
+    }
+
     /**
      * One statement per column set the change moved — the failure run, the lock, the dormancy
      * basis, the flag — and none for a set it left alone, so a column the event did not change is

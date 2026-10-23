@@ -62,6 +62,15 @@ public class LoginService {
      * is by definition one whose account was not refused, whatever it does with the
      * authentication next.
      *
+     * <p>Spring Security's check of a locked or deactivated account reads the User before the
+     * login-state lock, and the password comparison after it takes long enough for another
+     * attempt's Lockout, or a connector's deactivation, to commit in between. The success is
+     * therefore decided once more on the standing read under the lock
+     * ({@link LoginAttemptService#recordPasswordSuccess}); a Login refused there ends as the
+     * refusal the check would have made a moment later — {@code ACCOUNT_LOCKED} or
+     * {@code ACCOUNT_DISABLED}, recorded and counted exactly as that refusal is — so it never
+     * lifts the Lockout it lost the race to (ADR 0007).
+     *
      * <p>A refusal is recorded here, through {@link LoginOutcomeService}, the one module that
      * records how a Login ended by either method, so no caller can refuse a Login without the
      * record or skip the failure run. An acceptance is not: the Login has not ended until the
@@ -112,7 +121,17 @@ public class LoginService {
         // move to another User in between. Outside the catch above on purpose: a failure
         // recording the success is not a refusal, and must not be reported to the caller as one.
         UUID userId = LoginPrincipal.userIdOf(authentication);
-        attempts.recordPasswordSuccess(userId, retainedSessionId);
+        Optional<LoginStateService.StandingRefusal> refusedOnStanding =
+                attempts.recordPasswordSuccess(userId, retainedSessionId);
+        if (refusedOnStanding.isPresent()) {
+            // A Lockout or a deactivation committed while the password was being compared: the
+            // refusal the authentication would have made a moment later, recorded as it would
+            // have been — through the failure path, which counts nothing against a locked User.
+            PasswordRefused refusal =
+                    new PasswordRefused(username, refusedOnStanding.get().passwordReason());
+            outcomes.record(refusal, retainedSessionId);
+            return new LoginDecision(refusal, Optional.empty());
+        }
         return LoginDecision.signedIn(accepted(authentication, SignedIn.password(userId)));
     }
 
@@ -124,11 +143,13 @@ public class LoginService {
      * <p>The User is the one whose stored {@code userName} equals the Practitioner ID exactly
      * ({@link LoginIdentityService#loadEpicLinkedUser}), and it is refused if there is none, or
      * it is deactivated or locked — Lockout and deactivation apply to Epic Login exactly as to
-     * password Login (D12). Otherwise its authorities are those password Login gives the same
-     * User, and the success is recorded exactly as password Login's is, under method
-     * {@code sso}: failure run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed,
-     * and every other session of the User revoked after the commit. All of it in one
-     * transaction, so a success the trail cannot record is not a success.
+     * password Login (D12), and are checked again under the User's lock as the success is
+     * recorded, so one committed after the User was read refuses the Login too. Otherwise its
+     * authorities are those password Login gives the same User, and the success is recorded
+     * exactly as password Login's is, under method {@code sso}: failure run cleared, dormancy
+     * basis moved, {@code LOGIN_SUCCESS} fail-closed, and every other session of the User revoked
+     * after the commit. All of it in one transaction, so a success the trail cannot record is not
+     * a success.
      *
      * <p>No password is compared: Epic checked the credential, not us. Nothing Epic sent is kept
      * here: Epic's tokens are kept by the web adapter, on the session it signs in, only once this
@@ -175,7 +196,13 @@ public class LoginService {
                         user, null, user.getAuthorities());
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
-        attempts.recordEpicSuccess(user.userId(), retainedSessionId, mfaFactor);
+        Optional<LoginStateService.StandingRefusal> refusedOnStanding =
+                attempts.recordEpicSuccess(user.userId(), retainedSessionId, mfaFactor);
+        if (refusedOnStanding.isPresent()) {
+            // Locked or deactivated since the read above, as a password Login's success can be.
+            return refused(EpicRefused.account(user.userId(), refusedOnStanding.get().epicReason()),
+                    retainedSessionId);
+        }
         return LoginDecision.signedIn(
                 accepted(authentication, SignedIn.epic(user.userId(), mfaFactor)));
     }

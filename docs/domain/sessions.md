@@ -137,7 +137,10 @@ Revocation is possible only because sessions are indexed by principal
 can be read by id alone, so the ones belonging to a User cannot be found; the
 application refuses to start rather than accept a revocation it cannot enforce.
 
-It is not a lock. A login already in flight when the deactivation commits can still
-mint a session that the revocation did not see, because it read the User as
-active. Once the write is committed no further login succeeds, so the gap is one
-transaction wide rather than open-ended.
+It is not a lock. A Login whose decision committed before the deactivation, but
+whose session is signed in only after the revocation ran, can still keep a session
+the revocation did not see. A Login still deciding when the deactivation or a
+Lockout commits is refused: its success re-reads the User's standing under the
+User's lock ([authentication](./authentication.md)). So once the write is committed
+no further login succeeds, and the gap is one transaction wide rather than
+open-ended.
