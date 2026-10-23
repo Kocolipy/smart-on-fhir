@@ -265,7 +265,7 @@ function FiltersForm({
 
 /**
  * The listing and the query it was read for, as state. The query is stored as
- * {@link parseAuditFilters} returned it — render only reads its path — and a
+ * {@link parseAuditFilters} returned it — render reads only its page — and a
  * page turn moves it without parsing the filters again. A read happens only on
  * mount, on every filter submit that parses, on a page change and on an
  * explicit Refresh — never on a timer, because every request to this backend
