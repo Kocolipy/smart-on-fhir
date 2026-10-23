@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/App";
+import { TEST_USER_ID } from "@/auth/auth-context.testHelpers";
 
 import { DecodeError, jsonDecoder, readObject } from "./decode";
 import { apiFetch, discardCsrfToken } from "./http";
@@ -493,6 +494,7 @@ describe("logout on an expired session", () => {
         if (input === "/api/auth/me")
           return Promise.resolve(
             Response.json({
+              id: TEST_USER_ID,
               idleTimeoutSeconds: 900,
               passwordChangeRequired: false,
               superuser: false,
@@ -540,6 +542,7 @@ describe("logout on an expired session", () => {
       if (input === "/api/auth/login")
         return Promise.resolve(
           Response.json({
+            id: TEST_USER_ID,
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
             superuser: false,
@@ -550,6 +553,7 @@ describe("logout on an expired session", () => {
       if (input === "/api/auth/me")
         return Promise.resolve(
           Response.json({
+            id: TEST_USER_ID,
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
             superuser: false,

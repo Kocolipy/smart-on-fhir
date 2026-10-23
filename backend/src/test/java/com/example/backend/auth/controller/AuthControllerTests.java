@@ -78,6 +78,10 @@ class AuthControllerTests {
     /** An idle bound no default produces, so a response carrying it read it off the session. */
     private static final int IDLE_TIMEOUT_SECONDS = 523;
 
+    /** The stable id the fixtures' sessions are signed in to: no fixture User's, and no name. */
+    private static final UUID SESSION_OWNER =
+            UUID.fromString("5e55a0f1-0000-4000-8000-00000000000a");
+
     private AuthController controller;
 
     private CsrfTokenRepository csrfTokenRepository;
@@ -327,7 +331,7 @@ class AuthControllerTests {
      */
     @Test
     void currentUserReportsTheSessionsOwnIdleTimeout() {
-        MockHttpSession session = new MockHttpSession();
+        MockHttpSession session = session();
         session.setMaxInactiveInterval(437);
 
         AuthController.UserResponse response = controller.currentUser(
@@ -352,9 +356,46 @@ class AuthControllerTests {
                 .isEqualTo(request.getSession(false).getMaxInactiveInterval());
     }
 
-    /** A session with the idle bound the fixtures below expect in every response. */
+    /**
+     * {@code /me} names the session's User by the stable id its principal index holds — the id
+     * every operation on a User compares — never by the principal's name, which a connector can
+     * rename to another User's mid-session.
+     */
+    @Test
+    void currentUserReportsTheStableIdTheSessionHoldsRatherThanItsName() {
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session());
+
+        assertThat(response.id()).isEqualTo(SESSION_OWNER);
+    }
+
+    /** A session that identifies nobody is refused as an anonymous request is. */
+    @Test
+    void currentUserFromASessionWithNoPrincipalIndexIsRefused() {
+        assertThatThrownBy(() -> controller.currentUser(
+                        new TestingAuthenticationToken("ada", null, "ROLE_USER"),
+                        new MockHttpSession()))
+                .isInstanceOf(UnknownSessionIdentityException.class);
+    }
+
+    /** Login answers with the body {@code /me} does: the stable id of the User it signed in. */
+    @Test
+    void loginReportsTheSignedInUsersStableId() {
+        AuthController.UserResponse response = controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse());
+
+        assertThat(response.id()).isEqualTo(users.require("ada").id());
+    }
+
+    /**
+     * A session signed in to {@link #SESSION_OWNER}, with the idle bound the fixtures below expect
+     * in every response.
+     */
     private static MockHttpSession session() {
         MockHttpSession session = new MockHttpSession();
+        HttpSessionAttributes.signedIn(session).signIn(SESSION_OWNER);
         session.setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
         return session;
     }
@@ -631,7 +672,7 @@ class AuthControllerTests {
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
         assertThat(response).isEqualTo(new AuthController.UserResponse(
-                "ada", List.of(), false, true, IDLE_TIMEOUT_SECONDS));
+                SESSION_OWNER, "ada", List.of(), false, true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -639,12 +680,13 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "ada", List.of(), false, false, IDLE_TIMEOUT_SECONDS));
+                        SESSION_OWNER, "ada", List.of(), false, false, IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("grace", null, "ROLE_USER", "user:read"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "grace", List.of("user:read"), false, false, IDLE_TIMEOUT_SECONDS));
+                        SESSION_OWNER, "grace", List.of("user:read"), false, false,
+                        IDLE_TIMEOUT_SECONDS));
     }
 
     /**

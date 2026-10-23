@@ -14,12 +14,16 @@ import type { AuthContextState, Session } from "./auth-context-value";
 /** Every Permission the backend grants, as a Superuser's session holds them. */
 export const EVERY_PERMISSION: readonly Permission[] = PERMISSIONS;
 
+/** The stable id {@link testUser}'s session is signed in to. */
+export const TEST_USER_ID = "00000000-0000-4000-8000-0000000000ad";
+
 /**
  * The User `ada`, as the backend's `UserResponse` names her: unflagged, with a
  * 15-minute idle limit, no Permission and no Superuser standing, unless `overrides` says otherwise.
  */
 export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
+    id: TEST_USER_ID,
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
     permissions: [],

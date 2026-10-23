@@ -23,7 +23,6 @@ import {
   decodeIssuedToken,
   decodeUserRow,
   decodeUserRows,
-  namesSameUser,
 } from "./accounts-api";
 
 /**
@@ -507,15 +506,5 @@ describe("the connector writes", () => {
       path: "/api/admin/connectors/c%2F1/tokens/t%2F1/revoke",
       permission: "superuser",
     });
-  });
-});
-
-describe("namesSameUser", () => {
-  it("recognises the signed-in User by name, compared as the backend compares names", () => {
-    expect(namesSameUser("Grace", "grace")).toBe(true);
-  });
-
-  it("recognises no row as the signed-in User when the session names no user", () => {
-    expect(namesSameUser("grace", undefined)).toBe(false);
   });
 });

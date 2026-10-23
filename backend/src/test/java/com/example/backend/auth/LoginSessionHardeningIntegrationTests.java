@@ -238,6 +238,32 @@ class LoginSessionHardeningIntegrationTests {
         assertThat(idleTimeoutSeconds(me)).isEqualTo(storedSeconds);
     }
 
+    // ---- the stable id the SPA recognises its own row by --------------------------------------
+
+    /**
+     * Login and {@code /me} both name the session's User by the stable id the store indexes the
+     * session under, so the SPA compares ids, as the self-target check does, never names.
+     */
+    @Test
+    void loginAndMeReportTheStableIdTheSessionIsIndexedUnder() throws Exception {
+        UUID ada = create("stable-id-ada");
+        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("stable-id-ada", PASSWORD)))
+                .andReturn();
+        Cookie issued = login.getResponse().getCookie(sessionCookieName);
+        // A MockMvc request cookie re-wrapping the issued one's name and value: it never reaches
+        // a browser or a response, so its Secure flag means nothing here.
+        // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false
+        Cookie session = new Cookie(issued.getName(), issued.getValue());
+
+        String me = mvc.perform(withCsrf(get("/api/auth/me")).cookie(session)).andReturn()
+                .getResponse().getContentAsString();
+
+        assertThat(List.of(login.getResponse().getContentAsString(), me))
+                .allSatisfy(body -> assertThat(body).contains("\"id\":\"" + ada + "\""));
+    }
+
     private static long idleTimeoutSeconds(String body) {
         java.util.regex.Matcher field =
                 java.util.regex.Pattern.compile("\"idleTimeoutSeconds\":(\\d+)").matcher(body);

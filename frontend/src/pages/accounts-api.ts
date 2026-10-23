@@ -369,12 +369,3 @@ export const REVOKE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: strin
   path: (connectorId, tokenId) => tokenActionPath(connectorId, tokenId, "revoke"),
   permission: SUPERUSER,
 };
-
-/**
- * Whether a signed-in username names this row, compared the way the backend
- * compares them — NFKC, then lower-cased — so a differently-cased session name
- * still recognises its own row and hides the controls the backend would refuse.
- */
-export const namesSameUser = (userName: string, signedIn: string | undefined): boolean =>
-  signedIn !== undefined &&
-  userName.normalize("NFKC").toLowerCase() === signedIn.normalize("NFKC").toLowerCase();

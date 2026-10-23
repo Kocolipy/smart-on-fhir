@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "@/lib/http";
 
 import { changePassword, getCurrentUser, login, logout, PERMISSIONS } from "./api";
+import { TEST_USER_ID } from "./auth-context.testHelpers";
 
 vi.mock("@/lib/http");
 
@@ -141,6 +142,7 @@ describe("the user decoder", () => {
   });
 
   const confined = {
+    id: TEST_USER_ID,
     idleTimeoutSeconds: 900,
     passwordChangeRequired: true,
     superuser: false,
@@ -180,6 +182,7 @@ describe("the user decoder", () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
+        id: TEST_USER_ID,
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
         superuser: false,
@@ -187,6 +190,7 @@ describe("the user decoder", () => {
         username: "grace",
       }),
     ).resolves.toStrictEqual({
+      id: TEST_USER_ID,
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
       superuser: false,
@@ -206,6 +210,7 @@ describe("the user decoder", () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
+        id: TEST_USER_ID,
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
         superuser: false,
@@ -219,6 +224,7 @@ describe("the user decoder", () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
+        id: TEST_USER_ID,
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
         superuser: false,
@@ -227,6 +233,7 @@ describe("the user decoder", () => {
         username: "ada",
       }),
     ).resolves.toStrictEqual({
+      id: TEST_USER_ID,
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
       superuser: false,
@@ -380,6 +387,31 @@ describe("the user decoder", () => {
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",
+    ],
+    // The Accounts page recognises the session's own row by this id, so a body
+    // without one is refused rather than leaving every row looking like another's.
+    [
+      "a missing stable id",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [],
+        username: "ada",
+      },
+      "UserResponse.id",
+    ],
+    [
+      "a non-string stable id",
+      {
+        id: 7,
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [],
+        username: "ada",
+      },
+      "UserResponse.id",
     ],
     ["a non-object body", ["ada"], "UserResponse is not an object"],
     ["a null body", null, "UserResponse is not an object"],

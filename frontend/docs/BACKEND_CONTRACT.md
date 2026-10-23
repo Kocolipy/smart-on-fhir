@@ -105,7 +105,12 @@ change, when the backend side moves. What the SPA has to honour:
   another administrator unlocked after the listing was read — is refused `409`
   with the generic `ApiError` (`request-refused`) and changes nothing; the
   caller's own account is `403`, an unknown id `404`. The SPA offers Unlock only
-  on a locked row that is not the caller's and reads the status alone. There is
+  on a locked row that is not the caller's and reads the status alone. "The
+  caller's" is decided by stable id, as the backend decides it: `GET
+/api/auth/me` and the login response carry `id`, the stable id the session is
+  signed in to, and the caller's row is the one whose `id` equals it — never the
+  one whose `userName` matches `username`, which a connector can rename
+  mid-session or hand to another User. There is
   no forced password change: its old path is an undeclared route, refused
   `403` like any other.
 - **A Group's Permissions are set by one `PUT`, the complete set, by the
