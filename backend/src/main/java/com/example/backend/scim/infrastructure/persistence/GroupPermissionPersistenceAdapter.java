@@ -4,6 +4,8 @@ import com.example.backend.authorization.domain.GroupPermissionValues;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.StoredGroupPermission;
+import com.example.backend.scim.domain.GroupPermissionRefusal;
+import com.example.backend.scim.domain.GroupPermissionsRefusedException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupPermissionStore;
 import java.sql.ResultSet;
@@ -13,6 +15,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -31,6 +34,10 @@ import org.springframework.stereotype.Repository;
  * <p>A stored name is read through {@link GroupPermissionValues}, so a row naming a Permission the
  * vocabulary no longer has is refused rather than skipped; startup refuses it first, by
  * {@link #findAll}.
+ *
+ * <p>A write is refused by the port's rule ({@link GroupPermissionRefusal}) before any statement
+ * runs, rather than left to the foreign key: the key catches a Group that does not exist, but not
+ * a Permission no Group may carry, nor the Admin group.
  */
 @Repository
 class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPermissionStore {
@@ -50,6 +57,11 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
 
     private static final String INSERT = """
             INSERT INTO group_permission (group_id, permission) VALUES (:groupId, :permission)""";
+
+    private static final String SELECT_GROUP_RESERVATION = """
+            SELECT r.reserved_name FROM scim_groups g
+            JOIN scim_resources r ON r.id = g.resource_id
+            WHERE g.resource_id = :groupId""";
 
     private static final String SELECT_ADMIN_GROUP = """
             SELECT id FROM scim_resources WHERE reserved_name = :reservedName""";
@@ -88,6 +100,19 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
         return jdbc.query(SELECT_ALL, GroupPermissionPersistenceAdapter::row);
     }
 
+    /**
+     * Reads the Group and its reservation marker in one statement, in the caller's transaction: a
+     * Group the caller has locked stays as this read it for the write that follows.
+     */
+    @Override
+    public Optional<GroupPermissionRefusal> refusal(UUID groupId, Set<Permission> permissions) {
+        List<Optional<ReservedResourceName>> group = jdbc.query(SELECT_GROUP_RESERVATION,
+                new MapSqlParameterSource("groupId", groupId),
+                (row, index) -> ReservedResourceName.ofStoredValue(row.getString("reserved_name")));
+        return GroupPermissionRefusal.of(permissions, !group.isEmpty(),
+                group.contains(Optional.of(ReservedResourceName.ADMIN_GROUP)));
+    }
+
     @Override
     public boolean carriesAny(UUID groupId) {
         Long count = jdbc.queryForObject(COUNT_FOR_GROUP,
@@ -101,12 +126,23 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
      */
     @Override
     public void replace(UUID groupId, Set<Permission> permissions) {
+        refuseUnlessAllowed(groupId, permissions);
         jdbc.update(DELETE_FOR_GROUP, new MapSqlParameterSource("groupId", groupId));
-        add(groupId, permissions);
+        insert(groupId, permissions);
     }
 
     @Override
     public void add(UUID groupId, Set<Permission> permissions) {
+        refuseUnlessAllowed(groupId, permissions);
+        insert(groupId, permissions);
+    }
+
+    /** Refuses, before any statement writes, a write the port's rule does not allow. */
+    private void refuseUnlessAllowed(UUID groupId, Set<Permission> permissions) {
+        GroupPermissionsRefusedException.refuseIfPresent(refusal(groupId, permissions));
+    }
+
+    private void insert(UUID groupId, Set<Permission> permissions) {
         for (Permission permission : permissions) {
             Map<String, Object> values = new HashMap<>();
             values.put("groupId", groupId);
