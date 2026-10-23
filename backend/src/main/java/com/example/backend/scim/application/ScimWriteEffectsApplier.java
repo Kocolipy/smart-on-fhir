@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditPermissionChange;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.AuthorizationChangeCounts;
+import com.example.backend.authorization.domain.ConferredPower;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.PermissionLogFields;
@@ -113,6 +114,11 @@ final class ScimWriteEffectsApplier {
     /**
      * Records over the trail, the counter, and the User's effective Permissions before and after,
      * resolved from its memberships as they stand.
+     *
+     * <p>Every conferred power a write's recording needs — each User's before and after, and what each
+     * Group it names confers — is asked of {@link GroupPermissions} in one question, so its cost is
+     * one membership read per User beside a fixed number of reads of the Groups, however many
+     * members a Group's deletion takes.
      */
     private record PowerRecording(
             AuditTrail audit,
@@ -131,15 +137,28 @@ final class ScimWriteEffectsApplier {
                 UUID connectorId, List<ScimWriteEffects.MembershipChange> changes) {
             Map<UUID, List<UUID>> gainedByUser = groupsByUser(changes, Kind.GRANTED);
             Map<UUID, List<UUID>> lostByUser = groupsByUser(changes, Kind.REVOKED);
+            Map<Ask, Set<UUID>> asks = new LinkedHashMap<>();
+            Set<UUID> userIds = changes.stream()
+                    .map(ScimWriteEffects.MembershipChange::userId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            for (UUID userId : userIds) {
+                askAboutUser(asks, userId,
+                        gainedByUser.getOrDefault(userId, List.of()),
+                        lostByUser.getOrDefault(userId, List.of()));
+            }
             for (ScimWriteEffects.MembershipChange change : changes) {
-                AuditPermissionChange power = powerChange(change.userId(),
-                        gainedByUser.getOrDefault(change.userId(), List.of()),
-                        lostByUser.getOrDefault(change.userId(), List.of()));
+                asks.putIfAbsent(new GroupAlone(change.groupId()), Set.of(change.groupId()));
+            }
+            Map<Ask, ConferredPower> answers = permissions.powersOf(asks);
+            for (ScimWriteEffects.MembershipChange change : changes) {
+                AuditPermissionChange power = powerChange(answers, change.userId());
+                Set<Permission> conferred =
+                        answers.get(new GroupAlone(change.groupId())).permissions();
                 switch (change.kind()) {
                     case GRANTED -> {
                         audit.append(new Audited.PermissionGranted(
                                 connectorId, change.userId(), change.groupId(), power));
-                        logMembershipChange(Operation.PERMISSION_GRANT, change);
+                        logMembershipChange(Operation.PERMISSION_GRANT, change, conferred);
                         if (power.superuserChanged()) {
                             counts.superuserGranted();
                         }
@@ -147,7 +166,7 @@ final class ScimWriteEffectsApplier {
                     case REVOKED -> {
                         audit.append(new Audited.PermissionRevoked(
                                 connectorId, change.userId(), change.groupId(), power));
-                        logMembershipChange(Operation.PERMISSION_REVOKE, change);
+                        logMembershipChange(Operation.PERMISSION_REVOKE, change, conferred);
                     }
                 }
             }
@@ -160,16 +179,11 @@ final class ScimWriteEffectsApplier {
 
         @Override
         public void dormancyRevoked(UUID userId, List<UUID> groupIds) {
-            AuditPermissionChange power = powerChange(userId, List.of(), groupIds);
+            Map<Ask, Set<UUID>> asks = new LinkedHashMap<>();
+            askAboutUser(asks, userId, List.of(), groupIds);
+            AuditPermissionChange power = powerChange(permissions.powersOf(asks), userId);
             audit.append(new Audited.DormancyMembershipRevocation(userId, groupIds, power));
             logDormancyMembershipRevocation(userId, power);
-        }
-
-        /** A connector's change of power in the application log, with what the Group confers. */
-        private void logMembershipChange(
-                Operation operation, ScimWriteEffects.MembershipChange change) {
-            ScimWriteEffectsApplier.logMembershipChange(operation, change,
-                    permissions.effectivePermissionsOf(List.of(change.groupId())));
         }
 
         /** The Groups each User gained, or lost, in the write: {@code kind}'s changes by User. */
@@ -186,24 +200,46 @@ final class ScimWriteEffectsApplier {
         }
 
         /**
-         * The User's effective Permissions before and after the write, which {@code gained} and
-         * {@code lost} memberships changed: after is what its memberships confer as the write left
-         * them, before is the same with the change undone.
+         * Adds the User's memberships before and after the write, which {@code gained} and
+         * {@code lost} memberships changed: after is its memberships as the write left them, read
+         * once, and before is the same with the change undone.
          */
-        private AuditPermissionChange powerChange(
-                UUID userId, Collection<UUID> gained, Collection<UUID> lost) {
+        private void askAboutUser(Map<Ask, Set<UUID>> asks, UUID userId,
+                Collection<UUID> gained, Collection<UUID> lost) {
             Set<UUID> after = groups.findGroupsOfUser(userId).stream()
                     .map(ScimGroupReference::id)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             Set<UUID> before = new LinkedHashSet<>(after);
             before.removeAll(gained);
             before.addAll(lost);
-            return new AuditPermissionChange(
-                    permissions.effectivePermissionsOf(before),
-                    permissions.effectivePermissionsOf(after),
-                    permissions.confersSuperuser(before) != permissions.confersSuperuser(after));
+            asks.put(new UserBefore(userId), before);
+            asks.put(new UserAfter(userId), after);
+        }
+
+        /** The User's effective Permissions before and after, and whether the Superuser moved. */
+        private static AuditPermissionChange powerChange(
+                Map<Ask, ConferredPower> answers, UUID userId) {
+            ConferredPower before = answers.get(new UserBefore(userId));
+            ConferredPower after = answers.get(new UserAfter(userId));
+            return new AuditPermissionChange(before.permissions(), after.permissions(),
+                    before.superuser() != after.superuser());
         }
     }
+
+    /**
+     * One conferred power a recording asks about: a User's memberships before the write or after
+     * it, or one Group's alone, for what that Group confers.
+     */
+    private sealed interface Ask {}
+
+    /** The User's memberships as they stood before the write. */
+    private record UserBefore(UUID userId) implements Ask {}
+
+    /** The User's memberships as the write left them. */
+    private record UserAfter(UUID userId) implements Ask {}
+
+    /** Membership of this Group alone: what the Group itself confers. */
+    private record GroupAlone(UUID groupId) implements Ask {}
 
     /**
      * Who made the write. Each writer records a change of power its own way, and names its own

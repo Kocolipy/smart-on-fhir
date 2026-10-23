@@ -37,6 +37,13 @@ every Permission does not make a session the Superuser. It is not split into
 `user:write` and `group:write` for people, so no deployment configures it
 differently.
 
+**Conferred power** — what a User's direct memberships confer, as one answer:
+its effective Permissions, the Superuser's expansion included and the baseline
+not, and whether it is the Superuser. Both halves are read together, from the
+Group Permissions and the Admin group's reservation marker, by sign-in, the
+Accounts list's Superuser flag and the audit of every Permission change, so no
+two of them can disagree about who is the Superuser.
+
 **Baseline access** — every active User with a session holds self-service:
 `GET /api/auth/me`, its own password change, logout and `/api/self` — and nothing
 else without a Permission, in the browser or over the API. It is `ROLE_USER`,

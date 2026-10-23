@@ -246,13 +246,6 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 .toList();
     }
 
-    @Override
-    public boolean isMemberOfReservedGroup(UUID userId, ReservedResourceName reservedName) {
-        return findByReservedName(reservedName)
-                .map(group -> group.hasMember(userId))
-                .orElse(false);
-    }
-
     /**
      * Memberships of every Group held by unreserved Users whose dormancy basis is before the
      * cutoff, by User then Group — or, once {@link #answerDormantMemberCandidatesWith} has been

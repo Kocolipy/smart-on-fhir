@@ -749,6 +749,26 @@ class ScimGroupServiceTests {
     }
 
     /**
+     * One write moving a Group of power from one User to another records each User's own power:
+     * the User leaving it held its Permissions and holds none, the User joining it the reverse.
+     */
+    @Test
+    void a_write_moving_a_group_of_power_between_users_records_each_users_own_change() {
+        helpdeskWith(alice);
+
+        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.ReplaceMembers(List.of(bob.id()))));
+
+        assertThat(List.of(audit.of(AuditOperation.PERMISSION_REVOKE),
+                        audit.of(AuditOperation.PERMISSION_GRANT)))
+                .containsExactly(
+                        List.of(permissionChange(AuditOperation.PERMISSION_REVOKE, alice,
+                                HELPDESK_GROUP_ID, HELPDESK_PERMISSIONS, "", false)),
+                        List.of(permissionChange(AuditOperation.PERMISSION_GRANT, bob,
+                                HELPDESK_GROUP_ID, "", HELPDESK_PERMISSIONS, false)));
+    }
+
+    /**
      * The Admin group's membership is a change of power too: joining it grants the Superuser, and
      * leaving it removes it, which the marker says.
      */

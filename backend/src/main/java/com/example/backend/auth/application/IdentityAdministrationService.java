@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
+import com.example.backend.authorization.domain.ConferredPower;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
@@ -25,9 +26,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -87,19 +88,16 @@ public class IdentityAdministrationService {
     /**
      * Every identity, for administrative review. Never carries a password hash.
      *
-     * <p>Every Group is read ONCE, memberships included, and both derived columns are answered
-     * from it in memory — the Admin flag from the reserved Group's members, and each User's
-     * direct Groups by inverting every Group's. The per-identity question is one statement each,
-     * and a listing of a thousand identities would be a thousand of them to compute a column.
+     * <p>Every Group is read ONCE, memberships included, and each User's direct Groups are
+     * answered from it in memory by inverting every Group's. The Superuser flag is the answer the
+     * session gets at sign-in ({@link GroupPermissions#powersOf}), asked for every User at
+     * once from those memberships — one read of the Groups, not one statement per identity, which
+     * for a thousand identities would be a thousand of them to compute a column.
      */
     @Transactional(readOnly = true)
     public List<IdentitySummary> listIdentities() {
-        List<ScimGroup> directory = groups.findAllOrderedByNormalizedDisplayName();
-        Optional<ScimGroup> adminGroup = directory.stream()
-                .filter(group -> group.reservedName() == ReservedResourceName.ADMIN_GROUP)
-                .findFirst();
         Map<UUID, List<IdentitySummary.DirectGroup>> groupsByMember = new HashMap<>();
-        for (ScimGroup group : directory) {
+        for (ScimGroup group : groups.findAllOrderedByNormalizedDisplayName()) {
             IdentitySummary.DirectGroup reference =
                     new IdentitySummary.DirectGroup(group.id(), group.displayName());
             for (ScimGroupMember member : group.members()) {
@@ -107,11 +105,14 @@ public class IdentityAdministrationService {
                         .add(reference);
             }
         }
+        Map<UUID, ConferredPower> power = groupPermissions.powersOf(
+                groupsByMember.entrySet().stream().collect(Collectors.toMap(
+                        Map.Entry::getKey, member -> idsOf(member.getValue()))));
         return users.findAllOrderedByNormalizedUserName().stream()
                 .map(user -> summarize(
                         user,
                         user.login(),
-                        isAdmin(adminGroup, user),
+                        power.getOrDefault(user.id(), ConferredPower.NONE).superuser(),
                         groupsByMember.get(user.id())))
                 .toList();
     }
@@ -219,8 +220,8 @@ public class IdentityAdministrationService {
         return user.id().equals(actorId);
     }
 
-    private static boolean isAdmin(Optional<ScimGroup> adminGroup, ScimUser user) {
-        return adminGroup.map(group -> group.hasMember(user.id())).orElse(false);
+    private static List<UUID> idsOf(List<IdentitySummary.DirectGroup> direct) {
+        return direct.stream().map(IdentitySummary.DirectGroup::id).toList();
     }
 
     /**
@@ -250,19 +251,16 @@ public class IdentityAdministrationService {
 
     /**
      * One User's row, for an operation's response: its direct Groups read for it alone, and the
-     * Admin flag from the reserved Group's membership — the same two answers the listing computes
-     * for everyone at once. {@code login} is the state as the operation left it, which the stored
-     * {@code user} it was read from predates.
+     * Superuser flag from those Groups as sign-in answers it — the same two answers the listing
+     * computes for everyone at once. {@code login} is the state as the operation left it, which
+     * the stored {@code user} it was read from predates.
      */
     private IdentitySummary summarize(ScimUser user, ScimLoginState login) {
         List<IdentitySummary.DirectGroup> direct = groups.findGroupsOfUser(user.id()).stream()
                 .map(group -> new IdentitySummary.DirectGroup(group.id(), group.displayName()))
                 .toList();
         return summarize(
-                user,
-                login,
-                groups.isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP),
-                direct);
+                user, login, groupPermissions.powerOf(idsOf(direct)).superuser(), direct);
     }
 
     /**

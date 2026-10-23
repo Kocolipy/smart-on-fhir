@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.authorization.domain.ConferredPower;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.EdgeWhitespace;
@@ -236,9 +237,9 @@ public class LoginIdentityService implements UserDetailsService {
      *
      * <p>A direct member of the Admin group — the Group with the {@code admin-group} reservation
      * marker — is the Superuser (ADR 0015): {@code ROLE_SUPERUSER} and every
-     * {@linkplain Permission#delegatable() delegatable} Permission, expanded in code
-     * ({@link GroupPermissions#effectivePermissionsOf}), never from a stored list or a role
-     * hierarchy. The Admin group carries no Permissions of its own. Every other protected
+     * {@linkplain Permission#delegatable() delegatable} Permission, expanded in code and answered
+     * with the Permissions in one question ({@link GroupPermissions#powerOf}), never from a
+     * stored list or a role hierarchy. The Admin group carries no Permissions of its own. Every other protected
      * operation requires its own Permission, and connector administration requires the
      * Superuser. Membership is direct only: a Group's members are Users, never Groups.
      */
@@ -248,9 +249,10 @@ public class LoginIdentityService implements UserDetailsService {
         List<UUID> memberOf = groups.findGroupsOfUser(user.id()).stream()
                 .map(ScimGroupReference::id)
                 .toList();
+        ConferredPower conferred = groupPermissions.powerOf(memberOf);
         Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
-        permissions.addAll(groupPermissions.effectivePermissionsOf(memberOf));
-        if (groupPermissions.confersSuperuser(memberOf)) {
+        permissions.addAll(conferred.permissions());
+        if (conferred.superuser()) {
             authorities.add(new SimpleGrantedAuthority(SUPERUSER_AUTHORITY));
         }
         permissions.stream()

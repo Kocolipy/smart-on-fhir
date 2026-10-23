@@ -83,22 +83,6 @@ interface ScimGroupMemberJpaRepository
     List<UUID> findGroupIdsOfUser(@Param("userId") UUID userId);
 
     /**
-     * Whether this User is a direct member of the Group carrying this reservation.
-     *
-     * <p>How administrative authority is derived, in one statement. The reservation is the
-     * join condition rather than the Group's {@code displayName}, so authority does not
-     * depend on a value that — for any other Group — a connector may change.
-     */
-    @Query("""
-            select count(m) > 0
-              from ScimGroupMemberEntity m
-              join ScimGroupEntity g on g.resourceId = m.id.groupId
-             where m.id.userId = :userId
-               and g.resource.reservedName = :reservedName""")
-    boolean isMemberOfReservedGroup(
-            @Param("userId") UUID userId, @Param("reservedName") String reservedName);
-
-    /**
      * Removes every membership of one Group, for a replacement or a delete.
      *
      * <p>Delete-then-insert rather than a computed diff. The rows have no attributes, so

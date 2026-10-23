@@ -152,15 +152,6 @@ public interface ScimGroupRepository {
     List<ScimGroupReference> findGroupsOfUser(UUID userId);
 
     /**
-     * Whether this User is a direct member of the Group reserved under this name.
-     *
-     * <p>The authority question, asked in one statement. A caller could load the Group and
-     * scan its members instead, and the difference matters at login: that reads every
-     * member of the Admin group to answer a question about one User.
-     */
-    boolean isMemberOfReservedGroup(UUID userId, ReservedResourceName reservedName);
-
-    /**
      * Every direct membership, of any Group, held by an unreserved User whose dormancy basis lies
      * strictly before {@code cutoff}, ordered by User id and then Group id — active or not, locked
      * or not.
