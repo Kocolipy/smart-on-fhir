@@ -73,8 +73,8 @@ class DevelopmentFixturesIntegrationTests {
 
     private static final String MEMBER_PASSWORD = "group-permission-member-password";
 
-    private static final UUID ACCOUNT_ADMINS =
-            UUID.fromString("00000000-0000-4000-8000-00000000a002");
+    private static final UUID HELPDESK =
+            UUID.fromString("00000000-0000-4000-8000-00000000a006");
 
     /** Every Permission a session may hold, sorted: no session holds the token-only writes. */
     private static final List<String> EVERY_PERMISSION_SORTED = List.of(
@@ -133,16 +133,12 @@ class DevelopmentFixturesIntegrationTests {
      */
     @Test
     void eachDevelopmentGroupsUserSignsInHoldingThatGroupsPermissions() throws Exception {
-        assertThat(permissionsOnMe(logIn("account-admin", FIXTURE_PASSWORD)))
-                .containsExactly("account:unlock", "group:read", "patient:read", "user:read");
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                .containsExactly("audit:read", "patient:read");
-        assertThat(permissionsOnMe(logIn("connector-admin", FIXTURE_PASSWORD)))
-                .containsExactly("connector:read", "patient:read");
-        assertThat(permissionsOnMe(logIn("monitoring", FIXTURE_PASSWORD)))
-                .containsExactly("ops:read", "patient:read");
+                .containsExactly("audit:read", "connector:read", "group:read", "ops:read",
+                        "patient:read", "user:read");
         assertThat(permissionsOnMe(logIn("helpdesk", FIXTURE_PASSWORD)))
-                .containsExactly("account:unlock", "patient:read", "user:read");
+                .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
+                        "ops:read", "patient:read", "user:read");
     }
 
     /**
@@ -160,8 +156,7 @@ class DevelopmentFixturesIntegrationTests {
     void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
         assertThat(me(logIn("test-admin", "test-admin-password")).get("superuser").asBoolean())
                 .isTrue();
-        for (String fixture : List.of(
-                "account-admin", "auditor", "connector-admin", "monitoring", "helpdesk")) {
+        for (String fixture : List.of("auditor", "helpdesk")) {
             assertThat(me(logIn(fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
                     .as("%s is not the Superuser", fixture).isFalse();
         }
@@ -171,13 +166,13 @@ class DevelopmentFixturesIntegrationTests {
     @Test
     void aUserInSeveralGroupsHoldsTheUnionOfWhatTheyCarry() throws Exception {
         UUID auditor = userId("auditor");
-        addMember(ACCOUNT_ADMINS, auditor);
+        addMember(HELPDESK, auditor);
         try {
             assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                    .containsExactly("account:unlock", "audit:read", "group:read",
-                            "patient:read", "user:read");
+                    .containsExactly("account:unlock", "audit:read", "connector:read",
+                            "group:read", "ops:read", "patient:read", "user:read");
         } finally {
-            removeMember(ACCOUNT_ADMINS, auditor);
+            removeMember(HELPDESK, auditor);
         }
     }
 
@@ -201,10 +196,10 @@ class DevelopmentFixturesIntegrationTests {
     /** The stored session carries the resolved Permissions, and no role mapping hash. */
     @Test
     void theSessionRecordsTheResolvedPermissions() throws Exception {
-        logIn("account-admin", FIXTURE_PASSWORD);
+        logIn("auditor", FIXTURE_PASSWORD);
 
         Map<String, ? extends Session> stored =
-                sessions.findByPrincipalName(userId("account-admin").toString());
+                sessions.findByPrincipalName(userId("auditor").toString());
         assertThat(stored).hasSize(1);
         Session session = stored.values().iterator().next();
 
@@ -212,8 +207,8 @@ class DevelopmentFixturesIntegrationTests {
         SecurityContext security = session.getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(security.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .contains("account:unlock", "group:read", "user:read")
-                .doesNotContain("audit:read", "ops:read");
+                .contains("audit:read", "group:read", "user:read")
+                .doesNotContain("account:unlock");
     }
 
     /**
@@ -282,9 +277,10 @@ class DevelopmentFixturesIntegrationTests {
     void theLocalProfileStoredEachDevelopmentGroupsPermissions() {
         assertThat(jdbc.queryForList("""
                         SELECT permission FROM group_permission
-                         WHERE group_id = '00000000-0000-4000-8000-00000000a002'
+                         WHERE group_id = '00000000-0000-4000-8000-00000000a003'
                          ORDER BY permission""", String.class))
-                .containsExactly("account:unlock", "group:read", "user:read");
+                .containsExactly("audit:read", "connector:read", "group:read", "ops:read",
+                        "user:read");
         assertThat(jdbc.queryForObject("""
                         SELECT COUNT(*) FROM group_permission
                          WHERE group_id = '00000000-0000-4000-8000-00000000a001'""",

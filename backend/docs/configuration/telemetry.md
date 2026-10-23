@@ -12,7 +12,7 @@ tags: [metrics, prometheus, configuration]
 | `MANAGEMENT_SERVER_PORT` | the app's | Serve `/actuator/**` on this port instead of the app's |
 
 `/actuator/prometheus` is the metrics scrape, and it requires the `ops:read`
-Permission (the Monitoring Role holds it alone): a session without it gets `403`,
+Permission (give a scraper a Group carrying it alone): a session without it gets `403`,
 and a connector token gets `401` because the SCIM bearer chain
 does not cover `/actuator`. Setting `MANAGEMENT_SERVER_PORT` moves all of actuator
 to that port under the same rules: `/actuator/health` stays public and every other

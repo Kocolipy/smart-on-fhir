@@ -143,7 +143,7 @@ test.describe("ADMIN account control", () => {
   test("refuses to unlock a User that is serving no lockout, and changes nothing", async ({
     page,
   }) => {
-    const id = await userIdOf(page, "user");
+    const id = await userIdOf(page, "guest");
     const response = await postAdminAction(page, id, "unlock");
 
     expect(response.status()).toBe(409);
@@ -181,7 +181,7 @@ test.describe("ADMIN account control", () => {
    * write reaches a directory-owned field, whatever method or path it takes.
    */
   test("refuses every write to a User or a Group", async ({ page }) => {
-    const id = await userIdOf(page, "user");
+    const id = await userIdOf(page, "guest");
     const directoryOwned = async () => {
       const rows = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
         Record<string, unknown>

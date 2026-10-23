@@ -27,39 +27,25 @@ app:
     password: ${APP_DEV_FIXTURES_PASSWORD:}
     # A User in no Group, so it holds only the baseline Permissions: the e2e
     # suite's `user` project and the non-administrative paths sign in as it.
-    baseline-member: user
+    baseline-member: guest
     # A User in no Group whose dormancy basis is put a day past the lockout
     # window at every startup, and whose password and lock are reset with it, so
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks
     # it: the e2e suite's dormancy journey signs in as it.
     dormant-member: dormant
     # Put back into these at every startup, so the startup dormancy run has
-    # memberships to remove (Auditors and Monitoring, each conferring a Permission
+    # memberships to remove (Auditors and Helpdesk, each conferring Permissions
     # under the `local` profile below).
     dormant-groups:
       - 00000000-0000-4000-8000-00000000a003
-      - 00000000-0000-4000-8000-00000000a005
+      - 00000000-0000-4000-8000-00000000a006
     groups:
-      - id: 00000000-0000-4000-8000-00000000a002
-        display-name: Account admins
-        member: account-admin
       - id: 00000000-0000-4000-8000-00000000a003
         display-name: Auditors
         member: auditor
-      - id: 00000000-0000-4000-8000-00000000a004
-        display-name: Connector admins
-        member: connector-admin
-      - id: 00000000-0000-4000-8000-00000000a005
-        display-name: Monitoring
-        member: monitoring
       - id: 00000000-0000-4000-8000-00000000a006
         display-name: Helpdesk
         member: helpdesk
-      # The Group the e2e suite deletes over SCIM, to watch its member's session
-      # end: no other spec relies on it, and the next startup creates it again.
-      - id: 00000000-0000-4000-8000-00000000a007
-        display-name: Disposable auditors
-        member: disposable-auditor
 
 ---
 # What each development Group confers, by its stable id: the `local` profile's
@@ -79,19 +65,9 @@ spring:
 app:
   dev-fixtures:
     group-permissions:
-      - group: 00000000-0000-4000-8000-00000000a002
-        # Account admins: read the Users and Groups, Unlock and force a change.
-        permissions: [user:read, account:unlock, group:read]
       - group: 00000000-0000-4000-8000-00000000a003
-        permissions: [audit:read]
-      - group: 00000000-0000-4000-8000-00000000a004
-        # Lists connectors and administers none: creating or deleting one and
-        # minting or rotating a token are the Superuser's alone (ADR 0015).
-        permissions: [connector:read]
-      - group: 00000000-0000-4000-8000-00000000a005
-        permissions: [ops:read]
+        # Auditors: read everything an administrator reads, and change nothing.
+        permissions: [user:read, group:read, ops:read, connector:read, audit:read]
       - group: 00000000-0000-4000-8000-00000000a006
-        # The helpdesk power alone: see the Users and Unlock a locked one.
-        permissions: [user:read, account:unlock]
-      - group: 00000000-0000-4000-8000-00000000a007
-        permissions: [audit:read]
+        # Helpdesk: the Auditors' reads plus the helpdesk power, Unlock.
+        permissions: [user:read, group:read, ops:read, connector:read, audit:read, account:unlock]

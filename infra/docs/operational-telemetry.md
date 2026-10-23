@@ -19,10 +19,9 @@ token value.
 ## Who can read it
 
 - **A session holding `ops:read` only.** Every actuator path except
-  `/actuator/health` needs the `ops:read` Permission, which the Monitoring Role
-  holds and nothing else — give the Prometheus scraper's account that Role alone. A
-  session without it gets `403` (an Account admin's included), a caller with no
-  session `401`.
+  `/actuator/health` needs the `ops:read` Permission — put the Prometheus
+  scraper's account in a Group carrying it and nothing else. A session without it
+  gets `403`, a caller with no session `401`.
 - **Never a connector token.** The SCIM bearer chain covers `/scim/v2/**` only, so
   `Authorization: Bearer <connector token>` on `/actuator/prometheus` is not a
   credential there and gets `401`.
@@ -55,8 +54,8 @@ against the live stack, before you rely on the internal port.
 
 ## Scraping
 
-A scrape presents the session cookie of an account holding `ops:read` — the
-Monitoring Role's, and nothing more (`POST /api/auth/login` as that account,
+A scrape presents the session cookie of an account holding `ops:read` and
+nothing more (`POST /api/auth/login` as that account,
 then send the returned cookie). Sessions end after 15 minutes idle and 8 hours
 absolute, so a long-running Prometheus has to log in again. No machine
 credential for metrics exists yet.

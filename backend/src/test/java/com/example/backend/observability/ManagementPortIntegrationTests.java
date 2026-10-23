@@ -30,9 +30,9 @@ import tools.jackson.databind.json.JsonMapper;
  * takes it off the public port — the application port no longer serves it — and does NOT
  * take it out from behind its Permission, because the application chain guards the
  * management port too. A network boundary is added, never swapped for the access rule —
- * and the rule still admits the Monitoring Group's account there, holding {@code ops:read} and
- * nothing else, so Prometheus has a working path; an Account admin, holding every User and Group
- * power but not {@code ops:read}, is refused.
+ * and the rule still admits the Auditors Group's account there, holding {@code ops:read}, so
+ * Prometheus has a working path; the guest, in no Group and so without {@code ops:read}, is
+ * refused.
  *
  * <p>Runs under the shipped development fixtures and their {@code local} Group Permissions, so the two
  * accounts are the ones local runs and the e2e suite sign in as.
@@ -56,11 +56,11 @@ class ManagementPortIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
-    /** The Monitoring Group's fixture User: {@code ops:read} alone. */
-    private static final String MONITORING = "monitoring";
+    /** The Auditors Group's fixture User: every read, {@code ops:read} among them. */
+    private static final String AUDITOR = "auditor";
 
-    /** The Account admins Group's fixture User: {@code user:read} and {@code group:read}. */
-    private static final String ACCOUNT_ADMIN = "account-admin";
+    /** The baseline fixture User, in no Group: the baseline Permissions alone. */
+    private static final String GUEST = "guest";
 
     private static final String REQUESTS = "http_server_requests_seconds_count";
 
@@ -99,24 +99,24 @@ class ManagementPortIntegrationTests {
                 .as("health on the management port")
                 .isEqualTo(200);
 
-        // The Monitoring Role's account is admitted. Cookies are scoped to the host, not the
-        // port (RFC 6265 §8.5), so a session opened on the application port is presented to
-        // the management port as well.
-        HttpClient monitoring = session(MONITORING);
-        HttpResponse<String> monitoringScrape =
-                get(monitoring, managementPort, "/actuator/prometheus");
-        softly.assertThat(monitoringScrape.statusCode())
-                .as("Monitoring scrape on the management port")
+        // The Auditors' account, holding ops:read, is admitted. Cookies are scoped to the host,
+        // not the port (RFC 6265 §8.5), so a session opened on the application port is
+        // presented to the management port as well.
+        HttpClient auditor = session(AUDITOR);
+        HttpResponse<String> auditorScrape =
+                get(auditor, managementPort, "/actuator/prometheus");
+        softly.assertThat(auditorScrape.statusCode())
+                .as("Auditor scrape on the management port")
                 .isEqualTo(200);
-        softly.assertThat(monitoringScrape.body()).contains(REQUESTS);
+        softly.assertThat(auditorScrape.body()).contains(REQUESTS);
 
-        // An Account admin, holding much but not ops:read, is refused there.
-        HttpResponse<String> accountAdminScrape =
-                get(session(ACCOUNT_ADMIN), managementPort, "/actuator/prometheus");
-        softly.assertThat(accountAdminScrape.statusCode())
-                .as("Account admin scrape on the management port")
+        // The guest, signed in but without ops:read, is refused there.
+        HttpResponse<String> guestScrape =
+                get(session(GUEST), managementPort, "/actuator/prometheus");
+        softly.assertThat(guestScrape.statusCode())
+                .as("guest scrape on the management port")
                 .isEqualTo(403);
-        softly.assertThat(accountAdminScrape.body()).doesNotContain(REQUESTS);
+        softly.assertThat(guestScrape.body()).doesNotContain(REQUESTS);
 
         softly.assertAll();
     }

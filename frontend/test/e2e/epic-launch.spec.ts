@@ -127,25 +127,25 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
   expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
   expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
 
-  // The Group carrying the Account admin's Permissions, read the way an operator
+  // The Group carrying the Helpdesk's Permissions, read the way an operator
   // reviews them: the Groups listing, where each row carries its Permissions.
   const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
     id: string;
     permissions: string[];
   }>;
-  const accountAdmins = groups.find((group) => group.id === DEV_FIXTURES.accountAdmin.group);
-  expect(accountAdmins?.permissions, "the Account admins Group's Permissions").toEqual(
-    groupPermissionsOf("accountAdmin"),
+  const helpdesk = groups.find((group) => group.id === DEV_FIXTURES.helpdesk.group);
+  expect(helpdesk?.permissions, "the Helpdesk Group's Permissions").toEqual(
+    groupPermissionsOf("helpdesk"),
   );
 
   const id = await provisionUser(directory.scim, PRACTITIONER);
   const clinician = await freshBrowser(browser);
   try {
     await settlePassword(PRACTITIONER);
-    const added = await scimPatch(directory.scim, `/scim/v2/Groups/${accountAdmins!.id}`, [
+    const added = await scimPatch(directory.scim, `/scim/v2/Groups/${helpdesk!.id}`, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
-    expect(added.status(), "adding the User to the Account admin Group").toBe(200);
+    expect(added.status(), "adding the User to the Helpdesk Group").toBe(200);
 
     // What the EHR opens in the clinician's browser.
     const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(PRACTITIONER) });
@@ -161,7 +161,7 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
     };
     expect(me).toEqual(
       expect.objectContaining({
-        permissions: [...DEV_FIXTURES.accountAdmin.permissions],
+        permissions: [...DEV_FIXTURES.helpdesk.permissions],
         username: PRACTITIONER,
       }),
     );

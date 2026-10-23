@@ -173,7 +173,7 @@ previous one in `dependencies`:
 - `guest` follows `admin` (and the `epic` and `packaged` projects below, when
   declared) because `login.spec.ts` signs in as the seeded Admin,
   and beside the `admin` project it turned that project's specs into 401s.
-- `dormancy` runs last and alone: it signs in as the Account admin fixture User
+- `dormancy` runs last and alone: it signs in as the Helpdesk fixture User
   and consumes the `dormant` fixture's locked state, which only a backend
   restart re-arms.
 

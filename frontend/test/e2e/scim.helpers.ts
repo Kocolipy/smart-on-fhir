@@ -40,10 +40,10 @@ export const E2E_PREFIX = "e2e-";
  * `backend/src/main/resources/authorization.yaml` maps — spelled once here.
  */
 export const FIXTURE_GROUPS = {
-  /** Auditors, conferring `audit:read`. */
+  /** Auditors, conferring every read. */
   auditors: "00000000-0000-4000-8000-00000000a003",
-  /** Monitoring, conferring `ops:read`. */
-  monitoring: "00000000-0000-4000-8000-00000000a005",
+  /** Helpdesk, conferring every read and `account:unlock`. */
+  helpdesk: "00000000-0000-4000-8000-00000000a006",
 } as const;
 
 /** What a connector provisions; the connector write itself flags a change. */
