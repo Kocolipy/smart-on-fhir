@@ -37,11 +37,9 @@ public final class GroupPermissionValues {
         for (StoredGroupPermission row : stored) {
             Optional<Permission> permission = Permission.fromValue(row.value());
             if (permission.isEmpty()) {
-                problems.add("Group " + row.groupId() + " carries unknown Permission '"
-                        + row.value() + "'");
+                problems.add(unknownPermission(row.groupId(), row.value()));
             } else if (!permission.get().delegatable()) {
-                problems.add("Group " + row.groupId() + " carries Permission '" + row.value()
-                        + "', which no Group may carry");
+                problems.add(notCarriable(row.groupId(), row.value()));
             } else {
                 carried.computeIfAbsent(row.groupId(), group -> EnumSet.noneOf(Permission.class))
                         .add(permission.get());
@@ -54,5 +52,22 @@ public final class GroupPermissionValues {
         carried.forEach((group, permissions) ->
                 unmodifiable.put(group, Collections.unmodifiableSet(permissions)));
         return Collections.unmodifiableMap(unmodifiable);
+    }
+
+    /**
+     * The problem a Group naming {@code value}, which is not a Permission, is reported as: the one
+     * wording startup uses for a stored row and for a development fixture alike.
+     */
+    public static String unknownPermission(UUID groupId, String value) {
+        return "Group " + groupId + " carries unknown Permission '" + value + "'";
+    }
+
+    /**
+     * The problem a Group carrying {@code value}, a Permission no Group may carry, is reported as:
+     * the one wording startup uses for a stored row and for a development fixture alike.
+     */
+    public static String notCarriable(UUID groupId, String value) {
+        return "Group " + groupId + " carries Permission '" + value
+                + "', which no Group may carry";
     }
 }

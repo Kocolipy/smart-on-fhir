@@ -140,6 +140,7 @@ FAST_GATE=(
   com/example/backend/patient/domain/PatientTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
+  com/example/backend/scim/InMemoryScimGroupPermissionStoreContractTests
   com/example/backend/scim/InMemoryScimGroupRepositoryContractTests
   com/example/backend/scim/InMemoryScimLoginStateRepositoryContractTests
   com/example/backend/scim/InMemoryScimUserRepositoryContractTests
@@ -181,6 +182,7 @@ FAST_GATE=(
   com/example/backend/scim/domain/DormancyPolicyTests
   com/example/backend/scim/domain/DormancyVerdictTests
   com/example/backend/scim/domain/EdgeWhitespaceTests
+  com/example/backend/scim/domain/GroupPermissionsRefusedExceptionTests
   com/example/backend/scim/domain/LockoutPolicyTests
   com/example/backend/scim/domain/LockoutTests
   com/example/backend/scim/domain/NormalizedDisplayNameTests

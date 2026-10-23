@@ -5,6 +5,8 @@ import com.example.backend.authorization.domain.GroupPermissionValues;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.StoredGroupPermission;
+import com.example.backend.scim.domain.GroupPermissionRefusal;
+import com.example.backend.scim.domain.GroupPermissionsRefusedException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupPermissionStore;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -14,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -27,6 +30,10 @@ import java.util.function.Predicate;
  * Group holding the reservation marker, and a Group that no longer exists carries nothing, its
  * rows having gone with it. {@link #superuserOnly()} stands alone, for a test with no directory
  * of its own, and recognises the Admin group by the id the seed creates it under.
+ *
+ * <p>Its writes hold to the port's rule ({@link GroupPermissionRefusal}) as the database adapter's
+ * do, which {@link ScimGroupPermissionStoreContract} pins for both; {@link #carrying} and
+ * {@link #store} set up storage as it could stand, and are held to nothing.
  */
 public final class InMemoryGroupPermissions implements GroupPermissions, ScimGroupPermissionStore {
 
@@ -97,18 +104,30 @@ public final class InMemoryGroupPermissions implements GroupPermissions, ScimGro
     }
 
     @Override
+    public Optional<GroupPermissionRefusal> refusal(UUID groupId, Set<Permission> permissions) {
+        return GroupPermissionRefusal.of(
+                permissions, exists.test(groupId), adminGroup.test(groupId));
+    }
+
+    @Override
     public boolean carriesAny(UUID groupId) {
         return exists.test(groupId) && !rows.getOrDefault(groupId, Set.of()).isEmpty();
     }
 
     @Override
     public void add(UUID groupId, Set<Permission> permissions) {
+        refuseUnlessAllowed(groupId, permissions);
         permissions.forEach(permission -> store(groupId, permission.value()));
     }
 
     @Override
     public void replace(UUID groupId, Set<Permission> permissions) {
+        refuseUnlessAllowed(groupId, permissions);
         rows.remove(groupId);
-        add(groupId, permissions);
+        permissions.forEach(permission -> store(groupId, permission.value()));
+    }
+
+    private void refuseUnlessAllowed(UUID groupId, Set<Permission> permissions) {
+        GroupPermissionsRefusedException.refuseIfPresent(refusal(groupId, permissions));
     }
 }
