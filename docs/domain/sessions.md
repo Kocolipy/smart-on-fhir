@@ -113,11 +113,9 @@ until after its transaction commits, so a write that was refused, stale or rolle
 back revokes nothing, and one SCIM write that moves several of those attributes
 revokes once. Every revocation that ended at least one session is audited as its
 own `USER_SESSIONS_REVOKE` event after the commit, its causes as the reason —
-`DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `MEMBERSHIP_REVOKED`
-(`ROLE_REVOKED` on rows recorded before #158), `GROUP_PERMISSIONS_REDUCED`,
-`DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT` or `REPLACED_BY_LOGIN`
-(`FORCED_PASSWORD_CHANGE` on rows recorded before the forced password change was
-removed on 2026-10-22) — and logged as `session-end` under the same names. One that
+`DEACTIVATED`, `PASSWORD_CHANGED`, `USER_NAME_CHANGED`, `DELETED`, `MEMBERSHIP_REVOKED`,
+`GROUP_PERMISSIONS_REDUCED`,
+`DORMANCY_LOCKOUT`, `FAILURE_RUN_LOCKOUT` or `REPLACED_BY_LOGIN` — and logged as `session-end` under the same names. One that
 ended nothing (the User was signed in nowhere else) records nothing. If the session
 store fails, the failure is always audited, with outcome `FAILURE`, and alerted;
 the change stands, and the request answers as ADR 0004 sets out: one that would

@@ -246,9 +246,7 @@ public sealed interface Audited {
      * lift may also set is recorded by its own {@link PasswordChangeRequired}, so it is the one
      * path the Unlock moved that this event does not name.
      *
-     * @param lockCause why the lifted lock had been imposed, recorded as the event's reason. Events
-     *                  stored before an Unlock of an unlocked User was refused (ADR 0015's
-     *                  2026-10-22 addendum) may carry none
+     * @param lockCause why the lifted lock had been imposed, recorded as the event's reason
      * @param moved     what the Unlock moved, as the login-state module handed it back
      */
     record LockoutLiftedByUnlock(
@@ -757,7 +755,7 @@ public sealed interface Audited {
     /**
      * The outcome of a Session revocation — ending a User's sessions after a committed change,
      * whatever triggered it. {@link Committed}: the change it follows is already durable, so
-     * failing here could undo nothing (ADR 0004, 2026-10-10 addendum). A failed revocation is
+     * failing here could undo nothing (ADR 0004). A failed revocation is
      * recorded with a server-error status class, because it was this service, not the caller,
      * that could not finish the job.
      *
@@ -918,9 +916,7 @@ public sealed interface Audited {
 
     /**
      * An administrator requiring a password change of a User by lifting its lockout. A
-     * requirement this service cannot account for is not imposed. Events of this operation stored
-     * before the forced password change was removed (ADR 0015's 2026-10-22 addendum) also record
-     * that action, its refusals included; they read back as the operation they were.
+     * requirement this service cannot account for is not imposed.
      *
      * @param moved what the Unlock moved, as the login-state module handed it back; this event
      *              names the change-required flag of it, and the Unlock's
@@ -997,7 +993,7 @@ public sealed interface Audited {
 
     /**
      * An authorization refusal on the application chain; the caller is already receiving
-     * {@code 403}. Recorded with one generic reason, never the Permission, Role or rule.
+     * {@code 403}. Recorded with one generic reason, never the Permission or rule.
      *
      * @param userId    the refused User's stable id, or {@code null} when the session names none
      * @param operation the refused request as the trail identifies one: its method, the route

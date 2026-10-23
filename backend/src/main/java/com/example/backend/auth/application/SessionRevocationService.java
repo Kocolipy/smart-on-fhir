@@ -39,7 +39,7 @@ import org.springframework.stereotype.Service;
  * <p>The audit append is fail-open with an alert, because the change the revocation follows is
  * already committed and a failed append could undo nothing (ADR 0004). A session store that fails
  * is always recorded, as a {@code FAILURE} event, and always alerted; what the caller sees then
- * follows ADR 0004's axis (see its addendum):
+ * follows ADR 0004's axis:
  *
  * <ul>
  *   <li>a request that would otherwise <em>succeed</em> — a SCIM write, the dormancy job, a
@@ -184,8 +184,7 @@ public class SessionRevocationService implements ScimUserSessions {
     /**
      * Each cause as the audit trail's own name for it, which is the same name: audit cannot see
      * this enum (the slices depend the other way), so it mirrors it. A cause added here without
-     * its mirror fails {@code SessionRevocationServiceTests}' every-cause test. The mirror may hold
-     * more: a cause no longer raised keeps its audit name for the rows already stored.
+     * its mirror fails {@code SessionRevocationServiceTests}' every-cause test.
      */
     private static Set<AuditSessionRevocationCause> auditCauses(
             Set<SessionRevocationCause> causes) {
