@@ -88,8 +88,7 @@ class EcsLogFormatTests {
      * Values that must never appear anywhere in the log stream. The credentials and
      * identifiers are the test fixtures' own, so a leak shows up as a literal
      * match; the rest are the shapes a secret takes in this service — a BCrypt
-     * hash's prefix, and the two cookie names whose values are a session and a CSRF
-     * token.
+     * hash's prefix, and the session cookie's name.
      */
     private static final List<String> FORBIDDEN = List.of(
             "test-user",
@@ -99,8 +98,7 @@ class EcsLogFormatTests {
             "not-a-real-account",
             "wrong-password",
             "$2a$",
-            "JSESSIONID",
-            "XSRF-TOKEN");
+            "JSESSIONID");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 

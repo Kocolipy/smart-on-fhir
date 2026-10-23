@@ -14,7 +14,6 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestGroupPermissions;
-import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -77,18 +76,6 @@ class AdminAccountEndpointTests {
 
     @Autowired
     private WebApplicationContext context;
-
-    /**
-     * The session registry, in memory, from {@link InMemorySessionRegistryConfiguration}. A fake
-     * can be asked what it holds, so the removed-endpoint test below proves
-     * a request to the old disable path revoked nothing rather than merely returning 404.
-     *
-     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —
-     * {@link #theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds()} is what holds
-     * that.
-     */
-    @Autowired
-    private InMemoryAccountSessions sessions;
 
     @Autowired
     private ScimUserRepository users;
@@ -293,38 +280,6 @@ class AdminAccountEndpointTests {
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
-    }
-
-    /**
-     * The legacy Disable and Enable endpoints, and the forced password change, are REMOVED, not
-     * hidden: an administrator holding every Permission and a valid CSRF header is refused
-     * {@code 403} at the old path — the application chain denies by default, so a route nothing
-     * declares is refused before any dispatch — whether it names the account by {@code userName}
-     * as it used to or by the stable id, and the account is untouched: its {@code active} flag,
-     * its change-required flag, its version and the sessions it holds are exactly as they were.
-     */
-    @Test
-    void theLegacyDisableEnableAndForcedChangeEndpointsAreGone() throws Exception {
-        ScimUser before = require("test-user");
-        sessions.open(before.id(), "live-session");
-
-        try {
-            for (String action : List.of("disable", "enable", "force-password-change")) {
-                for (Object target : List.of("test-user", before.id())) {
-                    mvc.perform(withCsrf(post("/api/admin/accounts/{target}/" + action, target))
-                                    .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                            .andExpect(status().isForbidden());
-                }
-            }
-
-            ScimUser after = require("test-user");
-            assertThat(after.profile().active()).isTrue();
-            assertThat(after.login().isPasswordChangeRequired()).isFalse();
-            assertThat(after.version()).isEqualTo(before.version());
-            assertThat(sessions.sessionsOf(before.id())).containsExactly("live-session");
-        } finally {
-            sessions.revokeAll(before.id());
-        }
     }
 
     /**

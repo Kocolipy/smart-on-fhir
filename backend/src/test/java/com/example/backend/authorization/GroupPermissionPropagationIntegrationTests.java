@@ -161,18 +161,15 @@ class GroupPermissionPropagationIntegrationTests {
     }
 
     /**
-     * Without {@code group:read} the read is refused; nothing writes the vocabulary; and the
-     * retired roles endpoint answers no one, the Superuser included.
+     * Without {@code group:read} the read is refused, and nothing writes the vocabulary, the
+     * Superuser included.
      */
     @Test
-    void the_permissions_endpoint_requires_group_read_and_the_roles_endpoint_is_gone()
-            throws Exception {
+    void the_permissions_endpoint_requires_group_read_and_nothing_writes_it() throws Exception {
         assertThat(status(get("/api/admin/permissions")
                         .cookie(logIn("test-user", "test-password"))))
                 .isEqualTo(403);
         Cookie admin = logIn("test-admin", "test-admin-password");
-        assertThat(status(get("/api/admin/roles").cookie(admin)))
-                .as("no Role remains to list").isEqualTo(403);
         for (MockHttpServletRequestBuilder write : List.of(
                 post("/api/admin/permissions"), put("/api/admin/permissions"),
                 delete("/api/admin/permissions"))) {

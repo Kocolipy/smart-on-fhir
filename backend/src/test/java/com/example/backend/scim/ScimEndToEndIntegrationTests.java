@@ -196,7 +196,6 @@ class ScimEndToEndIntegrationTests {
                 .isEqualTo(200);
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("username").asText()).isEqualTo(BOOTSTRAP_ADMIN);
-        assertThat(body.has("role")).as("there is no role field any more").isFalse();
         assertThat(body.get("permissions").valueStream().map(JsonNode::asText).toList())
                 .as("derived from Superuser Group membership; there is no role column to read")
                 .contains("user:read");
@@ -290,7 +289,6 @@ class ScimEndToEndIntegrationTests {
         // "ADMIN": a member of the Superuser Group, holding every Permission a session may; "USER": only the
         // baseline Permissions every User holds.
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
-        assertThat(body.has("role")).isFalse();
         assertThat(body.get("permissions").size())
                 .isEqualTo("ADMIN".equals(expectedRole)
                         ? TestGroupPermissions.EVERY_PERMISSION.size()

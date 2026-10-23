@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,9 +46,6 @@ import org.springframework.web.bind.annotation.RestController;
 // therefore shared with the other @SpringBootTest classes via the context cache
 // rather than rebuilt per method — booting it once instead of eleven times.
 class SecurityConfigTests {
-
-    /** The cookie the retired double-submit design wrote, which nothing may write now. */
-    private static final String LEGACY_CSRF_COOKIE = "XSRF-TOKEN";
 
     /**
      * The application chain by name. There are two {@link SecurityFilterChain}
@@ -171,14 +167,13 @@ class SecurityConfigTests {
     }
 
     /**
-     * No CSRF token reaches a cookie, and a page view opens no session: the
-     * token is created only when the SPA asks {@code GET /api/auth/csrf} for one.
+     * A page view sets no cookie and opens no session: the CSRF token is created only when
+     * the SPA asks {@code GET /api/auth/csrf} for one.
      */
     @Test
-    void anonymousFrontendRequestSetsNoCsrfCookieAndOpensNoSession() throws Exception {
+    void anonymousFrontendRequestSetsNoCookieAndOpensNoSession() throws Exception {
         MvcResult page = mvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(cookie().doesNotExist(LEGACY_CSRF_COOKIE))
                 .andReturn();
 
         assertThat(page.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).isEmpty();

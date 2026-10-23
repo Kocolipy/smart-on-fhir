@@ -7,7 +7,7 @@
 /**
  * The backend's own default, `max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:3}` in
  * `backend/src/main/resources/application.yaml`. That file is the authority:
- * this copy follows it. `LockoutHasNoDurationTests` pins the backend side to 3
+ * this copy follows it. `LoginLockoutConfigTests` pins the backend side to 3
  * and `test/lockoutThreshold.test.ts` pins this side, so changing one default
  * without the other fails a test.
  */

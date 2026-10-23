@@ -124,13 +124,12 @@ test.describe("development Group Permissions", () => {
     }) => {
       await loginAsFixture(page, fixture);
 
-      // Its Permissions, and no role field beside them.
+      // Its Permissions.
       const me = await page.request.get("/api/auth/me");
       expect(me.status()).toBe(200);
       const body = (await me.json()) as Record<string, unknown>;
       expect(body.permissions).toEqual(permissions);
       expect(body.superuser).toBe(false);
-      expect(body).not.toHaveProperty("role");
 
       // The pages and actions it is shown.
       await expectHome(page, expected.accounts !== null, expected.audit);

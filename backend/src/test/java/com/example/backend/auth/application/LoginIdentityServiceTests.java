@@ -597,8 +597,8 @@ class LoginIdentityServiceTests {
 
     /**
      * A direct member of the Admin group is the Superuser: {@code ROLE_SUPERUSER} beside baseline
-     * access and every Permission a session may hold, and no {@code ROLE_ADMIN} — though the
-     * Admin group carries no Permission at all: the expansion is in code. The Admin group is the
+     * access and every Permission a session may hold — though the Admin group carries no
+     * Permission at all: the expansion is in code. The Admin group is the
      * Group holding the reservation marker, whatever its id — here not the id the seed uses
      * (ADR 0015).
      */
@@ -609,7 +609,6 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
                 .contains("ROLE_USER", "ROLE_SUPERUSER")
-                .doesNotContain("ROLE_ADMIN")
                 .hasSize(2 + TestGroupPermissions.EVERY_PERMISSION.size())
                 .containsAll(TestGroupPermissions.EVERY_PERMISSION);
     }

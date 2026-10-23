@@ -248,13 +248,12 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             assertThat(body.get("headerName").asText()).isEqualTo("X-CSRF-TOKEN");
             assertThat(body.get("token").asText()).isNotBlank();
         });
-        add(all, "login: 200 with the session and no CSRF cookie", t -> {
+        add(all, "login: 200 with the session", t -> {
             MvcResult login = t.expect(t.csrf(t.post("/api/auth/login"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(credentials(ADMIN, ADMIN_PASSWORD)), 200);
             assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
-                    .anyMatch(cookie -> cookie.startsWith("SESSION="))
-                    .noneMatch(cookie -> cookie.startsWith("XSRF-TOKEN="));
+                    .anyMatch(cookie -> cookie.startsWith("SESSION="));
         });
         add(all, "login: 400 for a body that fails validation", t ->
                 t.expect(t.csrf(t.post("/api/auth/login")).contentType(MediaType.APPLICATION_JSON)

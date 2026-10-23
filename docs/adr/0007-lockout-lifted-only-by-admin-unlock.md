@@ -108,8 +108,6 @@ with the standard's soft-delete and tombstone requirements.
   catch that early, and edge throttling on Login caps its rate (`infra/docs/edge-throttling.md`).
 - The Bootstrap Admin accepts unbounded online guessing. Argon2id cost, uniform
   refusal timing and audited failures mitigate it, not a lock.
-- `LockoutHasNoDurationTests` proves that no deployed configuration file
-  mentions a duration.
 - With the default windows, a dormant User is locked at 90 days and, if nobody
   unlocks it, loses its Roles at 180. Bringing such a User back takes an
   administrator's Unlock, and getting its Roles back takes the directory

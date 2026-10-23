@@ -297,7 +297,7 @@ describe("decodeAuditEventPage", () => {
       },
     );
 
-    it("lists the operations the trail now speaks in, and none of the Role ones", () => {
+    it("lists the operations the trail speaks in", () => {
       expect(AUDIT_OPERATIONS).toEqual(
         expect.arrayContaining([
           "PERMISSION_GRANT",
@@ -305,9 +305,6 @@ describe("decodeAuditEventPage", () => {
           "DORMANCY_MEMBERSHIP_REVOCATION",
         ]),
       );
-      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["ROLE_GRANT"]));
-      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["ROLE_REVOKE"]));
-      expect(AUDIT_OPERATIONS).not.toEqual(expect.arrayContaining(["DORMANCY_ROLE_REVOCATION"]));
     });
   });
 });

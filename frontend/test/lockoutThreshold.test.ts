@@ -4,7 +4,7 @@ import { BACKEND_DEFAULT_LOCKOUT_MAX_ATTEMPTS, lockoutMaxAttempts } from "./e2e/
 
 // The E2E lockout specs fall back to this value when APP_LOCKOUT_MAX_ATTEMPTS
 // is unset. It must equal the backend's default in
-// backend/src/main/resources/application.yaml, which LockoutHasNoDurationTests
+// backend/src/main/resources/application.yaml, which LoginLockoutConfigTests
 // pins to 3 on the backend side. If one default moves, so must the other.
 describe("E2E lockout threshold", () => {
   it("falls back to the backend's default of 3", () => {
