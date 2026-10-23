@@ -54,8 +54,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react-swc": "^4.1.0",
-    "@vitest/coverage-v8": "^4.1.11",
-    "@vitest/ui": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
+    "@vitest/ui": "^4.1.12",
     "dependency-cruiser": "^18.2.0",
     "eslint": "^9.39.0",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -69,6 +69,6 @@
     "typescript-eslint": "^8.46.0",
     "vite": "^7.3.6",
     "vite-plugin-compression2": "^2.5.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
