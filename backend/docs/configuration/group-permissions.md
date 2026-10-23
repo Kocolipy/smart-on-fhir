@@ -13,8 +13,8 @@ the baseline `patient:read` plus the union of the Permissions of the Groups it i
 a **direct** member of, resolved at login; a Group with no row confers nothing.
 The Admin group, recognised by its `admin-group` reservation marker, carries no
 row: its direct members are the Superuser, expanded in code to every delegatable
-Permission. There are no Roles, no role mapping and no `app.authorization`
-block, so a Group created over SCIM can be given access without a redeploy.
+Permission. Permissions are data, not configuration, so a Group created over SCIM
+can be given access without a redeploy.
 
 No SCIM path reads or sets a Group's Permissions. They are set by the Superuser
 alone, at runtime: `PUT /api/admin/groups/{id}/permissions` replaces a Group's set
@@ -105,10 +105,6 @@ app:
   with nothing written.
 - No other profile — a deployment's included — seeds a Group Permission. A
   list rather than a map, so a higher-precedence source replaces it whole.
-
-Clean cut: the old role mapping was not converted. A database that ran with it
-starts with no Group Permissions outside the `local` fixtures, and sessions
-issued under it may simply be invalidated.
 
 ## Tests
 

@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The discovery endpoints: what this service can do, and the resources and schemas it serves.
  *
- * <p>Readable with any valid connector token and no Permission (ADR 0010): a connector reads
+ * <p>Readable with any valid connector token and no Permission (ADR 0015): a connector reads
  * them before it knows which Permissions it was given. They disclose capabilities and schemas
  * and no directory content, and they are GET-only. So no handler here declares a Permission —
  * deliberately, and listed as token-only in

@@ -9,44 +9,27 @@ package com.example.backend.audit.domain;
  * is an authenticated administrator in every case — so none of them is an authorization
  * failure and none is recorded as one.
  *
- * <p>Refusals are recorded and not merely logged because each of them is an attempt to
- * remove the deployment's last way back in. A run of them is the signal worth having, and a
- * log line that carries no subject id cannot be correlated to the identity it was about.
+ * <p>Refusals are recorded and not merely logged because a run of them is the signal worth
+ * having, and a log line that carries no subject id cannot be correlated to the identity it was
+ * about.
  */
 public enum AuditAdministrativeRefusal {
 
     /**
-     * An administrator tried to disable their own identity, which would take away the
-     * access needed to reverse it. No longer recorded — the Disable action was removed — and
-     * kept so the refusals already stored still read back.
-     */
-    SELF_DISABLE,
-
-    /**
      * The target is a resource the operation may not touch: the Admin group, whose direct members'
-     * power is the Superuser rather than a Permission, for a change of a Group's Permissions. Also
-     * stored for the Bootstrap Admin, the deployment's recovery identity, by refusals of two
-     * actions since removed — the Disable action and the forced password change.
+     * power is the Superuser rather than a Permission, for a change of a Group's Permissions.
      */
     PROTECTED_RESOURCE,
 
     /**
      * An administrator aimed an Unlock at their own account. Refused so that recovering from a
-     * self-inflicted state takes a second administrator. Also stored for refused forced password
-     * changes, from before that action was removed.
+     * self-inflicted state takes a second administrator.
      */
     SELF_TARGET,
 
     /**
-     * A forced password change aimed at a User with no credential, which already cannot log in and
-     * has no password to replace. No longer recorded — the forced password change was removed
-     * (ADR 0015's 2026-10-22 addendum) — and kept so the refusals already stored still read back.
-     */
-    CREDENTIALLESS_TARGET,
-
-    /**
      * An Unlock aimed at a User serving no lockout: there was nothing to lift, so nothing was
-     * written, its failure run included (ADR 0015's 2026-10-22 addendum).
+     * written, its failure run included (ADR 0015).
      */
     NOT_LOCKED,
 

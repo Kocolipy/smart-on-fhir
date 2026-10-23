@@ -35,19 +35,17 @@ change and logout; every other endpoint, `/api/admin/**` and `/api/self`
 included, answers `403`. An [Epic Login](./epic-login.md) is never confined: it
 presents no password of this service's, so the imposed credential the flag marks
 is not what it used, and it receives the authorities the User would hold with the
-flag clear (ADR 0008's 2026-10-09 addendum). A User who only ever signs in
+flag clear (ADR 0008). A User who only ever signs in
 through Epic therefore never has to replace the imposed password; that password
 still buys only a confined session.
 
-**No forced password change** — no administrator can set the change-required flag
-on a User directly; an Unlock of a locked User is the one administrative action
-that sets it. The forced password change was removed (ADR 0015's 2026-10-22
-addendum): a holder of `account:unlock` could repeat it on any Superuser but the
-Bootstrap Admin, ending their sessions each time. The accepted cost: no one can
-require a change of an unlocked User whose password is suspected compromised;
-recovery goes through the connector instead, which sets a new password (and with
-it the flag) or deactivates the User in the directory. `PASSWORD_CHANGE_REQUIRE`
-events recorded before the removal still read back on the audit listing.
+**Only an Unlock requires a change administratively** — an Unlock of a locked
+User is the one administrative action that sets the change-required flag, so the
+helpdesk Permission cannot disturb a higher-privileged User that is working (ADR
+0015). The accepted cost: no one can require a change of an unlocked User whose
+password is suspected compromised; recovery goes through the connector instead,
+which sets a new password (and with it the flag) or deactivates the User in the
+directory.
 
 **Self-service password change** — `POST /api/auth/change-password`, for the User
 the session belongs to. A wrong current password lengthens the same failure run as

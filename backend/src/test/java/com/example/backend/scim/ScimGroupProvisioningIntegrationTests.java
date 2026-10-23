@@ -48,10 +48,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>The counterpart of {@link ScimUserProvisioningIntegrationTests}, and it exists because
  * mutation testing found it missing: the whole Group HTTP surface — the controller, the request
  * reader, and the persistence adapter's delete — was reached by no test at all, and the Group
- * behaviour was verified only at service level against an in-memory fake. That is not a
- * theoretical gap on this ticket. The fake and the adapter had already DISAGREED once about
- * whether a create advances its members' versions, and every unit test passed while the adapter
- * was wrong; only a test against the database caught it. {@code deleteById} was the same shape of hole.
+ * behaviour was verified only at service level against an in-memory fake. The fake and the
+ * adapter can disagree — about whether a create advances its members' versions, say — while every
+ * unit test passes; only a test against the database catches it.
  *
  * <p>So the assertions here are deliberately about the things only this layer decides: which
  * status code each refusal becomes, what the {@code Location} and {@code ETag} carry, which
@@ -344,10 +343,9 @@ class ScimGroupProvisioningIntegrationTests {
      * Re-PUTting identical state changes no version and no ETag.
      *
      * <p>A provisioning system converging on a desired state re-sends constantly, so this is the
-     * common case rather than an edge one. The adapter previously advanced the Group's version
-     * unconditionally, which meant a connector's own idempotent re-send invalidated the cached
-     * copy it was trying to confirm — and it contradicted the audit event for the same write,
-     * which correctly recorded no changed attribute.
+     * common case rather than an edge one. Advancing the version anyway would invalidate the cached
+     * copy a connector's idempotent re-send is trying to confirm, and contradict the audit event
+     * for the same write, which records no changed attribute.
      */
     @Test
     void re_putting_identical_state_moves_neither_the_version_nor_the_etag() throws Exception {
@@ -884,7 +882,7 @@ class ScimGroupProvisioningIntegrationTests {
     // ---- acceptance criteria, observed against the database -----------------------------------
     //
     // The service tests prove these rules against the in-memory fake. They are repeated here
-    // because the fake has already disagreed with the adapter once on this ticket, and each rule
+    // because the fake can disagree with the adapter, and each rule
     // below is decided, in production, by something the fake does not have: a foreign key, a
     // transaction rollback, a bulk version UPDATE, or a fail-open audit append in its own
     // transaction.

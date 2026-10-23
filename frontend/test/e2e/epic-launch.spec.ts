@@ -49,7 +49,7 @@ import {
  * deleted again in a `finally`. Its password is settled first, as every spec
  * that signs a provisioned User in does: the connector's write leaves a
  * password change pending, which confines a password Login of the User to
- * `/change-password`. An Epic Login is not confined by it (ADR 0008 addendum),
+ * `/change-password`. An Epic Login is not confined by it (ADR 0008),
  * which the flagged-User case pins by launching for a User left unsettled.
  */
 

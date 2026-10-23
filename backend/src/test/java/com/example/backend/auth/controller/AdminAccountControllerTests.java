@@ -118,8 +118,7 @@ class AdminAccountControllerTests {
     /**
      * The read-only criterion, as the adapters declare it: the only unsafe handlers are Unlock and
      * setting a Group's Permissions — each of which writes application-owned state (ADR 0015). A
-     * handler added for Disable, a forced password change, a rename or a membership change fails
-     * here.
+     * handler added that sets {@code active}, renames a User or changes a membership fails here.
      */
     @Test
     void noHandlerWritesADirectoryOwnedAttribute() {

@@ -39,13 +39,13 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0010) —
+ * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0015) —
  * driven over HTTP through both real security chains against real SQL Server, with the token
  * rows and audit rows read back with SQL.
  *
  * <p>The administrator's session is built directly with exactly the authorities each case needs,
  * which is what lets one class show that only the Superuser administers connectors — a session
- * holding every Permission is refused — without a Role per combination (ADR 0015).
+ * holding every Permission is refused (ADR 0015).
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)

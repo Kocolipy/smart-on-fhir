@@ -34,25 +34,9 @@ public enum AuditOperation {
      * unrequested, and every event of this operation names the administrator who ended it. Its
      * {@code errorCode} carries the cause of the lock it lifted — {@code FAILURES} or
      * {@code DORMANCY}. An Unlock of a User serving no lockout is refused and recorded as a refusal
-     * ({@code NOT_LOCKED}); an accepted event stored before that refusal existed (ADR 0015's
-     * 2026-10-22 addendum) may carry no cause.
+     * ({@code NOT_LOCKED}).
      */
     LOCKOUT_LIFT,
-
-    /**
-     * An administrator closed an account to logins, or was refused doing so.
-     *
-     * <p>No longer recorded: the Accounts page's Disable action and its endpoint were removed,
-     * because {@code active} is the directory's to set over SCIM. Kept so an event written before
-     * the removal still reads back as what it was — the stored value is this name.
-     */
-    ACCOUNT_DISABLE,
-
-    /**
-     * An administrator reopened an account to logins. No longer recorded, for the reason
-     * {@link #ACCOUNT_DISABLE} is not; kept for the events already stored.
-     */
-    ACCOUNT_ENABLE,
 
     /** An administrator created a SCIM connector. */
     CONNECTOR_CREATE,
@@ -203,10 +187,7 @@ public enum AuditOperation {
     /**
      * A password change was required of a User by an administrator lifting its lockout, which
      * requires one because the credential that reached the threshold may be the one being guessed.
-     * The event never carries a password value; the changed path is the flag. Events stored before
-     * the forced password change was removed (ADR 0015's 2026-10-22 addendum) also record that
-     * direct requirement, and its refusals with their reason from
-     * {@link AuditAdministrativeRefusal}; they read back as the operation they were.
+     * The event never carries a password value; the changed path is the flag.
      */
     PASSWORD_CHANGE_REQUIRE,
 
@@ -222,8 +203,8 @@ public enum AuditOperation {
      * Permission it requires, because no rule declares it, or because the session is confined
      * by a required password change. The actor and subject are the refused User; the event
      * carries the operation as its method and route template, and the one generic reason
-     * {@code INSUFFICIENT_PERMISSIONS} as its error code. It never names the Permission, Role or
-     * rule that refused — each operation requires exactly one Permission, which its declaration
+     * {@code INSUFFICIENT_PERMISSIONS} as its error code. It never names the Permission or rule
+     * that refused — each operation requires exactly one Permission, which its declaration
      * in the API document names.
      */
     ACCESS_DENIED,

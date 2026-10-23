@@ -12,7 +12,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Which SCIM requests a token may make, by the Permissions it carries (ADR 0010).
+ * Which SCIM requests a token may make, by the Permissions it carries (ADR 0015).
  *
  * <p>Every case is asserted both ways: the named Permission alone admits the request, and every
  * other directory Permission together does not — so a rule that admitted on the wrong Permission,

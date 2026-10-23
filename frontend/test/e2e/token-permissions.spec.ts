@@ -3,7 +3,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { adminRequest } from "./auth.helpers";
 import { E2E_PREFIX, runId, scimApi, USER_SCHEMA } from "./scim.helpers";
 
-// Connector tokens carry Permissions (#117, ADR 0010), end to end, and only the
+// Connector tokens carry Permissions (#117, ADR 0015), end to end, and only the
 // Superuser mints them (#155, ADR 0015): the Bootstrap Admin creates a connector
 // and mints a `group:write`-only token from the SPA, and the token writes Groups
 // and is refused on Users writes. That every other fixture — the Connector admin

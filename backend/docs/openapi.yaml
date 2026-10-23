@@ -25,7 +25,7 @@ info:
 
     **Authorization is declared per operation.** Every operation's own `security`
     requirement says what a caller needs, and the application enforces exactly
-    that (ADR 0010): `security: []` is public — no SCIM operation is;
+    that (ADR 0015): `security: []` is public — no SCIM operation is;
     `connectorBearer: [<permission>]` names the one Permission a token needs, and
     `connectorBearer: []` a valid token alone; `sessionCookie: []` is
     self-service — any signed-in session with baseline access, no Permission;
@@ -865,8 +865,8 @@ paths:
         flag is not a SCIM attribute, so the version does not advance.
 
         Has no effect on an account serving no lockout: that Unlock is refused
-        `409` and nothing is written, its failure run included (ADR 0015's
-        2026-10-22 addendum). Every Unlock, refusals included, records a
+        `409` and nothing is written, its failure run included (ADR 0015). Every Unlock, refusals
+        included, records a
         `LOCKOUT_LIFT` audit event.
       operationId: unlockUser
       security:
@@ -1350,7 +1350,7 @@ paths:
         and never its values.
 
         Reading the trail is not itself recorded. The listing is served only to a
-        caller holding `audit:read`, which the Auditor Role holds without any other
+        caller holding `audit:read`, which a Group may carry without any other
         administrative power.
       operationId: listAuditEvents
       security:
@@ -1439,7 +1439,7 @@ paths:
       tags: [SCIM]
       summary: Read the SCIM capabilities of this deployment
       description: |
-        Needs a valid connector token and no Permission (ADR 0010). The document
+        Needs a valid connector token and no Permission (ADR 0015). The document
         describes what this deployment implements, not SCIM in general — `patch`,
         `filter` (with `maxResults` 200) and `sort` are supported, `bulk` is unsupported
         permanently with zero limits, and `etag` is supported. Discovery endpoints
@@ -3888,8 +3888,7 @@ components:
             How a `LOGIN_SUCCESS` or `LOGIN_FAILURE` was attempted: `password`
             for password Login, `sso` for an EHR launch from Epic (Epic Login,
             D15; one Epic organisation per deployment, so `sso` means Epic).
-            `null` for every other operation, and for a login recorded before
-            the method was.
+            `null` for every other operation.
         mfaFactor:
           type: [string, "null"]
           enum:
@@ -3914,7 +3913,7 @@ components:
             `idp-attested` while the Epic organisation's MFA is an attestation,
             or — once `APP_EPIC_MFA_EVIDENCE_REQUIRED` is on — the RFC 8176 factor
             the `id_token`'s `amr` named. `null` for every other event, a password
-            Login's included, and for a login recorded before the factor was.
+            Login's included.
         tokenId:
           type: [string, "null"]
           format: uuid
@@ -3925,8 +3924,7 @@ components:
             addressed. Never the token's value. The connector stays the event's
             `subjectId` and `resourceId` — `null` on the refusal of a token id that
             names nothing, which belongs to no connector. `null` for every other
-            event, for a refused issue (which addressed no token), and for an event
-            recorded before tokens were named.
+            event, and for a refused issue (which addressed no token).
         replacementTokenId:
           type: [string, "null"]
           format: uuid
@@ -3944,9 +3942,7 @@ components:
             every delegatable Permission included for the Superuser, the baseline
             `patient:read` not; sorted by name. On an accepted
             `GROUP_PERMISSIONS_CHANGE`, the Group's own Permissions before it,
-            sorted by name. Empty for every other event. An
-            event recorded under a Role, before the trail spoke in Permissions,
-            carries the Role's name here when the change took it away.
+            sorted by name. Empty for every other event.
         permissionsAfter:
           type: array
           items:
@@ -3954,14 +3950,13 @@ components:
           description: |
             The same User's effective Permissions after the membership change, or
             the Group's after a `GROUP_PERMISSIONS_CHANGE`, sorted by name. Empty
-            for every other event. An event recorded under a
-            Role carries the Role's name here when the change granted it.
+            for every other event.
         superuserChanged:
           type: [boolean, "null"]
           description: |
             On a membership change, whether it granted or removed the Superuser —
             a direct membership of the Admin group gained or lost. `null` for every
-            other event, and for one recorded before the marker was.
+            other event.
         groupIds:
           type: array
           items:
@@ -3984,8 +3979,6 @@ components:
         - LOGOUT
         - LOCKOUT_SET
         - LOCKOUT_LIFT
-        - ACCOUNT_DISABLE
-        - ACCOUNT_ENABLE
         - CONNECTOR_CREATE
         - CONNECTOR_DELETE
         - CONNECTOR_TOKEN_ISSUE
@@ -4015,17 +4008,13 @@ components:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
         the cause of the lock it lifted (`FAILURES` or `DORMANCY`). A refused
         Unlock is a `FAILURE` whose `errorCode` is `SELF_TARGET`, `NOT_LOCKED` or,
-        for an id no User has, `UNKNOWN_RESOURCE`; an Unlock recorded before an
-        Unlock of an unlocked User was refused (2026-10-22) may be a `SUCCESS`
-        with a `null` `errorCode`. A connector or token operation
+        for an id no User has, `UNKNOWN_RESOURCE`. A connector or token operation
         (`CONNECTOR_DELETE`, `CONNECTOR_TOKEN_ISSUE`, `CONNECTOR_TOKEN_ROTATE`,
         `CONNECTOR_TOKEN_REVOKE`) addressing a connector or token that names
         nothing is a `FAILURE` of that operation with `errorCode`
         `UNKNOWN_RESOURCE`, naming the connector addressed and the token in
-        `tokenId`; such refusals are recorded from 2026-10-22.
-        `PASSWORD_CHANGE_REQUIRE` is the change-required flag an Unlock set;
-        events recorded before 2026-10-22 also include the removed forced
-        password change and its refusals. `DORMANCY_LOCKOUT` and
+        `tokenId`. `PASSWORD_CHANGE_REQUIRE` is the change-required flag an
+        Unlock set. `DORMANCY_LOCKOUT` and
         `DORMANCY_MEMBERSHIP_REVOCATION` are the dormancy job's, with no actor: the
         first locked the User, the second removed its direct membership of every
         Group, the Admin group's included, listing them in `groupIds` with the
@@ -4033,7 +4022,7 @@ components:
         authorization refusal on the application chain: the refused User as actor
         and subject, the operation as `httpMethod` and `httpPath` (the route
         template, `unmatched` for a route nothing declares) and the one generic
-        `errorCode` `INSUFFICIENT_PERMISSIONS` — never the Permission, Role or rule
+        `errorCode` `INSUFFICIENT_PERMISSIONS` — never the Permission or rule
         that refused, which the operation's own `security` declaration names. On
         the SCIM chain the same event names the refused token's CONNECTOR as actor,
         subject and resource (`resourceType` `ScimConnector`).
@@ -4058,7 +4047,7 @@ components:
         enum: [user:read, user:write, group:read, group:write]
       description: |
         What the token may do over SCIM, from a token's own vocabulary
-        (ADR 0010, ADR 0015): `user:read` for Users reads, `user:write`
+        (ADR 0015): `user:read` for Users reads, `user:write`
         for Users `POST`/`PUT`/`PATCH`/`DELETE`, `group:read` / `group:write`
         likewise for Groups. Write does NOT imply read. Only these four can be
         carried by a token; any other Permission, an unknown name or an empty list

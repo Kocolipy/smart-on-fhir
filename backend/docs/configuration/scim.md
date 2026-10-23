@@ -13,7 +13,7 @@ tags: [scim, configuration]
 
 **On by default.** Every path needs a connector token: the discovery documents
 (`ServiceProviderConfig`, `ResourceTypes`, `Schemas`) take any valid one, and the
-`Users` and `Groups` resource endpoints the token's Permissions (ADR 0010). Set
+`Users` and `Groups` resource endpoints the token's Permissions (ADR 0015). Set
 `APP_SCIM_ENABLED=false` to turn the interface off: the whole `/scim/v2`
 namespace then answers `404` — discovery included, and ahead of
 authentication, so a valid connector token gets the same answer as none at all.

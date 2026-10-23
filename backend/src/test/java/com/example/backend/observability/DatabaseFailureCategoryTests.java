@@ -84,7 +84,7 @@ class DatabaseFailureCategoryTests {
 
     /**
      * The audit table's append-only trigger refusing a change raises the standard's triggered
-     * data change violation, never a permission refusal's state (ADR 0004's 2026-10-14 addendum).
+     * data change violation, never a permission refusal's state (ADR 0004).
      */
     @Test
     void anAuditTriggerRefusalIsADatabaseFailure() {

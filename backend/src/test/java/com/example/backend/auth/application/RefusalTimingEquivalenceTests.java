@@ -32,11 +32,10 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Structural equivalence of the three refusal categories this ticket names: an unknown
- * userName, a credentialless identity, and a real identity given the wrong password must
- * each drive exactly one real verification against a dummy hash before the refusal —
- * asserted by counting calls into the encoder, not by measuring wall-clock time, which is
- * what the acceptance criteria for this ticket asks for.
+ * Structural equivalence of the refusal categories: an unknown userName, a credentialless
+ * identity, and a real identity given the wrong password must each drive exactly one real
+ * verification against a dummy hash before the refusal — asserted by counting calls into the
+ * encoder, not by measuring wall-clock time (ADR 0007, "The failure lockout").
  *
  * <p>Counting rather than comparing is load-bearing, not a stylistic choice. The encoder is
  * deterministic, so a marker recomputed on every attempt is byte-identical to a cached one:

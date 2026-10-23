@@ -24,7 +24,7 @@ import java.util.Map;
 public final class ScimDiscovery {
 
     /**
-     * PATCH is implemented from this ticket, for Groups — which is what makes membership
+     * PATCH is implemented for Groups — which is what makes membership
      * changes usable: a provisioning system that had to PUT a Group to add one member would
      * have to send the whole membership every time, and would overwrite concurrent changes
      * it never read.
@@ -67,7 +67,7 @@ public final class ScimDiscovery {
     public static final boolean CHANGE_PASSWORD_SUPPORTED = true;
 
     /**
-     * ETags are implemented from this ticket: every User read and create carries a strong
+     * ETags are implemented: every User read and create carries a strong
      * validator, and {@code meta.version} carries the same string.
      */
     public static final boolean ETAG_SUPPORTED = true;
@@ -129,9 +129,9 @@ public final class ScimDiscovery {
     /**
      * The resource types this service serves.
      *
-     * <p>Both of them, from this ticket. A resource type in this list is a claim that its
-     * endpoint answers, and {@code /Groups} now does — Users and Groups were one release
-     * capability precisely so that this list would never advertise half a directory.
+     * <p>Both of them. A resource type in this list is a claim that its endpoint answers —
+     * Users and Groups are one release capability precisely so that this list never
+     * advertises half a directory.
      */
     static List<Map<String, Object>> resourceTypes(String baseUri) {
         return List.of(userResourceType(baseUri), groupResourceType(baseUri));

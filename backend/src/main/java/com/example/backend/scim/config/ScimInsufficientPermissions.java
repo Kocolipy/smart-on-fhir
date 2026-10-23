@@ -17,7 +17,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 
 /**
  * The SCIM chain's one answer to a valid token lacking the Permission a request needs, whichever
- * layer decided it (ADR 0010).
+ * layer decided it (ADR 0015).
  *
  * <p>Two layers decide. The handler's own {@code @PreAuthorize} declaration is the authority: its
  * refusal propagates out of the dispatcher — the namespace's controller advice deliberately does

@@ -192,10 +192,8 @@ class ScimAttributeProjectionTests {
      * resource schema declares, so they have no declared sub-attributes at all. A
      * sub-path against one is refused rather than silently matching nothing.
      *
-     * <p>{@code groups} is deliberately NOT in this list any more. It used to be — the reverse
-     * membership view was tolerated on write and declared nowhere — but it is now a declared
-     * multi-valued attribute with four read-only sub-attributes, so a sub-path against it is
-     * legitimate. The positive case is asserted below, so the pair cannot both drift.
+     * <p>{@code groups} is deliberately NOT in this list: it is a declared multi-valued attribute
+     * with four read-only sub-attributes, so a sub-path against it is legitimate. The positive case is asserted below, so the pair cannot both drift.
      */
     @ParameterizedTest
     @ValueSource(strings = {"meta.resourceType", "id.value", "externalId.value"})

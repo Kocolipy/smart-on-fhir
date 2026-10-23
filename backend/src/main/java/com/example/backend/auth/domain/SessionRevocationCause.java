@@ -29,8 +29,7 @@ public enum SessionRevocationCause {
     /**
      * The User lost Permissions: its direct membership of a Group conferring them was removed, or
      * the Group deleted, by a connector's write, or the dormancy job removed its memberships.
-     * Gaining one revokes nothing — the new Permissions arrive at the next Login. Audit rows
-     * recorded before #158 carry this cause under its earlier name, {@code ROLE_REVOKED}.
+     * Gaining one revokes nothing — the new Permissions arrive at the next Login.
      */
     MEMBERSHIP_REVOKED,
 

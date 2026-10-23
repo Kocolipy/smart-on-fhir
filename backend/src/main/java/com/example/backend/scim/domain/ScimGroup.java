@@ -10,9 +10,8 @@ import java.util.UUID;
  * A SCIM Group as the directory holds it: a display name, a set of direct User members,
  * and the version every resource carries.
  *
- * <p>A Group is how this directory expresses authority. The Admin group's membership is
- * the authorization the removed {@code role} column used to carry, which is why a Group
- * may be reserved: {@link ReservedResourceName#ADMIN_GROUP} marks the one Group that
+ * <p>A Group is how this directory expresses authority. The Admin group's direct members are
+ * the Superuser (ADR 0015), which is why a Group may be reserved: {@link ReservedResourceName#ADMIN_GROUP} marks the one Group that
  * cannot be renamed or deleted, and whose recovery member cannot be removed.
  *
  * <p><strong>Direct User members only.</strong> {@code members} is a list of

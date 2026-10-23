@@ -11,7 +11,7 @@ import com.example.backend.authorization.domain.Permission;
  * rather than by a mapping at each use.
  *
  * <p>Each type also names the Permissions a connector token needs to read and to write it
- * (ADR 0010), so a type cannot exist without a Permission guarding each direction.
+ * (ADR 0015), so a type cannot exist without a Permission guarding each direction.
  */
 public enum ScimResourceType {
 

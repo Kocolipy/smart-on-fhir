@@ -333,8 +333,7 @@ class IdentityAdministrationServiceTests {
 
     /**
      * An Unlock has no effect on a User serving no lockout: it is refused, and nothing is written —
-     * not even the failure run, which an Unlock used to clear on its own (ADR 0015's 2026-10-22
-     * addendum).
+     * not even the failure run (ADR 0015).
      */
     @Test
     void unlockingAnIdentityThatIsNotLockedIsRefused() {

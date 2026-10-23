@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Each operation declares the Permission it requires where it is defined, with method
  * security ({@code user:read} to list, {@code account:unlock} — the helpdesk Permission — for
  * Unlock); the application chain repeats each declaration as a URL rule, as a backstop that fails
- * closed (ADR 0010). Unlock cannot escalate and has no effect on a User that is not locked, which
+ * closed (ADR 0015). Unlock cannot escalate and has no effect on a User that is not locked, which
  * is why a Group may carry {@code account:unlock}, and why it is not {@code user:write}: that is a
  * connector token's, and over SCIM it sets any User's password (ADR 0015).
  * {@code AuthorizationContractTests} proves every declaration against the running application,
@@ -29,12 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>READ-ONLY for everything the directory owns, and enforced by absence: there is no handler
  * that accepts a {@code userName}, an {@code active} flag or a Group membership, so a
  * {@code PUT}, {@code PATCH} or {@code DELETE} on a User is answered {@code 405} by the dispatcher
- * before any code here runs. The Disable and Enable actions that used to live here were removed
- * rather than hidden: {@code active} is a SCIM attribute the connector owns, so an administrator
- * overriding it would be overwritten by the next synchronization, and an endpoint kept for a
- * control nobody renders is an endpoint nobody reviews. The forced password change was removed the
- * same way (ADR 0015's 2026-10-22 addendum), so its path is now an undeclared route the chain
- * refuses.
+ * before any code here runs. {@code active} in particular is a SCIM attribute the connector owns:
+ * an administrator overriding it would be overwritten by the next synchronization.
  *
  * <p>What remains addresses its User by the stable resource {@code id}, never by {@code userName}:
  * a connector may rename a User between the Admin reading the row and clicking, and an id-targeted

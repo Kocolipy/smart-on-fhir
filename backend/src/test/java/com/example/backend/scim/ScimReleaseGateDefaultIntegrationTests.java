@@ -21,8 +21,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * The release gate's DEFAULT, which this ticket flipped: a deployment that configures nothing now
- * serves the SCIM interface.
+ * The release gate's DEFAULT: a deployment that configures nothing serves the SCIM interface.
  *
  * <p><strong>No property is set here on purpose</strong>, and that is the whole point of the class.
  * Declaring {@code app.scim.enabled=true} would prove only that the flag works when set — which
@@ -31,13 +30,7 @@ import org.springframework.web.context.WebApplicationContext;
  * {@code ScimSecurityConfig}'s {@code @Value} expression rather than in any YAML, so an unset
  * property reaches the gate here exactly as it would in production.
  *
- * <p>Why the default moved: Users and Groups are one release capability. A directory that could
- * create Users but had no Groups could not express authority, so a connector provisioning against it
- * would build something that means less than it will mean later — and the gate existed to keep that
- * half-built surface unreachable. Groups are complete as of this ticket, so the gate stops hiding a
- * finished interface.
- *
- * <p>This is the ticket's sixth acceptance criterion, asserted against the deployed default rather
+ * <p>Asserted against the deployed default rather
  * than against a test-resources copy of it: the assertions below read the {@link ScimReleaseGate}
  * bean the application context actually built, and drive real requests through the real filter
  * chain.
@@ -78,7 +71,7 @@ class ScimReleaseGateDefaultIntegrationTests {
     /**
      * Discovery is reachable, which is the observable half of an open gate: a closed gate answers
      * {@code 404} ahead of authentication, an open one lets the request reach the bearer chain,
-     * which challenges it — discovery needs a valid token like every SCIM path (ADR 0010).
+     * which challenges it — discovery needs a valid token like every SCIM path (ADR 0015).
      *
      * <p>Asserted as a real {@code 401} through the real chain rather than by reading the bean
      * twice — the gate filter sits ahead of authentication, so "the flag is true" and "the namespace

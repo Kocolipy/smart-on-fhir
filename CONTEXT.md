@@ -194,8 +194,8 @@ sign-in. A Group with none confers nothing. Set only by the Superuser, as a
 complete set (`PUT /api/admin/groups/{id}/permissions`), never on the Admin group
 and never over SCIM, so `group:write` on a Group that carries Permissions decides
 who holds them.
-_Avoid_: Role, role mapping, mapped Group, Role assignment (there are no Roles,
-ADR 0015); role (for `ROLE_USER`, baseline access)
+_Avoid_: Role, role mapping, mapped Group, Role assignment; role (for `ROLE_USER`,
+baseline access)
 
 **Permission-change propagation**:
 How a change of what a User's Groups confer reaches live sessions: losing a
@@ -240,7 +240,7 @@ nothing is refused.
 The Permissions a connector token carries: only Token-grantable Permissions, from
 the same vocabulary a Group carries. A token with a write Permission is Superuser-equivalent, which is why only
 the Superuser mints one.
-_Avoid_: scope, `scim.read`, `scim.write` (they no longer exist)
+_Avoid_: scope, `scim.read`, `scim.write`
 
 **Baseline access**:
 What every active User holds whatever its Groups carry, without a required
@@ -376,7 +376,7 @@ only place the job compares a basis with a window.
 The dormancy job's second step: removing every direct Group membership — the
 Admin group's included, the Bootstrap Admin's exempt — of a User past the
 revocation window, recorded as one `DORMANCY_MEMBERSHIP_REVOCATION`.
-_Avoid_: role revocation (there are no Roles)
+_Avoid_: role revocation
 
 **Dormancy job**:
 The daily scheduled job that locks dormant Users and revokes every Group
@@ -462,7 +462,7 @@ it is the Admin group, and its Group Permissions.
 **Permissions listing**:
 The read of every Delegatable Permission (`GET /api/admin/permissions`), for a
 holder of `group:read`: what any Group could carry. API only.
-_Avoid_: Roles listing (`GET /api/admin/roles` is gone)
+_Avoid_: Roles listing
 
 **SCIM audit trail**:
 The append-only history of provisioning, connector, authentication,
@@ -479,7 +479,7 @@ confers Permissions, or of the Admin group: `PERMISSION_GRANT` or
 `PERMISSION_REVOKE`, recording the User's effective Permissions before and after
 and whether the change granted or removed the Superuser. A Group that confers
 nothing records none.
-_Avoid_: role change (the trail no longer speaks in Roles)
+_Avoid_: role change
 
 **Group Permissions change**:
 An audit event of the Superuser setting a Group's Permissions:

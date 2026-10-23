@@ -77,17 +77,9 @@ public class ScimSecurityConfig {
      * <p>Defaulted here rather than in {@code application.yaml}, so the default is a fact about
      * the code rather than about a file a deployment may replace wholesale.
      *
-     * <p><strong>The default is now {@code true}.</strong> It was {@code false} while Groups were
-     * being built, because Users and Groups are one release capability: a directory that can
-     * create Users but has no Groups cannot express authority, so a connector provisioning
-     * against it would build a directory that means something different from the one it will
-     * provision against later. Groups are complete as of this ticket, so the half-built surface
-     * the gate existed to hide no longer exists and the gate stops hiding a finished one.
-     *
-     * <p>The gate itself stays, rather than being deleted with its reason: an operator who wants
-     * the SCIM interface off — because this deployment authenticates by password only and has no
-     * connectors — can still set {@code APP_SCIM_ENABLED=false}, and the filter that enforces it
-     * still answers {@code 404} to every request in the namespace whatever credential it carries.
+     * <p><strong>The default is {@code true}.</strong> An operator who wants the SCIM interface
+     * off — because this deployment authenticates by password only and has no connectors — sets
+     * {@code APP_SCIM_ENABLED=false}, and the filter that enforces it answers {@code 404} to every request in the namespace whatever credential it carries.
      */
     @Bean
     public ScimReleaseGate scimReleaseGate(
@@ -180,7 +172,7 @@ public class ScimSecurityConfig {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(challenge)
                         .accessDeniedHandler(insufficientPermissions))
-                // Every request needs a valid token, discovery included (ADR 0010). What a
+                // Every request needs a valid token, discovery included (ADR 0015). What a
                 // request needs BEYOND a token is declared by the handler that serves it, with
                 // method security; the bearer filter's rule is the backstop. No route is public.
                 .authorizeHttpRequests(authorize -> authorize

@@ -37,8 +37,8 @@ Admin, and is the only place the job compares a basis with a window. Two steps:
 
 - **Membership revocation.** A User past the revocation window — active or not,
   locked or not — loses its direct membership of **every** Group: the Admin
-  group's included, and a Group that confers nothing included (ADR 0007,
-  2026-10-21 addendum; "a user inactive for 180 days loses all roles"). Each
+  group's included, and a Group that confers nothing included (ADR 0007; "a
+  user inactive for 180 days loses all roles"). Each
   affected Group's version and the User's advance, the User's sessions are revoked
   after commit, and one actorless `DORMANCY_MEMBERSHIP_REVOCATION` event names the
   User, lists every Group removed by id, and records the User's effective

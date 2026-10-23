@@ -885,7 +885,7 @@ class ConnectorAdministrationServiceTests {
         assertThat(stored.digest().matches(presented.digest())).isTrue();
     }
 
-    /** What a token carries, on issue and rotation (ADR 0010, ADR 0015). */
+    /** What a token carries, on issue and rotation (ADR 0015). */
     @Nested
     class Permissions {
 

@@ -90,7 +90,7 @@ test.describe("ADMIN directory projections", () => {
   /**
    * The access every development fixture signs in with (`dev-roles.spec.ts`)
    * is its Group's stored Permissions, read back the way an operator reviews
-   * them — there is no Role and no mapping between the two (ADR 0015).
+   * them (ADR 0015).
    */
   test("shows each development Group carrying what its fixture User holds", async ({ page }) => {
     const groups = (await (await page.request.get("/api/admin/groups")).json()) as Array<{

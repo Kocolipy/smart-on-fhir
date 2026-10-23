@@ -41,7 +41,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Issue #104's demonstration: one attribute profile, observed at every protocol entry point.
  *
- * <p>The attribute facts now have one definition, so this class does not compare two views of it.
+ * <p>The attribute facts have one definition, so this class does not compare two views of it.
  * It states the profile's outcomes by hand — what discovery says about representative string,
  * boolean, complex and multi-valued attributes; what a write keeps, ignores and refuses; what a
  * read returns and omits; how a filter and a sort compare — and observes each one over the real

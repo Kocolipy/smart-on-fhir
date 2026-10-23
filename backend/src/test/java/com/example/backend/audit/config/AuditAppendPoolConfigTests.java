@@ -69,7 +69,7 @@ class AuditAppendPoolConfigTests {
     }
 
     /**
-     * ADR 0004's addendum sizes the pool at two or three connections: fewer is refused, and more
+     * ADR 0004 sizes the pool at two or three connections: fewer is refused, and more
      * would take connections the database owes the main pool.
      */
     @ParameterizedTest(name = "a pool of {0} is refused")

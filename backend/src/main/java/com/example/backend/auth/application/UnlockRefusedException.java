@@ -30,7 +30,7 @@ public final class UnlockRefusedException extends AdministrativeRefusalException
         /**
          * The User is serving no lockout — the Bootstrap Admin, which can never be locked, always
          * among them — so there is nothing to lift; most often another administrator's Unlock
-         * landed first (ADR 0015's 2026-10-22 addendum).
+         * landed first (ADR 0015).
          */
         NOT_LOCKED
     }

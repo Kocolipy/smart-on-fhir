@@ -473,7 +473,7 @@ class AuditListingEndToEndIntegrationTests {
     }
 
     private int loginStatus(String userName, String password) throws Exception {
-        // Clocked for the same reason as logIn's: the token now lives in a session, and the
+        // Clocked for the same reason as logIn's: the token lives in a session, and the
         // token fetch would otherwise open one the shifted clock already reads as expired.
         return mvc.perform(withCsrf(post("/api/auth/login"))
                         .session(new ClockedSession(context.getServletContext(), clock))

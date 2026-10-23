@@ -645,7 +645,7 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("JPA, Spring Data and Hibernate are a persistence adapter's implementation detail");
 
-    // ADR 0010: every protected handler declares its Permission with method security, beside the
+    // ADR 0015: every protected handler declares its Permission with method security, beside the
     // code it protects; the chain repeats it as a backstop. One mechanism, on handlers only.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule one_method_security_mechanism =
@@ -654,20 +654,20 @@ public class ArchitectureTest {
             .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
             .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
             .allowEmptyShould(true)
-            .because("ADR 0010: a Permission is declared with @PreAuthorize alone, so every"
+            .because("ADR 0015: a Permission is declared with @PreAuthorize alone, so every"
                     + " declaration reads the same way and the authorization contract test finds them");
 
-    // ADR 0010: the declaration sits on the web adapter's handler, never deeper or on a type
+    // ADR 0015: the declaration sits on the web adapter's handler, never deeper or on a type
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule permissions_are_declared_on_handlers =
         methods()
             .that().areAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
             .should().beDeclaredInClassesThat().areAnnotatedWith(RestController.class)
             .andShould().beDeclaredInClassesThat().resideInAPackage("..controller..")
-            .because("ADR 0010: each protected operation declares its Permission where the"
+            .because("ADR 0015: each protected operation declares its Permission where the"
                     + " operation is defined, so the requirement is read next to the route");
 
-    // ADR 0010: a class-level declaration would silently cover a handler added later
+    // ADR 0015: a class-level declaration would silently cover a handler added later
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_class_level_method_security =
         noClasses()
@@ -675,7 +675,7 @@ public class ArchitectureTest {
             .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
             .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
             .allowEmptyShould(true)
-            .because("ADR 0010: every operation names its own Permission; a class-wide one would"
+            .because("ADR 0015: every operation names its own Permission; a class-wide one would"
                     + " grant a handler added later a Permission nobody chose for it");
 
     /**
@@ -701,7 +701,7 @@ public class ArchitectureTest {
             "com.example.backend.scim.controller.ScimDiscoveryController",
             "com.example.backend.scim.controller.ScimMeController");
 
-    // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain. Both
+    // ADR 0015: a forgotten declaration fails closed at build time, not only at the chain. Both
     // chains: on the SCIM one the bearer filter's request-line rule is the backstop, and it reads
     // the path as sent rather than as the dispatcher matched it.
     @com.tngtech.archunit.junit.ArchTest
@@ -724,7 +724,7 @@ public class ArchitectureTest {
                 }
             })
             .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
-            .because("ADR 0010: every protected operation declares the Permission it requires;"
+            .because("ADR 0015: every protected operation declares the Permission it requires;"
                     + " a handler added without one would otherwise be held only by the chain's"
                     + " backstop rule, if anyone remembered to write it");
 

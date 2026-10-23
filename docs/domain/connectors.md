@@ -22,7 +22,7 @@ no precedent for hashing a password that way.
 
 ## Token Permissions
 
-A token carries **Token Permissions** (ADR 0010, ADR 0015): a non-empty set of
+A token carries **Token Permissions** (ADR 0015): a non-empty set of
 the token-grantable Permissions, `user:read`, `user:write`, `group:read` and
 `group:write`, and nothing else — every other Permission guards the application
 chain, which no token reaches, and is refused on a token with `400`, as are an
@@ -40,7 +40,7 @@ empty list and a name that is no Permission.
   holding no Permission still authenticates and reaches discovery alone.
 
 Each Users and Groups handler, and the base `/.search`, declares its Permission
-with method security, as an application handler does (ADR 0010); the SCIM chain's
+with method security, as an application handler does (ADR 0015); the SCIM chain's
 filter repeats the rule from the request's method and path as a backstop, so a
 request line it misreads cannot open an operation the handler holds. A refusal is
 `403` with `insufficient_scope` and no body, logged at `WARN` and audited as

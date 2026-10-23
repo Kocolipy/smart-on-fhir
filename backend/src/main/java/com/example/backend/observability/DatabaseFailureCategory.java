@@ -34,7 +34,7 @@ import org.springframework.transaction.TransactionException;
  *   <li><strong>{@code database}</strong> — every other database failure: a deadlock or a
  *       snapshot conflict, an untranslated unique violation, a truncation or a conversion
  *       error, a lock not acquired or a statement timed out, the audit table's append-only
- *       trigger refusing a change (its own 50001, ADR 0004's 2026-10-14 addendum), and any
+ *       trigger refusing a change (its own 50001, ADR 0004), and any
  *       failure Spring's data access or transaction layer raised with no SQL exception beneath
  *       it.
  *   <li><strong>{@code application}</strong> — anything else: this is not a database failure.
@@ -86,7 +86,7 @@ public final class DatabaseFailureCategory {
 
     /**
      * Error 50001, the number the audit table's append-only trigger throws (V1): the trigger
-     * refusing a change, never a permission refusal (ADR 0004's 2026-10-14 addendum).
+     * refusing a change, never a permission refusal (ADR 0004).
      */
     static final EngineFailure AUDIT_TRIGGER_REFUSAL =
             new EngineFailure(null, 50001, ErrorCategory.DATABASE, false);

@@ -137,7 +137,7 @@ The local server keeps its default collation and only the database is collated
 zone"), but on this image a server collated `BIN2_UTF8`
 cannot load the internal procedures behind `sp_getapplock`, which Flyway takes to
 guard every migration. The service's own seed lock is a row lock and needs
-neither (ADR 0013, "Addendum (2026-10-16)").
+neither (ADR 0013, "Collation and the seed lock").
 
 The `.env` variables it reads:
 

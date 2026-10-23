@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
  * is that this provider does not offer the operation — which is what {@code 501} says.
  *
  * <p>Behind authentication like every path in the namespace: an unauthenticated caller learns no
- * more here than anywhere else. A valid token and no Permission (ADR 0010), so the handler declares
+ * more here than anywhere else. A valid token and no Permission (ADR 0015), so the handler declares
  * none — deliberately, and listed as token-only in
  * {@code ArchitectureTest.every_protected_handler_declares_a_permission}.
  */

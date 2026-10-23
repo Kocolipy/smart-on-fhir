@@ -28,15 +28,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * The release gate, closed — which a deployment now gets only by asking for it.
+ * The release gate, closed — which a deployment gets only by asking for it. The default is OPEN,
+ * asserted in {@code ScimReleaseGateDefaultIntegrationTests}, which sets nothing.
  *
- * <p><strong>The property is declared here, and it did not used to be.</strong> While Users and
- * Groups were being built the default was CLOSED, so this class deliberately set nothing: the point
- * was that a deployment which never heard of the flag got no SCIM interface. Groups are complete as
- * of this ticket, so the default is now OPEN and the untouched-configuration case is the opposite
- * one — asserted in {@code ScimReleaseGateDefaultIntegrationTests}, which still sets nothing.
- *
- * <p>What this class tests is therefore no longer a default but a capability: an operator who
+ * <p>What this class tests is a capability: an operator who
  * authenticates by password only and provisions nothing can turn the namespace off, and while it is
  * off every path in it — discovery included — is simply not there.
  */

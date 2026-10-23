@@ -198,7 +198,7 @@ class AuthControllerTests {
 
     /**
      * A member of the Superuser Group signs in holding baseline access and every Permission:
-     * authority beyond the baseline is Permissions alone (ADR 0010).
+     * authority beyond the baseline is Permissions alone (ADR 0015).
      */
     @Test
     void secondaryUserCanLogIn() {
@@ -695,7 +695,7 @@ class AuthControllerTests {
                 session());
         AuthController.UserResponse admin = controller.currentUser(
                 new TestingAuthenticationToken(
-                        "grace", null, "ROLE_ADMIN", "ROLE_USER", "patient:read", "ops:read",
+                        "grace", null, "ROLE_SUPERUSER", "ROLE_USER", "patient:read", "ops:read",
                         "audit:read"),
                 session());
 

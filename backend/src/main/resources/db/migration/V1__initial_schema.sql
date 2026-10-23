@@ -214,8 +214,8 @@ CREATE TABLE scim_users (
     -- The column's presence IS the flag, as `locked_at`'s presence is the
     -- lockout: a User with a value here must replace its password before it may
     -- do anything but submit that change or log out. Set by every connector
-    -- password write, by an Admin's forced change and by an Unlock, and cleared
-    -- by nothing but a successful self-service change.
+    -- password write, by an Unlock and by a Reactivation of a User with a
+    -- password, and cleared by nothing but a successful self-service change.
     password_change_required_since DATETIMEOFFSET(6),
 
     CONSTRAINT pk_scim_users PRIMARY KEY (resource_id),
@@ -415,9 +415,8 @@ CREATE INDEX ix_scim_group_members_user ON scim_group_members (user_id);
 
 -- Groups carry Permissions (ADR 0015). A User's Permissions are the baseline
 -- plus the union of the Permissions of the Groups it is a DIRECT member of; a
--- Group with no row here confers nothing. There is no configured role mapping, so
--- a Group created over SCIM can be given access without a config change and a
--- redeploy. Nothing here is set over SCIM: only the Superuser sets a Group's
+-- Group with no row here confers nothing. Permissions are data, so a Group
+-- created over SCIM can be given access without a config change and a redeploy. Nothing here is set over SCIM: only the Superuser sets a Group's
 -- Permissions (#159), by replacing its set, and the `local` profile's development
 -- fixtures (authorization.yaml) seed them.
 --
@@ -629,7 +628,7 @@ CREATE INDEX ix_scim_external_ids_value
 -- 3. The audit trail
 -- =============================================================================
 
--- The trail speaks in Permissions, never Roles (ADR 0015). Every string here is a
+-- The trail speaks in Permissions (ADR 0015). Every string here is a
 -- value from the service's own closed vocabulary, never one a caller submitted, so
 -- they are ASCII-only and keep their lengths; the unbounded ones are VARCHAR(MAX).
 CREATE TABLE audit_events (
@@ -638,7 +637,7 @@ CREATE TABLE audit_events (
     occurred_at          DATETIMEOFFSET(6) NOT NULL,
 
     -- What happened, as this service's own vocabulary: LOGIN_SUCCESS,
-    -- LOCKOUT_SET, ACCOUNT_DISABLE and so on. A closed set, never free text.
+    -- LOCKOUT_SET, LOCKOUT_LIFT and so on. A closed set, never free text.
     operation            VARCHAR(64)       NOT NULL,
 
     -- SUCCESS or FAILURE. The outcome of the operation, not of recording it.

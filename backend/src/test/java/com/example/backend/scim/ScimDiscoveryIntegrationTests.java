@@ -110,7 +110,7 @@ class ScimDiscoveryIntegrationTests {
         writeToken = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
-        // Discovery needs a valid token and no Permission (ADR 0010), so every request this class
+        // Discovery needs a valid token and no Permission (ADR 0015), so every request this class
         // makes carries one by default: a token holding only group:read, which discovery does not
         // look at. A request that names its own credential — asConnector — keeps that one.
         String discoveryToken = connectors
@@ -220,10 +220,8 @@ class ScimDiscoveryIntegrationTests {
     /**
      * {@code patch.supported=true}, and a Group PATCH is ACCEPTED.
      *
-     * <p>This assertion inverted with the ticket that completed Groups. It used to pair the flag
-     * with a PATCH that no handler was mapped for; the pairing is only honest in whichever
-     * direction the implementation actually goes, and advertising {@code false} while
-     * {@code /Groups} answered a PATCH would be the same failure as the reverse.
+     * <p>The flag and the behaviour must agree: advertising {@code false} while {@code /Groups}
+     * answered a PATCH would be the same failure as the reverse.
      *
      * <p>Exercised against a Group because Groups are what accept PATCH: a membership change is
      * the operation the capability exists for, and a provisioning system that had to PUT a Group

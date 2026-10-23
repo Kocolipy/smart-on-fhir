@@ -4,16 +4,15 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. Written against the administrator's disable, which has since been
-removed (deactivation comes only from the directory); the decision covers every
-write that ends a User's sessions.
+Accepted. Covers every write that ends a User's sessions. Last revised
+2026-10-23: one failed revocation no longer stops the rest. History is in git.
 
 ## Context
 
 Several writes must end a User's sessions: a Lockout imposed by
-`LoginStateService` (ADR 0007), a dormancy lockout or Role revocation, a password
-change, a SCIM User or Group write, and an accepted Login's one-session-per-User
-sweep. Each does two writes that live in different systems. The User's state is
+`LoginStateService` (ADR 0007), a dormancy lockout or Membership revocation, a
+password change, a SCIM User or Group write, a Group's Permissions reduced (ADR
+0015), and an accepted Login's one-session-per-User sweep. Each does two writes that live in different systems. The User's state is
 written inside the service's transaction; the sessions are ended through the
 `AccountSessions` port, which is backed by Spring Session over Redis and is
 **not** in that transaction.
@@ -44,11 +43,21 @@ which schedules the revocation and its audit record on it:
 afterCommit.run(() -> revoke(actorId, userId, causesAtCall, end));
 ```
 
-`AfterCommit` (`auth.application.AfterCommit`) says only *this belongs after the
-commit*. `AfterCommitAdapter` registers a `TransactionSynchronization` on the
+`AfterCommit` (`auth.application.AfterCommit`) says only _this belongs after the
+commit_. `AfterCommitAdapter` registers a `TransactionSynchronization` on the
 transaction bound to the calling thread, and runs the work immediately when no
 transaction is bound — with no commit to wait for and no rollback that could
 contradict it, "after the commit" and "now" are the same instant.
+
+**One failed revocation does not stop the rest.** Spring runs a transaction's
+synchronizations one after another and stops at the first that throws, so with
+one synchronization per revocation a store failing on the first member of a Group
+whose Permissions were reduced would leave every later member signed in, with no
+audit row and no alert. `AfterCommitAdapter` therefore registers one
+synchronization per transaction and queues every piece of work on it, in the
+order handed over; it runs them all, then throws the first failure with each later
+one suppressed on it. Each revocation is attempted, audited and, on failure,
+alerted, and the request still fails as ADR 0004 ("Session revocation") decides.
 
 ## Consequences
 
@@ -60,16 +69,18 @@ contradict it, "after the commit" and "now" are the same instant.
   lock on the account; neither is judged worth it while the window is microseconds
   and a repeated write clears the result.
 - The failure mode is reversed, deliberately. If the revocation itself fails the
-  write is durable while the sessions survive; ADR 0004's 2026-10-10 addendum
-  decides whether the error surfaces to the caller. That is the safer half to keep:
+  write is durable while the sessions survive; ADR 0004 ("Session
+  revocation") decides whether the error surfaces to the caller. That is the safer half to keep:
   a locked User can no longer log in, and repeating the write revokes again. Under
   the previous ordering the same failure rolled the write back entirely.
 - The revocation runs outside the transaction and outside the persistence context,
   so it must not lazily load anything. It takes the account's id
   (`AccountSessions.revokeAll(UUID)`), which is why this is cheap.
 - Testable: the `PendingCommit` double distinguishes the orderings — e.g.
-  `LoginStateServiceTests.aRolledBackLockoutRevokesNothing` — and
-  `AfterCommitAdapterTests` drives Spring's real synchronization registry.
+  `LoginStateServiceTests.aRolledBackLockoutRevokesNothing` — and models the
+  run-them-all guarantee; `AfterCommitAdapterTests` drives Spring's real
+  synchronization registry, and `AfterCommitRevocationTests` holds the guarantee
+  through a real transaction manager.
 
 ## Alternatives considered
 
@@ -87,18 +98,3 @@ ordering, and the framework-idiomatic route. Rejected for the reason ADR 0001
 rejected the analogous listener: reading the write would no longer reveal that
 sessions are revoked, and the indirection buys nothing while there is one
 consumer.
-
-## Amendments
-
-- 2026-10-23: **one failed revocation no longer stops the rest.** Spring runs a
-  transaction's synchronizations one after another and stops at the first that
-  throws, so with one synchronization per revocation a session store failing on
-  the first member of a Group whose Permissions were reduced left every later
-  member signed in, with no audit row and no alert. `AfterCommitAdapter` now
-  registers one synchronization per transaction and queues every piece of work on
-  it, in the order handed over; it runs them all, then throws the first failure
-  with each later one suppressed on it. Each revocation is therefore attempted,
-  audited and, on failure, alerted, and the request still fails as ADR 0004's
-  addendum decides; a failure-run lockout still swallows its own. The
-  `PendingCommit` double models the same guarantee, and
-  `AfterCommitRevocationTests` holds it through a real transaction manager.

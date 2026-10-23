@@ -87,22 +87,20 @@ public class SecurityConfig {
             "usb=()");
 
     /**
-     * Argon2id as the only encoder, at the parameters this ticket specifies
-     * ({@code m=19456} KiB, {@code t=2}, {@code p=1}) — none of Spring
+     * Argon2id as the only encoder, at the parameters the password policy specifies
+     * ({@code m=19456} KiB, {@code t=2}, {@code p=1}; {@code /docs/domain/passwords.md}) — none of Spring
      * Security's named defaults match that memory cost, so the parameters are
      * given explicitly rather than through
      * {@code Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()} (which uses
      * {@code m=16384}). Salt and hash length (16 and 32 bytes) are the same
-     * values every {@code defaultsForSpringSecurity_*} factory uses; the ticket
+     * values every {@code defaultsForSpringSecurity_*} factory uses; the policy
      * does not name them, so there is nothing to deviate from.
      *
      * <p>Wrapped in a single-entry {@link DelegatingPasswordEncoder} — the
      * bracketed {@code {argon2id}} prefix on a stored hash is that wrapper's
-     * behaviour, not the raw {@link Argon2PasswordEncoder}'s, so it is what
-     * this ticket's acceptance criterion actually needs. No BCrypt — or any
-     * other — decoder shares the registry: this service ships no user data yet,
-     * so there is no previously-issued hash needing one, and the acceptance
-     * criteria for this ticket says none may remain registered.
+     * behaviour, not the raw {@link Argon2PasswordEncoder}'s. No BCrypt — or
+     * any other — decoder shares the registry: there is no previously-issued
+     * hash needing one, and none may be registered.
      *
      * <p>Normalized first: every password is put through {@link PasswordNormalization} before it
      * is hashed or compared, so the stored credential, a login, and a password-history check all
@@ -309,7 +307,7 @@ public class SecurityConfig {
                 // Deny-by-default as a whole: every route is listed below with what it needs,
                 // and the final rule refuses whatever no earlier rule named. The Permission
                 // rules are the BACKSTOP — each handler declares the same Permission with
-                // method security, which is the authority (ADR 0010) — so a route someone
+                // method security, which is the authority (ADR 0015) — so a route someone
                 // forgot to list here is refused rather than open, and a handler someone
                 // forgot to annotate is still held by its rule here. There is deliberately no
                 // rule for /scim/**: a session can never reach the directory protocol, which
@@ -373,7 +371,7 @@ public class SecurityConfig {
                         // holding baseline access as /error is, so the dispatcher answers it 405 —
                         // the resource takes no write, as FHIR's not-supported says — rather than
                         // the final rule 403, a refusal of the caller. A carve-out from deny-by-
-                        // default (ADR 0010, addendum of 2026-10-18): a patient write, when one
+                        // default (ADR 0015): a patient write, when one
                         // exists, must put its own Permission rule ahead of this one.
                         .requestMatchers("/api/patient/*").hasRole(USER_ROLE)
                         // Operational telemetry (the Prometheus scrape) and every other

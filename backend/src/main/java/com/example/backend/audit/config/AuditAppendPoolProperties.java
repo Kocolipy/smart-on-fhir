@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * The sizing of the audit append pool, the dedicated connections fail-open appends commit on
- * (ADR 0004, 2026-10-13 addendum). Only sizing: the pool's URL and credentials are the main
+ * (ADR 0004). Only sizing: the pool's URL and credentials are the main
  * datasource's, read from the main pool itself, so there is nothing secret here and nothing that
  * could drift from the main pool's login.
  *
@@ -26,7 +26,7 @@ public record AuditAppendPoolProperties(Integer size, Duration timeout) {
     public static final int DEFAULT_SIZE = 2;
 
     /**
-     * The bounds ADR 0004's addendum sets: two or three connections. Fewer leaves one concurrent
+     * The bounds ADR 0004 sets: two or three connections. Fewer leaves one concurrent
      * refusal waiting on another; more takes connections the database owes the main pool.
      */
     public static final int MINIMUM_SIZE = 2;

@@ -45,7 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
  * fabricated the authentication would be asserting something else entirely. The connector's token is
  * minted through the administrative use case and presented as a real bearer credential.
  *
- * <p>No property enables SCIM. The gate now defaults to open, so a deployment that configures
+ * <p>No property enables SCIM. The gate defaults to open, so a deployment that configures
  * nothing serves this — which is what "a fresh deployment boot" means, and setting the flag here
  * would quietly test a different deployment from the one the criterion describes.
  */
@@ -125,7 +125,7 @@ class ScimEndToEndIntegrationTests {
      */
     @Test
     void aFreshBootServesDiscoveryThenCreationThenGroupMembership() throws Exception {
-        // 1. Discovery, with the token alone: this is what a connector reads first (ADR 0010).
+        // 1. Discovery, with the token alone: this is what a connector reads first (ADR 0015).
         JsonNode config = okBody(asConnector(get(BASE + "/ServiceProviderConfig")));
         assertThat(config.get("patch").get("supported").booleanValue())
                 .as("the connector is about to rely on PATCH for the membership change below")

@@ -19,7 +19,7 @@ import org.springframework.boot.logging.structured.StructuredLoggingJsonMembersC
  * <p>Applied to every structured format through {@code logging.structured.json.customizer}
  * in {@code logging.yaml} — the console and the log file alike. A customizer rather than
  * a formatter of our own, because the ECS formatter is otherwise exactly the one wanted
- * and a copy of it would drift from Boot's. See the 2026-10-01 addendum to
+ * and a copy of it would drift from Boot's. See "Format and envelope" in
  * {@code docs/adr/0003-ecs-structured-logging-with-redaction.md}.
  */
 public final class EcsTimestampCustomizer implements StructuredLoggingJsonMembersCustomizer<Object> {
