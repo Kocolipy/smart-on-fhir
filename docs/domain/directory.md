@@ -111,9 +111,11 @@ same transaction and before the User itself — the schema never removes a membe
 by cascade, and refuses to delete a User a membership still names (ADR 0013). It
 then removes its other live rows — profile, emails, credential and password history
 and connector aliases — revokes its sessions once the deletion commits, and leaves a
-SCIM tombstone. Every later operation on its id is `404`. Nothing readable about it
-survives outside the audit stream; the tombstone is the only row that does. The
-Bootstrap Admin cannot be deleted.
+SCIM tombstone. Each membership it held of a Group that carries Permissions, or of
+the Admin group, is recorded as a `PERMISSION_REVOKE`, as removing it would be.
+Every later operation on its id is `404`. Nothing readable about it survives
+outside the audit stream; the tombstone is the only row that does. The Bootstrap
+Admin cannot be deleted.
 
 **Deleted SCIM Group** — an ordinary, non-Admin Group removed with `DELETE`.
 Deletion advances the version of every former member, then removes its memberships

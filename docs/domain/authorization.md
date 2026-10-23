@@ -179,13 +179,15 @@ the Superuser's included. It is not split into a separate `role:assign`
 Permission, because an identity provider sync has to manage every Group. That is
 bounded by who may mint a token: only the Superuser, and a write token is
 Superuser-equivalent. Every membership change of a Group that confers
-Permissions, or of the Admin group — the Group's deletion included — is audited
-as a change of power: a `PERMISSION_GRANT` or `PERMISSION_REVOKE` event naming
-the connector, the User and the Group, and recording the User's effective
-Permissions before and after — what its direct memberships confer, the
-Superuser's expansion included, the baseline not — with a Superuser marker set
-when the change grants or removes the Superuser. A deletion records what the
-Group carried before it went. Beside it is an `INFO` log record classified
+Permissions, or of the Admin group — the Group's or the User's deletion
+included — is audited as a change of power: a `PERMISSION_GRANT` or
+`PERMISSION_REVOKE` event naming the connector, the User and the Group, and
+recording the User's effective Permissions before and after — what its direct
+memberships confer, the Superuser's expansion included, the baseline not — with
+a Superuser marker set when the change grants or removes the Superuser. A
+Group's deletion records what the Group carried before it went; a User's
+deletion records one event per such Group it was in, each with everything the
+User held before it. Beside it is an `INFO` log record classified
 `user-administration` / `change` / `success` with `user.target.id`, `group.id`
 and `app.authorization.group_permissions`, and a grant of the Superuser is
 counted on `authorization.changes{operation="superuser-grant"}`. A membership

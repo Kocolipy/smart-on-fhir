@@ -7,6 +7,8 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.LoginStateModules;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -136,11 +138,15 @@ class ScimUserServiceTests {
 
     private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
 
+    /** The Groups' stored Permissions over this directory, the Admin group by its marker. */
+    private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups);
+
     private final ScimUserService service = new ScimUserService(
             users, writeLocks, groups, aliases,
             new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
             sessions, LoginStateModules.over(users, clock), tombstones, audit, clock,
-            new InMemoryScimQueryRepository(users, groups));
+            new InMemoryScimQueryRepository(users, groups), groupPermissions,
+            () -> { });
 
     private ScimUserResource ada;
 
@@ -1153,6 +1159,56 @@ class ScimUserServiceTests {
         assertThat(after.hasMember(ada.id())).as("the membership went with the User").isFalse();
     }
 
+    /**
+     * The User's memberships go with it, so each one of a Group that confers Permissions is a
+     * change of power, as removing it from that Group would be. Every event records what the User
+     * held before the deletion — both Groups' Permissions — and nothing after; a Group conferring
+     * nothing records none. The Sessions end once, for the deletion.
+     */
+    @Test
+    void deleting_a_user_records_the_loss_of_each_group_of_power_it_was_in() {
+        com.example.backend.scim.domain.ScimGroup helpdesk =
+                groups.create(ScimIdentities.group("Helpdesk", stored()));
+        com.example.backend.scim.domain.ScimGroup auditors =
+                groups.create(ScimIdentities.group("Auditors", stored()));
+        groups.create(ScimIdentities.group("Book club", stored()));
+        groupPermissions
+                .carrying(helpdesk.id(), Permission.USER_READ, Permission.ACCOUNT_UNLOCK)
+                .carrying(auditors.id(), Permission.AUDIT_READ);
+
+        service.delete(CONNECTOR, ada.id(), current());
+
+        String before = "account:unlock,audit:read,user:read";
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactlyInAnyOrder(
+                permissionRevoke(helpdesk.id(), before, false),
+                permissionRevoke(auditors.id(), before, false));
+        assertThat(revocations).containsExactly(
+                new Revocation(CONNECTOR.connectorId(), ada.id(), Set.of(Cause.DELETED)));
+    }
+
+    /** Leaving the Admin group with the deletion is the Superuser's loss, which the marker says. */
+    @Test
+    void deleting_a_member_of_the_admin_group_records_the_superuser_lost() {
+        com.example.backend.scim.domain.ScimGroup admins = groups.createReserved(
+                ScimIdentities.group("Admins", stored()), ReservedResourceName.ADMIN_GROUP);
+
+        service.delete(CONNECTOR, ada.id(), current());
+
+        assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(permissionRevoke(
+                admins.id(), "account:unlock,audit:read,connector:read,group:read,ops:read,"
+                        + "user:read", true));
+    }
+
+    /**
+     * One recorded loss of power of Ada's, by the connector: as detail the Group, her effective
+     * Permissions before, none after, and whether the Superuser moved.
+     */
+    private RecordingAuditTrail.Recorded permissionRevoke(
+            UUID groupId, String before, boolean superuser) {
+        return new RecordingAuditTrail.Recorded(AuditOperation.PERMISSION_REVOKE,
+                CONNECTOR.connectorId(), ada.id(), groupId + ":" + before + ">:" + superuser);
+    }
+
     @Test
     void a_deleted_users_former_user_name_is_free_for_the_next_create() {
         service.delete(CONNECTOR, ada.id(), current());
@@ -1247,7 +1303,7 @@ class ScimUserServiceTests {
                             5, List.of(new com.example.backend.scim.domain.ScimQuery.Hit(
                                     com.example.backend.scim.domain.ScimResourceType.USER,
                                     ada.id())));
-                });
+                }, groupPermissions, () -> { });
         com.example.backend.scim.domain.ScimPageRequest page =
                 new com.example.backend.scim.domain.ScimPageRequest(1, 10);
         com.example.backend.scim.domain.ScimFilter filter =

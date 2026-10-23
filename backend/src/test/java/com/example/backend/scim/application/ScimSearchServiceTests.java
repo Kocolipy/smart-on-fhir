@@ -69,7 +69,8 @@ class ScimSearchServiceTests {
     private final ScimUserService userService = new ScimUserService(
             users, new InMemoryScimWriteLocks(), groups, aliases, PASSWORDS_UNUSED,
             (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
-            new InMemoryScimTombstoneRepository(), audit, clock, defaultQueries);
+            new InMemoryScimTombstoneRepository(), audit, clock, defaultQueries,
+            com.example.backend.authorization.TestGroupPermissions.superuserOnly(), () -> { });
 
     private final ScimGroupService groupService = new ScimGroupService(
             groups, new InMemoryScimWriteLocks(), users, aliases,
@@ -175,7 +176,8 @@ class ScimSearchServiceTests {
         ScimUserService service = new ScimUserService(
                 users, new InMemoryScimWriteLocks(), groups, aliases, PASSWORDS_UNUSED,
                 (connectorId, userId, causes) -> { }, LoginStateModules.over(users, clock),
-                new InMemoryScimTombstoneRepository(), audit, clock, scripted);
+                new InMemoryScimTombstoneRepository(), audit, clock, scripted,
+                com.example.backend.authorization.TestGroupPermissions.superuserOnly(), () -> { });
         ScimUserListing listing = service.query(CONNECTOR, new ScimQuery(
                 usersOnly, ScimFilterParser.parse("userName eq \"bea\"", usersOnly), null, null),
                 "u");
