@@ -81,7 +81,7 @@ class ConnectorTokenRotationRaceIntegrationTests {
                     TokenPermissions.READ, null, null);
 
             Callable<String> rotation = () -> {
-                connectors.rotateToken(original.tokenId(), null, null, null);
+                connectors.rotateToken(connector.id(), original.tokenId(), null, null, null);
                 return ROTATED;
             };
             List<String> outcomes = race(rotation, rotation);
@@ -114,9 +114,10 @@ class ConnectorTokenRotationRaceIntegrationTests {
         IssuedConnectorToken original = connectors.issueToken(connector.id(),
                 TokenPermissions.READ, null, null);
         IssuedConnectorToken replacement = connectors.rotateToken(
-                original.tokenId(), null, null, null);
+                connector.id(), original.tokenId(), null, null, null);
         assertThatExceptionOfType(ConnectorTokenNotRotatableException.class)
-                .isThrownBy(() -> connectors.rotateToken(original.tokenId(), null, null, null))
+                .isThrownBy(() -> connectors.rotateToken(
+                        connector.id(), original.tokenId(), null, null, null))
                 .satisfies(refused -> assertThat(List.of(refused.connectorId(),
                                 refused.rotatedId(), refused.reason()))
                         .containsExactly(connector.id(), original.tokenId(),

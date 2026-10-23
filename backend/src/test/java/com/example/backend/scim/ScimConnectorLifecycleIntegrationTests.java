@@ -505,6 +505,61 @@ class ScimConnectorLifecycleIntegrationTests {
                         .containsExactly("FAILURE", "UNKNOWN_RESOURCE", adminId().toString()));
     }
 
+    /**
+     * A token is addressed within the connector the path names: one of another connector is
+     * refused {@code 404} without a body by both rotate and revoke, as an unknown token is, and
+     * stays usable; each refusal is audited naming the connector addressed and the token.
+     */
+    @Test
+    void another_connectors_token_is_refused_by_rotate_and_revoke_and_stays_usable()
+            throws Exception {
+        UUID named = createConnector("Okta");
+        UUID owner = createConnector("Entra");
+        issueToken(owner, TokenPermissions.ALL_JSON);
+        UUID othersToken = firstTokenId(owner);
+
+        MvcResult revoked = mvc.perform(asAdmin(post(
+                        CONNECTORS + "/" + named + "/tokens/" + othersToken + "/revoke")))
+                .andReturn();
+        MvcResult rotated = mvc.perform(asAdmin(post(
+                        CONNECTORS + "/" + named + "/tokens/" + othersToken + "/rotate")))
+                .andReturn();
+
+        assertThat(List.of(revoked.getResponse().getStatus(),
+                        revoked.getResponse().getContentAsString(),
+                        rotated.getResponse().getStatus(),
+                        rotated.getResponse().getContentAsString(),
+                        firstTokenIsActive(owner)))
+                .containsExactly(404, "", 404, "", true);
+        assertThat(List.of(
+                        refusalOf(AuditOperation.CONNECTOR_TOKEN_REVOKE, "token_id", othersToken),
+                        refusalOf(AuditOperation.CONNECTOR_TOKEN_ROTATE, "token_id", othersToken)))
+                .allSatisfy(row -> assertThat(List.of(row.get("outcome"), row.get("error_code"),
+                                String.valueOf(row.get("subject_id"))))
+                        .containsExactly("FAILURE", "UNKNOWN_RESOURCE", named.toString()));
+    }
+
+    /**
+     * A token of a deleted connector is refused {@code 404}, as the document promises: the delete
+     * revoked it and recorded so, and no second {@code CONNECTOR_TOKEN_REVOKE} success is added.
+     */
+    @Test
+    void a_deleted_connectors_token_is_refused_by_revoke_and_records_no_second_revocation()
+            throws Exception {
+        UUID connectorId = createConnector("Okta");
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
+        UUID tokenId = firstTokenId(connectorId);
+        mvc.perform(asAdmin(delete(CONNECTORS + "/" + connectorId)))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(204));
+
+        int status = status(asAdmin(post(
+                CONNECTORS + "/" + connectorId + "/tokens/" + tokenId + "/revoke")));
+
+        assertThat(List.of(status, eventsOf(AuditOperation.CONNECTOR_TOKEN_REVOKE, connectorId)
+                        .stream().filter(row -> "SUCCESS".equals(row.get("outcome"))).count()))
+                .containsExactly(404, 1L);
+    }
+
     @Test
     void a_lifetime_past_the_ceiling_is_a_bad_request() throws Exception {
         UUID connectorId = createConnector("Okta");
@@ -550,11 +605,19 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     private UUID firstTokenId(UUID connectorId) throws Exception {
+        return UUID.fromString(firstTokenOf(connectorId).get("id").asText());
+    }
+
+    private boolean firstTokenIsActive(UUID connectorId) throws Exception {
+        return firstTokenOf(connectorId).get("active").asBoolean();
+    }
+
+    /** The first token the connector listing shows for {@code connectorId}. */
+    private JsonNode firstTokenOf(UUID connectorId) throws Exception {
         MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
-        JsonNode connectors = json.readTree(listed.getResponse().getContentAsString());
-        for (JsonNode connector : connectors) {
+        for (JsonNode connector : json.readTree(listed.getResponse().getContentAsString())) {
             if (connector.get("id").asText().equals(connectorId.toString())) {
-                return UUID.fromString(connector.get("tokens").get(0).get("id").asText());
+                return connector.get("tokens").get(0);
             }
         }
         throw new AssertionError("No listed connector with id " + connectorId);

@@ -210,6 +210,9 @@ public class ConnectorAdministrationService {
      * the old one's: rotation exists so an integration can keep running, and handing
      * it a replacement that expires next week would defeat that.
      *
+     * @param connectorId the connector the token is addressed under, which must be live and hold
+     *                    it: a token of another connector, or of a deleted one, is refused as
+     *                    {@link UnknownConnectorException}
      * @param requested the replacement's Permissions, or {@code null} to keep the old token's
      * @param overlap   how long the old token should keep working, clamped to
      *                  {@link ConnectorTokenPolicy#MAX_ROTATION_OVERLAP}
@@ -217,16 +220,17 @@ public class ConnectorAdministrationService {
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_ROTATE)
     public IssuedConnectorToken rotateToken(
+            UUID connectorId,
             UUID tokenId,
             Collection<Permission> requested,
             Duration overlap,
             UUID actorId) {
         tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireToken(
-                tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
+        ScimConnectorToken existing = requireTokenOf(
+                connectorId, tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
                 requested == null ? existing.permissions().values() : requested);
-        ScimConnector connector = requireLive(existing.connectorId(),
+        ScimConnector connector = requireLive(connectorId,
                 UnknownConnectorException.Operation.TOKEN_ROTATE, actorId, tokenId);
         Instant now = clock.instant();
         Optional<ConnectorTokenRotationRefusal> refusal = existing.rotationRefusal(now);
@@ -264,13 +268,21 @@ public class ConnectorAdministrationService {
      *
      * <p>Locks the token before reading it, as a rotation does: the revocation writes the whole
      * row back from what it read, so a rotation committed in between would otherwise be undone.
+     *
+     * <p>The token is addressed under its connector, which must be live and hold it. A token of
+     * another connector is refused as {@link UnknownConnectorException}, so a revocation cannot
+     * act on, or be audited under, a connector the administrator did not name; and so is a token
+     * of a deleted connector, which the delete already revoked and recorded — repeating it would
+     * record a revocation that did not happen.
      */
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_REVOKE)
-    public void revokeToken(UUID tokenId, UUID actorId) {
+    public void revokeToken(UUID connectorId, UUID tokenId, UUID actorId) {
         tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireToken(
-                tokenId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId);
+        ScimConnectorToken existing = requireTokenOf(
+                connectorId, tokenId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId);
+        requireLive(
+                connectorId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId, tokenId);
         ScimConnectorToken revoked = existing.revoked(clock.instant());
         if (revoked != existing) {
             tokens.save(revoked);
@@ -293,14 +305,18 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * The token behind {@code tokenId}, or the refusal of {@code operation} as addressing nothing:
-     * no connector is named, because an unknown token belongs to none.
+     * The token behind {@code tokenId} when it is one of {@code connectorId}'s, or the refusal of
+     * {@code operation} as addressing nothing — naming the connector and the token it addressed.
+     * A token of another connector is no token of this one: the path names both, and an operation
+     * that took the token's own connector instead would act on, and audit under, a connector the
+     * administrator never named.
      */
-    private ScimConnectorToken requireToken(
-            UUID tokenId, UnknownConnectorException.Operation operation, UUID actorId) {
+    private ScimConnectorToken requireTokenOf(UUID connectorId, UUID tokenId,
+            UnknownConnectorException.Operation operation, UUID actorId) {
         return tokens.findById(tokenId)
+                .filter(token -> token.connectorId().equals(connectorId))
                 .orElseThrow(() -> new UnknownConnectorException(
-                        operation, actorId, null, tokenId));
+                        operation, actorId, connectorId, tokenId));
     }
 
     private ConnectorSummary summarize(ScimConnector connector, Instant now) {

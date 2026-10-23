@@ -81,6 +81,13 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
              where u.resourceId = :id""")
     Optional<ScimLoginStateValue> findLoginState(@Param("id") UUID id);
 
+    /**
+     * The User's {@code active} column as the row holds it, or empty when no User has that id —
+     * a scalar, for the reason {@link #findLoginState} is one.
+     */
+    @Query("select u.active from ScimUserEntity u where u.resourceId = :id")
+    Optional<Boolean> findActive(@Param("id") UUID id);
+
     /*
      * The four column-set writes below are what a login-state change is written with: the adapter
      * issues one for each set the change moved, and none for a set it left alone, so a column the

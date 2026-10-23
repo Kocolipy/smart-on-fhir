@@ -12,7 +12,6 @@ import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
@@ -24,6 +23,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
@@ -56,6 +56,7 @@ class EpicLoginDecisionTests {
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
     private final RecordingLoginCounts counts = new RecordingLoginCounts();
+    private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
 
     private LoginService login;
 
@@ -72,8 +73,8 @@ class EpicLoginDecisionTests {
                 new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
                 users,
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
+                new LoginStateService(users, locks, revocation, new LockoutPolicy(5), audit,
+                        new MutableClock(NOW)),
                 revocation,
                 audit);
         login = new LoginService(
@@ -396,6 +397,57 @@ class EpicLoginDecisionTests {
     }
 
     /** The reason {@code practitionerId}'s Epic Login was refused for. */
+    // ---- a Lockout or a deactivation landing before the success is recorded ----------------
+
+    /**
+     * The User was read unlocked, and a Lockout committed before the success took the User's lock:
+     * the Epic Login is refused as a locked account's is, and lifts nothing (ADR 0007).
+     */
+    @Test
+    void aLockoutLandingBeforeTheSuccessIsRecordedRefusesTheEpicLoginAsLocked() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        locks.beforeNextGrant(() -> users.given(ScimIdentities.withActive(user, true,
+                new ScimLoginState("hash", 5, NOW, LockCause.FAILURES, null, null))));
+
+        assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
+    }
+
+    @Test
+    void aLockoutLandingBeforeTheSuccessIsRecordedStandsAfterTheEpicLogin() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        locks.beforeNextGrant(() -> users.given(ScimIdentities.withActive(user, true,
+                new ScimLoginState("hash", 5, NOW, LockCause.FAILURES, null, null))));
+
+        login.logInFromEpic("eACTIVE", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(users.require("eACTIVE").login().isLocked()).isTrue();
+    }
+
+    /** Recorded as a locked account's Epic refusal is, naming the User, with no success. */
+    @Test
+    void anEpicLoginRefusedOnALockoutLandingMidwayIsAuditedAsALockedAccountsRefusal() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        locks.beforeNextGrant(() -> users.given(ScimIdentities.withActive(user, true,
+                new ScimLoginState("hash", 5, NOW, LockCause.FAILURES, null, null))));
+
+        login.logInFromEpic("eACTIVE", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(audit.recorded())
+                .extracting(RecordingAuditTrail.Recorded::operation,
+                        RecordingAuditTrail.Recorded::subjectId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                        AuditOperation.LOGIN_FAILURE, user.id()));
+    }
+
+    @Test
+    void aDeactivationLandingBeforeTheSuccessIsRecordedRefusesTheEpicLoginAsDisabled() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        locks.beforeNextGrant(() ->
+                users.given(ScimIdentities.withActive(user, false, user.login())));
+
+        assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_DISABLED);
+    }
+
     private EpicLoginFailureReason refusalOf(String practitionerId) {
         LoginDecision decision =
                 login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);

@@ -4,7 +4,7 @@ import java.util.UUID;
 
 /**
  * A connector or token id that names nothing, or names something already deleted — a token whose
- * connector was deleted among them.
+ * connector was deleted among them, and a token addressed under a connector that does not hold it.
  *
  * <p>One exception for both, because the caller is an authenticated administrator for whom the
  * distinction between "never existed" and "gone" carries no privilege — they can read either from
@@ -35,7 +35,8 @@ public final class UnknownConnectorException extends ConnectorAdministrationRefu
     /**
      * @param actorId     the acting administrator's stable id, or {@code null} for a session that
      *                    names nobody — recorded as an event with no actor
-     * @param connectorId the connector addressed, or {@code null} when only an unknown token was
+     * @param connectorId the connector addressed — for a token operation, the one the token was
+     *                    addressed under, whether or not it holds the token
      * @param addressedId the token the operation addressed — rotated or revoked, never one newly
      *                    issued — or {@code null} for an operation on a connector
      */

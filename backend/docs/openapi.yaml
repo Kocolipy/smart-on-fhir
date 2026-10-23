@@ -1248,9 +1248,11 @@ paths:
         one mints a replacement and the other is refused `409` as already rotated.
         The refusal is audited (`CONNECTOR_TOKEN_ROTATE`, `FAILURE`, with
         `errorCode` `TOKEN_REVOKED`, `TOKEN_ALREADY_ROTATED` or `TOKEN_EXPIRED`,
-        checked in that order) naming the token in `tokenId`. A token id that names
-        nothing, or a token whose connector was deleted, is refused `404` and
-        audited the same way with `UNKNOWN_RESOURCE`.
+        checked in that order) naming the token in `tokenId`. The token is resolved
+        within the connector the path names: a token id that names nothing, a token
+        of another connector, or a token of a deleted connector is refused `404`
+        and audited the same way with `UNKNOWN_RESOURCE`, naming the connector the
+        path addressed.
 
         The response discloses the replacement's plaintext once, under
         `Cache-Control: no-store`, exactly as issue does.
@@ -1301,6 +1303,12 @@ paths:
         and nothing is written, though the attempt is still audited, naming the
         token in `tokenId`. The token's row is locked first, as for a rotation, so
         a revocation never writes back a token a concurrent rotation changed.
+
+        The token is resolved within the live connector the path names: a token id
+        that names nothing, a token of another connector, or a token of a deleted
+        connector — which the delete already revoked — is refused `404`, writes
+        nothing, and is audited (`CONNECTOR_TOKEN_REVOKE`, `FAILURE`,
+        `UNKNOWN_RESOURCE`) naming the connector the path addressed and the token.
       operationId: revokeConnectorToken
       security:
         - sessionCookie: [superuser]
@@ -2957,9 +2965,10 @@ components:
             $ref: "#/components/schemas/ApiError"
     UnknownConnector:
       description: |
-        No live connector or token has that id. The body is empty, and "never
-        existed" and "already deleted" are the same answer: the caller is an
-        administrator who can read either from the listing.
+        No live connector has that id, or, for a token, the live connector the
+        path names holds no token with that id. The body is empty, and "never
+        existed", "already deleted" and "another connector's" are the same answer:
+        the caller is an administrator who can read each from the listing.
     IssuedConnectorToken:
       description: |
         The token, including its plaintext — the only time that value is disclosed.

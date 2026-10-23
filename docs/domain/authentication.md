@@ -76,6 +76,14 @@ clock. A lock keeps the cause it was first imposed for.
   response never reveals that the User exists or that it is locked — a User who
   cannot get in learns nothing by waiting, which is intended. Attempts made while
   it holds neither count nor deepen it.
+- A Login never lifts it, not even one racing it. The account check reads the
+  User before the password comparison, so a Lockout another attempt imposes — or
+  a deactivation the directory commits — while a correct password is being
+  compared gets past that check; the accepted Login therefore decides once more
+  on the standing read under the User's lock, and is refused there, writing
+  nothing: no cleared run, no `LOGIN_SUCCESS`, no session. It is answered and
+  recorded as the refusal the check would have made a moment later —
+  `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` — and the same holds for an Epic Login.
 - Imposing it **revokes the User's live sessions**, after the transaction
   commits, so a locked User stops acting immediately rather than when the session
   it already held expires.

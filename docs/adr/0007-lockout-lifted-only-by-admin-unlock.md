@@ -197,3 +197,17 @@ with the standard's soft-delete and tombstone requirements.
   compromised. Recovery goes through the connector — the directory sets a new
   password, which sets the change-required flag and ends the User's sessions, or
   deactivates the User.
+- 2026-10-23: **a Login racing a Lockout no longer lifts it.** Spring Security's
+  account check reads the User without the login-state lock, before the Argon2id
+  comparison, so a Lockout committed during the comparison got past it; the
+  accepted Login's transition then cleared the lock it never checked — a session
+  issued, `LOGIN_SUCCESS` written, and no `LOCKOUT_LIFT` or change-required flag.
+  `LoginStateService.credentialVerified` now re-checks the standing it reads under
+  the User's lock: a User found locked, deactivated or gone is refused, fail closed,
+  and nothing is written. The Login is answered and recorded as the refusal the
+  account check would have made — `ACCOUNT_LOCKED` (counting nothing, as the run
+  is capped) or `ACCOUNT_DISABLED` (counted, as that refusal always is) — and an
+  Epic Login is refused the same way. ADR 0002's accepted window, a Login whose
+  decision committed before a revocation, is unchanged.
+  `LoginStateSerializationIntegrationTests` races a success against the failure
+  that locks.

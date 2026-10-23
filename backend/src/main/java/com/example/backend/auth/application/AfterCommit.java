@@ -1,5 +1,7 @@
 package com.example.backend.auth.application;
 
+import java.util.List;
+
 /**
  * Work that must happen only once the surrounding transaction has committed.
  *
@@ -24,7 +26,35 @@ public interface AfterCommit {
      * <p>A rollback runs it never. It runs outside the transaction, so it must not
      * assume the persistence context is still open, and a failure in it cannot
      * undo the committed write — it surfaces to the caller with the write already
-     * durable.
+     * durable. Nor does it stop the other work handed over in the same transaction:
+     * every piece runs, and the first failure surfaces once they all have.
      */
     void run(Runnable work);
+
+    /**
+     * Runs one transaction's after-commit work as {@link #run} promises: every piece, in order,
+     * whatever an earlier one threw, and then throws the first failure with each later one
+     * suppressed on it. Indexed rather than iterated, so a piece that hands over more work to the
+     * same list runs it too. The one loop both the adapter and any stand-in for it run, so the
+     * guarantee has a single definition.
+     *
+     * @param work the pieces, in the order they were handed over; read live, never copied
+     */
+    static void runEach(List<Runnable> work) {
+        RuntimeException first = null;
+        for (int next = 0; next < work.size(); next++) {
+            try {
+                work.get(next).run();
+            } catch (RuntimeException failed) {
+                if (first == null) {
+                    first = failed;
+                } else {
+                    first.addSuppressed(failed);
+                }
+            }
+        }
+        if (first != null) {
+            throw first;
+        }
+    }
 }

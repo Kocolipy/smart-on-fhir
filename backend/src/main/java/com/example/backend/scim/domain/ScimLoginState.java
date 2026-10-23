@@ -226,8 +226,10 @@ public record ScimLoginState(
      * lock" is one state. A value with nothing to clear is returned as-is, so a caller
      * can use the identity of the result to avoid a pointless write.
      *
-     * <p>A locked User never reaches here by the login route: it is refused before its
-     * password is compared. So on that path this clears a run rather than a lock.
+     * <p>On the login route this clears a run and never a lock: the login-state module
+     * reaches it only for a User it found unlocked under the User's lock, and refuses the
+     * Login of one it found locked — the authentication's own check reads the User before
+     * that lock, so a Lockout imposed while the password was compared gets past it.
      */
     public ScimLoginState withFailureRunCleared() {
         if (failedLoginAttempts == 0 && lockedAt == null) {

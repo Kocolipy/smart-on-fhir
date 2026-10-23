@@ -3,7 +3,6 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestGroupPermissions;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -23,10 +22,13 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
 import java.time.Instant;
@@ -82,6 +84,7 @@ class LoginLockoutTests {
     private final PendingCommit transaction = new PendingCommit();
     private final MutableClock clock = new MutableClock(NOW);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
+    private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
 
     private LoginService login;
 
@@ -107,9 +110,8 @@ class LoginLockoutTests {
                 transaction,
                 audit,
                 new RecordingOperationalAlerts());
-        LoginStateService loginState =
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(5), audit, clock);
+        LoginStateService loginState = new LoginStateService(
+                users, locks, revocation, new LockoutPolicy(5), audit, clock);
         LoginAttemptService attempts =
                 new LoginAttemptService(users, loginState, revocation, audit);
         login = new LoginService(
@@ -234,6 +236,58 @@ class LoginLockoutTests {
                 .as("the refusal is audited as the lockout, not as a generic failure")
                 .containsExactly(com.example.backend.audit.domain.AuditRefusalReason
                         .ACCOUNT_LOCKED.name());
+    }
+
+    // ---- a Lockout or a deactivation landing while the correct password is compared --------
+
+    /**
+     * The authentication read ada unlocked, and another attempt's Lockout committed while ada's
+     * correct password was being compared (ADR 0007): the Login is refused as a locked account's
+     * is, and no authentication is handed back for it.
+     */
+    @Test
+    void aLockoutLandingWhileTheCorrectPasswordIsComparedRefusesTheLoginAsLocked() {
+        locks.beforeNextGrant(this::lockAdaForFailures);
+
+        assertThat(submit(CORRECT_PASSWORD).reason())
+                .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
+    }
+
+    /** The Login does not lift the Lockout it lost the race to: only an Unlock does. */
+    @Test
+    void aLockoutLandingWhileTheCorrectPasswordIsComparedStandsAfterTheLogin() {
+        locks.beforeNextGrant(this::lockAdaForFailures);
+
+        login.logIn("ada", CORRECT_PASSWORD);
+
+        assertThat(users.require("ada").login().isLocked()).isTrue();
+    }
+
+    /** Recorded as a locked account's refusal is: one {@code LOGIN_FAILURE}, no success. */
+    @Test
+    void aLoginRefusedOnALockoutLandingMidwayIsAuditedAsALockedAccountsRefusal() {
+        locks.beforeNextGrant(this::lockAdaForFailures);
+
+        login.logIn("ada", CORRECT_PASSWORD);
+
+        assertThat(audit.recorded())
+                .extracting(RecordingAuditTrail.Recorded::operation,
+                        RecordingAuditTrail.Recorded::detail)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                        AuditOperation.LOGIN_FAILURE,
+                        com.example.backend.audit.domain.AuditRefusalReason.ACCOUNT_LOCKED.name()));
+    }
+
+    /** A deactivation the directory committed meanwhile refuses it as a disabled account's. */
+    @Test
+    void aDeactivationLandingWhileTheCorrectPasswordIsComparedRefusesTheLoginAsDisabled() {
+        locks.beforeNextGrant(() -> {
+            ScimUser ada = users.require("ada");
+            users.given(ScimIdentities.withActive(ada, false, ada.login()));
+        });
+
+        assertThat(submit(CORRECT_PASSWORD).reason())
+                .isEqualTo(PasswordRefusalReason.ACCOUNT_DISABLED);
     }
 
     /**
@@ -363,6 +417,13 @@ class LoginLockoutTests {
                 ScimIdentities.profile(userName, true),
                 passwordHash,
                 ScimIdentities.NOW);
+    }
+
+    /** Stores ada locked for failures, as another attempt's Lockout committing would. */
+    private void lockAdaForFailures() {
+        ScimUser ada = users.require("ada");
+        users.given(ScimIdentities.withActive(ada, true, new ScimLoginState(
+                ada.login().passwordHash(), 5, NOW, LockCause.FAILURES, null, null)));
     }
 
     private void lockTheIdentity() {
