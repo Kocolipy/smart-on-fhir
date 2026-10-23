@@ -405,7 +405,8 @@ class EpicLoginIntegrationTests {
 
         Cookie byPassword = logIn(practitioner, null);
 
-        assertThat(status(get("/api/admin/roles"), byPassword)).isEqualTo(403);
+        // A Superuser, so only the confinement refuses this read.
+        assertThat(status(get("/api/admin/accounts"), byPassword)).isEqualTo(403);
     }
 
     /** An Epic Login neither reads the flag into the session nor clears it. */
