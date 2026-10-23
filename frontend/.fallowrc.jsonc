@@ -18,6 +18,10 @@
     // `@import "tailwindcss"` in src/index.css, never by a JS import
     // statement, so fallow's import graph cannot see either one.
     "tailwindcss",
+    // Imported only by the SPA–API contract check, /scripts/spa-contract/main.mjs,
+    // which parses backend/docs/openapi.yaml with this app's pinned toolchain
+    // from outside this app's import graph.
+    "js-yaml",
   ],
 
   // Duplication is only worth a finding when the clone is large enough that

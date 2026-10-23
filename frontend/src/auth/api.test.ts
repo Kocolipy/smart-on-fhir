@@ -11,19 +11,6 @@ const apiFetchMock = vi.mocked(apiFetch);
 const TEST_LOGIN = ["ada", "secret"] as const;
 /** A truthy non-boolean, as a malformed response might carry the flag. */
 const NOT_A_BOOLEAN: unknown = 1;
-/**
- * The backend's Permission enum, value for value, less the token-only
- * `user:write` and `group:write`, which no session can hold.
- */
-const BACKEND_PERMISSIONS = [
-  "account:unlock",
-  "audit:read",
-  "connector:read",
-  "group:read",
-  "ops:read",
-  "patient:read",
-  "user:read",
-];
 
 function resolveWith(result: object) {
   apiFetchMock.mockResolvedValue(result as never);
@@ -199,14 +186,11 @@ describe("the user decoder", () => {
     });
   });
 
-  // The backend's Permission enum, value for value, less what only a connector
-  // token carries: a name no session holds is refused like any unknown one,
-  // never passed through.
-  it("knows exactly the Permissions the backend can grant a session", () => {
-    expect(PERMISSIONS).toEqual(BACKEND_PERMISSIONS);
-  });
-
-  it("reads every Permission the backend can grant", async () => {
+  // That PERMISSIONS is exactly what the backend can grant a session is held
+  // against /backend/docs/openapi.yaml by the SPA–API contract check
+  // (/scripts/spa-contract/), not by a hand copy here; this holds the decoder
+  // to PERMISSIONS.
+  it("reads every Permission the SPA knows the backend can grant", async () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
@@ -214,10 +198,10 @@ describe("the user decoder", () => {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
         superuser: false,
-        permissions: BACKEND_PERMISSIONS,
+        permissions: [...PERMISSIONS],
         username: "root",
       }),
-    ).resolves.toMatchObject({ permissions: BACKEND_PERMISSIONS });
+    ).resolves.toMatchObject({ permissions: [...PERMISSIONS] });
   });
 
   it("ignores a role field a body might still carry", async () => {

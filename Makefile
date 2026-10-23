@@ -28,7 +28,8 @@ export NPM
 export MVN
 
 .PHONY: help bootstrap infra-up infra-down infra-logs epic-launcher-up epic-launcher-down \
-        dev dev-stop verify-frontend verify-backend verify integration-test package container clean
+        dev dev-stop verify-frontend verify-backend verify-contract verify integration-test package \
+        container clean
 
 help: ## Show the available targets
 	@grep -hE '^[a-z][a-z-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -73,7 +74,13 @@ verify-frontend: ## Frontend gate: frontend/ baseline (npm run verify)
 verify-backend: ## Backend gate: backend/ baseline (scripts/verify.sh)
 	cd backend && ./scripts/verify.sh
 
-verify: verify-frontend verify-backend ## Run both app gates, serially
+# The one check that belongs to neither app: it reads both, which neither app
+# may do (AGENTS.md, "Paths"), so it lives in scripts/ and runs after both
+# app gates, once each side is known sound on its own.
+verify-contract: ## SPA–API contract check: hold the SPA's mirrored vocabulary to backend/docs/openapi.yaml (scripts/verify-contract.sh)
+	@scripts/verify-contract.sh
+
+verify: verify-frontend verify-backend verify-contract ## Run both app gates, then the SPA–API contract check, serially
 
 integration-test: ## Package the JAR, start it with the dependencies and the SMART launcher, then run every Playwright project
 	@scripts/integration-test.sh

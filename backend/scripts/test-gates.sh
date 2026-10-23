@@ -145,6 +145,7 @@ FAST_GATE=(
   com/example/backend/patient/domain/PatientTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
+  com/example/backend/scim/InMemoryGroupPermissionsContractTests
   com/example/backend/scim/InMemoryScimGroupPermissionStoreContractTests
   com/example/backend/scim/InMemoryScimGroupRepositoryContractTests
   com/example/backend/scim/InMemoryScimLoginStateRepositoryContractTests

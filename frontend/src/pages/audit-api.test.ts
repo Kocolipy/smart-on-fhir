@@ -321,10 +321,10 @@ describe("parseAuditFilters", () => {
     to: "2026-01-02T00:00",
   };
 
-  /** The path a filter set parses to, or its refusal message — whichever the step returned. */
+  /** The path a filter set's query is read at, or its refusal message — whichever the step returned. */
   const outcome = (filters: AuditFilters) => {
     const parsed = parseAuditFilters(filters);
-    return parsed.ok ? parsed.query.path : parsed.message;
+    return parsed.ok ? AUDIT_EVENTS.path(parsed.query) : parsed.message;
   };
 
   it("parses empty filters to page zero, carrying only page and size", () => {
@@ -434,7 +434,7 @@ describe("auditQueryAtPage", () => {
     if (!parsed.ok) throw new Error("the filters should parse");
     expect(auditQueryAtPage(parsed.query, 3)).toMatchObject({
       page: 3,
-      path: `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=3&size=50`,
+      search: "outcome=FAILURE&page=3&size=50",
     });
   });
 });

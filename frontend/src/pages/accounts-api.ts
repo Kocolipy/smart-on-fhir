@@ -57,8 +57,13 @@ export interface UserRow {
  * Why a User is locked (ADR 0007): `FAILURES` when its failed logins reached
  * the limit, `DORMANCY` when the dormancy job found it unused past the lockout
  * window. Either lock stands until Unlock.
+ *
+ * Exported for the SPA–API contract check (`/scripts/spa-contract/`), which holds
+ * it to `AccountSummary.lockCause` in `/backend/docs/openapi.yaml` from outside
+ * this app's import graph; nothing in `src/` imports it.
  */
-const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
+// fallow-ignore-next-line unused-export
+export const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
 
 export type LockCause = (typeof LOCK_CAUSES)[number];
 

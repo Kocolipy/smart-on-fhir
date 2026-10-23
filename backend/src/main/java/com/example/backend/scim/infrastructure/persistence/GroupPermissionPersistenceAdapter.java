@@ -83,16 +83,15 @@ class GroupPermissionPersistenceAdapter implements GroupPermissions, ScimGroupPe
         return GroupPermissionValues.validated(rows);
     }
 
+    /** The Group holding the {@code admin-group} reservation marker, read by the marker alone. */
     @Override
-    public boolean confersSuperuser(Collection<UUID> groupIds) {
-        if (groupIds.isEmpty()) {
-            return false;
-        }
-        List<UUID> adminGroup = jdbc.queryForList(SELECT_ADMIN_GROUP,
-                new MapSqlParameterSource(
-                        "reservedName", ReservedResourceName.ADMIN_GROUP.storedValue()),
-                UUID.class);
-        return adminGroup.stream().anyMatch(groupIds::contains);
+    public Optional<UUID> adminGroup() {
+        return jdbc.queryForList(SELECT_ADMIN_GROUP,
+                        new MapSqlParameterSource(
+                                "reservedName", ReservedResourceName.ADMIN_GROUP.storedValue()),
+                        UUID.class)
+                .stream()
+                .findFirst();
     }
 
     @Override

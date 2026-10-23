@@ -126,7 +126,7 @@ class GroupPermissionAdministrationServiceTests {
         service.setPermissions(auditors.id(), List.of("audit:read"), SUPERUSER);
         transaction.commit();
 
-        assertThat(groupPermissions.effectivePermissionsOf(List.of(auditors.id())))
+        assertThat(groupPermissions.powerOf(List.of(auditors.id())).permissions())
                 .containsExactly(Permission.AUDIT_READ);
         assertThat(sessions.isLive("ada-session")).isTrue();
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).isEmpty();

@@ -21,6 +21,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimSeedLock;
 import com.example.backend.scim.domain.ScimUser;
@@ -145,8 +146,9 @@ class ScimSeedServiceTests {
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
 
-        assertThat(groups.isMemberOfReservedGroup(
-                        bootstrapAdmin.id(), ReservedResourceName.ADMIN_GROUP))
+        assertThat(groupPermissions.powerOf(groups.findGroupsOfUser(bootstrapAdmin.id())
+                        .stream().map(ScimGroupReference::id).toList())
+                        .superuser())
                 .isTrue();
     }
 

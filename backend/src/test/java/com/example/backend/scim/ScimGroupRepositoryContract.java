@@ -586,7 +586,7 @@ public abstract class ScimGroupRepositoryContract {
                 .containsExactly(UNMOVED, UNMOVED);
     }
 
-    // ---- findGroupsOfUser and isMemberOfReservedGroup ------------------------------------------
+    // ---- findGroupsOfUser ----------------------------------------------------------------------
 
     /** References, in normalized {@code displayName} order, and only the User's own Groups. */
     @Test
@@ -601,39 +601,6 @@ public abstract class ScimGroupRepositoryContract {
         assertThat(groups().findGroupsOfUser(user.id())).containsExactly(
                 new ScimGroupReference(first.id(), first.displayName()),
                 new ScimGroupReference(second.id(), second.displayName()));
-    }
-
-    @Test
-    void a_member_of_the_reserved_group_is_its_member() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        releaseTheAdminGroupReservation();
-        groups().createReserved(
-                ScimIdentities.group(unique(), user), ReservedResourceName.ADMIN_GROUP);
-
-        assertThat(groups().isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP))
-                .isTrue();
-    }
-
-    /** Only the reservation decides it: membership of any other Group confers nothing. */
-    @Test
-    void a_member_of_unreserved_groups_alone_is_not_a_member_of_the_reserved_group() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        releaseTheAdminGroupReservation();
-        groups().createReserved(ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
-        groups().create(ScimIdentities.group(unique(), user));
-
-        assertThat(groups().isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP))
-                .isFalse();
-    }
-
-    @Test
-    void nobody_is_a_member_of_a_reserved_group_nobody_holds() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        releaseTheAdminGroupReservation();
-        groups().create(ScimIdentities.group(unique(), user));
-
-        assertThat(groups().isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP))
-                .isFalse();
     }
 
     // ---- findDormantMemberships ----------------------------------------------------------------
