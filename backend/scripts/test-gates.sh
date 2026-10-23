@@ -8,7 +8,6 @@
 #   scripts/test-gates.sh subsystem <name>     one test package, Spring contexts and containers included
 #   scripts/test-gates.sh subsystems           every subsystem in turn
 #   scripts/test-gates.sh broad                the whole suite (`test`, no clean, no Semgrep)
-#   scripts/test-gates.sh deprecated           the parked-test archive, if one exists
 #
 # Live layers are documented in README.md ("Test layers") and never run here.
 #
@@ -238,12 +237,8 @@ subsystem_pattern() {
 }
 SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability database lifecycle scheduling web"
 
-# No archive exists today: nothing was ever parked. If one is created, fence it
-# out of src/test so Surefire cannot collect it.
-ARCHIVE_DIR="src/test-archive"
-
 usage() {
-  echo "usage: $0 fast | subsystem <${SUBSYSTEM_NAMES// /|}> | subsystems | broad | deprecated" >&2
+  echo "usage: $0 fast | subsystem <${SUBSYSTEM_NAMES// /|}> | subsystems | broad" >&2
   exit 2
 }
 
@@ -286,12 +281,6 @@ case "$mode" in
     start_test_sql_server
     echo "== broad gate =="
     "$MVN" -B test ;;
-  deprecated)
-    if [ -d "$ARCHIVE_DIR" ]; then
-      echo "== deprecated archive: nothing runs it; read $ARCHIVE_DIR/README.md =="
-    else
-      echo "no $ARCHIVE_DIR directory; nothing to run"
-    fi ;;
   *)
     usage ;;
 esac
