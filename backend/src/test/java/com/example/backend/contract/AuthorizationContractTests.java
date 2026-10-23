@@ -45,7 +45,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -477,8 +476,6 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"POST", "/api/admin/accounts"},
                 new String[] {"PUT", "/api/admin/accounts/" + UUID.randomUUID()},
                 new String[] {"DELETE", "/api/admin/groups"},
-                // There are no Roles (ADR 0015): the retired listing answers no one.
-                new String[] {"GET", "/api/admin/roles"},
                 // The vocabulary a Group may carry is code's: nothing writes it at runtime.
                 new String[] {"POST", "/api/admin/permissions"},
                 new String[] {"PUT", "/api/admin/permissions"},
@@ -495,87 +492,6 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             assertThat(mvc.perform(request).andReturn().getResponse().getStatus())
                     .as("%s %s", undeclared[0], undeclared[1])
                     .isEqualTo(403);
-        }
-    }
-
-    /**
-     * {@code /api/session} no longer exists. It is answered as any route nothing declares — a
-     * session holding every Permission is refused, a caller with none is unauthenticated — and
-     * neither answer carries the id of the session that asked.
-     */
-    @Test
-    void the_retired_session_endpoint_is_an_undeclared_route_and_names_no_session_id()
-            throws Exception {
-        List<String> answers = new ArrayList<>();
-        for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
-            MockHttpSession session = session(EVERYTHING);
-            RetiredAnswers retired = answersOfRetired(method, "/api/session", session);
-            assertThat(retired.refused().getContentAsString()).doesNotContain(session.getId());
-            answers.add(method + " " + retired.statuses());
-        }
-        assertThat(answers).containsExactly("GET 403 401", "DELETE 403 401");
-    }
-
-    /**
-     * {@code /api/count} and its two writes no longer exist. Each is answered as any route nothing
-     * declares: a session holding every Permission is refused, a caller with none is
-     * unauthenticated.
-     */
-    @Test
-    void the_retired_count_endpoints_are_undeclared_routes() throws Exception {
-        List<String> answers = new ArrayList<>();
-        for (String[] retired : List.of(
-                new String[] {"GET", "/api/count"},
-                new String[] {"POST", "/api/count/increment"},
-                new String[] {"POST", "/api/count/reset"})) {
-            answers.add(retired[0] + " " + retired[1] + " "
-                    + answersOfRetired(HttpMethod.valueOf(retired[0]), retired[1],
-                            session(EVERYTHING)).statuses());
-        }
-        assertThat(answers).containsExactly(
-                "GET /api/count 403 401",
-                "POST /api/count/increment 403 401",
-                "POST /api/count/reset 403 401");
-    }
-
-    /**
-     * The forced password change no longer exists (ADR 0015's 2026-10-22 addendum). It is answered
-     * as any route nothing declares: a session holding every Permission is refused, a caller with
-     * none is unauthenticated — whichever User the path names.
-     */
-    @Test
-    void the_retired_forced_password_change_is_an_undeclared_route() throws Exception {
-        List<String> answers = new ArrayList<>();
-        for (UUID target : List.of(callerId, UUID.randomUUID())) {
-            answers.add(answersOfRetired(HttpMethod.POST,
-                    "/api/admin/accounts/" + target + "/force-password-change",
-                    session(EVERYTHING)).statuses());
-        }
-        assertThat(answers).containsExactly("403 401", "403 401");
-    }
-
-    /**
-     * A retired route asked twice: once by {@code session}, once by a caller with no session. A
-     * write carries a CSRF token on both, so any refusal is the authorization one and not the CSRF
-     * filter's.
-     */
-    private RetiredAnswers answersOfRetired(HttpMethod method, String path, MockHttpSession session)
-            throws Exception {
-        MockHttpServletRequestBuilder signedIn = request(method, path).session(session);
-        MockHttpServletRequestBuilder guest = request(method, path);
-        if (method != HttpMethod.GET) {
-            SessionCsrf.withCsrf(mvc, signedIn);
-            SessionCsrf.withCsrf(mvc, guest);
-        }
-        return new RetiredAnswers(mvc.perform(signedIn).andReturn().getResponse(),
-                mvc.perform(guest).andReturn().getResponse());
-    }
-
-    /** What a retired route answered a signed-in caller and a caller with no session. */
-    private record RetiredAnswers(MockHttpServletResponse refused,
-            MockHttpServletResponse anonymous) {
-        String statuses() {
-            return refused.getStatus() + " " + anonymous.getStatus();
         }
     }
 

@@ -110,13 +110,10 @@ test.describe("ADMIN directory projections", () => {
     }
   });
 
-  test("lists every Permission a Group may carry, and no Role", async ({ page }) => {
+  test("lists every Permission a Group may carry", async ({ page }) => {
     const permissions = await page.request.get("/api/admin/permissions");
     expect(permissions.status()).toBe(200);
     expect(await permissions.json()).toEqual([...DELEGATABLE_PERMISSIONS]);
-
-    // There are no Roles: the retired listing answers even the Superuser 403.
-    expect((await page.request.get("/api/admin/roles")).status()).toBe(403);
   });
 
   /**

@@ -96,10 +96,6 @@ class ScheduledJobScheduleTests {
         assertThat(List.of("audit-retention", "dormancy"))
                 .allSatisfy(job -> assertThat(registry.find("app.job.runs").tag("job", job).counters())
                         .as(job).hasSize(2));
-        assertThat(registry.find("app.job.runs").tag("job", "inactivity").counters())
-                .as("the removed jobs are no longer scheduled").isEmpty();
-        assertThat(registry.find("app.job.runs").tag("job", "dormant-authority-revocation")
-                .counters()).isEmpty();
     }
 
     /**

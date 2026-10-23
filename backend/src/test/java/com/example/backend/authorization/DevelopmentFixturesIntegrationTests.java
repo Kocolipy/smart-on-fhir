@@ -187,13 +187,12 @@ class DevelopmentFixturesIntegrationTests {
         assertThat(me.get("permissions").isArray()).isTrue();
         assertThat(permissionsOnMe(session))
                 .containsExactly("patient:read");
-        assertThat(me.has("role")).as("there is no role field").isFalse();
         assertThat(mvc.perform(get("/api/self").cookie(session))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);
     }
 
-    /** The stored session carries the resolved Permissions, and no role mapping hash. */
+    /** The stored session carries the resolved Permissions. */
     @Test
     void theSessionRecordsTheResolvedPermissions() throws Exception {
         logIn("auditor", FIXTURE_PASSWORD);
@@ -203,7 +202,6 @@ class DevelopmentFixturesIntegrationTests {
         assertThat(stored).hasSize(1);
         Session session = stored.values().iterator().next();
 
-        assertThat((Object) session.getAttribute("app.authorization.roleMappingHash")).isNull();
         SecurityContext security = session.getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(security.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)

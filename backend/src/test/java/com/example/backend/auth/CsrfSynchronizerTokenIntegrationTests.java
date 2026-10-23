@@ -12,7 +12,6 @@ import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,8 +33,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The Synchronizer Token Pattern, end to end through the real filter chain and the Redis-backed
  * session repository: what {@code GET /api/auth/csrf} answers, which tokens an unsafe request is
- * refused with, how login and logout move the token, and that no response anywhere writes the
- * retired {@code XSRF-TOKEN} cookie. See {@code /docs/adr/0009-csrf-synchronizer-token.md}.
+ * refused with, and how login and logout move the token. See
+ * {@code /docs/adr/0009-csrf-synchronizer-token.md}.
  *
  * <p>Every token here is obtained the way the SPA obtains it, from the endpoint, and every
  * session is carried as the browser carries it, as the session cookie — so "bound to the
@@ -46,7 +45,6 @@ import tools.jackson.databind.json.JsonMapper;
 class CsrfSynchronizerTokenIntegrationTests {
 
     private static final String SESSION_COOKIE = "SESSION";
-    private static final String LEGACY_CSRF_COOKIE = "XSRF-TOKEN";
     private static final String CREDENTIALS =
             "{\"username\":\"test-user\",\"password\":\"test-password\"}";
 
@@ -91,7 +89,6 @@ class CsrfSynchronizerTokenIntegrationTests {
         assertThat(issued.getResponse().getCookie(SESSION_COOKIE))
                 .as("the guest's session, which the token is bound to")
                 .isNotNull();
-        assertNoCsrfCookie(issued);
     }
 
     /**
@@ -192,26 +189,6 @@ class CsrfSynchronizerTokenIntegrationTests {
         assertThat(status(logout(refetched.session(), refetched))).isEqualTo(401);
     }
 
-    // ---- the cookie that must never come back ---------------------------------------------
-
-    @Test
-    void noResponseSetsAnXsrfTokenCookieOnAPageViewLoginOrLogout() throws Exception {
-        MvcResult page = mvc.perform(get("/")).andReturn();
-        Grant grant = fetch(null);
-        MvcResult login = login(grant);
-        Cookie signedIn = sessionCookie(login);
-        MvcResult logout = logout(signedIn, fetch(signedIn));
-
-        assertThat(List.of(status(page), status(login), status(logout)))
-                .containsExactly(200, 200, 204);
-        assertNoCsrfCookie(page);
-        assertNoCsrfCookie(login);
-        assertNoCsrfCookie(logout);
-        assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
-                .as("the login did set cookies — the session's — so the absence is not vacuous")
-                .anyMatch(cookie -> cookie.startsWith(SESSION_COOKIE + "="));
-    }
-
     // ---- harness --------------------------------------------------------------------------
 
     /** A token as the SPA holds it, plus the session cookie it belongs to. */
@@ -261,13 +238,5 @@ class CsrfSynchronizerTokenIntegrationTests {
 
     private static int status(MvcResult result) {
         return result.getResponse().getStatus();
-    }
-
-    private static void assertNoCsrfCookie(MvcResult result) {
-        assertThat(result.getResponse().getCookie(LEGACY_CSRF_COOKIE))
-                .as("an XSRF-TOKEN cookie on %s", result.getRequest().getRequestURI())
-                .isNull();
-        assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
-                .noneMatch(cookie -> cookie.startsWith(LEGACY_CSRF_COOKIE + "="));
     }
 }

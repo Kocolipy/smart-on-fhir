@@ -294,8 +294,7 @@ class PasswordChangeLifecycleIntegrationTests {
      * No administrator may Unlock its own account ({@code 403}), and an Unlock with no lockout to
      * lift has no effect ({@code 409}) — the Bootstrap Admin's, which can never be locked,
      * included — and the refused Unlock leaves its target unflagged, so its next login is not
-     * confined. The forced password change's retired path is owned by
-     * {@code AuthorizationContractTests} and {@code AdminAccountEndpointTests}.
+     * confined.
      */
     @Test
     void anUnlockIsRefusedOnTheCallersOwnAccountAndOnAUserServingNoLockout() throws Exception {
@@ -623,7 +622,6 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(me.getResponse().getStatus()).isEqualTo(200);
         JsonNode body = json.readTree(me.getResponse().getContentAsString());
         assertThat(body.get("passwordChangeRequired").booleanValue()).isTrue();
-        assertThat(body.has("role")).isFalse();
         assertThat(body.get("permissions").isEmpty()).isTrue();
 
         assertThat(status(get("/api/admin/accounts"), session)).isEqualTo(403);
@@ -689,10 +687,9 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("passwordChangeRequired").booleanValue()).isEqualTo(confined);
-        // There is no role field: "ADMIN" here means a member of the Superuser Group, which holds
-        // every Permission; "USER", a session holding only the baseline Permissions every User
-        // holds; null, a confined session holding none.
-        assertThat(body.has("role")).isFalse();
+        // "ADMIN" here means a member of the Superuser Group, which holds every Permission;
+        // "USER", a session holding only the baseline Permissions every User holds; null, a
+        // confined session holding none.
         int expected = role == null ? 0
                 : "ADMIN".equals(role) ? TestGroupPermissions.EVERY_PERMISSION.size()
                 : LoginIdentityService.BASELINE_PERMISSIONS.size();

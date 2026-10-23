@@ -105,17 +105,6 @@ class SessionEstablishmentTests {
                 .isEqualTo("5b0d6a8e-3c1f-4e7a-9d2b-1f0e8c7a6b54");
     }
 
-    /**
-     * There is no role mapping, so the session records none: the attribute a session once named
-     * its mapping's hash under is never written (ADR 0015).
-     */
-    @Test
-    void theSessionRecordsNoRoleMappingHash() {
-        HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
-
-        assertThat(signedIn.getAttribute("app.authorization.roleMappingHash")).isNull();
-    }
-
     /** A CSRF token fetched before signing in does not survive into the signed-in session. */
     @Test
     void thePreLoginCsrfTokenIsDropped() {

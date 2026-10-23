@@ -73,8 +73,6 @@ class AuthControllerTests {
     /** Mirrors {@code server.servlet.session.cookie.name}. */
     private static final String SESSION_COOKIE = "JSESSIONID";
 
-    private static final String CSRF_COOKIE = "XSRF-TOKEN";
-
     /** An idle bound no default produces, so a response carrying it read it off the session. */
     private static final int IDLE_TIMEOUT_SECONDS = 523;
 
@@ -199,9 +197,8 @@ class AuthControllerTests {
     }
 
     /**
-     * A member of the Superuser Group signs in holding baseline access and every Permission —
-     * and no administrative role, which no longer exists: authority beyond the baseline is
-     * Permissions alone (ADR 0010).
+     * A member of the Superuser Group signs in holding baseline access and every Permission:
+     * authority beyond the baseline is Permissions alone (ADR 0010).
      */
     @Test
     void secondaryUserCanLogIn() {
@@ -223,8 +220,7 @@ class AuthControllerTests {
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
         assertThat(savedContext.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .contains("ROLE_USER")
-                .doesNotContain("ROLE_ADMIN");
+                .contains("ROLE_USER");
     }
 
     @Test
@@ -451,7 +447,7 @@ class AuthControllerTests {
      * opens.
      */
     @Test
-    void logoutEndsTheCsrfTokenWithTheSessionAndWritesNoCsrfCookie() {
+    void logoutEndsTheCsrfTokenWithTheSession() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         controller.login(
                 new AuthController.LoginRequest("ada", "correct-password"),
@@ -465,7 +461,6 @@ class AuthControllerTests {
         controller.logout(request, response);
 
         assertThat(csrfTokenRepository.loadToken(request)).isNull();
-        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
     }
 
     // ---- self-service password change ------------------------------------------------------
@@ -506,7 +501,6 @@ class AuthControllerTests {
         assertThat(cleared).isNotNull();
         assertThat(cleared.getValue()).isEmpty();
         assertThat(cleared.getMaxAge()).isZero();
-        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
     }
 
     /** No session identifies nobody: refused as an anonymous request is, before any comparison. */

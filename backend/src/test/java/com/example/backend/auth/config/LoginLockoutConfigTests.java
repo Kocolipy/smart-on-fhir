@@ -2,6 +2,9 @@ package com.example.backend.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -32,6 +35,22 @@ class LoginLockoutConfigTests {
     void theLockoutPolicyCarriesTheConfiguredThreshold() {
         assertThat(new LoginLockoutConfig().lockoutPolicy(7))
                 .isEqualTo(new com.example.backend.scim.domain.LockoutPolicy(7));
+    }
+
+    /**
+     * The deployed configuration is read directly rather than through the environment, because
+     * the test resources' own {@code application.yaml} shadows it entirely.
+     *
+     * <p>The {@code :3} default is pinned here and mirrored by the E2E suite's fallback
+     * ({@code frontend/test/e2e/lockoutThreshold.ts}, pinned by
+     * {@code frontend/test/lockoutThreshold.test.ts}); changing one without the other fails a
+     * test (#98).
+     */
+    @Test
+    void theDeployedThresholdDefaultsToThree() throws IOException {
+        assertThat(Files.readString(Path.of("src/main/resources/application.yaml"))
+                        .lines().map(String::strip))
+                .contains("max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:3}");
     }
 
     @Test
