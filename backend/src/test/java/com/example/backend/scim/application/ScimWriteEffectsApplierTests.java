@@ -5,11 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.authorization.domain.GroupPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -66,5 +72,67 @@ class ScimWriteEffectsApplierTests {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(audit.recorded()).isEmpty();
         assertThat(revoked).isEmpty();
+    }
+
+    /**
+     * A deleted Group's every member loses what it conferred, and the audit of it asks the Groups
+     * what each member held before and after in one question: the Groups are read as often for a
+     * Group of three members as for a Group of one, where each member once cost eight reads.
+     */
+    @Test
+    void a_group_deletions_power_audit_reads_the_groups_no_more_often_for_more_members() {
+        assertThat(groupReadsToAuditDeletingAGroupOf(3))
+                .isEqualTo(groupReadsToAuditDeletingAGroupOf(1));
+    }
+
+    /**
+     * How many times the power audit of deleting a Group of {@code members} Users, which carried a
+     * Permission, read the Groups' Permissions or the Admin group.
+     */
+    private static int groupReadsToAuditDeletingAGroupOf(int members) {
+        InMemoryScimUserRepository directory = new InMemoryScimUserRepository();
+        Set<UUID> memberIds = new LinkedHashSet<>();
+        for (int member = 0; member < members; member++) {
+            memberIds.add(directory.create(ScimIdentities.user("member-" + member)).id());
+        }
+        CountingGroupPermissions permissions =
+                new CountingGroupPermissions(TestGroupPermissions.superuserOnly());
+        UUID deleted = UUID.randomUUID();
+        new ScimWriteEffectsApplier(
+                directory,
+                new InMemoryScimGroupRepository(directory),
+                (connectorId, userId, causes) -> { },
+                new RecordingAuditTrail(),
+                permissions,
+                () -> { })
+                .afterDeleting(deleted, Set.of(Permission.AUDIT_READ))
+                .apply(ScimWriteEffectsApplier.Writer.connector(UUID.randomUUID()),
+                        ScimWriteEffects.ofGroupDeletion(deleted, memberIds, true),
+                        ScimIdentities.NOW);
+        return permissions.reads;
+    }
+
+    /** Group Permissions that count every read of the Groups they answer from. */
+    private static final class CountingGroupPermissions implements GroupPermissions {
+
+        private final GroupPermissions groups;
+
+        private int reads;
+
+        CountingGroupPermissions(GroupPermissions groups) {
+            this.groups = groups;
+        }
+
+        @Override
+        public Map<UUID, Set<Permission>> carriedBy(Collection<UUID> groupIds) {
+            reads++;
+            return groups.carriedBy(groupIds);
+        }
+
+        @Override
+        public Optional<UUID> adminGroup() {
+            reads++;
+            return groups.adminGroup();
+        }
     }
 }

@@ -6,13 +6,15 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * What a set of direct Group memberships confers, as sign-in and the audit trail ask it: the union
- * of what the Groups carry, and the Superuser's expansion for the Admin group (ADR 0015).
+ * What a set of direct Group memberships confers, as sign-in, the Accounts list and the audit trail
+ * ask it: the union of what the Groups carry, and the Superuser — with its expansion — for the Admin
+ * group (ADR 0015), answered together.
  */
 class GroupPermissionsTests {
 
@@ -22,13 +24,17 @@ class GroupPermissionsTests {
     private static final UUID CARRIES_NOTHING =
             UUID.fromString("00000000-0000-4000-8000-0000000000a9");
 
+    private static final UUID ADA = UUID.fromString("00000000-0000-4000-8000-0000000000b1");
+    private static final UUID BOB = UUID.fromString("00000000-0000-4000-8000-0000000000b2");
+
     /** The Admin group carries nothing; Helpdesk and Auditors carry their Permissions. */
-    private final GroupPermissions stored = storing(ADMINS, Map.of(
+    private final GroupPermissions stored = storing(Optional.of(ADMINS), Map.of(
             HELPDESK, Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK),
             AUDITORS, Set.of(Permission.AUDIT_READ, Permission.USER_READ)));
 
     /** A source whose rows are {@code carried} and whose Admin group is {@code adminGroup}. */
-    private static GroupPermissions storing(UUID adminGroup, Map<UUID, Set<Permission>> carried) {
+    private static GroupPermissions storing(
+            Optional<UUID> adminGroup, Map<UUID, Set<Permission>> carried) {
         return new GroupPermissions() {
             @Override
             public Map<UUID, Set<Permission>> carriedBy(Collection<UUID> groupIds) {
@@ -39,8 +45,8 @@ class GroupPermissionsTests {
             }
 
             @Override
-            public boolean confersSuperuser(Collection<UUID> groupIds) {
-                return groupIds.contains(adminGroup);
+            public Optional<UUID> adminGroup() {
+                return adminGroup;
             }
         };
     }
@@ -56,17 +62,31 @@ class GroupPermissionsTests {
     /** A Group with no Permissions confers nothing. */
     @Test
     void aGroupCarryingNothingConfersNothing() {
-        assertThat(stored.effectivePermissionsOf(List.of(CARRIES_NOTHING))).isEmpty();
+        assertThat(stored.powerOf(List.of(CARRIES_NOTHING)).permissions()).isEmpty();
+    }
+
+    /** A User in no Group holds nothing beyond the baseline, and is not the Superuser. */
+    @Test
+    void noMembershipConfersNothing() {
+        assertThat(stored.powerOf(List.of())).isEqualTo(ConferredPower.NONE);
     }
 
     @Test
     void membershipOfTheAdminGroupConfersTheSuperuser() {
-        assertThat(stored.confersSuperuser(List.of(HELPDESK, ADMINS))).isTrue();
+        assertThat(stored.powerOf(List.of(HELPDESK, ADMINS)).superuser()).isTrue();
     }
 
     @Test
     void membershipOfOtherGroupsOnlyConfersNoSuperuser() {
-        assertThat(stored.confersSuperuser(List.of(HELPDESK, CARRIES_NOTHING))).isFalse();
+        assertThat(stored.powerOf(List.of(HELPDESK, CARRIES_NOTHING)).superuser()).isFalse();
+    }
+
+    /** Where no Group carries the marker, nobody is the Superuser, whatever their Groups. */
+    @Test
+    void nobodyIsTheSuperuserWhereNoGroupIsTheAdminGroup() {
+        GroupPermissions noAdminGroup = storing(Optional.empty(), Map.of());
+
+        assertThat(noAdminGroup.powerOf(List.of(ADMINS, HELPDESK))).isEqualTo(ConferredPower.NONE);
     }
 
     /**
@@ -76,7 +96,7 @@ class GroupPermissionsTests {
      */
     @Test
     void theSuperusersEffectivePermissionsAreEveryDelegatablePermission() {
-        assertThat(stored.effectivePermissionsOf(List.of(ADMINS)))
+        assertThat(stored.powerOf(List.of(ADMINS)).permissions())
                 .containsExactlyInAnyOrder(Permission.USER_READ, Permission.ACCOUNT_UNLOCK,
                         Permission.GROUP_READ, Permission.AUDIT_READ, Permission.CONNECTOR_READ,
                         Permission.OPS_READ);
@@ -84,8 +104,52 @@ class GroupPermissionsTests {
 
     @Test
     void aNonSuperusersEffectivePermissionsAreNotExpanded() {
-        assertThat(stored.effectivePermissionsOf(List.of(AUDITORS)))
+        assertThat(stored.powerOf(List.of(AUDITORS)).permissions())
                 .containsExactlyInAnyOrder(Permission.AUDIT_READ, Permission.USER_READ);
+    }
+
+    /**
+     * Several Users' conferred power, each from its own memberships, in one answer: each holds what its
+     * own Groups confer and nothing another User's Groups do.
+     */
+    @Test
+    void eachUserIsAnsweredFromItsOwnMemberships() {
+        assertThat(stored.powersOf(Map.of(
+                        ADA, List.of(HELPDESK),
+                        BOB, List.of(AUDITORS, ADMINS))))
+                .isEqualTo(Map.of(
+                        ADA, new ConferredPower(
+                                Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK), false),
+                        BOB, new ConferredPower(Permission.allDelegatable(), true)));
+    }
+
+    /**
+     * Users in no Group are answered without reading the Groups at all: a sign-in or an Accounts
+     * row with no memberships costs no statement.
+     */
+    @Test
+    void usersInNoGroupAreAnsweredWithoutReadingTheGroups() {
+        GroupPermissions unreadable = new GroupPermissions() {
+            @Override
+            public Map<UUID, Set<Permission>> carriedBy(Collection<UUID> groupIds) {
+                throw new AssertionError("read what the Groups carry");
+            }
+
+            @Override
+            public Optional<UUID> adminGroup() {
+                throw new AssertionError("read the Admin group");
+            }
+        };
+
+        assertThat(unreadable.powersOf(Map.of(ADA, List.of(), BOB, List.of())))
+                .isEqualTo(Map.of(ADA, ConferredPower.NONE, BOB, ConferredPower.NONE));
+    }
+
+    /** A User asked about with no Groups is answered, holding nothing. */
+    @Test
+    void aUserInNoGroupIsAnsweredWithNothing() {
+        assertThat(stored.powersOf(Map.of(ADA, List.of(), BOB, List.of(HELPDESK))))
+                .containsEntry(ADA, ConferredPower.NONE);
     }
 
     /**
@@ -105,7 +169,7 @@ class GroupPermissionsTests {
      */
     @Test
     void aRememberedGroupStillCarriesWhatItDid() {
-        GroupPermissions deleted = storing(ADMINS, Map.of(
+        GroupPermissions deleted = storing(Optional.of(ADMINS), Map.of(
                 AUDITORS, Set.of(Permission.AUDIT_READ)));
 
         GroupPermissions remembered = deleted.remembering(HELPDESK, Set.of(Permission.OPS_READ));
@@ -114,8 +178,18 @@ class GroupPermissionsTests {
                 .containsExactlyInAnyOrder(Permission.OPS_READ, Permission.AUDIT_READ);
         assertThat(remembered.permissionsOf(List.of(AUDITORS)))
                 .containsExactly(Permission.AUDIT_READ);
-        assertThat(remembered.confersSuperuser(List.of(ADMINS))).isTrue();
-        assertThat(remembered.confersSuperuser(List.of(HELPDESK))).isFalse();
+        assertThat(remembered.powerOf(List.of(ADMINS)).superuser()).isTrue();
+        assertThat(remembered.powerOf(List.of(HELPDESK)).superuser()).isFalse();
+    }
+
+    /** The remembered Group is answered only when asked about, as every other Group is. */
+    @Test
+    void aRememberedGroupIsAnsweredOnlyWhenAskedAbout() {
+        GroupPermissions remembered =
+                stored.remembering(CARRIES_NOTHING, Set.of(Permission.OPS_READ));
+
+        assertThat(remembered.carriedBy(List.of(AUDITORS)))
+                .isEqualTo(Map.of(AUDITORS, Set.of(Permission.AUDIT_READ, Permission.USER_READ)));
     }
 
     /** Remembering that a Group carried nothing leaves it carrying nothing. */

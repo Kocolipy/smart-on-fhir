@@ -8,6 +8,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -30,6 +31,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimEmailFilter;
 import com.example.backend.scim.domain.ScimEmailPart;
+import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
@@ -61,6 +63,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -1184,6 +1187,32 @@ class ScimUserServiceTests {
                 permissionRevoke(auditors.id(), before, false));
         assertThat(revocations).containsExactly(
                 new Revocation(CONNECTOR.connectorId(), ada.id(), Set.of(Cause.DELETED)));
+    }
+
+    /**
+     * Each Group of power the deletion took the User from is logged with what that Group confers,
+     * not with what another of its Groups does.
+     */
+    @Test
+    void deleting_a_user_logs_each_group_of_power_with_what_that_group_confers() {
+        ScimGroup helpdesk = groups.create(ScimIdentities.group("Helpdesk", stored()));
+        ScimGroup auditors = groups.create(ScimIdentities.group("Auditors", stored()));
+        groupPermissions
+                .carrying(helpdesk.id(), Permission.USER_READ, Permission.ACCOUNT_UNLOCK)
+                .carrying(auditors.id(), Permission.AUDIT_READ);
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            service.delete(CONNECTOR, ada.id(), current());
+
+            assertThat(ecs.records().stream()
+                    .filter(record -> record.at("/app/event/action").asText()
+                            .equals("identity.permission_revoke"))
+                    .map(record -> record.at("/group/id").asText() + " confers "
+                            + record.at("/app/authorization/group_permissions").asText()))
+                    .containsExactlyInAnyOrder(
+                            helpdesk.id() + " confers account:unlock,user:read",
+                            auditors.id() + " confers audit:read");
+        }
     }
 
     /** Leaving the Admin group with the deletion is the Superuser's loss, which the marker says. */

@@ -219,11 +219,6 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     }
 
     @Override
-    public boolean isMemberOfReservedGroup(UUID userId, ReservedResourceName reservedName) {
-        return memberships.isMemberOfReservedGroup(userId, reservedName.storedValue());
-    }
-
-    @Override
     public List<ScimGroupMembership> findDormantMemberships(Instant cutoff) {
         return memberships.findDormantMemberships(cutoff);
     }

@@ -212,6 +212,15 @@ also holds every delegatable Permission, and `/api/auth/me` reports it as
 a Group's Permissions.
 _Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
 
+**Conferred power**:
+What a User's direct Group memberships confer beyond baseline access, answered as
+one: its effective Permissions (its Groups' Group Permissions, plus every
+Delegatable Permission for a member of the Admin group) and whether it is the
+Superuser. Sign-in, the Accounts list and every Permission change read it from the
+same place.
+_Avoid_: authority (the Superuser is the session authority, and Spring's
+`GrantedAuthority` is any entry a session holds)
+
 **Delegatable Permission**:
 A Permission a Group may carry: `user:read`, `account:unlock`, `group:read`,
 `audit:read`, `ops:read` and `connector:read`. `account:unlock` is the helpdesk

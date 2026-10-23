@@ -8,6 +8,7 @@ import com.example.backend.authorization.domain.StoredGroupPermission;
 import com.example.backend.scim.domain.GroupPermissionRefusal;
 import com.example.backend.scim.domain.GroupPermissionsRefusedException;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupPermissionStore;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import java.util.ArrayList;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * The Groups' stored Permissions in memory, for tests that build services by hand: the
@@ -37,11 +39,11 @@ import java.util.function.Predicate;
  */
 public final class InMemoryGroupPermissions implements GroupPermissions, ScimGroupPermissionStore {
 
-    private final Predicate<UUID> adminGroup;
+    private final Supplier<Optional<UUID>> adminGroup;
     private final Predicate<UUID> exists;
     private final Map<UUID, Set<String>> rows = new LinkedHashMap<>();
 
-    private InMemoryGroupPermissions(Predicate<UUID> adminGroup, Predicate<UUID> exists) {
+    private InMemoryGroupPermissions(Supplier<Optional<UUID>> adminGroup, Predicate<UUID> exists) {
         this.adminGroup = adminGroup;
         this.exists = exists;
     }
@@ -49,15 +51,14 @@ public final class InMemoryGroupPermissions implements GroupPermissions, ScimGro
     /** No Group carries anything; the Group under the seeded Admin group's id is the Superuser's. */
     public static InMemoryGroupPermissions superuserOnly() {
         return new InMemoryGroupPermissions(
-                TestGroupPermissions.SUPERUSER_GROUP_ID::equals, group -> true);
+                () -> Optional.of(TestGroupPermissions.SUPERUSER_GROUP_ID), group -> true);
     }
 
     /** The Groups of {@code groups}: the Admin group by its marker, a deleted Group's rows gone. */
     public static InMemoryGroupPermissions over(ScimGroupRepository groups) {
         return new InMemoryGroupPermissions(
-                group -> groups.findById(group)
-                        .map(found -> found.reservedName() == ReservedResourceName.ADMIN_GROUP)
-                        .orElse(false),
+                () -> groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                        .map(ScimGroup::id),
                 group -> groups.findById(group).isPresent());
     }
 
@@ -88,8 +89,8 @@ public final class InMemoryGroupPermissions implements GroupPermissions, ScimGro
     }
 
     @Override
-    public boolean confersSuperuser(Collection<UUID> groupIds) {
-        return groupIds.stream().anyMatch(adminGroup);
+    public Optional<UUID> adminGroup() {
+        return adminGroup.get();
     }
 
     @Override
@@ -106,7 +107,7 @@ public final class InMemoryGroupPermissions implements GroupPermissions, ScimGro
     @Override
     public Optional<GroupPermissionRefusal> refusal(UUID groupId, Set<Permission> permissions) {
         return GroupPermissionRefusal.of(
-                permissions, exists.test(groupId), adminGroup.test(groupId));
+                permissions, exists.test(groupId), adminGroup().filter(groupId::equals).isPresent());
     }
 
     @Override
