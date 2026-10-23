@@ -198,16 +198,17 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
 };
 
 /**
- * One page of the listing, as a filter set parsed into it. `path` is the whole
- * request — every non-empty filter, then `page` and `size` — and is built once,
- * when the filters parse, so rendering never touches a filter again.
- * `filterSearch` is the same request without its paging, so a page turn moves
- * the query without parsing anything twice.
+ * One page of the listing, as a filter set parsed into it. `search` is the
+ * whole query string — every non-empty filter, then `page` and `size` — and is
+ * built once, when the filters parse, so rendering never touches a filter
+ * again; {@link AUDIT_EVENTS} puts it after the listing's path.
+ * `filterSearch` is the same query string without its paging, so a page turn
+ * moves the query without parsing anything twice.
  */
 export interface AuditQuery {
   readonly filterSearch: string;
   readonly page: number;
-  readonly path: string;
+  readonly search: string;
 }
 
 /** A filter set either refused with a message, or parsed into the query it asks for. */
@@ -230,7 +231,7 @@ const refuse = (message: string): ParsedAuditFilters => ({ ok: false, message })
 const queryAt = (filterSearch: string, page: number): AuditQuery => {
   const paging = new URLSearchParams({ page: String(page), size: String(DEFAULT_PAGE_SIZE) });
   const search = filterSearch === "" ? paging.toString() : `${filterSearch}&${paging.toString()}`;
-  return { filterSearch, page, path: `${AUDIT_EVENTS_PATH}?${search}` };
+  return { filterSearch, page, search };
 };
 
 /**
@@ -280,11 +281,11 @@ export const auditQueryAtPage = (query: AuditQuery, page: number): AuditQuery =>
   queryAt(query.filterSearch, page);
 
 /**
- * One page of the audit trail, `GET /api/admin/audit-events`, at the path its
- * query was parsed into — so a page names the query, never a path.
+ * One page of the audit trail, `GET /api/admin/audit-events`, with the query
+ * string its query was parsed into — so a page names the query, never a path.
  */
 export const AUDIT_EVENTS: ReadDeclaration<AuditEventPage, [query: AuditQuery]> = {
   decode: jsonDecoder(decodeAuditEventPage),
-  path: (query) => query.path,
+  path: (query) => `${AUDIT_EVENTS_PATH}?${query.search}`,
   permission: "audit:read",
 };

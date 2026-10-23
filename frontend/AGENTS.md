@@ -99,6 +99,15 @@ request, reads a status, or touches the CSRF token, the session window, logout,
 Epic Login's landing or the CSP — and update it in the same change when the
 backend side moves. It is the authority on the runtime contract with the backend.
 
+The closed sets this app decodes strictly from the API, and every exported
+declaration's `permission`, are held to `/backend/docs/openapi.yaml` by the
+SPA–API contract check, which lives outside this app because it reads both:
+`make verify-contract` from the repo root (part of `make verify`, not of
+`npm run verify`). Run it after changing any of them; `VOCABULARIES` in
+`/scripts/spa-contract/check.mjs` lists exactly which sets it compares. A
+declaration's `path` must build its absolute path from its arguments alone, so
+the check can find its operation.
+
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`

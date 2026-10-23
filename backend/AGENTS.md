@@ -100,4 +100,6 @@ Before completing changes to controller routes, request or response bodies, stat
 
 The baseline gate verifies it too: the tests in `src/test/java/com/example/backend/contract/` hold every response their fixtures receive against the document, fail for any documented status no fixture produces, and compare the mapped routes with the documented operations. A route or status you add therefore needs both its documentation and a fixture that produces it. `docs/api-contract-check.md` says what is checked and how to read a failure.
 
+The SPA mirrors part of the document by hand — the Permission, token-Permission, `AuditOperation` and `lockCause` enums, and the `security` of each operation it calls — and the root's SPA–API contract check (`make verify-contract` from the repo root, part of `make verify`) holds it there. A change to any of them is a change to the SPA too: `VOCABULARIES` in `/scripts/spa-contract/check.mjs` lists exactly which schemas it compares.
+
 `docs/openapi.yaml` is larger than one read holds: search it for the path or schema you are changing rather than reading it whole.
