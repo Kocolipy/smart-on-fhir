@@ -21,6 +21,7 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -86,13 +87,13 @@ class ScimSeedConfigStartupTests {
      */
     @Test
     void withTheFixturesOffTheBootstrapAdminIsTheOnlyUserSeeded() {
-        contexts.withPropertyValues("app.dev-fixtures.baseline-member=user")
+        contexts.withPropertyValues("app.dev-fixtures.baseline-member=guest")
                 .run(context -> assertThatCode(
                         () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
                         .doesNotThrowAnyException());
 
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isPresent();
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isEmpty();
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("guest"))).isEmpty();
         assertThat(groups.findById(TestGroupPermissions.SUPERUSER_GROUP_ID)).isPresent();
     }
 
@@ -102,13 +103,13 @@ class ScimSeedConfigStartupTests {
         local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
-                        "app.dev-fixtures.baseline-member=user",
+                        "app.dev-fixtures.baseline-member=guest",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
                         "app.dev-fixtures.groups[0].member=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        ScimUser baseline = users.require("user");
+        ScimUser baseline = users.require("guest");
         assertThat(baseline.login().passwordHash()).isEqualTo("encoded:fixture-password");
         assertThat(groups.findAllOrderedByNormalizedDisplayName()).noneMatch(group -> group.hasMember(baseline.id()));
     }
@@ -122,10 +123,10 @@ class ScimSeedConfigStartupTests {
         local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
-                        "app.dev-fixtures.baseline-member=user")
+                        "app.dev-fixtures.baseline-member=guest")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        assertThat(users.require("user").login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(users.require("guest").login().passwordHash()).isEqualTo("encoded:fixture-password");
         assertThat(groups.findAllOrderedByNormalizedDisplayName())
                 .extracting(ScimGroup::id)
                 .containsExactly(TestGroupPermissions.SUPERUSER_GROUP_ID);
@@ -235,17 +236,13 @@ class ScimSeedConfigStartupTests {
     void theLocalProfileSeedsTheDevelopmentGroupsPermissions() {
         shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
+        Set<Permission> auditorReads = Set.of(Permission.USER_READ, Permission.GROUP_READ,
+                Permission.OPS_READ, Permission.CONNECTOR_READ, Permission.AUDIT_READ);
+        Set<Permission> helpdesk = new HashSet<>(auditorReads);
+        helpdesk.add(Permission.ACCOUNT_UNLOCK);
         assertThat(groupPermissions.carriedBy(List.of(
-                        group("a001"), group("a002"), group("a003"), group("a004"), group("a005"),
-                        group("a006"), group("a007"))))
-                .isEqualTo(Map.of(
-                        group("a002"), Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK,
-                                Permission.GROUP_READ),
-                        group("a003"), Set.of(Permission.AUDIT_READ),
-                        group("a004"), Set.of(Permission.CONNECTOR_READ),
-                        group("a005"), Set.of(Permission.OPS_READ),
-                        group("a006"), Set.of(Permission.USER_READ, Permission.ACCOUNT_UNLOCK),
-                        group("a007"), Set.of(Permission.AUDIT_READ)));
+                        group("a001"), group("a003"), group("a006"))))
+                .isEqualTo(Map.of(group("a003"), auditorReads, group("a006"), helpdesk));
     }
 
     /**
@@ -256,8 +253,8 @@ class ScimSeedConfigStartupTests {
     void theLocalProfileBesideTheDevProfileSeedsTheFixtures() {
         shipped("local,dev").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        assertThat(groups.findById(group("a002")).orElseThrow()
-                        .hasMember(users.require("account-admin").id()))
+        assertThat(groups.findById(group("a003")).orElseThrow()
+                        .hasMember(users.require("auditor").id()))
                 .isTrue();
     }
 
@@ -265,7 +262,7 @@ class ScimSeedConfigStartupTests {
     @Test
     void anotherProfileRefusesTheShippedFixtures() {
         shipped("dev").run(refusesStartup("'local' profile is not active"));
-        assertThat(groups.findById(group("a002"))).isEmpty();
+        assertThat(groups.findById(group("a003"))).isEmpty();
     }
 
     /** A context that failed to start, its root cause naming {@code fragment}. */

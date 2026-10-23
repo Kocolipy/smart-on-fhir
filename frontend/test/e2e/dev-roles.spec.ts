@@ -15,9 +15,8 @@ import { BACKEND_URL, E2E_PREFIX } from "./scim.helpers";
 // Permissions, ADR 0015) on `GET /api/auth/me`, sees exactly the pages and
 // actions those Permissions allow, and is refused every direct API call outside
 // them. `roles-admin.spec.ts` reads each Group's stored Permissions back. None
-// of them is the Superuser: connector administration is refused to each, the
-// Connector admin included, whose `connector:read` lists connectors and does no
-// more.
+// of them is the Superuser: connector administration is refused to each, though
+// each holds `connector:read`, which lists connectors and does no more.
 //
 // In the `guest` project — empty `storageState` — because signing in is the
 // subject. The Superuser is left out on purpose: its User is the Bootstrap
@@ -44,23 +43,15 @@ const EXPECTED: Record<
   Exclude<DevFixture, "superuser">,
   { accounts: AccountsView; audit: boolean; unlock: boolean; createConnector: boolean }
 > = {
-  accountAdmin: {
-    accounts: { connectors: false, groups: true, users: true },
-    audit: false,
-    createConnector: false,
-    unlock: true,
-  },
-  auditor: { accounts: null, audit: true, createConnector: false, unlock: false },
-  connectorAdmin: {
-    accounts: { connectors: true, groups: false, users: false },
-    audit: false,
+  auditor: {
+    accounts: { connectors: true, groups: true, users: true },
+    audit: true,
     createConnector: false,
     unlock: false,
   },
-  monitoring: { accounts: null, audit: false, createConnector: false, unlock: false },
   helpdesk: {
-    accounts: { connectors: false, groups: false, users: true },
-    audit: false,
+    accounts: { connectors: true, groups: true, users: true },
+    audit: true,
     createConnector: false,
     unlock: true,
   },

@@ -2605,8 +2605,8 @@ paths:
         scheduled-job saturation gauges. No tag carries a userName, externalId,
         resource id, filter text or token value.
 
-        Requires `ops:read` — the Monitoring Role holds it alone, so a scraper's
-        account can do nothing else — decided by the filter chain, since an actuator
+        Requires `ops:read` — give a scraper's account a Group carrying it alone,
+        so it can do nothing else — decided by the filter chain, since an actuator
         endpoint has no handler of its own to declare it: a session without it gets
         403. A connector bearer token is not a
         credential on this path and gets 401. Deployments may move it to an internal

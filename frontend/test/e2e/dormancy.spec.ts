@@ -10,7 +10,7 @@ import { FIXTURE_GROUPS, freshBrowser, rowOf } from "./scim.helpers";
  * The dormancy job runs nightly and has no HTTP surface, so this spec relies on
  * the development profile the e2e backend runs with: seeding backdates the
  * fixture's dormancy basis a day past the revocation window — resets its
- * password and lock, and puts it back into the Auditors and Monitoring Groups —
+ * password and lock, and puts it back into the Auditors and Helpdesk Groups —
  * at every startup, and `DevDormancyStartupConfig` then runs the real job once.
  * By the time this spec runs, the job has locked the fixture for dormancy and
  * removed every Group membership it held.
@@ -34,7 +34,7 @@ const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
 const GROUPS_COLUMN = 7;
 
 /** The two Groups seeding puts the fixture back into (`dormant-groups` in `authorization.yaml`). */
-const { auditors: AUDITORS, monitoring: MONITORING } = FIXTURE_GROUPS;
+const { auditors: AUDITORS, helpdesk: HELPDESK } = FIXTURE_GROUPS;
 
 async function changePassword(page: Page, current: string, next: string) {
   await page.getByLabel("Current password").fill(current);
@@ -43,15 +43,15 @@ async function changePassword(page: Page, current: string, next: string) {
   await page.getByRole("button", { name: "Change password" }).click();
 }
 
-test("a dormant account is locked for dormancy until an Account admin unlocks it", async ({
+test("a dormant account is locked for dormancy until the Helpdesk unlocks it", async ({
   browser,
   page,
 }) => {
   test.setTimeout(120_000);
   const returning = await freshBrowser(browser);
   try {
-    // An Account admin — a Group carrying account:unlock, not the Superuser — reads the list.
-    await loginAsFixture(page, "accountAdmin");
+    // The Helpdesk — a Group carrying account:unlock, not the Superuser — reads the list.
+    await loginAsFixture(page, "helpdesk");
     await page.goto("/accounts");
     const row = rowOf(page, usersTable(page), DORMANT);
     await expect(
@@ -78,7 +78,8 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
       .filter({ has: reader.getByRole("cell") })
       .first();
     await expect(newest.getByRole("cell").last()).toHaveText(
-      `permissions: audit:read, ops:read → none · groups: ${AUDITORS}, ${MONITORING}`,
+      "permissions: account:unlock, audit:read, connector:read, group:read, ops:read, user:read" +
+        ` → none · groups: ${AUDITORS}, ${HELPDESK}`,
     );
     await auditing.close();
 
@@ -88,7 +89,7 @@ test("a dormant account is locked for dormancy until an Account admin unlocks it
     await expect(own.getByRole("alert")).toHaveText("The username or password is incorrect.");
     await expect(own).toHaveURL(/\/login$/);
 
-    // The Account admin unlocks it from the page.
+    // The Helpdesk unlocks it from the page.
     await row.getByRole("button", { name: `Unlock ${DORMANT}` }).click();
     await expect(row.getByText("Not locked")).toBeVisible();
     await expect(row.getByText("Required")).toBeVisible();

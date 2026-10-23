@@ -51,7 +51,7 @@ class ScimSeedServiceTests {
     private static final SeededIdentity RECOVERY = new SeededIdentity("admin", "admin-password");
 
     /** The development fixtures' User in no Group, which used to be a configured identity. */
-    private static final String BASELINE = "user";
+    private static final String BASELINE = "guest";
 
     private static final String FIXTURE_PASSWORD = "fixture-password";
 

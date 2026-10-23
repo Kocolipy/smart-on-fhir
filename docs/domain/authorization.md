@@ -214,16 +214,15 @@ Superuser's editor offers. Both are reads;
 
 **Development fixtures** — the shipped `authorization.yaml` seeds, with
 `APP_DEV_FIXTURES_ENABLED=true`, one Group per development access level, each
-with one User in it: Account admins, Auditors, Connector admins, Monitoring and
-Helpdesk, plus a Disposable auditors Group the e2e suite deletes. The Superuser's
-User is the Bootstrap Admin. Their Users get `APP_DEV_FIXTURES_PASSWORD`, never
-overwriting one that exists, together with two Users in no Group: `user`,
+with one User in it: Auditors and Helpdesk. The Superuser's User is the
+Bootstrap Admin. Their Users get `APP_DEV_FIXTURES_PASSWORD`, never
+overwriting one that exists, together with two Users in no Group: `guest`,
 holding only baseline access, and `dormant`, put past the dormancy lockout window
 at every startup. What each Group confers is a separate block active under the
 `local` profile alone, applied at startup only to a Group that carries nothing
-yet; no other profile seeds a Group Permission. The Connector admin holds
-`connector:read` and nothing else: it lists connectors and administers none. The
-Helpdesk holds `user:read` and `account:unlock`: it lists Users and unlocks a
-locked one. The same flag has the patient module seed the
+yet; no other profile seeds a Group Permission. The Auditors hold every read —
+`user:read`, `group:read`, `ops:read`, `connector:read` and `audit:read` — and
+change nothing. The Helpdesk holds the same reads plus `account:unlock`: it also
+unlocks a locked User. The same flag has the patient module seed the
 dummy Patients ([patient](patient.md)) by a seeder of its own. See
 `backend/docs/configuration/group-permissions.md`.

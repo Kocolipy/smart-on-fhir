@@ -54,11 +54,11 @@ import tools.jackson.databind.json.JsonMapper;
  * session store (ADR 0015).
  *
  * <p>Its context is dirtied after the class, because these tests change who belongs to the
- * fixture Groups and delete one of them, which no other class sharing the development fixtures'
+ * fixture Groups and what they carry, which no other class sharing the development fixtures'
  * context — and so its database — could survive. Its configuration is the same as
  * {@code DevelopmentFixturesIntegrationTests}', so without the eviction whichever runs second
- * would reuse it. Each test that moves a fixture membership puts it back; the Monitoring Group is
- * deleted by one test only, and no other test here depends on it.
+ * would reuse it. Each test that moves a fixture membership or Permission puts it back; the one
+ * Group deleted is a test's own.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -73,10 +73,22 @@ class GroupPermissionPropagationIntegrationTests {
 
     private static final UUID SUPERUSERS = TestGroupPermissions.SUPERUSER_GROUP_ID;
 
-    private static final UUID ACCOUNT_ADMINS =
-            UUID.fromString("00000000-0000-4000-8000-00000000a002");
+    private static final UUID AUDITORS = UUID.fromString("00000000-0000-4000-8000-00000000a003");
 
-    private static final UUID MONITORING = UUID.fromString("00000000-0000-4000-8000-00000000a005");
+    private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-00000000a006");
+
+    /** What the Auditors Group carries, as the trail and {@code group_permission} sort it. */
+    private static final String AUDITOR_PERMISSIONS =
+            "audit:read,connector:read,group:read,ops:read,user:read";
+
+    /** What the Helpdesk Group carries: the Auditors' reads plus {@code account:unlock}. */
+    private static final String HELPDESK_PERMISSIONS = "account:unlock," + AUDITOR_PERMISSIONS;
+
+    /** {@link #AUDITOR_PERMISSIONS} as a JSON array, the body that sets them back. */
+    private static final String AUDITOR_PERMISSIONS_BODY = jsonArray(AUDITOR_PERMISSIONS);
+
+    /** {@link #HELPDESK_PERMISSIONS} as a JSON array, the body that sets them back. */
+    private static final String HELPDESK_PERMISSIONS_BODY = jsonArray(HELPDESK_PERMISSIONS);
 
     private static final String GROUPS = "/scim/v2/Groups/";
 
@@ -140,7 +152,7 @@ class GroupPermissionPropagationIntegrationTests {
     @Test
     void a_group_reader_lists_every_permission_a_group_may_carry() throws Exception {
         MvcResult listed = mvc.perform(get("/api/admin/permissions")
-                        .cookie(logIn("account-admin"))).andReturn();
+                        .cookie(logIn("auditor"))).andReturn();
 
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
         assertThat(strings(json.readTree(listed.getResponse().getContentAsString())))
@@ -155,7 +167,8 @@ class GroupPermissionPropagationIntegrationTests {
     @Test
     void the_permissions_endpoint_requires_group_read_and_the_roles_endpoint_is_gone()
             throws Exception {
-        assertThat(status(get("/api/admin/permissions").cookie(logIn("auditor"))))
+        assertThat(status(get("/api/admin/permissions")
+                        .cookie(logIn("test-user", "test-password"))))
                 .isEqualTo(403);
         Cookie admin = logIn("test-admin", "test-admin-password");
         assertThat(status(get("/api/admin/roles").cookie(admin)))
@@ -172,18 +185,18 @@ class GroupPermissionPropagationIntegrationTests {
     }
 
     /**
-     * Each Groups row carries what the Group confers, read with {@code group:read}: the Account
-     * admins their three, and the Admin group none — its members are the Superuser.
+     * Each Groups row carries what the Group confers, read with {@code group:read}: the Auditors
+     * their five reads, and the Admin group none — its members are the Superuser.
      */
     @Test
     void the_groups_rows_carry_each_groups_permissions() throws Exception {
         MvcResult listed = mvc.perform(get("/api/admin/groups")
-                        .cookie(logIn("account-admin"))).andReturn();
+                        .cookie(logIn("auditor"))).andReturn();
 
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
         JsonNode rows = json.readTree(listed.getResponse().getContentAsString());
-        assertThat(strings(row(rows, ACCOUNT_ADMINS).get("permissions")))
-                .containsExactly("account:unlock", "group:read", "user:read");
+        assertThat(String.join(",", strings(row(rows, AUDITORS).get("permissions"))))
+                .isEqualTo(AUDITOR_PERMISSIONS);
         JsonNode adminGroup = row(rows, SUPERUSERS);
         assertThat(adminGroup.get("adminGroup").asBoolean()).isTrue();
         assertThat(strings(adminGroup.get("permissions"))).isEmpty();
@@ -234,22 +247,29 @@ class GroupPermissionPropagationIntegrationTests {
     @Test
     void a_group_carrying_permissions_can_be_renamed_and_deleted_which_revokes_its_members()
             throws Exception {
-        Cookie monitoring = logIn("monitoring");
-        UUID member = userId("monitoring");
+        UUID member = userId("auditor");
+        UUID disposable = scimCreateGroup(
+                "Disposable " + UUID.randomUUID().toString().substring(0, 8), member);
+        jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
+                disposable, "account:unlock");
+        Cookie auditor = logIn("auditor");
+        assertThat(permissions(auditor)).contains("account:unlock");
 
-        assertThat(scimPatch(MONITORING, """
-                {"op":"replace","path":"displayName","value":"Observability"}""")).isEqualTo(200);
-        assertThat(status(get("/api/auth/me").cookie(monitoring)))
+        assertThat(scimPatch(disposable, """
+                {"op":"replace","path":"displayName","value":"Renamed disposable %s"}"""
+                .formatted(disposable))).isEqualTo(200);
+        assertThat(status(get("/api/auth/me").cookie(auditor)))
                 .as("a rename moves no power").isEqualTo(200);
 
-        assertThat(scim(delete(GROUPS + MONITORING))).isEqualTo(204);
+        assertThat(scim(delete(GROUPS + disposable))).isEqualTo(204);
 
-        assertThat(status(get("/api/auth/me").cookie(monitoring))).isEqualTo(401);
-        assertPermissionChange("PERMISSION_REVOKE", member, MONITORING, "ops:read", null, false);
+        assertThat(status(get("/api/auth/me").cookie(auditor))).isEqualTo(401);
+        assertPermissionChange("PERMISSION_REVOKE", member, disposable, HELPDESK_PERMISSIONS,
+                AUDITOR_PERMISSIONS, false);
         assertSessionsRevokedForGroups(member);
         assertThat(jdbc.queryForObject(
                         "SELECT COUNT(*) FROM group_permission WHERE group_id = ?",
-                        Integer.class, MONITORING))
+                        Integer.class, disposable))
                 .as("the Group's Permissions went with it").isZero();
     }
 
@@ -259,30 +279,30 @@ class GroupPermissionPropagationIntegrationTests {
     @Test
     void removal_from_a_group_carrying_permissions_by_patch_or_put_revokes_the_members_sessions()
             throws Exception {
-        UUID accountAdmin = userId("account-admin");
+        UUID helpdesk = userId("helpdesk");
         try {
-            Cookie session = logIn("account-admin");
-            assertThat(scimPatch(ACCOUNT_ADMINS, """
+            Cookie session = logIn("helpdesk");
+            assertThat(scimPatch(HELPDESK, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}"""
-                    .formatted(accountAdmin))).isEqualTo(200);
+                    .formatted(helpdesk))).isEqualTo(200);
             assertThat(status(get("/api/auth/me").cookie(session))).isEqualTo(401);
-            assertPermissionChange("PERMISSION_REVOKE", accountAdmin, ACCOUNT_ADMINS,
-                    "account:unlock,group:read,user:read", null, false);
-            assertSessionsRevokedForGroups(accountAdmin);
+            assertPermissionChange("PERMISSION_REVOKE", helpdesk, HELPDESK,
+                    HELPDESK_PERMISSIONS, null, false);
+            assertSessionsRevokedForGroups(helpdesk);
 
             // Signed in again, the User no longer holds the Group's Permissions.
-            Cookie again = logIn("account-admin");
+            Cookie again = logIn("helpdesk");
             assertThat(status(get("/api/admin/accounts").cookie(again))).isEqualTo(403);
 
             // A PUT whose member list leaves the User out is the same removal.
-            assertThat(scimPatch(ACCOUNT_ADMINS, """
+            assertThat(scimPatch(HELPDESK, """
                     {"op":"add","path":"members","value":[{"value":"%s"}]}"""
-                    .formatted(accountAdmin))).isEqualTo(200);
-            Cookie readmitted = logIn("account-admin");
-            assertThat(scimPut(ACCOUNT_ADMINS, "Account admins", List.of())).isEqualTo(200);
+                    .formatted(helpdesk))).isEqualTo(200);
+            Cookie readmitted = logIn("helpdesk");
+            assertThat(scimPut(HELPDESK, "Helpdesk", List.of())).isEqualTo(200);
             assertThat(status(get("/api/auth/me").cookie(readmitted))).isEqualTo(401);
         } finally {
-            scimPut(ACCOUNT_ADMINS, "Account admins", List.of(accountAdmin));
+            scimPut(HELPDESK, "Helpdesk", List.of(helpdesk));
         }
     }
 
@@ -296,21 +316,19 @@ class GroupPermissionPropagationIntegrationTests {
         try {
             Cookie live = logIn("auditor");
 
-            assertThat(scimPatch(ACCOUNT_ADMINS, """
+            assertThat(scimPatch(HELPDESK, """
                     {"op":"add","path":"members","value":[{"value":"%s"}]}"""
                     .formatted(auditor))).isEqualTo(200);
 
             assertThat(status(get("/api/auth/me").cookie(live))).isEqualTo(200);
-            assertThat(permissions(live)).doesNotContain("user:read");
-            assertThat(status(get("/api/admin/accounts").cookie(live))).isEqualTo(403);
-            assertPermissionChange("PERMISSION_GRANT", auditor, ACCOUNT_ADMINS, "audit:read",
-                    "account:unlock,audit:read,group:read,user:read", false);
+            assertThat(permissions(live)).doesNotContain("account:unlock");
+            assertPermissionChange("PERMISSION_GRANT", auditor, HELPDESK, AUDITOR_PERMISSIONS,
+                    HELPDESK_PERMISSIONS, false);
 
             Cookie next = logIn("auditor");
             assertThat(permissions(next)).contains("account:unlock", "audit:read", "user:read");
-            assertThat(status(get("/api/admin/accounts").cookie(next))).isEqualTo(200);
         } finally {
-            scimPatch(ACCOUNT_ADMINS, """
+            scimPatch(HELPDESK, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(auditor));
         }
     }
@@ -321,20 +339,19 @@ class GroupPermissionPropagationIntegrationTests {
      */
     @Test
     void addition_to_the_admin_group_is_a_counted_superuser_grant() throws Exception {
-        UUID monitoring = userId("monitoring");
+        UUID auditor = userId("auditor");
         double before = superuserGrants();
         try {
             assertThat(scimPatch(SUPERUSERS, """
                     {"op":"add","path":"members","value":[{"value":"%s"}]}"""
-                    .formatted(monitoring))).isEqualTo(200);
+                    .formatted(auditor))).isEqualTo(200);
 
             assertThat(superuserGrants()).isEqualTo(before + 1);
-            assertPermissionChange("PERMISSION_GRANT", monitoring, SUPERUSERS, "ops:read",
-                    "account:unlock,audit:read,connector:read,group:read,ops:read,user:read",
-                    true);
+            assertPermissionChange("PERMISSION_GRANT", auditor, SUPERUSERS, AUDITOR_PERMISSIONS,
+                    HELPDESK_PERMISSIONS, true);
         } finally {
             scimPatch(SUPERUSERS, """
-                    {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(monitoring));
+                    {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(auditor));
         }
     }
 
@@ -353,41 +370,40 @@ class GroupPermissionPropagationIntegrationTests {
         double counted = groupPermissionsChanges();
         OffsetDateTime started = OffsetDateTime.now(ZoneOffset.UTC);
         try {
-            Cookie live = logIn("helpdesk");
+            Cookie live = logIn("auditor");
 
-            MvcResult grown = setPermissions(superuser, HELPDESK,
-                    "[\"user:read\",\"account:unlock\",\"audit:read\",\"audit:read\"]");
+            MvcResult grown = setPermissions(superuser, AUDITORS,
+                    jsonArray(AUDITOR_PERMISSIONS + ",account:unlock,audit:read"));
 
             assertThat(grown.getResponse().getStatus()).isEqualTo(200);
             JsonNode row = json.readTree(grown.getResponse().getContentAsString());
-            assertThat(strings(row.get("permissions")))
+            assertThat(String.join(",", strings(row.get("permissions"))))
                     .as("the whole set, duplicates collapsed, sorted by name")
-                    .containsExactly("account:unlock", "audit:read", "user:read");
-            assertThat(status(get("/api/admin/audit-events").cookie(live)))
-                    .as("the live session holds what it held").isEqualTo(403);
-            Cookie next = logIn("helpdesk");
-            assertThat(status(get("/api/admin/audit-events").cookie(next))).isEqualTo(200);
+                    .isEqualTo(HELPDESK_PERMISSIONS);
+            assertThat(permissions(live))
+                    .as("the live session holds what it held").doesNotContain("account:unlock");
+            Cookie next = logIn("auditor");
+            assertThat(permissions(next)).contains("account:unlock");
 
-            MvcResult shrunk = setPermissions(superuser, HELPDESK,
-                    "[\"user:read\",\"account:unlock\"]");
+            MvcResult shrunk = setPermissions(superuser, AUDITORS, AUDITOR_PERMISSIONS_BODY);
 
             assertThat(shrunk.getResponse().getStatus()).isEqualTo(200);
             assertThat(status(get("/api/auth/me").cookie(next))).isEqualTo(401);
             assertThat(groupPermissionsChanges()).isEqualTo(counted + 2);
-            assertThat(groupPermissionsChangeRows(actor, HELPDESK, started))
+            assertThat(groupPermissionsChangeRows(actor, AUDITORS, started))
                     .containsExactly(
-                            List.of("SUCCESS", "account:unlock,user:read",
-                                    "account:unlock,audit:read,user:read", "permissions"),
-                            List.of("SUCCESS", "account:unlock,audit:read,user:read",
-                                    "account:unlock,user:read", "permissions"));
+                            List.of("SUCCESS", AUDITOR_PERMISSIONS, HELPDESK_PERMISSIONS,
+                                    "permissions"),
+                            List.of("SUCCESS", HELPDESK_PERMISSIONS, AUDITOR_PERMISSIONS,
+                                    "permissions"));
             assertThat(jdbc.queryForList("""
                     SELECT error_code FROM audit_events
                      WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ? AND actor_id = ?
                        AND occurred_at >= ?""",
-                    String.class, userId("helpdesk"), actor, started))
+                    String.class, userId("auditor"), actor, started))
                     .containsExactly("GROUP_PERMISSIONS_REDUCED");
         } finally {
-            setPermissions(superuser, HELPDESK, "[\"user:read\",\"account:unlock\"]");
+            setPermissions(superuser, AUDITORS, AUDITOR_PERMISSIONS_BODY);
         }
     }
 
@@ -405,7 +421,7 @@ class GroupPermissionPropagationIntegrationTests {
             assertThat(status(get("/api/admin/accounts").cookie(logIn("helpdesk"))))
                     .isEqualTo(403);
         } finally {
-            setPermissions(superuser, HELPDESK, "[\"user:read\",\"account:unlock\"]");
+            setPermissions(superuser, HELPDESK, HELPDESK_PERMISSIONS_BODY);
         }
     }
 
@@ -448,10 +464,11 @@ class GroupPermissionPropagationIntegrationTests {
                     .as("%s", refusal).containsExactly(refusal.status(), refusal.code());
         }
 
-        assertThat(jdbc.queryForList(
-                        "SELECT permission FROM group_permission WHERE group_id IN (?, ?)",
-                        String.class, HELPDESK, SUPERUSERS))
-                .containsExactlyInAnyOrder("user:read", "account:unlock");
+        assertThat(String.join(",", jdbc.queryForList("""
+                        SELECT permission FROM group_permission WHERE group_id IN (?, ?)
+                         ORDER BY permission""",
+                        String.class, HELPDESK, SUPERUSERS)))
+                .isEqualTo(HELPDESK_PERMISSIONS);
         assertThat(jdbc.queryForList("""
                 SELECT error_code FROM audit_events
                  WHERE operation = 'GROUP_PERMISSIONS_CHANGE' AND outcome = 'FAILURE'
@@ -460,7 +477,7 @@ class GroupPermissionPropagationIntegrationTests {
                 String.class, actor, HELPDESK, nowhere, SUPERUSERS, started))
                 .containsExactlyElementsOf(refusals.stream().map(Refusal::reason).toList());
 
-        Cookie groupReader = logIn("account-admin");
+        Cookie groupReader = logIn("helpdesk");
         MvcResult forbidden = setPermissions(groupReader, HELPDESK, "[\"audit:read\"]");
         assertThat(forbidden.getResponse().getStatus()).isEqualTo(403);
         assertThat(json.readTree(forbidden.getResponse().getContentAsString())
@@ -469,7 +486,23 @@ class GroupPermissionPropagationIntegrationTests {
 
     // ---- helpers ----------------------------------------------------------------------------
 
-    private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-00000000a006");
+    /** {@code "a,b"} as the JSON array {@code ["a","b"]}. */
+    private static String jsonArray(String commaSeparated) {
+        return "[\"" + commaSeparated.replace(",", "\",\"") + "\"]";
+    }
+
+    /** Creates a Group over SCIM with {@code member} in it, answering its id. */
+    private UUID scimCreateGroup(String displayName, UUID member) throws Exception {
+        MvcResult created = mvc.perform(post("/scim/v2/Groups")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(SCIM_JSON).content("""
+                                {"schemas":["%s"],"displayName":"%s","members":[{"value":"%s"}]}"""
+                                .formatted(GROUP_SCHEMA, displayName, member)))
+                .andReturn();
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        return UUID.fromString(
+                json.readTree(created.getResponse().getContentAsString()).get("id").asString());
+    }
 
     /** {@code PUT /api/admin/groups/{id}/permissions} with {@code body}, or none when null. */
     private MvcResult setPermissions(Cookie session, UUID groupId, String body) throws Exception {

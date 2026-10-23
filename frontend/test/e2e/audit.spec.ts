@@ -135,8 +135,8 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
   );
 });
 
-/** The development mapping's Monitoring Group, conferring `ops:read`. */
-const MONITORING_GROUP = FIXTURE_GROUPS.monitoring;
+/** The development mapping's Auditors Group, conferring every read. */
+const AUDITORS_GROUP = FIXTURE_GROUPS.auditors;
 
 test("a connector adding a User to a Group that confers Permissions shows as a PERMISSION_GRANT", async ({
   page,
@@ -144,26 +144,28 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
   test.setTimeout(90_000);
   const userName = `${E2E_PREFIX}audit-grant-${runId()}`;
   const id = await provisionUser(connector.scim, userName);
-  const group = `/scim/v2/Groups/${MONITORING_GROUP}`;
+  const group = `/scim/v2/Groups/${AUDITORS_GROUP}`;
   try {
     const added = await scimPatch(connector.scim, group, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
-    expect(added.status(), "adding the User to Monitoring").toBe(200);
+    expect(added.status(), "adding the User to Auditors").toBe(200);
 
     await page.goto("/audit");
     await applyFilters(page, {
       actorId: connector.id,
       operation: "PERMISSION_GRANT",
-      resourceId: MONITORING_GROUP,
+      resourceId: AUDITORS_GROUP,
     });
     await expect(eventRows(page)).toHaveCount(1);
     const grant = eventRows(page).first();
     await expect(grant.getByRole("cell").nth(0)).toHaveText("PERMISSION_GRANT");
     await expect(grant.getByRole("cell").nth(1)).toHaveText("SUCCESS");
     await expect(grant.getByRole("cell").nth(2)).toHaveText(connector.id);
-    await expect(grant.getByRole("cell").nth(3)).toHaveText(`Group ${MONITORING_GROUP}`);
-    await expect(grant.getByRole("cell").last()).toHaveText("permissions: none → ops:read");
+    await expect(grant.getByRole("cell").nth(3)).toHaveText(`Group ${AUDITORS_GROUP}`);
+    await expect(grant.getByRole("cell").last()).toHaveText(
+      "permissions: none → audit:read, connector:read, group:read, ops:read, user:read",
+    );
   } finally {
     await scimPatch(connector.scim, group, [{ op: "remove", path: `members[value eq "${id}"]` }]);
     await deprovisionUser(connector.scim, id);

@@ -64,8 +64,8 @@ Admin group seeded earlier under another id keeps it.
 `local` profile, where startup fails rather than seeding them:
 
 - `app.dev-fixtures.groups` — one Group per development access level, under a
-  fixed id, with one User in it (Account admins, Auditors, Connector admins,
-  Monitoring, Helpdesk, and Disposable auditors, which the e2e suite deletes);
+  fixed id, with one User in it (Auditors, reading everything an administrator
+  reads, and Helpdesk, which adds `account:unlock`);
 - `baseline-member`, `dormant-member` and `dormant-groups` — see
   [dormancy](dormancy.md) for the dormant fixture;
 - `password` — every fixture User's password, `APP_DEV_FIXTURES_PASSWORD`, with no
@@ -82,11 +82,10 @@ spring:
 app:
   dev-fixtures:
     group-permissions:
-      - group: 00000000-0000-4000-8000-00000000a002 # Account admins
-        permissions: [user:read, account:unlock, group:read]
       - group: 00000000-0000-4000-8000-00000000a003 # Auditors
-        permissions: [audit:read]
-      # ...
+        permissions: [user:read, group:read, ops:read, connector:read, audit:read]
+      - group: 00000000-0000-4000-8000-00000000a006 # Helpdesk
+        permissions: [user:read, group:read, ops:read, connector:read, audit:read, account:unlock]
 ```
 
 - It is applied at startup, after the fixture Groups are created, and **only to a

@@ -9,7 +9,7 @@ import { ROUTE_READY } from "./route.helpers";
  * drifted between the backend and the SPA shows up here as a console error or
  * an alert before it shows up as a wrong screen.
  *
- * In the `admin` project, which runs after `user` and leaves the seeded User's
+ * In the `admin` project, which runs after `user` and leaves the guest fixture's
  * session alone, so `user.json` still replays a live session here.
  */
 

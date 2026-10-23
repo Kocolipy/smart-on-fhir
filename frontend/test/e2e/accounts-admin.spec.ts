@@ -136,8 +136,11 @@ test.describe.serial("ADMIN accounts page", () => {
     ).toHaveCount(1);
     await expect(
       groupsTable(page)
-        .getByRole("row", { name: /^Account admins/ })
-        .getByRole("cell", { exact: true, name: "account:unlock, group:read, user:read" }),
+        .getByRole("row", { name: /^Helpdesk/ })
+        .getByRole("cell", {
+          exact: true,
+          name: "account:unlock, audit:read, connector:read, group:read, ops:read, user:read",
+        }),
     ).toBeVisible();
     await expect(
       page.getByText(/A lockout never expires: Unlock is the only way it ends/),

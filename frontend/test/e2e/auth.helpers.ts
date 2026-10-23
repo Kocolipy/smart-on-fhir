@@ -41,10 +41,10 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fi
  * integration-test` runs under. The Superuser's User is the Bootstrap Admin, on
  * the password `auth.setup.ts` settles: a direct member of the Admin group,
  * which carries no Permission, its session holds every delegatable one,
- * expanded in code. The Connector admin holds `connector:read` and nothing
- * else: it lists connectors and administers none, which only a Superuser does.
- * The Helpdesk holds `user:read` and the helpdesk Permission `account:unlock`:
- * it lists the Users and Unlocks a locked one, and nothing more.
+ * expanded in code. The Auditor holds every read and changes nothing; the
+ * Helpdesk holds the same reads plus the helpdesk Permission `account:unlock`,
+ * so it also Unlocks a locked User. Neither administers connectors or sets a
+ * Group's Permissions, which only a Superuser does.
  */
 export const DEV_FIXTURES = {
   superuser: {
@@ -62,40 +62,34 @@ export const DEV_FIXTURES = {
       "user:read",
     ],
   },
-  accountAdmin: {
-    username: "account-admin",
-    password: FIXTURE_PASSWORD,
-    group: "00000000-0000-4000-8000-00000000a002",
-    superuser: false,
-    permissions: ["account:unlock", "group:read", "patient:read", "user:read"],
-  },
   auditor: {
     username: "auditor",
     password: FIXTURE_PASSWORD,
     group: "00000000-0000-4000-8000-00000000a003",
     superuser: false,
-    permissions: ["audit:read", "patient:read"],
-  },
-  connectorAdmin: {
-    username: "connector-admin",
-    password: FIXTURE_PASSWORD,
-    group: "00000000-0000-4000-8000-00000000a004",
-    superuser: false,
-    permissions: ["connector:read", "patient:read"],
-  },
-  monitoring: {
-    username: "monitoring",
-    password: FIXTURE_PASSWORD,
-    group: "00000000-0000-4000-8000-00000000a005",
-    superuser: false,
-    permissions: ["ops:read", "patient:read"],
+    permissions: [
+      "audit:read",
+      "connector:read",
+      "group:read",
+      "ops:read",
+      "patient:read",
+      "user:read",
+    ],
   },
   helpdesk: {
     username: "helpdesk",
     password: FIXTURE_PASSWORD,
     group: "00000000-0000-4000-8000-00000000a006",
     superuser: false,
-    permissions: ["account:unlock", "patient:read", "user:read"],
+    permissions: [
+      "account:unlock",
+      "audit:read",
+      "connector:read",
+      "group:read",
+      "ops:read",
+      "patient:read",
+      "user:read",
+    ],
   },
 } as const;
 

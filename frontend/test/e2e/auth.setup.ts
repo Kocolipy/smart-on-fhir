@@ -12,9 +12,9 @@ import {
 } from "./auth.helpers";
 import { sweepLeftovers } from "./scim.helpers";
 
-// `user` is the development fixture in no Group, on the fixture password.
+// `guest` is the development fixture in no Group, on the fixture password.
 setup("authenticate USER", async ({ page }) => {
-  await loginAs(page, "user", FIXTURE_PASSWORD);
+  await loginAs(page, "guest", FIXTURE_PASSWORD);
   await page.context().storageState({ path: "test/e2e/.auth/user.json" });
 });
 
