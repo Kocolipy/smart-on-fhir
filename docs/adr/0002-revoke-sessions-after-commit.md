@@ -87,3 +87,18 @@ ordering, and the framework-idiomatic route. Rejected for the reason ADR 0001
 rejected the analogous listener: reading the write would no longer reveal that
 sessions are revoked, and the indirection buys nothing while there is one
 consumer.
+
+## Amendments
+
+- 2026-10-23: **one failed revocation no longer stops the rest.** Spring runs a
+  transaction's synchronizations one after another and stops at the first that
+  throws, so with one synchronization per revocation a session store failing on
+  the first member of a Group whose Permissions were reduced left every later
+  member signed in, with no audit row and no alert. `AfterCommitAdapter` now
+  registers one synchronization per transaction and queues every piece of work on
+  it, in the order handed over; it runs them all, then throws the first failure
+  with each later one suppressed on it. Each revocation is therefore attempted,
+  audited and, on failure, alerted, and the request still fails as ADR 0004's
+  addendum decides; a failure-run lockout still swallows its own. The
+  `PendingCommit` double models the same guarantee, and
+  `AfterCommitRevocationTests` holds it through a real transaction manager.

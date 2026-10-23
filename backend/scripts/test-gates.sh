@@ -108,6 +108,7 @@ FAST_GATE=(
   com/example/backend/auth/infrastructure/session/EpicTokensAdapterTests
   com/example/backend/auth/infrastructure/session/SpringSessionAttributesTests
   com/example/backend/auth/infrastructure/transaction/AfterCommitAdapterTests
+  com/example/backend/auth/infrastructure/transaction/AfterCommitRevocationTests
   com/example/backend/authorization/config/AuthorizationChangeMetricsTests
   com/example/backend/authorization/domain/GroupPermissionValuesTests
   com/example/backend/authorization/domain/GroupPermissionsTests

@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -11,6 +12,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.AccountSessions;
@@ -389,6 +391,64 @@ class SessionRevocationServiceTests {
         assertThat(alerts.revocationFailures()).containsExactly(IllegalStateException.class);
     }
 
+    // ---- several revocations in one transaction -------------------------------------------------
+
+    /**
+     * One store call failing does not stop the revocations scheduled after it in the same
+     * transaction: each is still attempted, and audited as it ended.
+     */
+    @Test
+    void a_failed_revocation_does_not_stop_the_ones_scheduled_after_it() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        sessions.open(first, "s-first");
+        sessions.open(second, "s-second");
+        sessions.failFor(first, storeDown);
+
+        revocation.revokeAllAfterCommit(
+                first, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
+        revocation.revokeAllAfterCommit(
+                second, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
+        commitIgnoringFailure();
+
+        assertThat(audit.events(Audited.UserSessionsRevoked.class))
+                .extracting(Audited.UserSessionsRevoked::userId,
+                        Audited.UserSessionsRevoked::succeeded)
+                .containsExactly(tuple(first, false), tuple(second, true));
+    }
+
+    /** The request still fails, with the first failure, once every revocation was attempted. */
+    @Test
+    void the_first_failure_reaches_the_caller_once_every_revocation_was_attempted() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        sessions.open(second, "s-second");
+        sessions.failFor(first, storeDown);
+
+        revocation.revokeAllAfterCommit(
+                first, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
+        revocation.revokeAllAfterCommit(
+                second, SessionRevocationCause.GROUP_PERMISSIONS_REDUCED, ADMIN);
+
+        assertThatThrownBy(commit::commit).isSameAs(storeDown);
+    }
+
+    /** Every failure among them is alerted, not only the first. */
+    @Test
+    void every_failed_revocation_in_one_transaction_is_alerted() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        sessions.failFor(first, storeDown);
+        sessions.failFor(second, new UnsupportedOperationException("also down"));
+
+        revocation.revokeAllAfterCommit(first, SessionRevocationCause.DORMANCY_LOCKOUT, null);
+        revocation.revokeAllAfterCommit(second, SessionRevocationCause.DORMANCY_LOCKOUT, null);
+        commitIgnoringFailure();
+
+        assertThat(alerts.revocationFailures()).containsExactly(
+                IllegalStateException.class, UnsupportedOperationException.class);
+    }
+
     @Test
     void a_failed_scim_revocation_is_recorded_as_a_failure_and_propagates() {
         failing.revokeAfterCommit(CONNECTOR, user, Set.of(ScimUserSessions.Cause.USER_NAME_CHANGED));
@@ -427,7 +487,7 @@ class SessionRevocationServiceTests {
     private void commitIgnoringFailure() {
         try {
             commit.commit();
-        } catch (IllegalStateException expected) {
+        } catch (RuntimeException expected) {
             // asserted elsewhere: this test is about what was recorded
         }
     }

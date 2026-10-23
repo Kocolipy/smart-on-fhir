@@ -156,6 +156,29 @@ class GroupPermissionAdministrationServiceTests {
                 .isEqualTo(Map.of("ada", false, "bob", false, "outsider", true));
     }
 
+    /**
+     * The session store failing on one member does not spare the members after it: each is still
+     * signed out and audited, the failed one as a failure, and the Superuser's request still fails.
+     */
+    @Test
+    void aSessionStoreFailingOnOneMemberStillEndsEveryOtherMembersSessions() {
+        ScimUser ada = member("ada");
+        ScimUser bob = member("bob");
+        ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ, ada, bob);
+        sessions.open(ada.id(), "ada-session");
+        sessions.open(bob.id(), "bob-session");
+        sessions.failFor(ada.id(), new IllegalStateException("session store timed out"));
+
+        service.setPermissions(auditors.id(), List.of(), SUPERUSER);
+        catchThrowable(transaction::commit);
+
+        assertThat(audit.events(Audited.UserSessionsRevoked.class))
+                .extracting(Audited.UserSessionsRevoked::userId,
+                        Audited.UserSessionsRevoked::succeeded)
+                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(ada.id(), false),
+                        org.assertj.core.groups.Tuple.tuple(bob.id(), true));
+    }
+
     @Test
     void aRolledBackShrinkEndsNoSession() {
         ScimUser ada = member("ada");

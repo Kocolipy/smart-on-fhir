@@ -27,6 +27,8 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     private RuntimeException failure;
 
+    private final Map<UUID, RuntimeException> failingAccounts = new LinkedHashMap<>();
+
     /** Record a session this account holds, as a successful login would. */
     public void open(UUID accountId, String sessionId) {
         live.computeIfAbsent(accountId, key -> new ArrayList<>()).add(sessionId);
@@ -46,9 +48,21 @@ public final class InMemoryAccountSessions implements AccountSessions {
         this.failure = failure;
     }
 
-    private void failIfDown() {
+    /**
+     * Makes every revocation of {@code accountId}'s sessions fail with {@code failure}, as a
+     * session store timing out on one call would, while every other account's still works.
+     */
+    public void failFor(UUID accountId, RuntimeException failure) {
+        failingAccounts.put(accountId, failure);
+    }
+
+    private void failIfDown(UUID accountId) {
         if (failure != null) {
             throw failure;
+        }
+        RuntimeException failing = failingAccounts.get(accountId);
+        if (failing != null) {
+            throw failing;
         }
     }
 
@@ -64,7 +78,7 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     @Override
     public int revokeAll(UUID accountId) {
-        failIfDown();
+        failIfDown(accountId);
         revocations.add(accountId);
         List<String> ended = live.remove(accountId);
         return ended == null ? 0 : ended.size();
@@ -81,7 +95,7 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     @Override
     public int revokeAllExcept(UUID accountId, String retainedSessionId) {
-        failIfDown();
+        failIfDown(accountId);
         loginRevocations.add(accountId);
         List<String> held = live.getOrDefault(accountId, List.of());
         List<String> kept = held.stream().filter(id -> id.equals(retainedSessionId)).toList();

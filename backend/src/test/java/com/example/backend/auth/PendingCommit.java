@@ -13,6 +13,10 @@ import java.util.List;
  * immediately could not tell the two orderings apart. A test that wants the
  * deferred work to happen says {@link #commit()}; one that wants a failed
  * transaction says {@link #rollback()}, or simply never commits.
+ *
+ * <p>Models what the adapter guarantees of a failure by running the same loop,
+ * {@link AfterCommit#runEach}: every piece of work runs whatever an earlier one threw, and the
+ * commit then throws the first failure, each later one suppressed on it.
  */
 public final class PendingCommit implements AfterCommit {
 
@@ -28,11 +32,17 @@ public final class PendingCommit implements AfterCommit {
         return pending.size();
     }
 
-    /** Commits, running everything that was waiting on it, in order. */
+    /**
+     * Commits, running everything that was waiting on it, in order — all of it, even after a
+     * piece fails, and any work a piece hands over in the meantime, as the adapter's queue
+     * does — and then throws the first failure, with each later one suppressed on it.
+     */
     public void commit() {
-        List<Runnable> work = List.copyOf(pending);
-        pending.clear();
-        work.forEach(Runnable::run);
+        try {
+            AfterCommit.runEach(pending);
+        } finally {
+            pending.clear();
+        }
     }
 
     /** Rolls back, discarding the work unrun. */
