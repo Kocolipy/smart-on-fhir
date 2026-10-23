@@ -8,7 +8,7 @@ import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
-import com.example.backend.auth.application.GroupPermissionsRefusedException;
+import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
@@ -86,14 +86,14 @@ class AdminGroupControllerTests {
         for (JsonNode refused : new JsonNode[] {null, body("{\"permissions\":[]}"),
                 body("\"audit:read\""), body("[\"audit:read\",7]"), body("[[\"audit:read\"]]"),
                 body("[null]")}) {
-            assertThatExceptionOfType(GroupPermissionsRefusedException.class)
+            assertThatExceptionOfType(GroupPermissionsChangeRefusedException.class)
                     .as("%s", refused)
                     .isThrownBy(() -> controller.setPermissions(
                             auditors.id(), refused, signedInAsSuperuser()))
                     .satisfies(invalid -> assertThat(List.of(
                                     invalid.reason(), invalid.actorId(), invalid.groupId()))
                             .containsExactly(
-                                    GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS,
+                                    GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS,
                                     SUPERUSER, auditors.id()));
         }
         assertThat(audit.events()).isEmpty();

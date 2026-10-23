@@ -6,8 +6,8 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.GroupPermissionValues;
 import com.example.backend.authorization.domain.InvalidGroupPermissionsException;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.authorization.domain.StoredGroupPermission;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.GroupPermissionRefusal;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -25,6 +25,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -263,38 +265,52 @@ public class ScimSeedService {
      *
      * <p>Called only when {@code app.dev-fixtures.enabled} is set, after the fixture Groups exist,
      * and only the {@code local} profile names any. Every fixture is checked before any is
-     * applied, so a bad one fails startup with nothing written: a name the vocabulary does not
-     * have or that no Group may carry, a Group that does not exist, and the Admin group, which
-     * carries none because its members are the Superuser. Like the rest of the development
-     * seeding it is not audited.
+     * applied, so a bad one fails startup with nothing written, every problem named: a name the
+     * vocabulary does not have, and whatever the Group Permissions store refuses
+     * ({@link ScimGroupPermissionStore#refusal}) — a Permission no Group may carry, a Group that
+     * does not exist, and the Admin group, which carries none because its members are the
+     * Superuser. Like the rest of the development seeding it is not audited.
      *
      * @param fixtures each Group's stable id and the Permission names it is given
      */
     @Transactional
     public void seedGroupPermissionFixtures(List<GroupPermissionFixture> fixtures) {
         seedLock.acquire();
-        List<StoredGroupPermission> named = new ArrayList<>();
-        fixtures.forEach(fixture -> fixture.permissions()
-                .forEach(value -> named.add(new StoredGroupPermission(fixture.groupId(), value))));
-        Map<UUID, Set<Permission>> carried = GroupPermissionValues.validated(named);
         List<String> problems = new ArrayList<>();
+        Map<UUID, Set<Permission>> given = new LinkedHashMap<>();
         for (GroupPermissionFixture fixture : fixtures) {
-            Optional<ScimGroup> group = groups.findById(fixture.groupId());
-            if (group.isEmpty()) {
-                problems.add("Group " + fixture.groupId() + " does not exist");
-            } else if (group.get().reservedName() == ReservedResourceName.ADMIN_GROUP) {
-                problems.add("Group " + fixture.groupId()
-                        + " is the Admin group, whose members are the Superuser");
+            Set<Permission> permissions = given.computeIfAbsent(
+                    fixture.groupId(), group -> EnumSet.noneOf(Permission.class));
+            for (String value : fixture.permissions()) {
+                Permission.fromValue(value).ifPresentOrElse(permissions::add,
+                        () -> problems.add(
+                                GroupPermissionValues.unknownPermission(fixture.groupId(), value)));
             }
         }
+        given.forEach((groupId, permissions) -> groupPermissions.refusal(groupId, permissions)
+                .ifPresent(refusal -> problems.addAll(problems(groupId, refusal))));
         if (!problems.isEmpty()) {
             throw new InvalidGroupPermissionsException(problems);
         }
-        carried.forEach((groupId, permissions) -> {
+        given.forEach((groupId, permissions) -> {
             if (!groupPermissions.carriesAny(groupId)) {
                 groupPermissions.add(groupId, permissions);
             }
         });
+    }
+
+    /** The store's refusal of a fixture, spelled as startup reports it: one line per problem. */
+    private static List<String> problems(UUID groupId, GroupPermissionRefusal refusal) {
+        return switch (refusal) {
+            case GroupPermissionRefusal.NotDelegatable(Set<Permission> refused) -> refused.stream()
+                    .map(permission ->
+                            GroupPermissionValues.notCarriable(groupId, permission.value()))
+                    .toList();
+            case GroupPermissionRefusal.UnknownGroup _ ->
+                    List.of("Group " + groupId + " does not exist");
+            case GroupPermissionRefusal.AdminGroup _ -> List.of("Group " + groupId
+                    + " is the Admin group, whose members are the Superuser");
+        };
     }
 
     /**

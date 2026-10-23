@@ -3,7 +3,7 @@ package com.example.backend.auth.controller;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.application.AdministrativeRefusalException;
-import com.example.backend.auth.application.GroupPermissionsRefusedException;
+import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -81,7 +81,7 @@ final class AdminRefusals {
     static Entry of(AdministrativeRefusalException refused) {
         return switch (refused) {
             case UnlockRefusedException unlock -> unlock(unlock);
-            case GroupPermissionsRefusedException change -> groupPermissions(change);
+            case GroupPermissionsChangeRefusedException change -> groupPermissions(change);
         };
     }
 
@@ -110,7 +110,7 @@ final class AdminRefusals {
      * caller is the Superuser, so a {@code 404} naming what is missing reveals nothing the listing
      * would not.
      */
-    private static Entry groupPermissions(GroupPermissionsRefusedException refused) {
+    private static Entry groupPermissions(GroupPermissionsChangeRefusedException refused) {
         return switch (refused.reason()) {
             case INVALID_PERMISSIONS -> groupPermissions(refused, HttpStatus.BAD_REQUEST,
                     AuditAdministrativeRefusal.INVALID_PERMISSIONS);
@@ -191,7 +191,7 @@ final class AdminRefusals {
                 LogEvent.USER_TARGET_ID, refused.userId(), reason);
     }
 
-    private static Entry groupPermissions(GroupPermissionsRefusedException refused,
+    private static Entry groupPermissions(GroupPermissionsChangeRefusedException refused,
             HttpStatus status, AuditAdministrativeRefusal reason) {
         return new Entry(status, Body.API_ERROR,
                 about(LogEvent.refused(log, Operation.GROUP_PERMISSIONS_CHANGE, Category.PROCESS,

@@ -2,7 +2,7 @@ package com.example.backend.auth.controller;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.AdministrativeRefusalException;
-import com.example.backend.auth.application.GroupPermissionsRefusedException;
+import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.scim.application.ConnectorAdministrationRefusedException;
 import com.example.backend.scim.controller.AdminConnectorController;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
@@ -111,8 +111,8 @@ public class AdminExceptionHandler {
 
         @ExceptionHandler(HttpMessageNotReadableException.class)
         ResponseEntity<ApiError> handle(HttpServletRequest request) {
-            return edge.handle(new GroupPermissionsRefusedException(
-                    GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS,
+            return edge.handle(new GroupPermissionsChangeRefusedException(
+                    GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS,
                     HttpSessionAttributes.ownerOf(request), addressedGroup(request)));
         }
 

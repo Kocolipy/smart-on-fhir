@@ -13,7 +13,7 @@ package com.example.backend.auth.application;
  * transaction has rolled back (ADR 0004's 2026-10-22 addendum).
  */
 public abstract sealed class AdministrativeRefusalException extends RuntimeException
-        permits UnlockRefusedException, GroupPermissionsRefusedException {
+        permits UnlockRefusedException, GroupPermissionsChangeRefusedException {
 
     AdministrativeRefusalException(String message) {
         super(message);

@@ -162,7 +162,8 @@ session's principal carries. A connector may rename a User between its Login and
 its next request, so a name comparison would let an Admin whose own name had moved
 act on themselves past the guard, and refuse an Admin acting on whichever User
 took its former name. Connector administration records its acting Admin the same
-way. A session that identifies nobody cannot Unlock (`401`).
+way, and the Accounts page hides Unlock on the Admin's own row by the same
+comparison, against the stable id `GET /api/auth/me` reports. A session that identifies nobody cannot Unlock (`401`).
 
 **The Bootstrap Admin is never locked** and is protected from every SCIM write,
 deactivation included, so a deployment whose other Admins are all locked is still

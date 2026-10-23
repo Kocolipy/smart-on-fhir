@@ -42,6 +42,16 @@ public record HttpSessionAttributes(HttpSession session) implements SignedInSess
         if (session == null) {
             throw new UnknownSessionIdentityException();
         }
+        return ownerOf(session);
+    }
+
+    /**
+     * The stable id of the User {@code session} is signed in to, as {@link
+     * #ownerOf(HttpServletRequest)} reads it, for a handler that already holds the session.
+     *
+     * @throws UnknownSessionIdentityException if the session names no stable id
+     */
+    public static UUID ownerOf(HttpSession session) {
         return signedIn(session).owner().orElseThrow(UnknownSessionIdentityException::new);
     }
 

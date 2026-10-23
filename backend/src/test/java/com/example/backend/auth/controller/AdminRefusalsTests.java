@@ -11,7 +11,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.application.AdministrativeRefusalException;
-import com.example.backend.auth.application.GroupPermissionsRefusedException;
+import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.application.ConnectorAdministrationRefusedException;
@@ -132,21 +132,21 @@ class AdminRefusalsTests {
                                         ACTOR, TARGET, AuditAdministrativeRefusal.NOT_LOCKED)))),
                 // A Group's Permissions
                 refusal("a body that is no set of delegatable Permissions", edge -> edge.handle(
-                                new GroupPermissionsRefusedException(
-                                        GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS,
+                                new GroupPermissionsChangeRefusedException(
+                                        GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS,
                                         ACTOR, TARGET)),
                         new Outcome(400, INVALID_REQUEST, Level.WARN,
                                 groupRecord("INVALID_PERMISSIONS"),
                                 List.of(groupRefused(AuditAdministrativeRefusal.INVALID_PERMISSIONS)))),
                 refusal("an unknown Group", edge -> edge.handle(
-                                new GroupPermissionsRefusedException(
-                                        GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP,
+                                new GroupPermissionsChangeRefusedException(
+                                        GroupPermissionsChangeRefusedException.Reason.UNKNOWN_GROUP,
                                         ACTOR, TARGET)),
                         new Outcome(404, NOT_FOUND, Level.WARN, groupRecord("UNKNOWN_RESOURCE"),
                                 List.of(groupRefused(AuditAdministrativeRefusal.UNKNOWN_RESOURCE)))),
                 refusal("the Admin group", edge -> edge.handle(
-                                new GroupPermissionsRefusedException(
-                                        GroupPermissionsRefusedException.Reason.ADMIN_GROUP,
+                                new GroupPermissionsChangeRefusedException(
+                                        GroupPermissionsChangeRefusedException.Reason.ADMIN_GROUP,
                                         ACTOR, TARGET)),
                         new Outcome(409, CONFLICT, Level.WARN, groupRecord("PROTECTED_RESOURCE"),
                                 List.of(groupRefused(
@@ -287,8 +287,8 @@ class AdminRefusalsTests {
                                 new UnlockRefusedException(
                                         UnlockRefusedException.Reason.NOT_LOCKED, ACTOR, TARGET)),
                         resolve(resolver, handler(AdminGroupController.class, "listGroups"),
-                                new GroupPermissionsRefusedException(
-                                        GroupPermissionsRefusedException.Reason.ADMIN_GROUP,
+                                new GroupPermissionsChangeRefusedException(
+                                        GroupPermissionsChangeRefusedException.Reason.ADMIN_GROUP,
                                         ACTOR, TARGET)),
                         resolve(resolver,
                                 handler(AdminConnectorController.class, "listConnectors"),

@@ -303,6 +303,11 @@ paths:
         a Permission and is never among `permissions`, but a Superuser's
         `permissions` include every delegatable Permission. Holding every
         Permission does not make a session the Superuser.
+
+        `id` is the stable id the session is signed in to, which a client
+        compares to recognise the caller's own User. A session that identifies
+        nobody — no principal index, or one that is no stable id — is refused
+        `401`, as an anonymous request is.
       operationId: getCurrentUser
       security:
         - sessionCookie: []
@@ -3275,6 +3280,7 @@ components:
       type: object
       required:
         [
+          id,
           username,
           permissions,
           superuser,
@@ -3282,8 +3288,20 @@ components:
           idleTimeoutSeconds,
         ]
       properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            The stable id of the User this session is signed in to — the id its
+            principal index holds, and the one an operation's self-target check
+            compares. A client recognises the caller's own User by this id, never
+            by `username`: a connector can rename a User while its session lives,
+            or give another User the session's former name.
         username:
           type: string
+          description: |
+            The User's `userName` when it signed in. A display value: it does not
+            identify the User across a rename.
         permissions:
           type: array
           items:

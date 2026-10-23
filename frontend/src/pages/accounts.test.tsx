@@ -25,6 +25,7 @@ const CONNECTORS = "GET /api/admin/connectors";
 const SUPERUSER = holding(EVERY_PERMISSION);
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
+const ALICE_ID = "00000000-0000-4000-8000-0000000000a1";
 
 /** A row; `lockCause` follows `locked` (a failure lock) unless the test names one. */
 const userRow = (overrides: Partial<UserRow> = {}): UserRow => ({
@@ -315,17 +316,36 @@ describe("Accounts", () => {
   });
 
   /**
-   * The backend refuses both with a 403; hiding them makes the refusal visible
-   * before the click. The session name is compared the way the backend compares
-   * it, so a differently-cased spelling still recognises its own row.
+   * The backend refuses Unlock of the caller's own account with a 403, deciding
+   * "own" by stable id; hiding it makes the refusal visible before the click.
+   * The page decides the same way, so a session whose User a connector renamed
+   * after sign-in still recognises its own row.
    */
-  it("offers the signed-in Admin neither action on their own account", async () => {
-    await renderAccounts({
-      [USERS]: json([userRow({ admin: true, locked: true, userName: "ADA" })]),
-    });
+  it("offers the signed-in Admin no action on their own account after a rename", async () => {
+    await renderAccounts(
+      {
+        [USERS]: json([
+          userRow({ admin: true, id: ALICE_ID, locked: true, userName: "alice.tan" }),
+        ]),
+      },
+      holding(EVERY_PERMISSION, { id: ALICE_ID, username: "alice" }),
+    );
 
-    await screen.findByRole("rowheader", { name: /^ADA/ });
+    await screen.findByRole("rowheader", { name: /^alice\.tan/ });
     expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  /**
+   * A User a connector gave the session's name is still another User: the
+   * backend allows Unlock on them, so the page offers it.
+   */
+  it("offers Unlock on another User who now holds the session's name", async () => {
+    await renderAccounts(
+      { [USERS]: json([userRow({ locked: true, userName: "alice" })]) },
+      holding(EVERY_PERMISSION, { id: ALICE_ID, username: "alice" }),
+    );
+
+    expect(await screen.findByRole("button", { name: "Unlock alice" })).toBeEnabled();
   });
 
   it("shows the Bootstrap Admin with no lockout state and no Unlock", async () => {
@@ -455,20 +475,6 @@ describe("Accounts", () => {
     expect(screen.getByRole("button", { name: "Unlock grace" })).toBeEnabled();
     expect(session().status).toBe("authenticated");
     expect(requests()).not.toContainEqual(expect.objectContaining({ path: "/api/auth/logout" }));
-  });
-
-  /**
-   * The route guard means a signed-in user is always present, but the context
-   * types it as optional; the page must not throw while it is absent, and with
-   * no name to compare it recognises no row as the caller's own.
-   */
-  it("treats no row as the caller's own when the session names no user", async () => {
-    await renderAccounts(
-      { [USERS]: json([userRow({ locked: true })]) },
-      holding(EVERY_PERMISSION, { username: "" }),
-    );
-
-    expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
   it("shows no view at all without a signed-in user, whose Permissions are unknown", async () => {

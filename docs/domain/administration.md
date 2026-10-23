@@ -23,8 +23,9 @@ owns, plus the application-owned operations:
 - connector and token management with one-time plaintext disclosure.
 
 Unlock addresses the User by its stable id. It is not offered on the signed-in
-Admin's own row (comparing the normalized `userName`), on the Bootstrap Admin, or
-on any User that is not locked, so the backend's
+Admin's own row — the row whose stable id the session holds, which `GET
+/api/auth/me` reports, never one picked out by `userName` — on the Bootstrap
+Admin, or on any User that is not locked, so the backend's
 [refusals](./authentication.md) are visible before the click. There is no forced
 password change: the helpdesk Permission acts only on a locked User (ADR 0015's
 2026-10-22 addendum). There is

@@ -22,6 +22,14 @@ export type Permission = (typeof PERMISSIONS)[number];
 
 export interface AuthUser {
   /**
+   * The stable id of the session's User — the id it was signed in to, which
+   * the backend compares to decide whether an operation targets the caller's
+   * own account. A page recognises the caller's own row by this, never by
+   * `username`: a connector can rename a User mid-session, or give another
+   * User the session's old name.
+   */
+  id: string;
+  /**
    * What the session may do, as the backend issued it at sign-in: the union of
    * the baseline and the Permissions its direct Groups carry — for a Superuser,
    * every delegatable one. Empty while
@@ -75,6 +83,7 @@ const decodeUser = jsonDecoder((body: unknown): AuthUser => {
     superuser: user.boolean("superuser"),
     permissions: user.array("permissions", decodePermission),
     username: user.string("username"),
+    id: user.string("id"),
   };
 });
 

@@ -9,15 +9,16 @@ import java.util.UUID;
  * held. The administrative edge answers, logs and audits each reason
  * ({@code auth.controller.AdminRefusals}).
  */
-public final class GroupPermissionsRefusedException extends AdministrativeRefusalException {
+public final class GroupPermissionsChangeRefusedException extends AdministrativeRefusalException {
 
     /** Why the change was refused, in the order the use case decides them. */
     public enum Reason {
 
         /**
          * The body is not a set of Permissions a Group may carry: missing, not JSON, not an array
-         * of names, or naming something that is not a delegatable Permission. Decided before the
-         * Group is locked or looked up.
+         * of names, or naming something that is not a delegatable Permission. A body that is no
+         * set of names is decided before the Group is locked; a Permission no Group may carry is
+         * the Group Permissions store's refusal, read first once the lock is held.
          */
         INVALID_PERMISSIONS,
 
@@ -41,7 +42,7 @@ public final class GroupPermissionsRefusedException extends AdministrativeRefusa
      * @param actorId the Superuser's stable id, as its signed-in session holds it
      * @param groupId the Group the request's path addressed, which may not exist
      */
-    public GroupPermissionsRefusedException(Reason reason, UUID actorId, UUID groupId) {
+    public GroupPermissionsChangeRefusedException(Reason reason, UUID actorId, UUID groupId) {
         super("Group Permissions change refused");
         this.reason = reason;
         this.actorId = Objects.requireNonNull(actorId,

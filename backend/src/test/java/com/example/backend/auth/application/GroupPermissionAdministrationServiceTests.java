@@ -236,7 +236,7 @@ class GroupPermissionAdministrationServiceTests {
         ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ);
 
         assertRefused(() -> service.setPermissions(auditors.id(), null, SUPERUSER),
-                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
+                GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
         assertNothingWritten(auditors, Permission.AUDIT_READ);
     }
 
@@ -252,18 +252,31 @@ class GroupPermissionAdministrationServiceTests {
 
         assertRefused(() -> service.setPermissions(
                         auditors.id(), List.of("ops:read", value), SUPERUSER),
-                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
+                GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS, auditors.id());
         assertNothingWritten(auditors, Permission.AUDIT_READ);
     }
 
-    /** The body is judged before the Group is locked or looked up. */
+    /** A body that is no set of Permission names is judged before the Group is locked. */
     @Test
     void anInvalidBodyIsRefusedBeforeTheGroupIsLockedOrLookedUp() {
         UUID nowhere = UUID.fromString("00000000-0000-4000-8000-0000000dead0");
 
-        assertRefused(() -> service.setPermissions(nowhere, List.of("user:write"), SUPERUSER),
-                GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, nowhere);
+        assertRefused(() -> service.setPermissions(nowhere, List.of("user:frobnicate"), SUPERUSER),
+                GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS, nowhere);
         assertThat(writeLocks.requests()).isEmpty();
+    }
+
+    /**
+     * A Permission no Group may carry is the store's first refusal, read once the lock is held and
+     * ahead of whether the Group exists: what is asked for is wrong whichever Group it is asked
+     * for.
+     */
+    @Test
+    void aPermissionNoGroupMayCarryIsRefusedAheadOfAnUnknownGroup() {
+        UUID nowhere = UUID.fromString("00000000-0000-4000-8000-0000000dead0");
+
+        assertRefused(() -> service.setPermissions(nowhere, List.of("user:write"), SUPERUSER),
+                GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS, nowhere);
     }
 
     @Test
@@ -271,7 +284,7 @@ class GroupPermissionAdministrationServiceTests {
         UUID nowhere = UUID.fromString("00000000-0000-4000-8000-0000000dead0");
 
         assertRefused(() -> service.setPermissions(nowhere, List.of("audit:read"), SUPERUSER),
-                GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, nowhere);
+                GroupPermissionsChangeRefusedException.Reason.UNKNOWN_GROUP, nowhere);
         assertThat(audit.events()).isEmpty();
     }
 
@@ -281,7 +294,7 @@ class GroupPermissionAdministrationServiceTests {
         groups.deleteById(gone.id(), ScimIdentities.NOW);
 
         assertRefused(() -> service.setPermissions(gone.id(), List.of("ops:read"), SUPERUSER),
-                GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, gone.id());
+                GroupPermissionsChangeRefusedException.Reason.UNKNOWN_GROUP, gone.id());
         assertThat(audit.events()).isEmpty();
     }
 
@@ -292,7 +305,7 @@ class GroupPermissionAdministrationServiceTests {
                 ScimIdentities.group("Admins", member("root")), ReservedResourceName.ADMIN_GROUP);
 
         assertRefused(() -> service.setPermissions(admins.id(), List.of("audit:read"), SUPERUSER),
-                GroupPermissionsRefusedException.Reason.ADMIN_GROUP, admins.id());
+                GroupPermissionsChangeRefusedException.Reason.ADMIN_GROUP, admins.id());
         assertNothingWritten(admins);
     }
 
@@ -355,8 +368,8 @@ class GroupPermissionAdministrationServiceTests {
 
     /** The change is refused for {@code reason}, naming the Superuser and the Group addressed. */
     private static void assertRefused(
-            ThrowingCallable change, GroupPermissionsRefusedException.Reason reason, UUID groupId) {
-        assertThatExceptionOfType(GroupPermissionsRefusedException.class)
+            ThrowingCallable change, GroupPermissionsChangeRefusedException.Reason reason, UUID groupId) {
+        assertThatExceptionOfType(GroupPermissionsChangeRefusedException.class)
                 .isThrownBy(change)
                 .satisfies(refused -> assertThat(List.<Object>of(
                                 refused.reason(), refused.actorId(), refused.groupId()))

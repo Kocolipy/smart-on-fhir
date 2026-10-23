@@ -11,7 +11,7 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
-import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.GroupPermissionRefusal;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupPermissionStore;
@@ -38,18 +38,20 @@ import org.springframework.transaction.annotation.Transactional;
  * membership change, never interleave: the members whose sessions a shrink ends are the members
  * the Group has when the new set is stored.
  *
- * <p>Refused before anything is written, in this order, by throwing a
- * {@link GroupPermissionsRefusedException} naming the Superuser, the Group addressed and one
- * generic reason — never a Permission. The administrative edge answers, logs and audits it as a
- * {@code GROUP_PERMISSIONS_CHANGE} failure ({@code auth.controller.AdminRefusals}); nothing here
- * records it:
+ * <p>Refused before anything is written by throwing a {@link GroupPermissionsChangeRefusedException}
+ * naming the Superuser, the Group addressed and one generic reason — never a Permission. The
+ * administrative edge answers, logs and audits it as a {@code GROUP_PERMISSIONS_CHANGE} failure
+ * ({@code auth.controller.AdminRefusals}); nothing here records it. A body that is no set of names
+ * is refused here, before the lock; every other refusal is the Group Permissions store's
+ * ({@link ScimGroupPermissionStore#refusal}), asked once the lock is held and reported in its
+ * order:
  *
  * <ul>
  *   <li>a body that is not a set of Permissions a Group may carry — missing, not an array of names,
  *       or naming something that is not a {@linkplain Permission#delegatable() delegatable}
- *       Permission ({@code INVALID_PERMISSIONS}), judged before the Group is locked or looked up;
- *       a body that is not JSON at all never reaches this use case, and the edge refuses it the
- *       same way;
+ *       Permission ({@code INVALID_PERMISSIONS}) — a body that is no set of names here, before the
+ *       lock, and a name that is no delegatable Permission by the store; a body that is not JSON
+ *       at all never reaches this use case, and the edge refuses it the same way;
  *   <li>a Group that does not exist, or no longer does ({@code UNKNOWN_GROUP});
  *   <li>the Admin group, recognised by its reservation marker, whose direct members' power is the
  *       Superuser rather than a Permission ({@code ADMIN_GROUP}).
@@ -110,23 +112,19 @@ public class GroupPermissionAdministrationService {
     @RetriedOnDeadlock(Operation.GROUP_PERMISSIONS_CHANGE)
     public GroupSummary setPermissions(UUID groupId, List<String> requested, UUID actorId) {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
-        Optional<Set<Permission>> named = delegatable(requested);
+        Optional<Set<Permission>> named = named(requested);
         if (named.isEmpty()) {
-            throw new GroupPermissionsRefusedException(
-                    GroupPermissionsRefusedException.Reason.INVALID_PERMISSIONS, actorId, groupId);
+            throw new GroupPermissionsChangeRefusedException(
+                    GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS, actorId, groupId);
         }
         Set<Permission> after = named.get();
         writeLocks.lock(List.of(groupId));
-        Optional<ScimGroup> found = groups.findById(groupId);
-        if (found.isEmpty()) {
-            throw new GroupPermissionsRefusedException(
-                    GroupPermissionsRefusedException.Reason.UNKNOWN_GROUP, actorId, groupId);
+        Optional<GroupPermissionRefusal> refusal = store.refusal(groupId, after);
+        if (refusal.isPresent()) {
+            throw refusedFor(actorId, groupId, refusal.get());
         }
-        ScimGroup group = found.get();
-        if (group.reservedName() == ReservedResourceName.ADMIN_GROUP) {
-            throw new GroupPermissionsRefusedException(
-                    GroupPermissionsRefusedException.Reason.ADMIN_GROUP, actorId, groupId);
-        }
+        // The store found the Group, and the lock keeps it until the transaction ends.
+        ScimGroup group = groups.findById(groupId).orElseThrow();
         Set<Permission> before =
                 permissions.carriedBy(List.of(groupId)).getOrDefault(groupId, Set.of());
         store.replace(groupId, after);
@@ -144,22 +142,39 @@ public class GroupPermissionAdministrationService {
 
     /**
      * The requested names as the Permissions they spell, duplicates collapsed, or empty when the
-     * body is missing or a name is not a Permission a Group may carry.
+     * body is missing or a name is not a Permission at all. Whether a Group may carry them is the
+     * store's to say ({@link ScimGroupPermissionStore#refusal}).
      */
-    private static Optional<Set<Permission>> delegatable(List<String> requested) {
+    private static Optional<Set<Permission>> named(List<String> requested) {
         if (requested == null) {
             return Optional.empty();
         }
         Set<Permission> named = EnumSet.noneOf(Permission.class);
         for (String name : requested) {
-            Optional<Permission> permission =
-                    Permission.fromValue(name).filter(Permission::delegatable);
+            Optional<Permission> permission = Permission.fromValue(name);
             if (permission.isEmpty()) {
                 return Optional.empty();
             }
             named.add(permission.get());
         }
         return Optional.of(named);
+    }
+
+    /**
+     * The store's refusal as this change's own: a Permission no Group may carry is a body that is
+     * no set of them.
+     */
+    private static GroupPermissionsChangeRefusedException refusedFor(
+            UUID actorId, UUID groupId, GroupPermissionRefusal refusal) {
+        GroupPermissionsChangeRefusedException.Reason reason = switch (refusal) {
+            case GroupPermissionRefusal.NotDelegatable _ ->
+                    GroupPermissionsChangeRefusedException.Reason.INVALID_PERMISSIONS;
+            case GroupPermissionRefusal.UnknownGroup _ ->
+                    GroupPermissionsChangeRefusedException.Reason.UNKNOWN_GROUP;
+            case GroupPermissionRefusal.AdminGroup _ ->
+                    GroupPermissionsChangeRefusedException.Reason.ADMIN_GROUP;
+        };
+        return new GroupPermissionsChangeRefusedException(reason, actorId, groupId);
     }
 
     /**
