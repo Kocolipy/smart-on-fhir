@@ -20,9 +20,9 @@ Epic verifies that client authentication against a JWKS the application publishe
 and fetches it from us. How the application holds and rotates its signing keys
 therefore has to suit Epic's verifier and the deployment's secrets handling.
 
-ADR-0011 records "no organisational IdP/SSO" and puts OAuth/JWT flows out of scope.
-This ADR refines it for exactly one flow: the SMART on FHIR EHR launch, for
-clinicians, with password Login kept unchanged beside it.
+ADR 0011 puts OAuth flows out of scope. This ADR refines it for exactly one flow:
+the SMART on FHIR EHR launch, for clinicians, with password Login kept unchanged
+beside it.
 
 The goal: a clinician working in Epic opens this application from Epic and is
 signed in without a password. Epic's EHR launch proves who they are; the validated
@@ -281,9 +281,8 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   does **not** lengthen a failure run: Epic checked the credential, not us, so a
   refusal is no evidence of guessing. Counting it would also let anyone whose
   Epic ID is a case variant of a User's `userName` lock that User out by
-  launching. `LoginOutcomeService` therefore records the `LOGIN_FAILURE` through
-  `AuditTrail.recordLoginRefusal`, which neither reads nor writes the User's login
-  state, and the record names no changed path.
+  launching. `LoginOutcomeService` therefore appends the `LOGIN_FAILURE` as an
+  `Audited.LoginRefusal`, which neither reads nor writes the User's login state, and the record names no changed path.
 - **D15: a login method on every Login record.** `LOGIN_SUCCESS`,
   `LOGIN_FAILURE` and the operational `session-start` carry `password` or `sso`
   (the audit trail's `login_method` column, the log's `app.login.method`), and the
@@ -328,12 +327,11 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   directory: that ends their sessions after the deactivation commits (a session
   revocation trigger, `/docs/domain/sessions.md`) and refuses every later Epic Login
   as `ACCOUNT_DISABLED`. It is also reported to the Epic organisation, whose
-  credential it was. Forced password change does not apply: an Epic Login
+  credential it was. Requiring a password change does not apply: an Epic Login
   presents no password of ours. For the same reason the change-required flag
   does not confine an Epic Login: a flagged User signed in through Epic holds
   the authorities it would hold unflagged, and the Login moves its dormancy
-  basis, while the flag stays set for its password Login (ADR 0008's 2026-10-09
-  addendum, #23).
+  basis, while the flag stays set for its password Login (ADR 0008, #23).
 - **D21: `https` only, outside the dev profile.** `APP_EPIC_OAUTH_ISSUER`,
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and
@@ -717,21 +715,21 @@ Checked against `Appfw-User-Standards/User_SSO` and `Appfw-Logging-Standards`. T
 findings were resolved with the owner; most became the decisions above, and these
 remain **conscious deviations**:
 
-| Standard requirement | Deviation | Why |
-| --- | --- | --- |
+| Standard requirement                                                           | Deviation                                                        | Why                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SSO §3.2: callback failures `400`, token failures `401`, IdP unavailable `502` | `302 /login?signin=refused` or `/login?signin=unavailable` (D23) | The callback is a navigation in the clinician's browser, where a bare status is a dead end; one answer per outcome gives a prober nothing to enumerate, and the audit reason keeps the detail. |
-| SSO §4: application-layer rate limiting, 10–60 per registration per minute | Edge throttling only (D19) | The edge throttles every public authentication route already (ADR 0011, as-4) and keeps a flood off the JVM and off Epic's token endpoint. |
-| SSO §4: a registry of redeemed authorization codes | None (D27) | The pending request is single-use, so a replayed callback is refused before any token call; Epic's codes are single-use at Epic. |
-| SSO §4: consumed `state` tracked against reuse across sessions | Session-scoped, consumed on first callback (D27) | Reuse in another session finds nothing to match; reuse in the same one finds it taken. |
-| SSO §4: startup fails if metadata fetch fails | Discovery on first use (D26) | Password Login must not depend on Epic being reachable at deploy. A wrong issuer shows on the first launch, as `unavailable` or a `data` `ERROR`. |
-| SSO §3.2: failures complete in consistent time | Not equalised | Post-round-trip refusals are dominated by network time and the browser sees one answer; `state` and the nonce are compared in constant time (D27). |
-| SSO §4: a local record created for each SSO identity at login | No JIT provisioning (D2) | The directory is the joiner and leaver authority; a launch cannot recreate a leaver. |
-| SSO §4: SSO users have no local credentials | One User may hold both (D5) | SCIM cannot express the rule. Each path keeps its controls: an Epic refusal never lengthens a failure run (D12), and lockout, deactivation and dormancy refuse both. |
-| SSO §2: entry point `/oauth2/authorization/{registrationId}` | `/api/auth/epic/launch` and `/callback` | The EHR launch is Epic-initiated and carries `iss` and `launch`, which no generic entry point accepts; the routes stay under the reserved `/api`. |
-| SSO §4: verify MFA evidence in `acr` / `amr` | Organisational attestation (D17) | Epic may not send either on an EHR launch; the check is built and off until Epic confirms. |
-| SSO §3.3: success audit includes registration ID and issuer | Implied by D4 | One Epic organisation per deployment, so both are constants of its configuration. |
-| SSO §5: tokens of an invalidated session are revoked | Dropped, not revoked (D13) | The risk, and the ticket that settles it, are under D13. |
-| Logging §2.2: no reason that reveals whether the account exists | Account reasons in the audit only | Below. |
+| SSO §4: application-layer rate limiting, 10–60 per registration per minute     | Edge throttling only (D19)                                       | The edge throttles every public authentication route already (ADR 0011, as-4) and keeps a flood off the JVM and off Epic's token endpoint.                                                     |
+| SSO §4: a registry of redeemed authorization codes                             | None (D27)                                                       | The pending request is single-use, so a replayed callback is refused before any token call; Epic's codes are single-use at Epic.                                                               |
+| SSO §4: consumed `state` tracked against reuse across sessions                 | Session-scoped, consumed on first callback (D27)                 | Reuse in another session finds nothing to match; reuse in the same one finds it taken.                                                                                                         |
+| SSO §4: startup fails if metadata fetch fails                                  | Discovery on first use (D26)                                     | Password Login must not depend on Epic being reachable at deploy. A wrong issuer shows on the first launch, as `unavailable` or a `data` `ERROR`.                                              |
+| SSO §3.2: failures complete in consistent time                                 | Not equalised                                                    | Post-round-trip refusals are dominated by network time and the browser sees one answer; `state` and the nonce are compared in constant time (D27).                                             |
+| SSO §4: a local record created for each SSO identity at login                  | No JIT provisioning (D2)                                         | The directory is the joiner and leaver authority; a launch cannot recreate a leaver.                                                                                                           |
+| SSO §4: SSO users have no local credentials                                    | One User may hold both (D5)                                      | SCIM cannot express the rule. Each path keeps its controls: an Epic refusal never lengthens a failure run (D12), and lockout, deactivation and dormancy refuse both.                           |
+| SSO §2: entry point `/oauth2/authorization/{registrationId}`                   | `/api/auth/epic/launch` and `/callback`                          | The EHR launch is Epic-initiated and carries `iss` and `launch`, which no generic entry point accepts; the routes stay under the reserved `/api`.                                              |
+| SSO §4: verify MFA evidence in `acr` / `amr`                                   | Organisational attestation (D17)                                 | Epic may not send either on an EHR launch; the check is built and off until Epic confirms.                                                                                                     |
+| SSO §3.3: success audit includes registration ID and issuer                    | Implied by D4                                                    | One Epic organisation per deployment, so both are constants of its configuration.                                                                                                              |
+| SSO §5: tokens of an invalidated session are revoked                           | Dropped, not revoked (D13)                                       | The risk, and the ticket that settles it, are under D13.                                                                                                                                       |
+| Logging §2.2: no reason that reveals whether the account exists                | Account reasons in the audit only                                | Below.                                                                                                                                                                                         |
 
 ### Deviation: the account reasons are audit-only
 

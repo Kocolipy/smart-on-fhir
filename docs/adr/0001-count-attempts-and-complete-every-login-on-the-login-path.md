@@ -91,8 +91,7 @@ can refuse a Login without the record.
 - `login` (`method=password`, `outcome=refused`, `reason`).
 
 A locked or deactivated User's refusal is therefore logged exactly as a wrong
-password's. It also costs the same single Argon2id verification (ADR 0007, its
-2026-10-09 amendment).
+password's. It also costs the same single Argon2id verification (ADR 0007, "The failure lockout").
 
 ### One `login` counter
 
@@ -122,10 +121,11 @@ every Login's ending, for both methods, in this order:
    it as a `LoginPrincipal` carrying its stable id, and everything after works
    from that id, never the name. A User gone by the time the success is recorded
    fails the Login closed inside the transaction.
+
 2. **Establish.** `SessionEstablishment` rotates the session id, saves the security
-   context, sets the principal index and the role-mapping hash (through
-   `SignedInSession.signIn`, which owns the session's attributes), drops the pre-login
-   CSRF token, and logs `session-start`. It is package-private and called only by
+   context, sets the principal index (through `SignedInSession.signIn`, which owns
+   the session's attributes), drops the pre-login CSRF token, and logs
+   `session-start`. It is package-private and called only by
    `LoginCompletion`, so no adapter can sign a session in without the rest of the
    Login around it.
 3. **The method's own work** on the signed-in session: Epic Login keeps Epic's
@@ -181,7 +181,7 @@ path.
   counter's `reason` tag, which counts events and names no account.
 - A refused password Login ends the session the browser held, and the CSRF token
   bound to it. The SPA discards the token on the `401`, and a retry fetches the next
-  session's (ADR 0009, its 2026-10-09 addendum; `/frontend/AGENTS.md`, "Backend
+  session's (ADR 0009; `/frontend/AGENTS.md`, "Backend
   contract").
 - A third login method needs a `LoginOutcome` variant and a call into
   `LoginCompletion`. The order, the records and the session handling come with it.
@@ -208,4 +208,3 @@ one that drifted.
 **An application service instead of a web adapter for `LoginCompletion`.**
 Rejected: establishing and ending a session is servlet work. `LoginCompletion`
 depends on no Epic bean, so it exists whether Epic Login is on or not.
-

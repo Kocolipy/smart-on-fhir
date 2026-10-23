@@ -4,18 +4,17 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. ADR 0007 has since replaced the inactivity job with the dormancy
-lockout; the consequences below are stated against it. Refined by the 2026-10-09
-addendum below (#23): only a password Login is confined by the change-required
-flag. The 2026-10-22 addendum below records that no forced password change exists
-any more.
+Accepted. This file states the current position. Last revised 2026-10-22: no
+administrative action sets the change-required flag on a User that is not
+locked (ADR 0015). History is in git.
 
 ## Context
 
-The password-change lifecycle shipped a grace period. A User whose change-required flag stayed set past a
-configured window was deactivated by a scheduled job,
-`PASSWORD_CHANGE_GRACE_DEACTIVATION`. Separately, every accepted Login set
-`lastAuthenticatedAt`, the dormancy basis that the inactivity job measured from.
+The password-change lifecycle shipped a grace period. A User whose
+change-required flag stayed set past a configured window was deactivated by a
+scheduled job, `PASSWORD_CHANGE_GRACE_DEACTIVATION`. Separately, every accepted
+Login set `lastAuthenticatedAt`, the dormancy basis that the inactivity job
+measured from.
 
 The two rules together had a gap and an overlap. The gap: a flagged User who
 kept logging in without changing the password never went dormant, because those
@@ -27,17 +26,37 @@ a credential, a session confined to change-password and logout, and clearing
 only on a successful change. The confinement work had already delivered all of
 that.
 
+Confinement first applied to every Login. A clinician launching from Epic after
+an Unlock or a connector password write could then do nothing but change a
+password Epic never used (#23, ADR 0012, D20).
+
 ## Decision
 
-- No grace period exists. The grace job, its schedule, its lock row, its
-  configuration key and its audit operation are removed, and the schema no
-  longer writes the lock row.
-- A Login made while the flag is set does not move `lastAuthenticatedAt`. Its
-  failure run still clears, and `LOGIN_SUCCESS` is still audited.
+- **No grace period exists.** The grace job, its schedule, its lock row, its
+  configuration key and its audit operation are removed.
+- **What sets the flag.** A connector password write, which also ends the User's
+  sessions, an Epic one included; an Unlock of a locked User, which revokes
+  nothing itself, a locked User holding none; a Reactivation of a User with a
+  password; and seeding the Bootstrap Admin. No administrative action sets it on a
+  User that is not locked. Only a successful self-service change clears it.
+  `password_change_required_since` holds it: its presence is the flag, and its
+  value says when the change was last required.
+- **Only a password Login is confined by the flag.** A password Login made while
+  the flag is set gets a confined session, limited to the change and logout. It
+  does not move `lastAuthenticatedAt`; its failure run still clears, and
+  `LOGIN_SUCCESS` is still audited.
+- **An Epic Login is not confined.** It presents no password of ours, so confining
+  it protects nothing. An Epic Login of a flagged User receives the authorities a
+  password Login gives the same User with the flag clear — `ROLE_USER`, the
+  baseline Permission and its Groups' Permissions — and `GET /api/auth/me`
+  reports `passwordChangeRequired: false` for it, since the field reports the
+  session's confinement. `LoginIdentityService.loadEpicLinkedUser` builds the
+  authorities ignoring the flag; `loadUserByUsername` keeps the check. An Epic
+  Login neither reads the flag into the session nor clears it, and it moves the
+  dormancy basis, being real use of the account.
 - A successful self-service change records the authentication, since it is the
   account's first real use.
-- `password_change_required_since` stays. Its presence is the flag, and its value
-  says when the change was last required.
+- One session per User holds across both Login paths.
 
 ## Consequences
 
@@ -45,70 +64,18 @@ that.
   lockout, 90 days by default, measured from the last real use, instead of by a
   separate deadline. One job owns "this User is not using the account".
 - The Bootstrap Admin is seeded flagged and is exempt from the dormancy job, so
-  an unchanged recovery credential never removes the recovery path. It stays
-  confined until it is changed.
-- Session revocation has one fewer trigger, and the grace job no longer holds a
-  scheduler thread.
-
-## Addendum (2026-10-09): only a password Login is confined by the flag (#23)
-
-_Contradicts this ADR's "confined logins keep the dormancy clock" as written for
-every Login, and ADR 0011's ac-6 note that "the session stays confined until the
-User replaces it", but worth reopening because an Epic Login does not use the
-imposed credential, so confining it protects nothing._
-
-### Context
-
-Until #23 a flagged User got a confined session from every Login, an Epic Login
-included, so a clinician launching from Epic after an Unlock or a connector
-password write could do nothing but change a password Epic never used (ADR 0012,
-D20).
-
-### Decision
-
-- **Only a password Login is confined by the flag.** An Epic Login of a flagged
-  User receives the authorities a password Login gives the same User with the
-  flag clear: `ROLE_USER`, the baseline Permissions and its Role mapping
-  Permissions. Its session is not confined, and `GET /api/auth/me` reports
-  `passwordChangeRequired: false` for it, since the field reports the session's
-  confinement. `LoginIdentityService.loadEpicLinkedUser` builds the authorities
-  ignoring the flag; `loadUserByUsername` keeps the check. Both report a locked or
-  deactivated User identically.
-- **The flag itself is untouched.** An Epic Login neither reads it into the
-  session nor clears it; only a successful self-service change clears it. A
-  password Login by the same User is still confined to the change and logout.
-- **An unconfined Epic Login moves the dormancy basis** even while the flag is
-  set: it is real use of the account. A confined password Login still does not,
-  as this ADR decided.
-- **Session revocation is unchanged.** A forced password change still ends every
-  session the User holds, an Epic one included, and a lockout ends them before an
-  Unlock (which revokes nothing itself, a locked User holding none). One session
-  per User still holds across both Login paths.
-- The Bootstrap Admin is unaffected: it never signs in through Epic (ADR 0012,
-  D6), so its recovery credential stays confined until it is changed.
+  an unchanged recovery credential never removes the recovery path. It never signs
+  in through Epic (ADR 0012, D6), so it stays confined until it is changed.
+- A User suspected compromised is handled in the directory: a new password, or a
+  deactivation (ADR 0015, "Accepted cost").
 
 ### Accepted risk
 
 A flagged User who only ever signs in through Epic never has to replace the
-imposed password, and keeps it live past what this ADR intended: its dormancy
-clock now moves with each Epic Login, so the dormancy lockout no longer bounds
-the imposed credential's life. The imposed password still buys only a confined
-session — a password Login with it can do nothing but change the password or log
-out — so the exposure is limited to someone who knows it being able to set a new
-password for this User. That is accepted: the credential is imposed by an
-administrator or a connector, never chosen by the User, and an Epic-linked User
-suspected compromised is deactivated rather than flagged (ADR 0012, D20).
-
-## Addendum (2026-10-22): no forced password change (ADR 0015's 2026-10-22 addendum)
-
-_Refines the 2026-10-09 addendum's "Session revocation is unchanged" bullet, which
-named the forced password change._
-
-The forced password change is removed, so no administrative action sets the
-change-required flag on a User that is not locked, and none ends a User's sessions
-by setting it. The flag is still set by a connector password write — which also
-ends the User's sessions, an Epic one included — by an Unlock of a locked User
-(which revokes nothing itself, a locked User holding none), by a reactivation of a
-User with a password, and by seeding the Bootstrap Admin. Confinement, the
-dormancy clock and one session per User are unchanged. A User suspected
-compromised is handled in the directory: a new password, or a deactivation.
+imposed password, and keeps it live: its dormancy clock moves with each Epic
+Login, so the dormancy lockout does not bound the imposed credential's life. The
+imposed password still buys only a confined session, so the exposure is limited to
+someone who knows it being able to set a new password for this User. That is
+accepted: the credential is imposed by an administrator or a connector, never
+chosen by the User, and an Epic-linked User suspected compromised is deactivated
+rather than flagged (ADR 0012, D20).

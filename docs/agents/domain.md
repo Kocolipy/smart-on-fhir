@@ -12,8 +12,9 @@ domain behavior, terminology, or architecture.
   names its file, and `/docs/domain/index.md` lists them all. Read every file
   whose terms your change touches.
 - **`/docs/adr/`** — the architectural decisions, numbered. Read every ADR that
-  touches the area you are about to work in. An ADR is a record of its date: a
-  later addendum or ADR can refine it, and a class it names may since have moved.
+  touches the area you are about to work in. Each states its decision as it
+  stands now; its Status says when it was last revised, and git holds the
+  history.
 
 This is a single-context repo: one `CONTEXT.md`, one `docs/adr/`, shared by both
 apps.
@@ -40,5 +41,9 @@ silently overriding it:
 > _Contradicts ADR-0007 (permanent lockout until Admin Unlock), but worth
 > reopening because…_
 
-A decision that changes a recorded one gets a new ADR, or an addendum on the
-existing one, in the same change.
+A decision that changes a recorded one is edited into that ADR in the same
+change — its body restated, its Status dated — so the file never carries a
+superseded rule beside the one that replaced it. A new decision gets a new ADR;
+one that wholly replaces an ADR absorbs what survives of it, and the old file is
+removed with every citation of it repointed. Cite an ADR by number, and by
+section name where the ADR is long.

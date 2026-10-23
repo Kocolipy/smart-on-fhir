@@ -6,10 +6,11 @@ Date: 2026-10-12
 
 Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 locally
 and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
-rested on verification spikes V1–V6 (2026-10-12), summarised under "Open
-verification points" with their evidence under "Verified behaviour". It records a
-deviation from App-Standards' recommendation of PostgreSQL for production
-(Standalone User Access Control Q6, User SSO Q5).
+rested on verification spikes V1–V6 (2026-10-12), under "Verified behaviour". It
+records a deviation from App-Standards' recommendation of PostgreSQL for production
+(Standalone User Access Control Q6, User SSO Q5). This file states the current
+position. Last revised 2026-10-23: the test JVMs share one SQL Server. History is
+in git.
 
 ## Context
 
@@ -47,15 +48,20 @@ are one record.
 
 ### Runtime model
 
-- **Three logins.** The **owner login** (`db_owner`) runs
-  migrations and nothing else. The **app login** is the request pool's, a member of
+- **Three logins.** The **owner login** runs migrations and nothing else. It is a
+  member of `db_owner`, not the database's owner: RDS's master user, which creates
+  the database, cannot hand it to another login (that needs `IMPERSONATE` on the
+  login), so every environment — the deployed bootstrap, the local init and
+  `ContainerTestConfiguration` — adds it to `db_owner`
+  (`MigrationStepIntegrationTests.theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner`). The **app login** is the request pool's, a member of
   `backend_app` only. The **retention login** has its own small DataSource and
   transaction manager, is used only by the audit retention adapter, and is a member
   of `backend_audit_retention` only. The server enforces each login's privileges,
   and nothing switches identity on a connection, so nothing can leak between
   pooled uses of one.
-- **The audit append pool connects as the app login** (ADR 0004's 2026-10-13
-  addendum), from the same secret, never as the owner login.
+- **The audit append pool connects as the app login** (ADR 0004, "Fail-open
+  appends commit on a pool of their own"), from the same secret, never as the
+  owner login.
 - **A connector token's row lock sits with the SCIM resource locks** (added
   2026-10-13). A rotation and a revocation lock the token's row before reading it
   (`ScimConnectorTokenJpaRepository.lockById`, `WITH (UPDLOCK, ROWLOCK)`, taken only
@@ -89,14 +95,9 @@ are one record.
   storage with code-point (byte) order, which the SCIM sort relies on. Equality and the unique
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
-  Server's `LOWER`. (Added 2026-10-14, #68.) The collation is the **database's**,
-  set by `CREATE DATABASE … COLLATE`. The deployed RDS server is collated
-  `Latin1_General_100_BIN2_UTF8` as well. The local and test servers keep their
-  default collation: on the pinned image a server collated `BIN2_UTF8`
-  (`MSSQL_COLLATION`) cannot load the internal extended procedures behind
-  `sp_getapplock` and a T-SQL `sp_executesql` (error 17750, "Could not load the
-  DLL (server internal)"). Flyway guards every migration with `sp_getapplock`, so
-  on such a server nothing migrates (Addendum (2026-10-16)).
+  Server's `LOWER` (#68). The collation is the **database's**, set by
+  `CREATE DATABASE … COLLATE`; only the deployed server shares it ("Collation and
+  the seed lock").
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
   listing at `SNAPSHOT`.** Readers do not block writers. The listing's count and page must see one consistent view; SQL Server's
   `REPEATABLE READ` does not give that, `SNAPSHOT` does.
@@ -144,7 +145,7 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   `WITH (UPDLOCK, ROWLOCK, READPAST)`. Spike
   V3 verified that `READPAST` skips a held row under read-committed snapshot
   without waiting, so the `sp_getapplock` fallback is not needed. The seed lock
-  is a row lock on `scim_seed_locks` (Addendum (2026-10-16)).
+  is a row lock too ("Collation and the seed lock").
 - **`audit_events` is clustered on `(occurred_at, id)`**, with a non-clustered
   primary key on `id`. A random-UUID clustered key fragments on every insert into
   the highest-volume table, while retention deletes by `occurred_at` and the
@@ -152,6 +153,110 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   batches below SQL Server's lock-escalation threshold, one transaction per batch,
   so a long run does not block audit appends; retention is idempotent, and the next
   run completes a partial one.
+- **An `IN` list a client sizes is bound in chunks.** SQL Server refuses a request
+  carrying more than 2,100 parameters (error 8003), and Hibernate binds each
+  element of a collection parameter as one. A statement whose `IN` list has no cap
+  of its own is issued once per chunk of at most 2,000 ids (`BoundIdChunks`), in
+  the caller's transaction: the version advance
+  (`ResourceVersionStatements#advance`), which a rename, a delete or a membership
+  change sizes by membership, and the Group adapter's membership read, which the
+  listing sizes by the directory. A list a page bounds (`ScimPageRequest.MAX_COUNT`, 200) binds whole. Every row a version advance names is already locked, one row
+  per statement in `ScimWriteLocks.ORDER`, so its chunks take no new lock.
+  `ScimLargeMembershipIntegrationTests` holds every path with 2,200 members or
+  Groups.
+
+### Collation and the seed lock
+
+On the pinned image (SQL Server 2022 CU27 for Linux), a server collated
+`Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load the
+internal extended procedures `xp_userlock` (behind `sp_getapplock`) and
+`sp_executesql` when T-SQL calls them: error 17750, "Could not load the DLL (server
+internal)". In `sqlcmd`, `sp_getapplock` also returned `0`, "granted", for a lock
+it never took. The driver's own prepared-statement calls (an RPC) are unaffected,
+and so is `EXEC (@string)`.
+
+- **Only the RDS server is collated `Latin1_General_100_BIN2_UTF8`** (its
+  `CharacterSetName`, as #71 names it). Flyway 12.4's SQL Server support guards
+  every migration with `EXEC sp_getapplock … @LockOwner = 'Session'`, with no
+  setting to turn it off, so on a `BIN2_UTF8` Linux server no database migrates
+  (`FlywaySqlException: Unable to acquire SQL Server application lock`). The test
+  containers and the local compose server therefore keep their default server
+  collation. The database is `Latin1_General_100_BIN2_UTF8` everywhere. Flyway's
+  lock is not replaced: a plugin overriding it worked in a prototype, but would
+  depend on Flyway's internal SQL Server classes.
+- **The seed lock is a row lock, not an application lock.** `V1__initial_schema.sql`
+  creates `scim_seed_locks` and inserts its one row, `ScimSeed`.
+  `ScimSeedLockAdapter` takes it with `SELECT … WITH (UPDLOCK, ROWLOCK)` and no
+  `READPAST`: a second start waits for the first start's seeding to commit, then
+  reads what it seeded. A missing row fails the start, as a missing job-lock row
+  does (ADR 0005). `backend_app` holds `SELECT` on the table and nothing else,
+  which an `UPDLOCK` read needs (measured). The statement's query timeout is 60 s
+  (`TimedJdbc`); a wait that runs out is rethrown as `CannotAcquireLockException`,
+  "the seeding lock was not granted within 60 s". `Propagation.MANDATORY`.
+- **The rest of the service's T-SQL avoids both procedures.** `ForcedDeadlock`
+  (test) closes its cycle on two rows of its own table, the partner reading the
+  writer's row with `READCOMMITTEDLOCK`. The bootstrap runs its per-database step
+  through `EXEC (@ddl)`, with the owner's name escaped into the batch.
+- **Risk: untested on Windows.** RDS for SQL Server runs the Windows build, which
+  could not be measured here, and the suite does not reproduce this one deployed
+  setting (`infra/docs/database-engine.md`, "Collation and time zone"). If the
+  Windows build has the same defect, the first deploy fails loudly:
+  `backend-migrate.service` fails with that `FlywaySqlException` and 17750, and
+  `backend.service`, which `Requires=` it, never starts. The way out is a server
+  collation that takes the lock — RDS's default, or
+  `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
+  take it on the Linux image. Changing the collation replaces the instance.
+
+### The deployed bootstrap
+
+- **It runs on the instance, as the master user, and its T-SQL is the local
+  init's.** The bootstrap runs in UserData, so the instance role reads the master
+  secret (as-8). It is read by one root-owned script and never reaches the
+  service's process, which `smoke.sh` checks; the role itself cannot tell
+  processes apart, which `infra/docs/database-credentials.md` records as residual
+  risk. The T-SQL is held twice — in the template and in
+  `backend/scripts/local-db-init.sql` — because a stack cannot read the
+  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
+  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's password
+  is reset only when the calling script found that the login cannot sign in with
+  its secret's.
+- **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that asks
+  for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
+  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is dropped
+  unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py` (it sends no
+  real credential). A client that can do TLS but asks for none (`sqlcmd -No`,
+  `encrypt=false`) is encrypted instead of refused: the `sqlserver-se-16.0`
+  parameter family has no counterpart of SQL Server 2022's strict-encryption
+  switch. TLS 1.0 and 1.1 are off (`rds.tls10`, `rds.tls11`). The bootstrap's
+  `sqlcmd -N` validates the RDS certificate against the RDS CA bundle given to it
+  alone (`SSL_CERT_FILE`).
+- **The trust-store password reaches the driver from the environment.**
+  `DATABASE_URL` names the driver-scoped store; its password, from Secrets
+  Manager, is exported as
+  `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`, which Boot
+  binds lower-cased into the driver properties of every pool and the migrate step,
+  and the driver matches property names case-insensitively
+  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
+
+### The test server
+
+The backend's gate scripts (`scripts/verify.sh`, and the layers of
+`scripts/test-gates.sh` that need Docker) start one SQL Server for the run
+(`scripts/test-sql-server.sh`), create the owner, app and retention logins on it,
+and name it to every fork in the `TEST_SQL_SERVER_*` variables; the container is
+removed when the script exits. `ContainerTestConfiguration` then gives each context
+an empty database on that server, created with the deployment's creation options
+and named with a token of its JVM's so two JVMs never create the same one, and its
+own Redis database on a Redis container per JVM. Without the variables — an IDE, a
+bare `./mvnw` — each JVM starts its own server.
+
+A server per JVM outgrew a small development VM's memory at two forks, and a third
+fork made the run slower. With the server shared, the fork count stays 2. It rests
+on the tests that read server-wide views (`sys.dm_tran_locks`,
+`sys.dm_exec_requests`, `sys.dm_exec_sessions`) scoping them to `DB_ID()` or
+`@@SPID`, and on no test changing a server principal or a server setting. The
+image is read from `compose.yaml`'s `sqlserver` service, so the pin is still held
+in the two places `/README.md` names.
 
 ### Compliance resolutions (IM8)
 
@@ -289,13 +394,15 @@ API contract and `docs/domain/`:
 
 - **Edge whitespace is refused** on the keys listed above, a validation rule in
   the API contract.
-- **SCIM free-text `eq` ignores trailing spaces** (amended 2026-10-15, see
-  "Addendum (2026-10-15)"). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
+- **SCIM free-text `eq` ignores trailing spaces** (#70). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
   attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
   compared values, because SQL Server pads the comparison. `co`, `sw` and `ew`
   keep trailing spaces significant: they are `LIKE` against a bound Unicode
-  pattern, which SQL Server does not pad.
+  pattern, which SQL Server does not pad. The padding is accepted, not worked
+  around, and
+  `ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
+  pins every operator.
 - **SCIM whitespace-only free text counts as absent.** `pr` and sorting treat an
   empty string as no value (`<> ''`, `NULLIF(…, '')`), and under SQL Server's
   padding a value of only spaces compares equal to `''`. A whitespace-only value
@@ -332,21 +439,6 @@ SCIM `userName` keeps following RFC 7643 and the identity provider's format, not
 the Standalone standard's alphanumeric-only rule. That deviation is recorded in
 ADR 0011.
 
-### Open verification points
-
-These spikes ran before the switchover, on 2026-10-12. Each names what would have
-changed if it had failed. The verdict column points to the evidence under
-"Verified behaviour".
-
-| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                                  |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                                 |
-| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass; bind timestamps as UTC `OffsetDateTime`            |
-| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                     |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes"      |
-| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged                    |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                                    |
-
 ## Consequences
 
 - The security properties are enforced by the database: the audit
@@ -365,6 +457,7 @@ changed if it had failed. The verdict column points to the evidence under
   rotation (a rotation function plus a pool credential refresh) can be added later
   without redesign, but this decision does not provide it.
 - Apple Silicon is not a supported development platform.
+
 ## Alternatives considered
 
 **Keep PostgreSQL.** The technically preferred option and App-Standards'
@@ -381,8 +474,20 @@ and RDS keeps it managed and AWS-native.
 
 ## Verified behaviour
 
-Spikes V1–V6 ran on 2026-10-12. Each ran on a throwaway harness outside the
-repository, so none of that code merges. The pinned versions were:
+Spikes V1–V6 ran on 2026-10-12, before the switchover. Each names what would have
+changed if it had failed, and ran on a throwaway harness outside the repository,
+so none of that code merges.
+
+| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
+| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                            |
+| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass; bind timestamps as UTC `OffsetDateTime`       |
+| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes" |
+| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged               |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                               |
+
+The pinned versions were:
 
 - **Image.** `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, image
   `sha256:4402d880dd4c…` (amd64). `@@VERSION` reported Microsoft SQL Server 2022
@@ -495,179 +600,5 @@ names. Both messages quote the refused value, as lm-19 assumes.
 ### V6: test container cost at `forkCount` 2
 
 A container idles at about 0.9 GB and stays near 1.2 GB under load; two start side
-by side within a 2 GB limit each, so the fork count stays 2 and the documented
-memory is raised on a small VM instead.
-
-### The switchover's gate (2026-10-16)
-
-`./scripts/verify.sh` from `backend/` went green, and `make integration-test` and
-`make epic-integration-test` passed against a local stack on the pinned image. The
-deployed stack was left to the user's own deploy, so nothing here shows its
-behaviour — including the Windows build's `sp_getapplock` under the
-`Latin1_General_100_BIN2_UTF8` server collation (Addendum (2026-10-16), "Risk:
-untested on Windows").
-
-## Addendum (2026-10-15): substring filters keep trailing spaces significant
-
-#70 measured the free-text filters and corrected "Observable changes" in both
-directions: `eq`, `ne`, `gt`, `ge`, `lt` and `le` are padded, and `co`, `sw` and
-`ew`, a Unicode `LIKE` against a bound pattern, keep trailing spaces significant.
-`ScimQueryProtocolIntegrationTests.free_text_equality_ignores_trailing_spaces_and_substrings_do_not`
-pins every operator. The padding is accepted, not worked around.
-
-## Addendum (2026-10-15): the deployed bootstrap on RDS for SQL Server
-
-The infrastructure ticket (#71) put the stack on RDS for SQL Server 2022 Standard
-Edition. Its findings refine decisions above; none reverses one.
-
-- **The owner login is a `db_owner` member, not the database's owner.** "Runtime
-  model" names the owner login `db_owner`, and the local init and the tests had
-  made it the database's owner (`ALTER AUTHORIZATION`). RDS's master user, which
-  creates the database, cannot hand it to another login: that needs `IMPERSONATE`
-  on the login, which the master user does not hold. The deployed bootstrap
-  therefore creates a database user for the owner login and adds it to
-  `db_owner`, and the local init and `ContainerTestConfiguration` now do the same,
-  so the suite migrates `V1` under the deployed arrangement
-  (`MigrationStepIntegrationTests.theOwnerLoginMigratesAsADbOwnerMemberNotAsTheDatabasesOwner`).
-  The audit trigger refuses `db_owner` members, so it refuses the owner either
-  way.
-- **The bootstrap runs on the instance, as the master user, and its T-SQL is the
-  local init's.** The deployed bootstrap runs in UserData, so the instance role
-  reads the master secret (as-8). It is read by one root-owned script and never
-  reaches the service's process, which `smoke.sh` checks; the role itself cannot
-  tell processes apart, which `infra/docs/database-credentials.md` ("Database credentials") records
-  as residual risk. The T-SQL is held twice — in the template and in
-  `backend/scripts/local-db-init.sql` — because a stack cannot read the
-  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
-  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's
-  password is reset, by the shared SQL, only when the calling script found that
-  the login cannot sign in with its secret's.
-- **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that
-  asks for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
-  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is
-  dropped unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py`
-  (it sends no real credential). A client that can do TLS but asks for none
-  (`sqlcmd -No`, `encrypt=false`) is encrypted instead of refused, and its
-  session reports `encrypt_option = TRUE`. No RDS for SQL Server parameter
-  refuses that second client: the `sqlserver-se-16.0` family has no counterpart
-  of SQL Server 2022's strict-encryption switch. TLS 1.0 and 1.1 are off in the
-  parameter group (`rds.tls10`, `rds.tls11`). The bootstrap's `sqlcmd -N`
-  validates the RDS certificate against the RDS CA bundle given to it alone
-  (`SSL_CERT_FILE`).
-- **The trust-store password reaches the driver from the environment.**
-  `DATABASE_URL` names the driver-scoped store; its password, from Secrets Manager,
-  is exported as `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`,
-  which Boot binds lower-cased into the driver properties of every pool and the
-  migrate step, and the driver matches property names case-insensitively
-  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
-
-## Addendum (2026-10-16): the seed lock is a row lock
-
-The seed lock moves off `sp_getapplock`, so that it holds under the server
-collation issue #71 names, `Latin1_General_100_BIN2_UTF8`.
-
-- **Why.** On the pinned image (SQL Server 2022 CU27 for Linux), a server
-  collated `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load
-  the internal extended procedures `xp_userlock` (behind `sp_getapplock`) and
-  `sp_executesql` when T-SQL calls them: error 17750, "Could not load the DLL
-  (server internal)". Through the driver the seed lock's batch failed with that
-  error; in `sqlcmd`, `sp_getapplock` also returned `0`, "granted", for a lock it
-  never took. The driver's own prepared-statement calls (`sp_prepexec`, an RPC)
-  are unaffected, and so is `EXEC (@string)`.
-- **The row.** `V1__initial_schema.sql` creates `scim_seed_locks` and inserts
-  its one row, `ScimSeed`. `ScimSeedLockAdapter` takes that row with
-  `SELECT … WITH (UPDLOCK, ROWLOCK)` and no `READPAST`: a second start waits for the
-  first start's seeding to commit, then reads what it seeded. The migration
-  inserts the row, so there is one to lock on a fresh database too — the reason
-  the seed lock was an application lock no longer holds. A missing row fails the
-  start ("the migration that creates it has not run"), as a missing job-lock row
-  does (ADR 0005).
-- **Grant.** `backend_app` holds `SELECT` on the table and nothing else. An
-  `UPDLOCK` read needs no more (measured), so the runtime role can lock the row
-  but cannot change or delete it.
-- **Bounded wait.** The statement's query timeout is 60 s (`TimedJdbc`). A wait
-  that runs out reaches the adapter as Spring's `QueryTimeoutException`
-  (`SQLTimeoutException`, `HY008`), which it rethrows as
-  `CannotAcquireLockException`, "the seeding lock was not granted within 60 s":
-  `database` in the mapping, as before. `Propagation.MANDATORY` stays.
-- **The rest of the service's T-SQL.** `ForcedDeadlock` (test) closes its cycle
-  on two rows of its own table rather than on an application lock. The partner
-  reads the writer's row with `READCOMMITTEDLOCK`, so its shared lock ends with
-  the statement. The bootstrap (`local-db-init.sql` and the template's copy) runs
-  its per-database step through `EXEC (@ddl)`, with the owner's name escaped
-  into the batch, instead of `sys.sp_executesql`.
-- **Flyway's own lock.** Flyway 12.4's SQL Server support guards every migration
-  with `EXEC sp_getapplock … @LockOwner = 'Session'`, and there is no setting to
-  turn it off. On a `BIN2_UTF8` server on the pinned image it fails with 17750
-  (`FlywaySqlException: Unable to acquire SQL Server application lock`), so no
-  database migrates there.
-- **Decision: only the RDS server is collated `Latin1_General_100_BIN2_UTF8`.**
-  The instance's `CharacterSetName` is `Latin1_General_100_BIN2_UTF8`, as issue
-  #71 names it. The test containers and the local compose server keep their
-  default server collation, because they run the Linux image, where Flyway
-  could not migrate. The database is `Latin1_General_100_BIN2_UTF8` everywhere.
-  Flyway's lock is not replaced: a plugin overriding it worked in a prototype,
-  but it would depend on Flyway's internal SQL Server classes and change how
-  migrations are serialized.
-- **Risk: untested on Windows.** RDS for SQL Server runs the Windows build,
-  which could not be measured here. If it has the same defect, the first
-  deploy fails loudly, never silently. `backend-migrate.service` fails with
-  that `FlywaySqlException` and 17750, and `backend.service`, which `Requires=`
-  it, never starts, so the deploy's health check and smoke fail.
-  - The way out is a server collation that takes the lock: RDS's default, or
-    `Latin1_General_100_CI_AS_SC_UTF8` / `Latin1_General_100_CS_AS_SC_UTF8`, which
-    take it on the Linux image. Changing the collation replaces the instance.
-  - The suite does not reproduce this one deployed setting (`infra/docs/database-engine.md`,
-    "Collation and time zone").
-
-## Addendum (2026-10-16): an `IN` list a client sizes is bound in chunks
-
-SQL Server refuses a request carrying more than 2,100 parameters (error 8003),
-and Hibernate binds each element of a collection parameter as one. The switchover
-left two statements whose `IN` list a SCIM client sizes without a cap. A Group with more than about 2,099 members could not
-be created with them, renamed or deleted (`500`), a User in that many Groups
-could not be deleted, and the administrative listing failed once the directory
-held that many Groups.
-
-- **The rule.** A statement whose `IN` list has no cap of its own is issued once
-  per chunk of at most 2,000 ids (`BoundIdChunks`), in the caller's transaction.
-  That covers the version advance (`ResourceVersionStatements#advance`), which a
-  rename, a delete or a membership change sizes by membership, and the Group
-  adapter's membership read, which the listing sizes by the directory. A list a
-  page bounds (`ScimPageRequest.MAX_COUNT`, 200) or the role mapping bounds (an
-  operator's configuration) binds whole.
-- **No new deadlock.** Every row a version advance names is already locked, one
-  row per statement in `ScimWriteLocks.ORDER`, by `ScimWriteLockAdapter`, so its
-  chunks take no new lock.
-- **Held by** `ScimLargeMembershipIntegrationTests`: 2,200 members or Groups,
-  every path above, on the test container.
-
-The same day's review narrowed V1's grant on `scheduled_job_locks` to `SELECT`
-alone (ADR 0005): a locking read needs no more, and the application never updates
-a job row.
-
-## Addendum (2026-10-23): the test JVMs share one SQL Server
-
-V6 kept the fork count at 2 with a SQL Server container per test JVM. On a small
-development VM the two servers and the two JVMs outgrew memory and swapped, and a
-third fork made the run slower, not faster.
-
-- **The rule.** The backend's gate scripts (`scripts/verify.sh`, and the layers of
-  `scripts/test-gates.sh` that need Docker) start one SQL Server for the run
-  (`scripts/test-sql-server.sh`), create the owner, app and retention logins on it,
-  and name it to every fork in the `TEST_SQL_SERVER_*` variables; the container is
-  removed when the script exits. `ContainerTestConfiguration` then gives each
-  context a database on that server rather than starting one. Without the
-  variables — an IDE, a bare `./mvnw` — each JVM starts its own, as before.
-- **What stays per context.** Each context still gets an empty database created
-  with the deployment's creation options, now named with a token of its JVM's so
-  two JVMs never create the same one, and its own Redis database on a Redis
-  container per JVM.
-- **What it rests on.** The tests that read server-wide views
-  (`sys.dm_tran_locks`, `sys.dm_exec_requests`, `sys.dm_exec_sessions`) scope them
-  to `DB_ID()` or `@@SPID`, and no test changes a server principal or a server
-  setting, so another JVM's databases on the same server are invisible to them.
-- **The image** is read from `compose.yaml`'s `sqlserver` service, so the pin is
-  still held in the two places `/README.md` names.
-
-The fork count stays 2: with the server shared, the JVMs themselves bound memory.
+by side within a 2 GB limit each, so the fork count stayed 2. The gate scripts
+have since shared one server across the forks ("The test server").

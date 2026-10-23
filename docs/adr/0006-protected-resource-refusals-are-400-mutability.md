@@ -36,7 +36,7 @@ concerns the target.
 ## Consequences
 
 - A SCIM write gets `403` only as Bearer `insufficient_scope`: a token lacking the
-  Permission the write needs (ADR 0010). The one other SCIM `403` is
+  Permission the write needs (ADR 0015). The one other SCIM `403` is
   `unsupportedQuery`, a query capability the service does not offer, which RFC
   7644 §3.4.2.2 prescribes and which no write returns. So a `403` on a write means
   the credential, and a `400 mutability` always means the target.
