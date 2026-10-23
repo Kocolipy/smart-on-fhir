@@ -3,28 +3,17 @@ package com.example.backend.auth.controller;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.auth.application.InvalidGroupPermissionsRequestException;
-import com.example.backend.auth.application.ProtectedGroupException;
-import com.example.backend.auth.application.UnknownGroupException;
-import com.example.backend.web.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.HandlerMapping;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -67,7 +56,11 @@ public class AdminGroupController {
      *
      * <p>The body is read as a JSON tree rather than bound to a list, so that a missing body, one
      * that is not an array, and an element that is not a name all reach the use case — which
-     * audits each as the refusal it is — rather than being refused by the binder unrecorded.
+     * refuses each as the refusal it is — rather than being refused by the binder. A body that is
+     * not JSON at all is still the binder's to refuse, and the administrative edge records it as
+     * the same refusal ({@link AdminExceptionHandler.UnreadableGroupPermissionsBody}). Every
+     * refusal is answered, logged and audited there, from the one table of administrative
+     * refusals.
      */
     @PutMapping("/{id}/permissions")
     @PreAuthorize("hasRole('SUPERUSER')")
@@ -75,40 +68,6 @@ public class AdminGroupController {
             @RequestBody(required = false) JsonNode body, HttpServletRequest request) {
         return groupPermissions.setPermissions(
                 id, names(body), HttpSessionAttributes.ownerOf(request));
-    }
-
-    /**
-     * A body that is not JSON at all. Audited as the use case audits a body that is not a set of
-     * names, then answered as one: the binder raised this before the handler ran.
-     */
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiError> unreadableBody(HttpServletRequest request) {
-        groupPermissions.refuseUnreadableBody(
-                addressedGroup(request), HttpSessionAttributes.ownerOf(request));
-        return answer(HttpStatus.BAD_REQUEST);
-    }
-
-    @ExceptionHandler(InvalidGroupPermissionsRequestException.class)
-    public ResponseEntity<ApiError> invalidPermissions() {
-        return answer(HttpStatus.BAD_REQUEST);
-    }
-
-    /**
-     * The caller is the Superuser, so naming what is missing reveals nothing the listing would
-     * not.
-     */
-    @ExceptionHandler(UnknownGroupException.class)
-    public ResponseEntity<ApiError> unknownGroup() {
-        return answer(HttpStatus.NOT_FOUND);
-    }
-
-    /**
-     * The Admin group: the request is well formed and the caller may make it, but the Group's
-     * members' power is the Superuser, which is not a Permission.
-     */
-    @ExceptionHandler(ProtectedGroupException.class)
-    public ResponseEntity<ApiError> protectedGroup() {
-        return answer(HttpStatus.CONFLICT);
     }
 
     /**
@@ -128,22 +87,5 @@ public class AdminGroupController {
             names.add(element.asString());
         }
         return names;
-    }
-
-    /**
-     * The Group the request's path names. Only an unreadable body asks, and the binder reads the
-     * path's id before the body, so by then it is a well-formed UUID.
-     */
-    @SuppressWarnings("unchecked")
-    private static UUID addressedGroup(HttpServletRequest request) {
-        Map<String, String> variables = (Map<String, String>) request.getAttribute(
-                HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-        return UUID.fromString(variables.get("id"));
-    }
-
-    private static ResponseEntity<ApiError> answer(HttpStatus status) {
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiError.of(status));
     }
 }

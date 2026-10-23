@@ -1248,7 +1248,9 @@ paths:
         one mints a replacement and the other is refused `409` as already rotated.
         The refusal is audited (`CONNECTOR_TOKEN_ROTATE`, `FAILURE`, with
         `errorCode` `TOKEN_REVOKED`, `TOKEN_ALREADY_ROTATED` or `TOKEN_EXPIRED`,
-        checked in that order) naming the token in `tokenId`.
+        checked in that order) naming the token in `tokenId`. A token id that names
+        nothing, or a token whose connector was deleted, is refused `404` and
+        audited the same way with `UNKNOWN_RESOURCE`.
 
         The response discloses the replacement's plaintext once, under
         `Cache-Control: no-store`, exactly as issue does.
@@ -3910,11 +3912,12 @@ components:
           description: |
             The connector token a `CONNECTOR_TOKEN_ISSUE`, `CONNECTOR_TOKEN_ROTATE`
             or `CONNECTOR_TOKEN_REVOKE` concerns, by its stable id — the token
-            issued, rotated or revoked, or the one a refused rotation addressed.
-            Never the token's value. The connector stays the event's `subjectId`
-            and `resourceId`. `null` for every other event, for a refused issue
-            (which addressed no token), and for an event recorded before tokens
-            were named.
+            issued, rotated or revoked, or the one a refused rotation or revocation
+            addressed. Never the token's value. The connector stays the event's
+            `subjectId` and `resourceId` — `null` on the refusal of a token id that
+            names nothing, which belongs to no connector. `null` for every other
+            event, for a refused issue (which addressed no token), and for an event
+            recorded before tokens were named.
         replacementTokenId:
           type: [string, "null"]
           format: uuid
@@ -4002,9 +4005,15 @@ components:
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
         the cause of the lock it lifted (`FAILURES` or `DORMANCY`). A refused
-        Unlock is a `FAILURE` whose `errorCode` is `SELF_TARGET` or `NOT_LOCKED`;
-        an Unlock recorded before an Unlock of an unlocked User was refused
-        (2026-10-22) may be a `SUCCESS` with a `null` `errorCode`.
+        Unlock is a `FAILURE` whose `errorCode` is `SELF_TARGET`, `NOT_LOCKED` or,
+        for an id no User has, `UNKNOWN_RESOURCE`; an Unlock recorded before an
+        Unlock of an unlocked User was refused (2026-10-22) may be a `SUCCESS`
+        with a `null` `errorCode`. A connector or token operation
+        (`CONNECTOR_DELETE`, `CONNECTOR_TOKEN_ISSUE`, `CONNECTOR_TOKEN_ROTATE`,
+        `CONNECTOR_TOKEN_REVOKE`) addressing a connector or token that names
+        nothing is a `FAILURE` of that operation with `errorCode`
+        `UNKNOWN_RESOURCE`, naming the connector addressed and the token in
+        `tokenId`; such refusals are recorded from 2026-10-22.
         `PASSWORD_CHANGE_REQUIRE` is the change-required flag an Unlock set;
         events recorded before 2026-10-22 also include the removed forced
         password change and its refusals. `DORMANCY_LOCKOUT` and

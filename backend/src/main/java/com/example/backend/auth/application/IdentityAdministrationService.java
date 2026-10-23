@@ -1,6 +1,5 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditTrail;
@@ -156,9 +155,13 @@ public class IdentityAdministrationService {
      * so the version does not advance. No session is revoked: a locked User holds none, since
      * imposing the lock ended them.
      *
-     * <p>Refused, audited as a refused {@code LOCKOUT_LIFT} and logged, in this order:
+     * <p>Refused before anything is written, in this order, by throwing an
+     * {@link UnlockRefusedException} naming the administrator, the User addressed and why — which
+     * the administrative edge answers, logs and audits as a refused {@code LOCKOUT_LIFT}
+     * ({@code auth.controller.AdminRefusals}); nothing here records it:
      *
      * <ul>
+     *   <li>on an id no User has ({@code UNKNOWN_IDENTITY}, {@code 404});
      *   <li>on the caller's own account, whatever Permissions it holds and whatever its state —
      *       recovering from a self-inflicted state takes a second administrator; checked before
      *       anything is read under the User's lock ({@code SELF_TARGET}, {@code 403});
@@ -177,16 +180,15 @@ public class IdentityAdministrationService {
     @RetriedOnDeadlock(Operation.UNLOCK)
     public IdentitySummary unlock(UUID userId, UUID actorId) {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
-        ScimUser user = require(userId);
+        ScimUser user = require(userId, actorId);
         if (isSelf(user, actorId)) {
-            throw refusedUnlock(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET,
-                    new ForbiddenIdentityChangeException(
-                            "An Admin cannot unlock their own account"));
+            throw new UnlockRefusedException(
+                    UnlockRefusedException.Reason.SELF_TARGET, actorId, user.id());
         }
         LoginStateChange decision = loginState.unlocked(user);
         if (!decision.before().isLocked()) {
-            throw refusedUnlock(actorId, user.id(), AuditAdministrativeRefusal.NOT_LOCKED,
-                    new NoLockoutInForceException("The User is serving no lockout to lift"));
+            throw new UnlockRefusedException(
+                    UnlockRefusedException.Reason.NOT_LOCKED, actorId, user.id());
         }
         audit.append(new Audited.LockoutLiftedByUnlock(actorId, user.id(),
                 auditCause(decision.before().lockCause()), decision.moved()));
@@ -195,17 +197,6 @@ public class IdentityAdministrationService {
         }
         succeeded(Operation.UNLOCK, user.id());
         return summarize(user, decision.after());
-    }
-
-    /**
-     * Logs and audits an Unlock refused for {@code reason}, and hands back {@code refusal} for the
-     * caller to throw — so the refusal reads as a {@code throw} at the point it is decided.
-     */
-    private RuntimeException refusedUnlock(UUID actorId, UUID subjectId,
-            AuditAdministrativeRefusal reason, RuntimeException refusal) {
-        refused(Operation.UNLOCK, subjectId, reason);
-        audit.append(new Audited.UnlockRefused(actorId, subjectId, reason));
-        return refusal;
     }
 
     /** The lifted lock's cause in the audit trail's own vocabulary. */
@@ -237,8 +228,9 @@ public class IdentityAdministrationService {
      * a connector may rename between the Admin reading the row and acting on it, and an id it
      * cannot.
      */
-    private ScimUser require(UUID userId) {
-        return users.findById(userId).orElseThrow(UnknownIdentityException::new);
+    private ScimUser require(UUID userId, UUID actorId) {
+        return users.findById(userId).orElseThrow(() -> new UnlockRefusedException(
+                UnlockRefusedException.Reason.UNKNOWN_IDENTITY, actorId, userId));
     }
 
     /**
@@ -253,15 +245,6 @@ public class IdentityAdministrationService {
     private static void succeeded(Operation operation, UUID subjectId) {
         LogEvent.success(log, operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
-                .log();
-    }
-
-    /** Records an administrative write refused for {@code reason}, before anything was written. */
-    private static void refused(
-            Operation operation, UUID subjectId, AuditAdministrativeRefusal reason) {
-        LogEvent.refused(log, operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.DENIED)
-                .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
-                .addKeyValue(LogEvent.REASON, reason.name())
                 .log();
     }
 

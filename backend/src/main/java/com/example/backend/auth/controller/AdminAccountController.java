@@ -1,24 +1,15 @@
 package com.example.backend.auth.controller;
 
-import com.example.backend.auth.application.ForbiddenIdentityChangeException;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
-import com.example.backend.auth.application.NoLockoutInForceException;
-import com.example.backend.auth.application.UnknownIdentityException;
-import com.example.backend.web.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -47,6 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>What remains addresses its User by the stable resource {@code id}, never by {@code userName}:
  * a connector may rename a User between the Admin reading the row and clicking, and an id-targeted
  * action cannot then land on whoever inherited the name.
+ *
+ * <p>An Unlock the use case refuses — an unknown User, the caller's own account, a User serving no
+ * lockout — is answered, logged and audited by the administrative edge
+ * ({@link AdminExceptionHandler}), from the one table of administrative refusals.
  *
  * <p>{@link IdentitySummary} is returned as the wire shape rather than copied into
  * a response type of this adapter's own. The copy would have been field-identical
@@ -80,32 +75,5 @@ public class AdminAccountController {
     @PreAuthorize("hasAuthority('account:unlock')")
     public IdentitySummary unlock(@PathVariable UUID id, HttpServletRequest request) {
         return identities.unlock(id, HttpSessionAttributes.ownerOf(request));
-    }
-
-    /** A refusal about whose account it is — the caller's own, whatever Permissions it holds. */
-    @ExceptionHandler(ForbiddenIdentityChangeException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public void forbiddenChange() {
-    }
-
-    @ExceptionHandler(UnknownIdentityException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public void unknownIdentity() {
-        // The caller is already an administrator, so naming what is missing
-        // reveals nothing they could not read from the listing. An id that is
-        // not a UUID at all never gets here: the dispatcher answers it 400.
-    }
-
-    /**
-     * A refusal about the User's state rather than the caller — an Unlock of a User serving no
-     * lockout, most often one another administrator unlocked first — so neither 403 (the caller
-     * may unlock) nor 400 (the request is well formed) fits. The generic {@code request-refused}
-     * document, as every other {@code 409} of the application API.
-     */
-    @ExceptionHandler(NoLockoutInForceException.class)
-    public ResponseEntity<ApiError> notLocked() {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiError.of(HttpStatus.CONFLICT));
     }
 }

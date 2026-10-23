@@ -8,7 +8,6 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.web.ApiError;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
@@ -17,9 +16,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -74,22 +70,6 @@ class AdminAccountControllerTests {
                 .isEqualTo(summary(BOB, "bob", false, false));
 
         assertThat(service.calls).containsExactly("unlock:" + BOB + ":" + ADA);
-    }
-
-    /**
-     * An Unlock of a User serving no lockout is answered {@code 409} with the application API's
-     * generic error document: the caller may unlock, but there is nothing to lift.
-     */
-    @Test
-    void anUnlockOfAnUnlockedUserIsAnsweredAsAConflict() {
-        AdminAccountController controller = new AdminAccountController(new RecordingService(List.of()));
-
-        ResponseEntity<ApiError> answer = controller.notLocked();
-
-        assertThat(List.of(answer.getStatusCode(), answer.getHeaders().getContentType(),
-                        answer.getBody()))
-                .containsExactly(HttpStatus.CONFLICT, MediaType.APPLICATION_JSON,
-                        new ApiError(409, ApiError.REQUEST_REFUSED, "The request was refused."));
     }
 
     /** A session that identifies nobody cannot act: the operation never reaches the service. */

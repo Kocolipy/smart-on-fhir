@@ -1,8 +1,8 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import ch.qos.logback.classic.Level;
@@ -10,7 +10,6 @@ import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
@@ -34,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -52,8 +52,9 @@ import org.junit.jupiter.api.Test;
  *       stable id.
  * </ul>
  *
- * <p>Every refusal is AUDITED as well as logged, because a run of refused attempts against
- * the recovery identity is a signal only the trail can carry.
+ * <p>Every refusal is thrown as an {@link UnlockRefusedException} naming who was refused, what
+ * it addressed and why, with nothing written: the administrative edge audits and logs it, once,
+ * and {@code AdminRefusalsTests} holds what it records.
  */
 class IdentityAdministrationServiceTests {
 
@@ -339,8 +340,8 @@ class IdentityAdministrationServiceTests {
     void unlockingAnIdentityThatIsNotLockedIsRefused() {
         users.given(withRun("bob", 2));
 
-        assertThatThrownBy(() -> service.unlock(id("bob"), actor(BOOTSTRAP)))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(id("bob"), actor(BOOTSTRAP)),
+                UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), id("bob"));
     }
 
     @Test
@@ -348,25 +349,26 @@ class IdentityAdministrationServiceTests {
         users.given(withRun("bob", 2));
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock(id("bob"), actor(BOOTSTRAP)))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(id("bob"), actor(BOOTSTRAP)),
+                UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), id("bob"));
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(users.require("bob").login()).isEqualTo(withRun("bob", 2).login());
     }
 
-    /** The refusal is recorded as a refused lift, naming the actor, the target and the reason. */
+    /**
+     * The refusal names the actor, the target and the reason, and the use case records none of it:
+     * the administrative edge audits and logs it once the transaction has rolled back.
+     */
     @Test
-    void aRefusedUnlockOfAnUnlockedIdentityIsAuditedAsNotLocked() {
+    void aRefusedUnlockOfAnUnlockedIdentityNamesWhoAndWhyAndRecordsNothing() {
         ScimUser recovery = given(BOOTSTRAP);
         ScimUser bob = given("bob");
 
-        assertThatThrownBy(() -> service.unlock(bob.id(), recovery.id()))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(bob.id(), recovery.id()),
+                UnlockRefusedException.Reason.NOT_LOCKED, recovery.id(), bob.id());
 
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(),
-                AuditAdministrativeRefusal.NOT_LOCKED.name()));
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /** A refused Unlock revokes nothing: the User's sessions are untouched. */
@@ -375,8 +377,8 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = given("bob");
         sessions.open(bob.id(), "session-1");
 
-        assertThatThrownBy(() -> service.unlock(bob.id(), actor(BOOTSTRAP)))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(bob.id(), actor(BOOTSTRAP)),
+                UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), bob.id());
 
         assertThat(transaction.pending()).isZero();
         assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
@@ -391,12 +393,10 @@ class IdentityAdministrationServiceTests {
         ScimUser recovery = givenBootstrapAdmin();
         ScimUser ada = given("ada");
 
-        assertThatThrownBy(() -> service.unlock(recovery.id(), ada.id()))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(recovery.id(), ada.id()),
+                UnlockRefusedException.Reason.NOT_LOCKED, ada.id(), recovery.id());
 
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, ada.id(), recovery.id(),
-                AuditAdministrativeRefusal.NOT_LOCKED.name()));
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /**
@@ -407,12 +407,10 @@ class IdentityAdministrationServiceTests {
     void anAdministratorUnlockingItsOwnUnlockedAccountIsRefusedAsSelfTargeting() {
         ScimUser ada = given("ada");
 
-        assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
+        assertUnlockRefused(() -> service.unlock(ada.id(), ada.id()),
+                UnlockRefusedException.Reason.SELF_TARGET, ada.id(), ada.id());
 
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, ada.id(), ada.id(),
-                AuditAdministrativeRefusal.SELF_TARGET.name()));
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /**
@@ -462,8 +460,8 @@ class IdentityAdministrationServiceTests {
         UUID nobody = UUID.randomUUID();
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock(nobody, actor(BOOTSTRAP)))
-                .isInstanceOf(UnknownIdentityException.class);
+        assertUnlockRefused(() -> service.unlock(nobody, actor(BOOTSTRAP)),
+                UnlockRefusedException.Reason.UNKNOWN_IDENTITY, actor(BOOTSTRAP), nobody);
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(audit.recorded()).isEmpty();
@@ -597,8 +595,8 @@ class IdentityAdministrationServiceTests {
         ScimUser dave = users.given(ScimIdentities.userAuthenticatedAt("dave", lastLogin));
         clock.advanceBy(Duration.ofDays(1));
 
-        assertThatThrownBy(() -> service.unlock(dave.id(), actor(BOOTSTRAP)))
-                .isInstanceOf(NoLockoutInForceException.class);
+        assertUnlockRefused(() -> service.unlock(dave.id(), actor(BOOTSTRAP)),
+                UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), dave.id());
 
         assertThat(users.require("dave").login().lastAuthenticatedAt()).isEqualTo(lastLogin);
     }
@@ -652,8 +650,8 @@ class IdentityAdministrationServiceTests {
         ScimUser admin = givenLocked("admin");
         users.rename(admin.id(), "admin-renamed");
 
-        assertThatThrownBy(() -> service.unlock(admin.id(), admin.id()))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
+        assertUnlockRefused(() -> service.unlock(admin.id(), admin.id()),
+                UnlockRefusedException.Reason.SELF_TARGET, admin.id(), admin.id());
     }
 
     /**
@@ -686,46 +684,22 @@ class IdentityAdministrationServiceTests {
     }
 
     /**
-     * A refusal reports the action, a failure outcome and the closed-set reason, and names the
-     * identity it was aimed at by stable id only — never by userName.
+     * A refused Unlock reports nothing to the log stream from here — neither a success nor the
+     * refusal, which the administrative edge records once ({@code AdminRefusalsTests}).
      */
     @Test
-    void aRefusedWriteReportsItsActionReasonAndFailureToTheLogStream() {
+    void aRefusedUnlockWritesNoRecordOfItsOwn() {
         ScimUser ada = givenLocked("ada");
-
-        try (CapturedLog captured = CapturedLog.attach()) {
-            assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
-                    .isInstanceOf(ForbiddenIdentityChangeException.class);
-
-            assertThat(captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "identity.unlock"))
-                    .singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                            .containsEntry(LogEvent.USER_TARGET_ID, ada.id().toString())
-                            .containsEntry(
-                                    LogEvent.REASON, AuditAdministrativeRefusal.SELF_TARGET.name()));
-        }
-    }
-
-    /** A not-locked refusal is reported the same way, under its own reason, and as no success. */
-    @Test
-    void aRefusedUnlockOfAnUnlockedUserReportsItsReasonToTheLogStream() {
         ScimUser bob = given("bob");
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            assertThatThrownBy(() -> service.unlock(bob.id(), actor(BOOTSTRAP)))
-                    .isInstanceOf(NoLockoutInForceException.class);
+            assertUnlockRefused(() -> service.unlock(ada.id(), ada.id()),
+                    UnlockRefusedException.Reason.SELF_TARGET, ada.id(), ada.id());
+            assertUnlockRefused(() -> service.unlock(bob.id(), actor(BOOTSTRAP)),
+                    UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), bob.id());
 
-            assertThat(captured.withAction(Level.WARN, LogEvent.LOCAL_ACTION, "identity.unlock"))
-                    .singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                            .containsEntry(LogEvent.USER_TARGET_ID, bob.id().toString())
-                            .containsEntry(
-                                    LogEvent.REASON, AuditAdministrativeRefusal.NOT_LOCKED.name()));
-            assertThat(captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "identity.unlock"))
-                    .as("the refusal is the action's one record: no success beside it")
-                    .hasSize(1);
+            assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "identity.unlock"))
+                    .isEmpty();
         }
     }
 
@@ -773,14 +747,12 @@ class IdentityAdministrationServiceTests {
         ScimUser ada = givenLocked("ada");
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock(ada.id(), ada.id()))
-                .isInstanceOf(ForbiddenIdentityChangeException.class);
+        assertUnlockRefused(() -> service.unlock(ada.id(), ada.id()),
+                UnlockRefusedException.Reason.SELF_TARGET, ada.id(), ada.id());
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(users.require("ada").login().isLocked()).isTrue();
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, ada.id(), ada.id(),
-                AuditAdministrativeRefusal.SELF_TARGET.name()));
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /**
@@ -795,6 +767,17 @@ class IdentityAdministrationServiceTests {
         assertThatNullPointerException().isThrownBy(() -> service.unlock(bob.id(), null));
 
         assertThat(users.require("bob").login().isLocked()).isTrue();
+    }
+
+    /** The Unlock is refused for {@code reason}, naming the actor and the User it addressed. */
+    private static void assertUnlockRefused(
+            ThrowingCallable unlock, UnlockRefusedException.Reason reason, UUID actorId,
+            UUID userId) {
+        assertThatExceptionOfType(UnlockRefusedException.class)
+                .isThrownBy(unlock)
+                .satisfies(refused -> assertThat(List.<Object>of(
+                                refused.reason(), refused.actorId(), refused.userId()))
+                        .containsExactly(reason, actorId, userId));
     }
 
     /**

@@ -6,6 +6,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.auth.controller.AdminExceptionHandler;
 import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
@@ -17,6 +18,7 @@ import com.example.backend.web.NamespaceExceptionResolver;
 import java.lang.reflect.Method;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
  * A failure of connector administration's handlers, as Spring MVC resolves it with this service's
  * advices: connector administration lives in this package, beside the SCIM namespace's advice, but
  * serves {@code /api}, so the application API's advice answers it — {@code ApiError}, one
- * {@code WARN} refusal or one redacted {@code ERROR} fault, and nothing logged as a SCIM refusal.
+ * {@code WARN} refusal or one redacted {@code ERROR} fault, and nothing logged as a SCIM refusal —
+ * unless it is an administrative refusal, which the administrative edge answers first.
  * The same handler's failure on a SCIM path is the SCIM advice's: the request's namespace decides,
  * not the handler.
  */
@@ -142,10 +145,14 @@ class ConnectorAdministrationErrorTests {
         assertNothingScim();
     }
 
-    /** The controller's own refusals answer first, unchanged: here the bodiless 404. */
+    /**
+     * The administrative edge's refusals answer first, unchanged: here the bodiless 404, which the
+     * edge also audits.
+     */
     @Test
-    void the_controllers_own_refusal_is_unchanged() throws Exception {
-        resolve(new UnknownConnectorException("No such connector"));
+    void the_administrative_edges_refusal_is_unchanged() throws Exception {
+        resolve(new UnknownConnectorException(
+                UnknownConnectorException.Operation.DELETE, null, UUID.randomUUID(), null));
 
         assertThat(response.getStatus()).isEqualTo(404);
         assertThat(response.getContentAsByteArray()).isEmpty();
@@ -193,6 +200,8 @@ class ConnectorAdministrationErrorTests {
                 List.of(new com.example.backend.scim.config.ScimSecurityConfig().scimErrorNamespace()));
         StaticWebApplicationContext context = new StaticWebApplicationContext();
         context.setServletContext(new MockServletContext());
+        context.registerBean(AdminExceptionHandler.class,
+                () -> new AdminExceptionHandler(new RecordingAuditTrail()));
         context.registerBean(ApiExceptionHandler.class, () -> new ApiExceptionHandler(namespaces));
         context.registerBean(ScimExceptionHandler.class,
                 () -> new ScimExceptionHandler(new RecordingAuditTrail()));

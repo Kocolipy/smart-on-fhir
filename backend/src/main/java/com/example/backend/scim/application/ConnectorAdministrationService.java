@@ -1,6 +1,5 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.Permission;
@@ -51,6 +50,12 @@ import org.springframework.transaction.annotation.Transactional;
  * rename between the administrator signing in and acting, handing it to another User. A
  * {@code null} id — a session that identifies nobody — records the event with no actor: no rule
  * here turns on who the actor is, and an event with no actor is more use than no event.
+ *
+ * <p>A refusal is thrown before anything is written, as a
+ * {@link ConnectorAdministrationRefusedException} naming the administrator, what the operation
+ * addressed and why, and is recorded nowhere here: the administrative edge answers, logs and
+ * audits it. An id that names no live connector or token is an {@link UnknownConnectorException};
+ * a token that can no longer be rotated, a {@link ConnectorTokenNotRotatableException}.
  */
 @Service
 public class ConnectorAdministrationService {
@@ -127,7 +132,8 @@ public class ConnectorAdministrationService {
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_DELETE)
     public void delete(UUID connectorId, UUID actorId) {
-        ScimConnector connector = requireLive(connectorId);
+        ScimConnector connector = requireLive(
+                connectorId, UnknownConnectorException.Operation.DELETE, actorId, null);
         Instant now = clock.instant();
         // Which tokens the revocation below takes down, read first so each event can name its
         // token: every one this connector holds that is not revoked already.
@@ -169,7 +175,7 @@ public class ConnectorAdministrationService {
             UUID actorId) {
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(requested);
         Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
-        requireLive(connectorId);
+        requireLive(connectorId, UnknownConnectorException.Operation.TOKEN_ISSUE, actorId, null);
         Instant now = clock.instant();
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         ScimConnectorToken issued = ScimConnectorToken.issue(
@@ -216,17 +222,17 @@ public class ConnectorAdministrationService {
             Duration overlap,
             UUID actorId) {
         tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireToken(tokenId);
+        ScimConnectorToken existing = requireToken(
+                tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
                 requested == null ? existing.permissions().values() : requested);
-        ScimConnector connector = requireLive(existing.connectorId());
+        ScimConnector connector = requireLive(existing.connectorId(),
+                UnknownConnectorException.Operation.TOKEN_ROTATE, actorId, tokenId);
         Instant now = clock.instant();
         Optional<ConnectorTokenRotationRefusal> refusal = existing.rotationRefusal(now);
         if (refusal.isPresent()) {
-            audit.append(new Audited.ConnectorTokenNotRotatable(
-                    actorId, connector.id(), existing.id(), auditReason(refusal.get())));
-            refused(Operation.CONNECTOR_TOKEN_ROTATE);
-            throw new ConnectorTokenNotRotatableException();
+            throw new ConnectorTokenNotRotatableException(
+                    actorId, connector.id(), existing.id(), refusal.get());
         }
 
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
@@ -263,7 +269,8 @@ public class ConnectorAdministrationService {
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_REVOKE)
     public void revokeToken(UUID tokenId, UUID actorId) {
         tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireToken(tokenId);
+        ScimConnectorToken existing = requireToken(
+                tokenId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId);
         ScimConnectorToken revoked = existing.revoked(clock.instant());
         if (revoked != existing) {
             tokens.save(revoked);
@@ -273,25 +280,27 @@ public class ConnectorAdministrationService {
         succeeded(Operation.CONNECTOR_TOKEN_REVOKE, Type.DELETION);
     }
 
-    /** The audit trail's spelling of why a token can no longer be rotated. */
-    private static AuditAdministrativeRefusal auditReason(ConnectorTokenRotationRefusal refusal) {
-        return switch (refusal) {
-            case REVOKED -> AuditAdministrativeRefusal.TOKEN_REVOKED;
-            case ALREADY_ROTATED -> AuditAdministrativeRefusal.TOKEN_ALREADY_ROTATED;
-            case EXPIRED -> AuditAdministrativeRefusal.TOKEN_EXPIRED;
-        };
-    }
-
-    private ScimConnector requireLive(UUID connectorId) {
+    /**
+     * The live connector behind {@code connectorId}, or the refusal of {@code operation} as
+     * addressing nothing — naming the token it addressed too, when it addressed one.
+     */
+    private ScimConnector requireLive(UUID connectorId,
+            UnknownConnectorException.Operation operation, UUID actorId, UUID tokenId) {
         return connectors.findById(connectorId)
                 .filter(connector -> !connector.isDeleted())
                 .orElseThrow(() -> new UnknownConnectorException(
-                        "No live connector with that id"));
+                        operation, actorId, connectorId, tokenId));
     }
 
-    private ScimConnectorToken requireToken(UUID tokenId) {
+    /**
+     * The token behind {@code tokenId}, or the refusal of {@code operation} as addressing nothing:
+     * no connector is named, because an unknown token belongs to none.
+     */
+    private ScimConnectorToken requireToken(
+            UUID tokenId, UnknownConnectorException.Operation operation, UUID actorId) {
         return tokens.findById(tokenId)
-                .orElseThrow(() -> new UnknownConnectorException("No token with that id"));
+                .orElseThrow(() -> new UnknownConnectorException(
+                        operation, actorId, null, tokenId));
     }
 
     private ConnectorSummary summarize(ScimConnector connector, Instant now) {
@@ -338,14 +347,5 @@ public class ConnectorAdministrationService {
      */
     private static void succeeded(Operation operation, Type lifecycle) {
         LogEvent.success(log, operation, Category.CONFIGURATION, Type.ADMIN, lifecycle).log();
-    }
-
-    /**
-     * Records that a token rotation was refused — the token can no longer be rotated — at
-     * {@code WARN}: the action and the outcome, never which token or why. Those are the audit
-     * trail's to name.
-     */
-    private static void refused(Operation operation) {
-        LogEvent.refused(log, operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED).log();
     }
 }

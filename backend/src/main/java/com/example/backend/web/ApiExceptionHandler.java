@@ -70,7 +70,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * namespace advice shares, so that a framework handler (the actuator's) is never answered here.
  *
  * <p>A controller's own {@code @ExceptionHandler} still answers first — Spring consults the
- * controller before any advice — so every refusal a controller already renders is unchanged.
+ * controller before any advice — and so does an advice scoped to named handlers and ordered ahead
+ * of this one, as the administrative edge of {@code /api/admin} is for its refusals; everything
+ * else those handlers raise is still answered here.
  * A refusal made before a handler is chosen (no route, a method or content type no route
  * accepts) is not answered here but by the dispatcher's {@code sendError}, which
  * {@link ErrorDocumentFilter} renders in the namespace's document.

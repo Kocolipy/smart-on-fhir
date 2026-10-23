@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
@@ -94,6 +95,9 @@ class AdminAccountEndpointTests {
 
     @Autowired
     private ScimGroupRepository groups;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -260,11 +264,23 @@ class AdminAccountEndpointTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * An Unlock of an id no User has is a {@code 404}, audited as a refused {@code LOCKOUT_LIFT}
+     * naming the id it addressed, with {@code UNKNOWN_RESOURCE}.
+     */
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
+        UUID nobody = UUID.randomUUID();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", nobody))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForList(
+                "SELECT error_code FROM audit_events WHERE operation = 'LOCKOUT_LIFT'"
+                        + " AND outcome = 'FAILURE' AND subject_id = ?",
+                String.class, nobody))
+                .containsExactly("UNKNOWN_RESOURCE");
     }
 
     /**

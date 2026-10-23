@@ -8,8 +8,9 @@ Accepted. Written when an administrator could disable and enable an account;
 those operations are gone (`active` is the directory's), and the examples below
 use today's. The addenda extend the rule to Session revocation (2026-10-10),
 express it once from each event's kind (2026-10-12), move fail-open appends to a
-pool of their own and record refused SCIM writes at the edge (2026-10-13), and
-make the database keep the trail append-only (2026-10-14).
+pool of their own and record refused SCIM writes at the edge (2026-10-13),
+make the database keep the trail append-only (2026-10-14), and record refused
+administrative operations at the edge of `/api/admin` (2026-10-22).
 
 ## Context
 
@@ -176,3 +177,26 @@ parts, each covering a hole the others leave:
 
 `AuditAppendOnlyIntegrationTests` connects as each login and as the server
 administrator and asserts each refusal or admitted `DELETE`.
+
+## Addendum (2026-10-22): A refused administrative operation is recorded once, at the edge
+
+Each administrative use case — Unlock, setting a Group's Permissions, connector
+and token administration — paired its own log line with its own refused event,
+so which refusals were audited was scattered: an unknown Group was audited, an
+unknown User, connector or token was not, and the Group controller called back
+into its use case to audit a body the binder refused (architecture review
+2026-10-22, deepening candidate 1).
+
+**Decision:** the use cases throw a typed refusal naming the administrator,
+what the operation addressed and why, and record nothing. The advice at the
+edge of `/api/admin` (`auth.controller.AdminExceptionHandler`) records each,
+once, from one table (`auth.controller.AdminRefusals`) naming every refusal's
+status, body, log record and refused event; the table is exhaustive over the
+two sealed refusal types, so a new refusal does not compile without its entry.
+Every refusal addressing something is audited, an unknown target included
+(`UNKNOWN_RESOURCE`, new `ConnectorDeleteRefused`, `ConnectorTokenIssueRefused`
+and `ConnectorTokenRevokeRefused` events beside the existing refused ones); a
+token request of a shape no token may have is answered `400` and not audited.
+Each row is typed `Audited.Refused`, so it is appended fail-open with an alert,
+after the use case's transaction has rolled back, which a fail-open append on
+its own connection does not need.

@@ -127,7 +127,8 @@ logins right now, and is an Admin's. So:
   password also sets its change-required flag. An Unlock of a User serving no
   lockout has no effect: it is refused (`409`), nothing is written — its failure
   run included — and the refusal is a `LOCKOUT_LIFT` failure with reason
-  `NOT_LOCKED`.
+  `NOT_LOCKED`. An Unlock of an id no User has is refused (`404`) and recorded
+  the same way with `UNKNOWN_RESOURCE`, naming the id it addressed.
 
 The same rule holds for every event that records a login-state transition — a
 refusal counted against the run, a Lockout, an Unlock, a required change, a

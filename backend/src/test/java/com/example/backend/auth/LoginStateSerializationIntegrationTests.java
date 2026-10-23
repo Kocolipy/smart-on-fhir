@@ -9,8 +9,8 @@ import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
-import com.example.backend.auth.application.NoLockoutInForceException;
 import com.example.backend.auth.application.PasswordRefusalReason;
+import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
@@ -141,7 +141,7 @@ class LoginStateSerializationIntegrationTests {
         both.add(() -> {
             try {
                 return administration.unlock(user.id(), actor);
-            } catch (NoLockoutInForceException refused) {
+            } catch (UnlockRefusedException refused) {
                 return refused;
             }
         });

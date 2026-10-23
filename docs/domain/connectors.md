@@ -83,6 +83,14 @@ and rotation responses alone, under `Cache-Control: no-store`.
 - Every token event names the token it concerns by its stable id beside the
   connector — a rotation the rotated token and its replacement — and never its
   value.
+- An operation addressing a connector or token that names nothing — never
+  existed, or was deleted, a token whose connector was deleted among them — is
+  refused `404`, nothing written, and audited as that operation's failure
+  (`CONNECTOR_DELETE`, `CONNECTOR_TOKEN_ISSUE`, `CONNECTOR_TOKEN_ROTATE` or
+  `CONNECTOR_TOKEN_REVOKE`) with `UNKNOWN_RESOURCE`, naming the connector and
+  the token addressed. A token request of a shape no token may have — a lifetime
+  past the ceiling, a Permission no token may carry — is refused `400` and not
+  audited: it addresses nothing to record a refusal against.
 
 ## Credential refusals
 

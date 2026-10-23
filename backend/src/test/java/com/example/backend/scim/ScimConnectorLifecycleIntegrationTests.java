@@ -450,6 +450,61 @@ class ScimConnectorLifecycleIntegrationTests {
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
     }
 
+    /**
+     * A second rotation of one token is refused {@code 409} without a body, and the administrative
+     * edge records it on the audit pool once the rotation's transaction has rolled back: a failed
+     * {@code CONNECTOR_TOKEN_ROTATE} naming the administrator, the token addressed and why.
+     */
+    @Test
+    void a_second_rotation_is_refused_and_audited_naming_the_token() throws Exception {
+        UUID connectorId = createConnector("Okta");
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
+        UUID tokenId = firstTokenId(connectorId);
+        rotateFirstToken(connectorId);
+
+        MvcResult refused = mvc.perform(asAdmin(post(
+                        CONNECTORS + "/" + connectorId + "/tokens/" + tokenId + "/rotate")))
+                .andReturn();
+
+        assertThat(refused.getResponse().getStatus()).isEqualTo(409);
+        assertThat(refused.getResponse().getContentAsString()).isEmpty();
+        assertThat(eventsOf(AuditOperation.CONNECTOR_TOKEN_ROTATE, connectorId))
+                .filteredOn(row -> "FAILURE".equals(row.get("outcome")))
+                .singleElement()
+                .satisfies(row -> assertThat(List.of(String.valueOf(row.get("actor_id")),
+                                String.valueOf(row.get("token_id")), row.get("error_code")))
+                        .containsExactly(adminId().toString(), tokenId.toString(),
+                                "TOKEN_ALREADY_ROTATED"));
+    }
+
+    /**
+     * An operation addressing a connector or a token that names nothing is refused {@code 404}
+     * without a body, and audited as that operation's failure with {@code UNKNOWN_RESOURCE},
+     * naming the administrator and what it addressed.
+     */
+    @Test
+    void an_operation_on_an_unknown_connector_or_token_is_refused_and_audited() throws Exception {
+        UUID connectorId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+
+        List<Integer> statuses = List.of(
+                status(asAdmin(delete(CONNECTORS + "/" + connectorId))),
+                status(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"permissions\":" + TokenPermissions.READ_JSON + "}")),
+                status(asAdmin(post(
+                        CONNECTORS + "/" + connectorId + "/tokens/" + tokenId + "/revoke"))));
+
+        assertThat(statuses).containsExactly(404, 404, 404);
+        assertThat(List.of(
+                        refusalOf(AuditOperation.CONNECTOR_DELETE, "subject_id", connectorId),
+                        refusalOf(AuditOperation.CONNECTOR_TOKEN_ISSUE, "subject_id", connectorId),
+                        refusalOf(AuditOperation.CONNECTOR_TOKEN_REVOKE, "token_id", tokenId)))
+                .allSatisfy(row -> assertThat(List.of(row.get("outcome"), row.get("error_code"),
+                                String.valueOf(row.get("actor_id"))))
+                        .containsExactly("FAILURE", "UNKNOWN_RESOURCE", adminId().toString()));
+    }
+
     @Test
     void a_lifetime_past_the_ceiling_is_a_bad_request() throws Exception {
         UUID connectorId = createConnector("Okta");
@@ -512,6 +567,23 @@ class ScimConnectorLifecycleIntegrationTests {
     private List<Map<String, Object>> eventsOf(AuditOperation operation, UUID connectorId) {
         return jdbc.query(EVENTS_BY_OPERATION_AND_SUBJECT, UuidColumnRows.ROWS,
                 operation.name(), connectorId);
+    }
+
+    /** The one refused {@code operation} whose {@code column} names {@code id}. */
+    private Map<String, Object> refusalOf(AuditOperation operation, String column, UUID id) {
+        List<Map<String, Object>> rows = jdbc.query(
+                "SELECT * FROM audit_events WHERE operation = ? AND " + column + " = ?",
+                UuidColumnRows.ROWS, operation.name(), id);
+        assertThat(rows).as("%s", operation).hasSize(1);
+        return rows.getFirst();
+    }
+
+    private int status(MockHttpServletRequestBuilder request) throws Exception {
+        return mvc.perform(request).andReturn().getResponse().getStatus();
+    }
+
+    private UUID adminId() {
+        return users.findByNormalizedUserName(NormalizedUserName.of(ADMIN)).orElseThrow().id();
     }
 
     private void assertOneEvent(AuditOperation operation, UUID connectorId) {

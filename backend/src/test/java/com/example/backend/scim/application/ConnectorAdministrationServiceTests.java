@@ -1,14 +1,13 @@
 package com.example.backend.scim.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.MutableClock;
@@ -22,6 +21,7 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
+import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
@@ -29,9 +29,11 @@ import com.example.backend.scim.domain.ScimConnectorToken;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,7 +47,9 @@ import org.junit.jupiter.params.provider.EnumSource;
  * records, what the overlap arithmetic does to the stored rows, and that a delete
  * takes tokens and aliases with it. That a request arriving over HTTP produces those
  * decisions, and that the rows genuinely land in SQL Server, is
- * {@code ScimConnectorLifecycleIntegrationTests}' claim rather than this one's.
+ * {@code ScimConnectorLifecycleIntegrationTests}' claim rather than this one's. A refusal is
+ * thrown naming who, what and why, and recorded nowhere here: the administrative edge answers,
+ * logs and audits it ({@code AdminRefusalsTests}).
  */
 class ConnectorAdministrationServiceTests {
 
@@ -194,14 +198,20 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", adminId);
             service.delete(connector.id(), adminId);
 
-            assertThatThrownBy(() -> service.delete(connector.id(), adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
+            audit.reset();
+
+            assertUnknown(() -> service.delete(connector.id(), adminId),
+                    UnknownConnectorException.Operation.DELETE, connector.id(), null);
+            assertThat(audit.recorded()).as("the edge records the refusal").isEmpty();
         }
 
         @Test
         void an_unknown_connector_id_is_refused() {
-            assertThatThrownBy(() -> service.delete(UUID.randomUUID(), adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
+            UUID unknown = UUID.randomUUID();
+
+            assertUnknown(() -> service.delete(unknown, adminId),
+                    UnknownConnectorException.Operation.DELETE, unknown, null);
+            assertThat(audit.recorded()).isEmpty();
         }
     }
 
@@ -287,9 +297,9 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", adminId);
             service.delete(connector.id(), adminId);
 
-            assertThatThrownBy(() -> service.issueToken(
-                            connector.id(), TokenPermissions.READ, null, adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
+            assertUnknown(() -> service.issueToken(
+                            connector.id(), TokenPermissions.READ, null, adminId),
+                    UnknownConnectorException.Operation.TOKEN_ISSUE, connector.id(), null);
         }
 
         @Test
@@ -399,12 +409,12 @@ class ConnectorAdministrationServiceTests {
         }
 
         /**
-         * Each refusal is audited as one, naming the connector, the token addressed and why — and
+         * Each refusal names the administrator, the connector, the token addressed and why — and
          * which of the three applies follows from the token: revoked first, then replaced, then
-         * expired.
+         * expired. Nothing is recorded here: the administrative edge audits it.
          */
         @Test
-        void a_refused_rotation_is_audited_naming_the_token_and_why() {
+        void a_refused_rotation_names_the_token_and_why_and_records_nothing() {
             IssuedConnectorToken revoked = issuedReadWriteToken();
             service.revokeToken(revoked.tokenId(), adminId);
             IssuedConnectorToken rotated = issuedReadWriteToken();
@@ -413,26 +423,10 @@ class ConnectorAdministrationServiceTests {
             clock.advanceBy(ConnectorTokenPolicy.DEFAULT_LIFETIME);
             audit.reset();
 
-            for (IssuedConnectorToken refused : List.of(revoked, rotated, expired)) {
-                assertThatThrownBy(() -> service.rotateToken(
-                                refused.tokenId(), null, null, adminId))
-                        .isInstanceOf(ConnectorTokenNotRotatableException.class);
-            }
-
-            assertThat(audit.events(Audited.ConnectorTokenNotRotatable.class))
-                    .extracting(Audited.ConnectorTokenNotRotatable::actorId,
-                            Audited.ConnectorTokenNotRotatable::connectorId,
-                            Audited.ConnectorTokenNotRotatable::rotatedId,
-                            Audited.ConnectorTokenNotRotatable::reason)
-                    .containsExactly(
-                            tuple(adminId, revoked.connectorId(), revoked.tokenId(),
-                                    AuditAdministrativeRefusal.TOKEN_REVOKED),
-                            tuple(adminId, rotated.connectorId(), rotated.tokenId(),
-                                    AuditAdministrativeRefusal.TOKEN_ALREADY_ROTATED),
-                            tuple(adminId, expired.connectorId(), expired.tokenId(),
-                                    AuditAdministrativeRefusal.TOKEN_EXPIRED));
-            assertThat(audit.events()).as("nothing but the refusals")
-                    .allMatch(Audited.ConnectorTokenNotRotatable.class::isInstance);
+            assertNotRotatable(revoked, ConnectorTokenRotationRefusal.REVOKED);
+            assertNotRotatable(rotated, ConnectorTokenRotationRefusal.ALREADY_ROTATED);
+            assertNotRotatable(expired, ConnectorTokenRotationRefusal.EXPIRED);
+            assertThat(audit.events()).isEmpty();
         }
 
         /** A revoked token that was also rotated is refused as revoked: revocation reads first. */
@@ -443,13 +437,7 @@ class ConnectorAdministrationServiceTests {
             service.revokeToken(original.tokenId(), adminId);
             audit.reset();
 
-            assertThatThrownBy(() -> service.rotateToken(
-                            original.tokenId(), null, null, adminId))
-                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
-
-            assertThat(audit.events(Audited.ConnectorTokenNotRotatable.class))
-                    .extracting(Audited.ConnectorTokenNotRotatable::reason)
-                    .containsExactly(AuditAdministrativeRefusal.TOKEN_REVOKED);
+            assertNotRotatable(original, ConnectorTokenRotationRefusal.REVOKED);
         }
 
         /**
@@ -560,10 +548,24 @@ class ConnectorAdministrationServiceTests {
         void an_unknown_token_id_is_refused_by_both_rotate_and_revoke() {
             UUID unknown = UUID.randomUUID();
 
-            assertThatThrownBy(() -> service.rotateToken(unknown, null, null, adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
-            assertThatThrownBy(() -> service.revokeToken(unknown, adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
+            assertUnknown(() -> service.rotateToken(unknown, null, null, adminId),
+                    UnknownConnectorException.Operation.TOKEN_ROTATE, null, unknown);
+            assertUnknown(() -> service.revokeToken(unknown, adminId),
+                    UnknownConnectorException.Operation.TOKEN_REVOKE, null, unknown);
+            assertThat(audit.recorded()).isEmpty();
+        }
+
+        /** A token of a deleted connector names a connector that is no longer there. */
+        @Test
+        void a_token_of_a_deleted_connector_is_not_rotated() {
+            IssuedConnectorToken issued = issuedReadWriteToken();
+            service.delete(issued.connectorId(), adminId);
+            audit.reset();
+
+            assertUnknown(() -> service.rotateToken(issued.tokenId(), null, null, adminId),
+                    UnknownConnectorException.Operation.TOKEN_ROTATE, issued.connectorId(),
+                    issued.tokenId());
+            assertThat(audit.recorded()).isEmpty();
         }
 
         @Test
@@ -676,32 +678,21 @@ class ConnectorAdministrationServiceTests {
     }
 
     /**
-     * A rotation of a token that can no longer be rotated is one {@code WARN} record of the
-     * refused rotation, naming neither the token nor why — the audit trail names both.
+     * A refused rotation writes no record of its own, and no success: the administrative edge
+     * records the refusal once ({@code AdminRefusalsTests}).
      */
     @Test
-    void a_rotation_refused_as_not_rotatable_is_one_warn_record_naming_no_token() {
+    void a_refused_rotation_writes_no_record_of_its_own() {
         ConnectorSummary connector = service.create("Okta", adminId);
         IssuedConnectorToken issued = service.issueToken(
                 connector.id(), TokenPermissions.ALL, null, adminId);
         service.revokeToken(issued.tokenId(), adminId);
         try (CapturedLog log = CapturedLog.attach()) {
-            assertThatThrownBy(() -> service.rotateToken(
-                    issued.tokenId(), null, null, adminId))
-                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
+            assertNotRotatable(issued, ConnectorTokenRotationRefusal.REVOKED);
 
             assertThat(log.withAction(
                             Level.TRACE, LogEvent.LOCAL_ACTION, "scim.connector.token.rotate"))
-                    .singleElement()
-                    .satisfies(record -> {
-                        assertThat(record.getLevel()).isEqualTo(Level.WARN);
-                        assertThat(CapturedLog.fields(record))
-                                .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                                .containsEntry(LogEvent.TYPE, List.of("admin", "denied"));
-                        assertThat(record.getFormattedMessage() + CapturedLog.fields(record))
-                                .doesNotContain(issued.tokenId().toString())
-                                .doesNotContain("REVOKED");
-                    });
+                    .isEmpty();
         }
     }
 
@@ -735,6 +726,30 @@ class ConnectorAdministrationServiceTests {
                     assertThat(event.actorId()).isNull();
                     assertThat(event.subjectId()).isEqualTo(created.id());
                 });
+    }
+
+    /**
+     * The operation is refused as addressing nothing, naming the administrator, the operation and
+     * what it addressed: the connector — {@code null} when only an unknown token was named — and
+     * the token, {@code null} for an operation on a connector.
+     */
+    private void assertUnknown(ThrowingCallable call, UnknownConnectorException.Operation operation,
+            UUID connectorId, UUID tokenId) {
+        assertThatExceptionOfType(UnknownConnectorException.class)
+                .isThrownBy(call)
+                .satisfies(refused -> assertThat(Arrays.asList(refused.operation(),
+                                refused.actorId(), refused.connectorId(), refused.addressedId()))
+                        .containsExactly(operation, adminId, connectorId, tokenId));
+    }
+
+    /** A rotation of {@code token} is refused for {@code reason}, naming who and what. */
+    private void assertNotRotatable(
+            IssuedConnectorToken token, ConnectorTokenRotationRefusal reason) {
+        assertThatExceptionOfType(ConnectorTokenNotRotatableException.class)
+                .isThrownBy(() -> service.rotateToken(token.tokenId(), null, null, adminId))
+                .satisfies(refused -> assertThat(List.of(refused.reason(), refused.actorId(),
+                                refused.connectorId(), refused.rotatedId()))
+                        .containsExactly(reason, adminId, token.connectorId(), token.tokenId()));
     }
 
     private IssuedConnectorToken issuedReadWriteToken() {
@@ -828,10 +843,12 @@ class ConnectorAdministrationServiceTests {
         }
 
         @Test
-        void a_token_for_an_unknown_connector_is_unknown_not_audited() {
-            assertThatThrownBy(() -> service.issueToken(UUID.randomUUID(),
-                    List.of(Permission.USER_WRITE), null, adminId))
-                    .isInstanceOf(UnknownConnectorException.class);
+        void a_token_for_an_unknown_connector_is_refused_naming_it_and_records_nothing() {
+            UUID unknown = UUID.randomUUID();
+
+            assertUnknown(() -> service.issueToken(unknown,
+                            List.of(Permission.USER_WRITE), null, adminId),
+                    UnknownConnectorException.Operation.TOKEN_ISSUE, unknown, null);
             assertThat(audit.recorded()).isEmpty();
         }
 
