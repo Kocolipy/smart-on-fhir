@@ -15,7 +15,7 @@ The script owns both config lists; `.semgrepignore` owns the skipped paths, and 
 
 ## Full-context tests
 
-A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration; each context boots once and gets its own migrated SQL Server database and Redis database on containers the JVM shares (`ContainerTestConfiguration` holds the mechanism). Joining an existing configuration costs a new class nothing; differing from all of them costs a boot. Write a new class to join:
+A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration; each context boots once and gets its own migrated SQL Server database and Redis database. Under the gate scripts every test JVM puts its databases on one SQL Server the script started; under a bare `./mvnw` or an IDE, each JVM starts a server of its own (`ContainerTestConfiguration` holds the mechanism). Joining an existing configuration costs a new class nothing; differing from all of them costs a boot. Write a new class to join:
 
 - Start from `@SpringBootTest` + `@Import(ContainerTestConfiguration.class)`, the configuration most classes share, and add only what the behaviour under test needs. Each extra profile, property, imported configuration, `@MockitoBean` or `@DynamicPropertySource` makes a context of its own; a property set to its default value is the usual needless one.
 - Declare a test configuration as a top-level class and import it, as `InMemorySessionRegistryConfiguration` and `DormancyTestClockConfiguration` are: the cache keys on the class, so a nested copy shares with nobody. Import `InMemorySessionRegistryConfiguration` only when the test reads `InMemoryAccountSessions`.
@@ -25,7 +25,7 @@ A `@SpringBootTest` class runs in a context Spring caches and reuses for every c
 - Write for a database other classes in the context have already used: mint unique names (a SCIM `userName` or Group `displayName` collides across classes), read back only the rows the test made, remove them afterwards, and assert on those rows or on deltas rather than whole-table counts.
 - A class that destroys shared state — deletes or reshapes a seeded fixture, the Admin group or the Bootstrap Admin — declares `@DirtiesContext(classMode = AFTER_CLASS)`, as `GroupPermissionPropagationIntegrationTests` does, so the eviction states the reason. Isolation that rests on a coincidentally different property disappears when a cleanup removes it. A case that runs inside a transaction rolled back after it destroys nothing, so it needs no eviction and joins the cached context. `@Transactional` does that where the class declares its own cases; a subclass whose cases are declared on an abstract contract registers `RollsBackEachCase`, as the SQL Server User store contracts do, because Spring reads `@Transactional` off the class declaring the case.
 
-The suite runs in two JVMs (`forkCount` in `pom.xml`); pass `-DforkCount=1` to debug in one.
+The suite runs in two JVMs (`forkCount` in `pom.xml`); pass `-DforkCount=1` to debug in one. The gate scripts start the one SQL Server those JVMs share (`scripts/test-sql-server.sh`) and remove it when they exit; a leftover from a killed run carries the label `smart-on-fhir.test-sql-server`.
 
 ## Mutation testing (PIT)
 

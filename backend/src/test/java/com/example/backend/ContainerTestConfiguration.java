@@ -48,13 +48,23 @@ import org.testcontainers.utility.DockerImageName;
  * So every statement a test drives through the service runs with a deployment's privileges, and a
  * grant the migration forgot fails here first. A test that must speak as another principal goes
  * through {@link DatabaseLogins}. Logins are server principals, so they are created once per
- * container, in the {@code static} block; the roles are each database's own, and the migration
- * creates them.
+ * server, by whoever starts it; the roles are each database's own, and the migration creates them.
+ *
+ * <p><strong>One SQL Server for every test JVM, when a gate script starts it.</strong>
+ * {@code scripts/verify.sh} and {@code scripts/test-gates.sh} start a single server for the whole
+ * run ({@code scripts/test-sql-server.sh}), create the three logins on it, and name it to the
+ * forks in the {@code TEST_SQL_SERVER_*} environment variables; the forks then share it rather
+ * than each starting its own, which is what bounds the suite's memory. Without those variables —
+ * an IDE, a bare {@code ./mvnw test} — this class starts a server of its own and creates the
+ * logins on it, as before. Each database is named with a token of this JVM's, so two JVMs on one
+ * server never create the same one. Redis stays one container per JVM either way: it is small,
+ * and its numbered databases are counted per JVM.
  *
  * <p>The containers are started here, in a {@code static} block, rather than declared as
  * {@code @ServiceConnection} beans, because a context owns its beans' lifecycle: the first context
  * to close — {@code BackendApplicationTests} closes one on purpose — would stop a container every
- * cached context still points at. Ryuk removes them when the JVM exits.
+ * cached context still points at. Ryuk removes them when the JVM exits; a shared server is removed
+ * by the script that started it.
  *
  * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
  * database starts with the seeded Bootstrap Admin's first-login change already completed, and
@@ -90,6 +100,11 @@ public class ContainerTestConfiguration {
                             .asCompatibleSubstituteFor("mcr.microsoft.com/mssql/server"))
                     .acceptLicense();
 
+    /** Set, with the variables below, when a gate script shares one server across the JVMs. */
+    private static final String SHARED_PORT = "TEST_SQL_SERVER_PORT";
+
+    private static final boolean SHARED = System.getenv(SHARED_PORT) != null;
+
     /** Redis' default of 16 numbered databases is fewer than the suite's contexts. */
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
@@ -99,6 +114,9 @@ public class ContainerTestConfiguration {
     private static final AtomicInteger CONTEXTS = new AtomicInteger();
 
     private static final AtomicInteger DATABASES = new AtomicInteger();
+
+    /** This JVM's, in each database's name: a shared server holds every JVM's databases. */
+    private static final String JVM_TOKEN = UUID.randomUUID().toString().substring(0, 8);
 
     /** The owner login: owns each context's database and runs its migrations. */
     public static final String OWNER_LOGIN = "backend_owner";
@@ -110,29 +128,60 @@ public class ContainerTestConfiguration {
     public static final String RETENTION_LOGIN = "backend_retention_login";
 
     /**
-     * Generated per test JVM, as a deployment's are per stack, and never written anywhere. A UUID
-     * meets SQL Server's password policy (lower-case letters, digits and a symbol), and holds no
-     * quote, so the literal needs no escaping.
+     * Generated per run, as a deployment's are per stack, and never written anywhere: by the gate
+     * script for a shared server, otherwise here, per JVM. A UUID meets SQL Server's password
+     * policy (lower-case letters, digits and a symbol), and holds no quote, so the literal needs
+     * no escaping.
      */
-    public static final String OWNER_PASSWORD = UUID.randomUUID().toString();
+    public static final String OWNER_PASSWORD = password("TEST_SQL_SERVER_OWNER_PASSWORD");
 
     /** The app login's, generated as the owner's is; for a test that connects as the service. */
-    public static final String APP_PASSWORD = UUID.randomUUID().toString();
+    public static final String APP_PASSWORD = password("TEST_SQL_SERVER_APP_PASSWORD");
 
-    static final String RETENTION_PASSWORD = UUID.randomUUID().toString();
+    static final String RETENTION_PASSWORD = password("TEST_SQL_SERVER_RETENTION_PASSWORD");
+
+    private static final String HOST;
+
+    private static final int PORT;
+
+    private static final String SUPERUSER = "sa";
+
+    private static final String SUPERUSER_PASSWORD;
 
     static {
-        SQL_SERVER.start();
+        if (SHARED) {
+            HOST = shared("TEST_SQL_SERVER_HOST");
+            PORT = Integer.parseInt(shared(SHARED_PORT));
+            SUPERUSER_PASSWORD = shared("TEST_SQL_SERVER_SA_PASSWORD");
+        } else {
+            SQL_SERVER.start();
+            HOST = SQL_SERVER.getHost();
+            PORT = SQL_SERVER.getMappedPort(MSSQLServerContainer.MS_SQL_SERVER_PORT);
+            SUPERUSER_PASSWORD = SQL_SERVER.getPassword();
+            createTheDatabaseLogins();
+        }
         REDIS.start();
-        createTheDatabaseLogins();
+    }
+
+    private static String password(String sharedVariable) {
+        return SHARED ? shared(sharedVariable) : UUID.randomUUID().toString();
+    }
+
+    private static String shared(String variable) {
+        String value = System.getenv(variable);
+        if (value == null || value.isEmpty()) {
+            throw new IllegalStateException(
+                    SHARED_PORT + " names a shared SQL Server but " + variable + " is not set");
+        }
+        return value;
     }
 
     static String superuserName() {
-        return SQL_SERVER.getUsername();
+        return SUPERUSER;
     }
 
     static String superuserPassword() {
-        return SQL_SERVER.getPassword();
+        return SUPERUSER_PASSWORD;
     }
 
     /**
@@ -184,11 +233,11 @@ public class ContainerTestConfiguration {
      * bootstrap leaves one (infra's {@code db-bootstrap.sql}, and the local init), and its JDBC
      * URL — each context's, and a test's that migrates a database itself rather than through a
      * context. The database's owner ({@code dbo}) stays the login that created it: on RDS that is
-     * the master user, which cannot hand a database to another login. Named from a counter, so
-     * the statements hold no caller's text.
+     * the master user, which cannot hand a database to another login. Named from this JVM's token
+     * and a counter, so the statements hold no caller's text.
      */
     public static String emptyDatabase() throws SQLException {
-        String name = "database_" + DATABASES.incrementAndGet();
+        String name = "database_" + JVM_TOKEN + "_" + DATABASES.incrementAndGet();
         try (Connection admin = asSuperuser("master");
                 Statement statement = admin.createStatement()) {
             statement.execute("CREATE DATABASE " + name + " COLLATE " + COLLATION);
@@ -209,14 +258,12 @@ public class ContainerTestConfiguration {
      * default and by {@code database.yaml}'s {@code encrypt}, which the URL leaves to them.
      */
     private static String url(String database) {
-        return "jdbc:sqlserver://" + SQL_SERVER.getHost() + ":"
-                + SQL_SERVER.getMappedPort(MSSQLServerContainer.MS_SQL_SERVER_PORT)
+        return "jdbc:sqlserver://" + HOST + ":" + PORT
                 + ";databaseName=" + database + ";trustServerCertificate=true";
     }
 
     private static Connection asSuperuser(String database) throws SQLException {
-        return DriverManager.getConnection(
-                url(database), SQL_SERVER.getUsername(), SQL_SERVER.getPassword());
+        return DriverManager.getConnection(url(database), SUPERUSER, SUPERUSER_PASSWORD);
     }
 
     /** This context's database as each login sees it, for the tests that need one. */

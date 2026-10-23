@@ -21,5 +21,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # exports MVN as an absolute path to that same wrapper.
 MVN=${MVN:-./mvnw}
 
+# One SQL Server for every test JVM, removed on exit (scripts/test-sql-server.sh).
+. ./scripts/test-sql-server.sh
+start_test_sql_server
+
 "$MVN" -B clean verify
 ./scripts/semgrep.sh
