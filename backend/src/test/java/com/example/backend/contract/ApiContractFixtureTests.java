@@ -467,6 +467,12 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.csrf(t.post(revoke)).cookie(admin), 204);
             t.expect(t.csrf(t.post(tokens + "/" + UUID.randomUUID() + "/revoke")).cookie(admin),
                     404);
+            // A token is addressed within its connector: under another one it names nothing.
+            String other = json(t.expect(t.json(t.csrf(t.post(base)).cookie(admin),
+                    "{\"displayName\":\"Other contract connector\"}"), 201)).get("id").asText();
+            String othersTokens = base + "/" + other + "/tokens/" + tokenId;
+            t.expect(t.json(t.csrf(t.post(othersTokens + "/rotate")).cookie(admin), "{}"), 404);
+            t.expect(t.csrf(t.post(othersTokens + "/revoke")).cookie(admin), 404);
 
             t.expect(t.csrf(t.call(HttpMethod.DELETE, base + "/" + id)).cookie(user), 403);
             t.expect(t.csrf(t.call(HttpMethod.DELETE, base + "/" + id)), 401);

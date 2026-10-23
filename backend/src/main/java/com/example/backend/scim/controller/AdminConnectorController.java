@@ -151,7 +151,8 @@ public class AdminConnectorController {
 
     /**
      * Replaces a token, leaving the old one usable until the overlap window ends. The
-     * old token's expiry only ever moves earlier.
+     * old token's expiry only ever moves earlier. The token is resolved within the named
+     * connector: one of another connector is a {@code 404}, as an unknown one is.
      */
     @PostMapping("/{connectorId}/tokens/{tokenId}/rotate")
     @PreAuthorize("hasRole('SUPERUSER')")
@@ -163,19 +164,23 @@ public class AdminConnectorController {
         Integer overlapDays = request == null ? null : request.overlapDays();
         List<String> requested = request == null ? null : request.permissions();
         return disclosed(connectors.rotateToken(
+                connectorId,
                 tokenId,
                 requested == null ? null : permissions(requested),
                 days(overlapDays),
                 RequestActor.userOf(http)));
     }
 
-    /** Revokes a token, effective immediately. */
+    /**
+     * Revokes a token, effective immediately — one of the named live connector's; any other is a
+     * {@code 404}, as an unknown one is.
+     */
     @PostMapping("/{connectorId}/tokens/{tokenId}/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasRole('SUPERUSER')")
     public void revokeToken(
             @PathVariable UUID connectorId, @PathVariable UUID tokenId, HttpServletRequest http) {
-        connectors.revokeToken(tokenId, RequestActor.userOf(http));
+        connectors.revokeToken(connectorId, tokenId, RequestActor.userOf(http));
     }
 
     /**

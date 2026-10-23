@@ -239,7 +239,7 @@ class ScimDeadlockRetryIntegrationTests {
         IssuedConnectorToken replacement;
         try (ForcedDeadlock victim = ForcedDeadlock.once(
                 logins, "scim_connector_tokens", "connector_id", connector.connectorId())) {
-            replacement = connectors.rotateToken(issued, null, null, null);
+            replacement = connectors.rotateToken(connector.connectorId(), issued, null, null, null);
         }
 
         assertThat(replacement.tokenId()).isNotEqualTo(issued);
