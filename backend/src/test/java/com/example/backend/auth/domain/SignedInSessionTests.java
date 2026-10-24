@@ -173,6 +173,52 @@ class SignedInSessionTests {
                 .epicTokens(LIFETIME, Instant.parse("2026-10-10T09:00:00Z"))).isEmpty();
     }
 
+    // ---- the FHIRcast hub (ADR 0016) ------------------------------------------------------------
+
+    private static final FhircastHub HUB =
+            FhircastHub.of("http://127.0.0.1:8103/fhircast/STU3", "topic-1").orElseThrow();
+
+    @Test
+    void aSessionKeepingAHubHandsItOut() {
+        SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
+        signedIn.keepFhircastHub(HUB);
+
+        assertThat(signedIn.fhircastHub(LIFETIME, Instant.parse("2026-10-10T09:00:00Z")))
+                .containsSame(HUB);
+    }
+
+    @Test
+    void aSessionKeepingNoHubHandsOutNone() {
+        assertThat(SignedInSession.of(new MapBackedSession())
+                .fhircastHub(LIFETIME, Instant.parse("2026-10-10T09:00:00Z"))).isEmpty();
+    }
+
+    @Test
+    void aSessionPastItsAbsoluteLifetimeHandsOutNoHub() {
+        SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
+        signedIn.keepFhircastHub(HUB);
+
+        assertThat(signedIn.fhircastHub(LIFETIME, Instant.parse("2026-10-10T16:00:01Z")))
+                .isEmpty();
+    }
+
+    @Test
+    void aHubAttributeOfAnotherTypeHandsOutNone() {
+        MapBackedSession session = new MapBackedSession();
+        session.attributes.put(SignedInSession.FHIRCAST_HUB_ATTRIBUTE, "not a hub");
+
+        assertThat(SignedInSession.of(session)
+                .fhircastHub(LIFETIME, Instant.parse("2026-10-10T09:00:00Z"))).isEmpty();
+    }
+
+    @Test
+    void theHubIsKeptUnderItsOwnAttribute() {
+        MapBackedSession session = new MapBackedSession();
+        SignedInSession.of(session).keepFhircastHub(HUB);
+
+        assertThat(session.attributes).containsOnlyKeys("app.epic.fhircast-hub");
+    }
+
     // ---- the idle bound, cut to the lifetime's end ----------------------------------------------
 
     /**

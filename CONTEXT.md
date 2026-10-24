@@ -300,7 +300,38 @@ _Avoid_: SSO, sign-on, identity provider (for the organisation)
 **Epic tokens**:
 The access token, refresh token and `id_token` from a successful EHR launch's
 Login, held server-side on the session it signed in, for that session's life.
+The access token alone is released to that session's SPA, as the **SMART access
+token**.
 _Avoid_: SMART token, FHIR token, OAuth token
+
+**SMART access token**:
+The one Epic token released to the SPA: the access token of the session's EHR
+launch, fetched from `GET /api/auth/epic/fhircast` with its expiry, granted
+scope and the session's FHIRcast Hub, and presented as `Bearer` only to register
+at that hub (ADR 0016). The `id_token` and refresh token are never released.
+_Avoid_: SMART token, Epic token (for this one alone), FHIRcast token
+
+**FHIRcast Hub**:
+Epic's local FHIRcast STU3 hub on the clinician's own workstation, which
+announces the chart the clinician opens and closes (`Patient-open`,
+`Patient-close`). An EHR launch's token response names it (`hub.url`) and the
+clinician's topic (`hub.topic`); the session keeps the pair only when the hub is
+on `127.0.0.1` and the topic is well formed, and the SPA connects to it from
+Home.
+_Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
+
+**Hub Token**:
+The bearer token the FHIRcast Hub issues the SPA by the `jwt-bearer` grant,
+after the SPA registered a key of its own with the SMART access token. It
+authorizes the Hub Subscription, and is the hub's credential, not one of the
+Epic tokens.
+_Avoid_: FHIRcast token, access token (for this one)
+
+**Hub Subscription**:
+The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
+`Patient-close` on the clinician's topic. Connected once the hub confirms it on
+the socket; it ends with Home.
+_Avoid_: listener, FHIRcast session
 
 **MFA factor**:
 The second factor an EHR launch's Login was made with, recorded on its

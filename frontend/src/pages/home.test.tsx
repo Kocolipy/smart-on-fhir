@@ -18,6 +18,16 @@ const landedFromEpicWith = (patient: string) => {
 /** The page for a session holding exactly `permissions`, inside the signed-in layout. */
 const renderHolding = (permissions: Permission[]) => renderSignedIn("/", holding(permissions), {});
 
+/**
+ * The FHIRcast card's release, answered "nothing released": an Epic session's
+ * Home asks for it beside the patient (`fhircast-card.test.tsx` has the card).
+ */
+const NO_FHIRCAST_RELEASE = { "GET /api/auth/epic/fhircast": bare(404) };
+
+/** The patient reads among `sent`, the FHIRcast card's release left out. */
+const patientReads = (sent: readonly { method: string; path: string }[]) =>
+  sent.filter(({ path }) => path.startsWith("/api/patient/"));
+
 /** Every baseline Permission a User holds. */
 const BASELINE: Permission[] = ["patient:read"];
 
@@ -101,7 +111,10 @@ describe("Home", () => {
   it("shows the patient an EHR launch put in context on the Patient card", async () => {
     landedFromEpicWith(TAN_WEI_MING.id);
 
-    await renderSignedIn("/", holding(BASELINE), { [TAN_WEI_MING_READ]: json(TAN_WEI_MING) });
+    await renderSignedIn("/", holding(BASELINE), {
+      [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
+      ...NO_FHIRCAST_RELEASE,
+    });
 
     expect(await screen.findByText("Tan Wei Ming")).toBeInTheDocument();
   });
@@ -111,20 +124,23 @@ describe("Home", () => {
 
     const { requests } = await renderSignedIn("/", holding(BASELINE), {
       [TAN_WEI_MING_READ]: bare(404),
+      ...NO_FHIRCAST_RELEASE,
     });
 
     expect(await screen.findByText("No patient in context")).toBeInTheDocument();
-    expect(requests()).toEqual([{ method: "GET", path: `/api/patient/${TAN_WEI_MING.id}` }]);
+    expect(patientReads(requests())).toEqual([
+      { method: "GET", path: `/api/patient/${TAN_WEI_MING.id}` },
+    ]);
   });
 
-  it("asks for nothing after an EHR launch that put no patient in context", async () => {
+  it("asks for no patient after an EHR launch that put none in context", async () => {
     window.history.replaceState(null, "", "/#encounter=enc-1");
     adoptLaunchLanding();
 
-    const { requests } = await renderHolding(BASELINE);
+    const { requests } = await renderSignedIn("/", holding(BASELINE), NO_FHIRCAST_RELEASE);
 
     expect(screen.getByText("No patient in context")).toBeInTheDocument();
-    expect(requests()).toEqual([]);
+    expect(patientReads(requests())).toEqual([]);
   });
 
   it("offers no control but Sign out", async () => {

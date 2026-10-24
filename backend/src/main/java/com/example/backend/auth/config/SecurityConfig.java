@@ -66,6 +66,11 @@ public class SecurityConfig {
      * same-origin stylesheet, so everything can be locked to {@code 'self'}.
      * Inline styles stay allowed because component libraries inject style
      * elements at runtime; inline script is not allowed at all.
+     *
+     * <p>{@code connect-src} adds Epic's local FHIRcast hub, which runs on the clinician's own
+     * workstation (ADR 0016): {@code 127.0.0.1} alone, on any port and over the four schemes the
+     * hub's metadata, registration, token, subscription and websocket may use. No Epic origin is
+     * added: the browser never calls Epic.
      */
     private static final String CONTENT_SECURITY_POLICY = String.join("; ",
             "default-src 'self'",
@@ -73,7 +78,8 @@ public class SecurityConfig {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
             "font-src 'self'",
-            "connect-src 'self'",
+            "connect-src 'self' http://127.0.0.1:* https://127.0.0.1:* ws://127.0.0.1:*"
+                    + " wss://127.0.0.1:*",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",

@@ -1380,7 +1380,10 @@ class AuditTrailServiceTests {
             Map.entry(Audited.PasswordChanged.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.PasswordChangeRefused.class, Semantics.FAIL_OPEN),
             Map.entry(Audited.AccessDenied.class, Semantics.FAIL_OPEN),
-            Map.entry(Audited.ConnectorAccessDenied.class, Semantics.FAIL_OPEN));
+            Map.entry(Audited.ConnectorAccessDenied.class, Semantics.FAIL_OPEN),
+            // ADR 0016: a SMART access token this service cannot account for is not released.
+            Map.entry(Audited.FhircastTokenReleased.class, Semantics.FAIL_CLOSED),
+            Map.entry(Audited.FhircastTokenReleaseRefused.class, Semantics.FAIL_OPEN));
 
     /** Every kind of event there is: the leaves of the sealed hierarchy, found rather than listed. */
     static Stream<Class<?>> everyKindOfEvent() {

@@ -236,5 +236,14 @@ public enum AuditOperation {
      * the change took a Permission away, every direct member's sessions are then revoked after the
      * commit, recorded as {@link #USER_SESSIONS_REVOKE}.
      */
-    GROUP_PERMISSIONS_CHANGE
+    GROUP_PERMISSIONS_CHANGE,
+
+    /**
+     * A signed-in User asked for its Epic session's SMART access token, for the SPA to connect to
+     * the FHIRcast hub (ADR 0016), and was given it or refused. Recorded against the USER, as actor
+     * and subject. A release is fail-closed: a token this service cannot account for is not
+     * released. A refusal carries its reason from {@link AuditFhircastRefusal}. Neither ever
+     * carries the token's value.
+     */
+    FHIRCAST_TOKEN_RELEASE
 }

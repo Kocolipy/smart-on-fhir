@@ -688,7 +688,9 @@ public class ArchitectureTest {
             // Our public JWKS, which Epic fetches with no session (D14).
             "com.example.backend.auth.epic.controller.EpicJwksController",
             // The EHR launch, which the browser opens from Epic with no session of ours (D1).
-            "com.example.backend.auth.epic.controller.EpicLaunchController");
+            "com.example.backend.auth.epic.controller.EpicLaunchController",
+            // The FHIRcast release: self-service, the session's own access token (ADR 0016).
+            "com.example.backend.auth.epic.controller.EpicFhircastController");
 
     /**
      * The bearer-chain (SCIM) adapters whose handlers need a valid connector token and NO
@@ -1686,7 +1688,8 @@ public class ArchitectureTest {
      * for the backend to act at Epic on the clinician's behalf, never for the browser, so no REST
      * controller may depend on either: a handler that could take them could render them. The one
      * web adapter that writes them, Epic Login's success handler, is a filter-chain handler and
-     * answers only with a redirect.
+     * answers only with a redirect. The FHIRcast release reaches the access token alone, through
+     * a projection the next rule holds to it (ADR 0016), and this rule holds it too.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule epic_tokens_never_reach_a_rest_controller =
@@ -1698,6 +1701,27 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("ADR 0012, D29: Epic's tokens are held server-side and"
                     + " never returned to the browser, so no handler can be handed them");
+
+    /**
+     * The one named exception: the FHIRcast release, and only it, reaches the SMART access token.
+     *
+     * <p>{@link com.example.backend.auth.domain.FhircastAccess} carries the access token Epic
+     * Login kept, released to the SPA so the browser can connect to Epic's local FHIRcast hub
+     * (ADR 0016). It has no field the {@code id_token} or a refresh token could go in, and the rule
+     * above still holds this controller away from the kept set. Any other REST controller that
+     * reached it could render the token, so none may.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_released_access_token_reaches_one_rest_controller =
+        noClasses()
+            .that().areAnnotatedWith(RestController.class)
+            .and().doNotHaveFullyQualifiedName(
+                    "com.example.backend.auth.epic.controller.EpicFhircastController")
+            .should().dependOnClassesThat()
+                .haveFullyQualifiedName("com.example.backend.auth.domain.FhircastAccess")
+            .allowEmptyShould(true)
+            .because("ADR 0016: the SMART access token leaves the backend through the FHIRcast"
+                    + " release alone");
 
     /**
      * The application chain knows Epic Login through one seam.

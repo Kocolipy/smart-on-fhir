@@ -608,8 +608,11 @@ paths:
         the Launch context, are passed to the SPA in the landing's fragment,
         `/#patient=<id>&encounter=<id>`, each only when it is a FHIR id
         (`[A-Za-z0-9\-.]{1,64}`), and the bare `/#launch` when neither is; they
-        are kept nowhere server-side. The rest of the token response is
-        discarded (D8).
+        are kept nowhere server-side. Its `hub.url` and `hub.topic` are kept on
+        the signed-in session beside the tokens when both pass — an `http` or
+        `https` URL on host `127.0.0.1`, any port, and a topic of
+        `[A-Za-z0-9\-._~]{1,128}` — and dropped otherwise (ADR 0016). The rest
+        of the token response is discarded (D8).
 
         Any OAuth error or failed check lands at `/login?signin=refused`, audited
         with its reason (`INVALID_STATE`, `INVALID_CODE`, `IDP_ERROR`,
@@ -656,6 +659,69 @@ paths:
                 type: string
         "404":
           description: Epic Login is off (`APP_EPIC_ENABLED` is not `true`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/epic/fhircast:
+    get:
+      tags: [Authentication]
+      summary: Release the Epic session's SMART access token for FHIRcast
+      description: |
+        The signed-in Epic session's SMART access token, its expiry, the scope
+        Epic granted it, and the FHIRcast hub its token response named
+        (`hub.url`, `hub.topic`), for the SPA to connect to Epic's local
+        FHIRcast hub (ADR 0016). The access token only: the `id_token` and any
+        refresh token never leave the backend. The token is the session's own;
+        the operation takes no parameter.
+
+        Every answer the handler gives is audited as `FHIRCAST_TOKEN_RELEASE`
+        against the caller — `SUCCESS` for a release, `FAILURE` with
+        `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or `TOKEN_EXPIRED` for a refusal —
+        and no record carries the token. No rate limit: the caller is an
+        authenticated session, and every call is audited.
+
+        Self-service: needs an authenticated session with baseline access and no
+        Permission. While `APP_EPIC_ENABLED` is off it answers `404`, as every
+        path under `/api/auth/epic` does, before any session, CSRF or
+        authorization check.
+      operationId: releaseFhircastAccess
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The released access token and the hub. Never stored.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FhircastRelease"
+        "401":
+          description: |
+            No authenticated session. The body is the generic `request-refused`
+            `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: |
+            The session is confined by the change-required flag and lacks
+            baseline access. The body is the generic `request-refused` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: |
+            Nothing is released: a password Login's session, an Epic session
+            that kept no hub, an access token past its expiry — the same answer
+            for each — or Epic Login is off.
           content:
             application/json:
               schema:
@@ -3192,6 +3258,34 @@ components:
           schema:
             $ref: "#/components/schemas/ScimError"
   schemas:
+    FhircastRelease:
+      type: object
+      additionalProperties: false
+      required: [accessToken, expiresAt, scope, hubUrl, hubTopic]
+      description: |
+        The Epic session's SMART access token and the FHIRcast hub it connects
+        to (ADR 0016). The closed property list is the guarantee that neither
+        the `id_token` nor a refresh token is released.
+      properties:
+        accessToken:
+          type: string
+          description: The SMART access token, the `Bearer` of the hub's registration.
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the access token stops being valid at Epic.
+        scope:
+          type: array
+          description: The scope Epic granted the access token, sorted.
+          items:
+            type: string
+        hubUrl:
+          type: string
+          description: The hub's URL, an `http` or `https` URL on `127.0.0.1`.
+        hubTopic:
+          type: string
+          pattern: "^[A-Za-z0-9\\-._~]{1,128}$"
+          description: The clinician's FHIRcast topic.
     JwkSet:
       type: object
       additionalProperties: false
@@ -4003,6 +4097,7 @@ components:
         - PERMISSION_GRANT
         - PERMISSION_REVOKE
         - GROUP_PERMISSIONS_CHANGE
+        - FHIRCAST_TOKEN_RELEASE
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift; its `errorCode` is
@@ -4039,6 +4134,11 @@ components:
         `superuserChanged` `null`. A refused one is a `FAILURE` naming the Group
         addressed and one generic `errorCode` — `INVALID_PERMISSIONS`,
         `UNKNOWN_RESOURCE` or `PROTECTED_RESOURCE` — and no Permission.
+        `FHIRCAST_TOKEN_RELEASE` is a signed-in User asking for its Epic
+        session's SMART access token (`GET /api/auth/epic/fhircast`, ADR 0016),
+        the User as actor and subject: a `SUCCESS` released it, a `FAILURE`
+        names why not in `errorCode` — `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
+        `TOKEN_EXPIRED`. Neither carries the token.
     ConnectorTokenPermissions:
       type: array
       minItems: 1

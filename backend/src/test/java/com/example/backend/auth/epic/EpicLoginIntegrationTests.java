@@ -163,7 +163,8 @@ class EpicLoginIntegrationTests {
         assertThat(sent).containsEntry("response_type", "code")
                 .containsEntry("client_id", CLIENT_ID)
                 .containsEntry("redirect_uri", REDIRECT_URI)
-                .containsEntry("scope", "launch openid fhirUser")
+                .containsEntry("scope", "launch openid fhirUser"
+                        + " fhircast/Patient-open.read fhircast/Patient-close.read")
                 .containsEntry("launch", "launch-context-from-hyperspace")
                 .containsEntry("aud", FHIR_BASE)
                 .containsEntry("code_challenge_method", "S256")

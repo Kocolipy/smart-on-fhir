@@ -93,6 +93,9 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             "GET /api/auth/epic/launch 404",
             "GET /api/auth/epic/authorize 404",
             "GET /api/auth/epic/callback 404",
+            // Needs an Epic session, which needs an Epic this context has none of. The release and
+            // its conformance to this document are EpicTokensIntegrationTests', against FakeEpic.
+            "GET /api/auth/epic/fhircast 200",
             // Needs the patient read to fail on this side; this context's SQL Server serves it.
             // The fault's outcome is PatientControllerTests', against a store whose reads fail.
             "GET /api/patient/{id} 500");
@@ -240,6 +243,14 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                                 .param("code", "a-code").param("state", "a-state"), 302)
                         .getResponse().getRedirectedUrl())
                         .isEqualTo("/login?signin=refused"));
+        add(all, "epic fhircast: 404 for a password session, 401 anonymously, 403 while confined",
+                t -> {
+                    t.expect(t.get("/api/auth/epic/fhircast").cookie(t.settle(t.provision(true))),
+                            404);
+                    t.expect(t.get("/api/auth/epic/fhircast"), 401);
+                    t.expect(t.get("/api/auth/epic/fhircast")
+                            .cookie(t.logIn(t.provision(true), CONNECTOR_PASSWORD)), 403);
+                });
         add(all, "csrf: 200 with the session's token in the body, never cached", t -> {
             MvcResult issued = t.expect(t.get(SessionCsrf.PATH), 200);
             assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))

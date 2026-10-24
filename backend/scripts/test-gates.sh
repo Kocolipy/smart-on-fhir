@@ -31,6 +31,7 @@ MVN=${MVN:-./mvnw}
 FAST_GATE=(
   arch/ArchitectureTest
   arch/DeadlockRetryRulesTests
+  arch/EpicTokenRulesTests
   arch/NoRoleSwitchTest
   arch/TestSourceArchitectureTest
   arch/TrustServerCertificateTest
@@ -52,6 +53,7 @@ FAST_GATE=(
   com/example/backend/auth/InMemoryAccountSessionsContractTests
   com/example/backend/auth/application/DormancyServiceTests
   com/example/backend/auth/application/EpicLoginDecisionTests
+  com/example/backend/auth/application/FhircastAccessServiceTests
   com/example/backend/auth/application/IdentityAdministrationServiceTests
   com/example/backend/auth/application/LoginAttemptServiceTests
   com/example/backend/auth/application/LoginIdentityServiceTests
@@ -86,6 +88,8 @@ FAST_GATE=(
   com/example/backend/auth/domain/EpicInputBoundsTests
   com/example/backend/auth/domain/EpicMfaEvidenceTests
   com/example/backend/auth/domain/EpicTokenSetTests
+  com/example/backend/auth/domain/FhircastAccessTests
+  com/example/backend/auth/domain/FhircastHubTests
   com/example/backend/auth/domain/SignedInSessionTests
   com/example/backend/auth/epic/EcP384PrivateKeyPemTests
   com/example/backend/auth/epic/EnvironmentKeyClientAssertionSignerTests
@@ -102,6 +106,7 @@ FAST_GATE=(
   com/example/backend/auth/epic/config/EpicIdentityClaimsTests
   com/example/backend/auth/epic/config/EpicLoginConfigTests
   com/example/backend/auth/epic/config/EpicReleaseGateFilterTests
+  com/example/backend/auth/epic/controller/EpicFhircastControllerTests
   com/example/backend/auth/epic/controller/EpicTokenCaptureTests
   com/example/backend/auth/infrastructure/session/AccountSessionsAdapterTests
   com/example/backend/auth/infrastructure/session/EpicTokensAdapterTests

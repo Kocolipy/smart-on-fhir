@@ -24,9 +24,11 @@ import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
  *       assertion itself, from the {@code ClientAssertionSigner}, rather than handing a library
  *       signer a private key (ADR 0012);
  *   <li>{@code redirect_uri} exactly {@code APP_EPIC_REDIRECT_URI}, with no template to expand;
- *   <li>{@code scope=launch openid fhirUser}, in that order: identity only (D8), so the access
- *       token kept for the session (ADR 0012, D29) reads no FHIR resource and
- *       Epic issues no refresh token;
+ *   <li>{@code scope=launch openid fhirUser fhircast/Patient-open.read
+ *       fhircast/Patient-close.read}, in that order: identity (D8) and the FHIRcast STU3
+ *       subscription scopes Epic's local hub authorizes with (ADR 0016), so the access token
+ *       kept for the session (ADR 0012, D29) reads no FHIR resource and Epic issues no refresh
+ *       token;
  *   <li>the issuer, so the {@code id_token}'s {@code iss} must equal it.
  * </ul>
  */
@@ -55,7 +57,8 @@ final class EpicClientRegistrations implements ClientRegistrationRepository {
                 .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri(settings.redirectUri().toString())
-                .scope("launch", "openid", "fhirUser")
+                .scope("launch", "openid", "fhirUser",
+                        "fhircast/Patient-open.read", "fhircast/Patient-close.read")
                 .authorizationUri(epic.authorizationEndpoint().toString())
                 .tokenUri(epic.tokenEndpoint().toString())
                 .jwkSetUri(epic.jwksUri().toString())

@@ -13,13 +13,17 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 /**
  * Epic Login on: the whole flow on the application chain (ADR 0012) — the OAuth 2.0 half, which
  * serves the authorize hop and the callback ({@link EpicLoginFlow}), and the rules that make
- * Epic Login's four routes public. There is no release gate in this state.
+ * Epic Login's four routes public and its FHIRcast release self-service (ADR 0016). There is no
+ * release gate in this state.
  *
  * <p>The rules are added ahead of the chain's own, which name no Epic route, so they decide every
  * Epic route whatever the chain's later rules — its final deny-all included — would have said.
- * Each permits a read of its route as the chain's own rules do ({@code ReadRequests}).
+ * Each admits a read of its route as the chain's own rules do ({@code ReadRequests}).
  */
 public final class EpicLoginOn implements EpicLogin {
+
+    /** Baseline access, {@code ROLE_USER}: active, and no password change required. */
+    private static final String BASELINE_ROLE = "USER";
 
     private final EpicSigningKeys signingKeys;
 
@@ -48,7 +52,11 @@ public final class EpicLoginOn implements EpicLogin {
                 // arrives from Epic with no session of ours; each answers with a redirect.
                 .requestMatchers(read(EpicRoutes.LAUNCH),
                         read(EpicRoutes.AUTHORIZE),
-                        read(EpicRoutes.CALLBACK)).permitAll());
+                        read(EpicRoutes.CALLBACK)).permitAll()
+                // The FHIRcast release (ADR 0016): self-service, so a session with baseline
+                // access and no Permission, as /api/self is. A session confined by a required
+                // password change lacks it, and is refused 403 here.
+                .requestMatchers(read(EpicRoutes.FHIRCAST)).hasRole(BASELINE_ROLE));
     }
 
     /** On, with the active key's {@code kid}, and the next key's when one is configured (D7, D14). */

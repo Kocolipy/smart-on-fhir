@@ -1026,4 +1026,36 @@ public sealed interface Audited {
                     stamp, connectorId, AuditEvent.CONNECTOR_RESOURCE_TYPE, operation);
         }
     }
+
+    // ---- FHIRcast ----------------------------------------------------------------------------
+
+    /**
+     * A signed-in User's Epic session released its SMART access token to the SPA, for the FHIRcast
+     * hub (ADR 0016). Fail-closed: a token this service cannot account for is not released. The
+     * User is the actor and the subject; the token itself is never named.
+     */
+    record FhircastTokenReleased(UUID userId) implements Accepted {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.user(stamp, AuditRows.Change.success(
+                    AuditOperation.FHIRCAST_TOKEN_RELEASE, userId, userId, NO_PATHS));
+        }
+    }
+
+    /**
+     * A FHIRcast release refused: the caller is already being answered {@code 404}, so the append
+     * is fail-open.
+     *
+     * @param reason why nothing was released
+     */
+    record FhircastTokenReleaseRefused(UUID userId, AuditFhircastRefusal reason)
+            implements Refused {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.user(stamp, AuditRows.Change.refusal(
+                    AuditOperation.FHIRCAST_TOKEN_RELEASE, userId, userId, reason));
+        }
+    }
 }

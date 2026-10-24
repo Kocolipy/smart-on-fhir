@@ -21,9 +21,10 @@ import java.util.TreeSet;
  *
  * <p>All three tokens are D22 values. The access and refresh tokens are bearer credentials at
  * Epic, and the {@code id_token} carries the clinician's identity claims, so none of them may
- * reach a log record, an audit event, an exception message or the browser. {@link #toString()}
- * therefore names each by its presence alone, and the type is reachable only through the
- * {@link EpicTokens} port, never from a web adapter's response.
+ * reach a log record, an audit event or an exception message, and only the access token ever
+ * reaches the browser — through the FHIRcast release, as a {@link FhircastAccess} (ADR 0016).
+ * {@link #toString()} therefore names each by its presence alone, and the type is reachable only
+ * through the {@link EpicTokens} port, never from a web adapter's response.
  *
  * <p>Serializable because the session store keeps it as a session attribute, Java-serialized as
  * every other attribute is; every field is a {@code String}, an {@code Instant} or a sorted set

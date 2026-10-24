@@ -3,6 +3,7 @@ package com.example.backend.auth.infrastructure.session;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.FhircastHub;
 import com.example.backend.auth.domain.SignedInSession;
 import java.time.Clock;
 import java.util.Optional;
@@ -45,6 +46,18 @@ public class EpicTokensAdapter implements EpicTokens {
 
     @Override
     public Optional<EpicTokenSet> forSession(String sessionId) {
+        return signedIn(sessionId)
+                .flatMap(session -> session.epicTokens(absoluteLifetime, clock.instant()));
+    }
+
+    @Override
+    public Optional<FhircastHub> fhircastHubForSession(String sessionId) {
+        return signedIn(sessionId)
+                .flatMap(session -> session.fhircastHub(absoluteLifetime, clock.instant()));
+    }
+
+    /** The live session {@code sessionId} names, as the signed-in session module reads it. */
+    private Optional<SignedInSession> signedIn(String sessionId) {
         if (sessionId == null) {
             return Optional.empty();
         }
@@ -52,7 +65,6 @@ public class EpicTokensAdapter implements EpicTokens {
         if (session == null) {
             return Optional.empty();
         }
-        return SpringSessionAttributes.signedIn(session)
-                .epicTokens(absoluteLifetime, clock.instant());
+        return Optional.of(SpringSessionAttributes.signedIn(session));
     }
 }

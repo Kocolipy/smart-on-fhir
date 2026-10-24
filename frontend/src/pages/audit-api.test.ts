@@ -297,6 +297,12 @@ describe("decodeAuditEventPage", () => {
       },
     );
 
+    it("decodes a FHIRcast release, which the backend records for an Epic session", () => {
+      expect(
+        decodeOneEvent({ ...AUDIT_EVENT, operation: "FHIRCAST_TOKEN_RELEASE" }).operation,
+      ).toBe("FHIRCAST_TOKEN_RELEASE");
+    });
+
     it("lists the operations the trail speaks in", () => {
       expect(AUDIT_OPERATIONS).toEqual(
         expect.arrayContaining([
