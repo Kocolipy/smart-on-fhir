@@ -10,13 +10,13 @@ import java.util.Optional;
  *
  * <p>Compared as an exact string, never normalized: the base is the configured
  * {@code APP_EPIC_FHIR_BASE} character for character, and the resource type is
- * {@code Practitioner} exactly. A launcher or environment whose claim has another shape is
+ * {@code Practitioner} exactly. An EHR or environment whose claim has another shape is
  * absorbed by configuration, never by loosening this — a Patient, a RelatedPerson, another
  * organisation's server, a versioned reference or a query all name nobody here.
  *
- * <p>The one exception is the local launcher's
+ * <p>The one exception is the local stand-in's
  * ({@link EpicLoginSettings#relativeFhirUserAllowed()}, granted to the dev profile alone): the
- * local SMART Health IT launcher issues the relative {@code Practitioner/{id}}, which no
+ * local Epic stand-in, Medplum, issues the relative {@code Practitioner/{id}}, which no
  * configuration can make absolute, so there the relative form is accepted too, under the same
  * rules — the type exactly
  * {@code Practitioner}, a non-blank {@code id}, and nothing after it.

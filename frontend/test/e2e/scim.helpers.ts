@@ -135,7 +135,7 @@ export async function provisionUser(
 }
 
 /**
- * Provisions an active User whose `userName` another server assigned — the
+ * Provisions an active User whose `userName` another server holds — the
  * one exception to {@link E2E_PREFIX}, for a name the spec cannot choose, such
  * as the Practitioner id an EHR signs in. `sweepLeftovers()` cannot see such a
  * name, so any User already holding it, a crashed run's leftover, is deleted

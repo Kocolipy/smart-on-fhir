@@ -27,7 +27,7 @@ TAG ?= local
 export NPM
 export MVN
 
-.PHONY: help bootstrap infra-up infra-down infra-logs epic-launcher-up epic-launcher-down fhircast-up fhircast-down \
+.PHONY: help bootstrap infra-up infra-down infra-logs fhircast-up fhircast-down \
         dev dev-stop verify-frontend verify-backend verify-contract verify integration-test package \
         container clean
 
@@ -48,26 +48,16 @@ infra-down: ## Stop SQL Server and Redis (volumes are kept)
 infra-logs: ## Tail the dependency logs
 	$(COMPOSE) logs -f
 
-# Opt-in: the launcher sits behind its own compose profile, so `infra-up` above
-# never starts it (`integration-test` starts its own).
-# backend/docs/configuration/epic-login.md, "Local Epic launcher", has the
-# APP_EPIC_* values that point the backend at it.
-epic-launcher-up: ## Start the local SMART launcher (stand-in for Epic) with the dependencies
-	$(COMPOSE) --profile epic-launcher up -d --wait
-	$(COMPOSE) run --rm sqlserver-init
-
-epic-launcher-down: ## Stop the local SMART launcher and the dependencies (volumes are kept)
-	$(COMPOSE) --profile epic-launcher down
-
-# Opt-in as well, behind the `fhircast` profile: Medplum as the SMART EHR
-# launcher and FHIRcast hub, fronted by the DCR shim, on 127.0.0.1:8103 (and its
-# sign-in page on 127.0.0.1:3103). The script seeds Medplum and prints the
-# APP_EPIC_* values; backend/docs/configuration/epic-login.md, "Local FHIRcast
-# stand-in", has the rest.
-fhircast-up: ## Start the local FHIRcast stand-in (Medplum and the DCR shim) with the dependencies, and seed Medplum
+# Opt-in: the local Epic stand-in sits behind the `fhircast` compose profile,
+# so `infra-up` above never starts it (`integration-test` starts its own).
+# Medplum as the SMART EHR launcher and FHIRcast hub, fronted by the DCR shim,
+# on 127.0.0.1:8103 (and its sign-in page on 127.0.0.1:3103). The script seeds
+# Medplum and prints the APP_EPIC_* values; backend/docs/configuration/epic-login.md,
+# "Local Epic stand-in", has the rest.
+fhircast-up: ## Start the local Epic stand-in (Medplum and the DCR shim) with the dependencies, and seed Medplum
 	@scripts/fhircast-up.sh
 
-fhircast-down: ## Stop the local FHIRcast stand-in and the dependencies (volumes are kept)
+fhircast-down: ## Stop the local Epic stand-in and the dependencies (volumes are kept)
 	$(COMPOSE) --profile fhircast down
 
 dev: ## Run backend and frontend together (Ctrl-C stops both)
@@ -93,7 +83,7 @@ verify-contract: ## SPA–API contract check: hold the SPA's mirrored vocabulary
 
 verify: verify-frontend verify-backend verify-contract ## Run both app gates, then the SPA–API contract check, serially
 
-integration-test: ## Test the FHIRcast shim, package the JAR, start it twice with the dependencies, the SMART launcher and the FHIRcast stand-in, then run every Playwright project
+integration-test: ## Test the FHIRcast shim, package the JAR, start it with the dependencies and the local Epic stand-in, then run every Playwright project
 	@scripts/integration-test.sh
 
 package: ## Build the SPA and package it into the Spring Boot JAR

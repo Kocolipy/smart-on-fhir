@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * Flow step 5: an {@code id_token}'s {@code fhirUser} names a Practitioner only in the one form
  * {@code {fhirBase}/Practitioner/{id}}, under the deployment's own FHIR base, with a non-blank
  * {@code id} and nothing after it. In the dev profile alone, the relative form
- * {@code Practitioner/{id}} the local SMART launcher issues is accepted too, under the same rules.
+ * {@code Practitioner/{id}} the local Epic stand-in issues is accepted too, under the same rules.
  */
 class FhirUserReferenceTests {
 
@@ -44,7 +44,7 @@ class FhirUserReferenceTests {
         assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, STRICT)).isEmpty();
     }
 
-    /** The launcher's relative form names nobody outside the dev profile. */
+    /** The stand-in's relative form names nobody outside the dev profile. */
     @Test
     void outsideTheDevProfileARelativeReferenceIsRejected() {
         assertThat(FhirUserReference.practitionerId("Practitioner/eABC", FHIR_BASE, STRICT))
@@ -85,7 +85,7 @@ class FhirUserReferenceTests {
         assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, STRICT)).isEmpty();
     }
 
-    /** The dev profile's allowance for the local SMART launcher, and nothing more. */
+    /** The dev profile's allowance for the local Epic stand-in, and nothing more. */
     @Nested
     class InTheDevProfile {
 

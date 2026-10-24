@@ -114,10 +114,11 @@ authorization-request filter builds the request.
    non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
    refused as `INVALID_FHIR_USER`. The dev profile
    alone also accepts the relative `Practitioner/{id}` under the same rules,
-   because the local SMART launcher issues no other form; it is decided where
-   D21's `http` allowance is, and outside the dev profile parsing is unchanged.
-   The launcher's issuer, by contrast, is absorbed by configuration alone:
-   `APP_EPIC_OAUTH_ISSUER` and `APP_EPIC_FHIR_BASE` are both its `/v/r4/fhir`.
+   because the local Epic stand-in, Medplum, issues no other form; it is decided
+   where D21's `http` allowance is, and outside the dev profile parsing is
+   unchanged. The stand-in's issuer, by contrast, is absorbed by configuration
+   alone: `APP_EPIC_OAUTH_ISSUER` is its base URL and `APP_EPIC_FHIR_BASE` its
+   `/fhir/R4`.
 6. **Login decision.** `LoginService.logInFromEpic` accepts the User whose stored
    `userName` equals the id exactly and records the success as password Login
    does, in one transaction, its `LOGIN_SUCCESS` carrying the MFA factor (D17).
@@ -336,7 +337,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and
   hostname checks are never disabled. Only the dev profile may use `http`, for
-  the local Docker launcher, and that profile alone also accepts the launcher's
+  the local Epic stand-in, and that profile alone also accepts the stand-in's
   relative `fhirUser` (flow step 5).
 - **D22: never logged or audited.** The authorization code, `launch`, `state`,
   `nonce`, the PKCE verifier, the `id_token`, the access token, the refresh token,

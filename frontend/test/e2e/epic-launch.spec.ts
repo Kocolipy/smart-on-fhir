@@ -4,45 +4,63 @@ import { expect, test } from "@playwright/test";
 
 import { DEV_FIXTURES, groupPermissionsOf } from "./auth.helpers";
 import {
+  createLaunch,
+  expectStandInConfigured,
+  FHIR_BASE,
+  seededClinician,
+  signInAtMedplum,
+  tanWeiMing,
+} from "./fhircast.helpers";
+import {
   expectNoPatientInContext,
   expectPatientInContext,
   recordPatientRequests,
 } from "./patient.helpers";
 import {
   deprovisionUser,
-  E2E_PREFIX,
   freshBrowser,
-  provisionUser,
-  runId,
+  provisionServerNamedUser,
   scimPatch,
   settlePassword,
   workerConnector,
 } from "./scim.helpers";
 
 /**
- * Epic Login end to end, with the SMART Health IT launcher standing in for
- * Epic: a provider EHR launch for a Practitioner whose ID is the `userName` of a
- * provisioned User opens our launch route, passes the launcher's authorization
- * and our callback, and lands on Home (`/`) signed in as that User with the
+ * Epic Login end to end, with the local Epic stand-in, Medplum, standing in
+ * for Epic: an EHR launch for a clinician whose Practitioner id is the
+ * `userName` of a provisioned User opens our launch route, passes Medplum's
+ * authorization with that clinician signing in on Medplum's own page, and our
+ * callback, and lands on Home (`/`) signed in as that User with the
  * Permissions its Groups confer, the Patient card showing the patient the
  * launch put in context — or "No patient in context" for a launch that put
- * none; a launch for a Practitioner no User is
- * provisioned for lands on the login page's refused notice instead, as does a
- * launch whose `iss` is not exactly the configured FHIR base (D10), and a
- * launch whose token call the launcher cannot answer lands on the unavailable
- * notice. The other protocol refusals — a forged or replayed callback, a bad
- * `id_token` — cannot be forged through the launcher, and are the backend's
- * fake-Epic integration tests' (`EpicProtocolIntegrationTests`).
+ * none; a launch for a clinician no User is provisioned for lands on the login
+ * page's refused notice instead, as does a launch whose `iss` is not exactly
+ * the configured FHIR base (D10), and a launch whose token call the stand-in
+ * cannot answer lands on the unavailable notice. The other protocol refusals —
+ * a forged or replayed callback, a bad `id_token` — cannot be forged through
+ * Medplum, and are the backend's fake-Epic integration tests'
+ * (`EpicProtocolIntegrationTests`).
  *
- * The unavailable case pauses the launcher's container for the length of one
- * callback, which would stall any other launch in flight, so the spec's cases
- * run one after another in a single worker (`mode: "default"`: in order, and
- * a failure skips nothing after it).
+ * The clinicians and Tan Wei Ming are Medplum seed data
+ * (`backend/fhircast-shim/src/seed.mjs`), each case signing in as a clinician
+ * of its own: Medplum signs in whoever signs in on its page, as the
+ * Practitioner that sign-in's profile is. The seed makes each Practitioner at
+ * the id compose.yaml gives it, which `seededClinician` reads — a UUID, the
+ * only id Medplum takes from a client.
+ * So a User is named with that id, through `provisionServerNamedUser`, rather
+ * than with an `e2e-` name; the id is the same on every run, so that also
+ * clears any User a crashed run left behind.
+ *
+ * The unavailable case pauses the DCR shim's container, which serves Medplum's
+ * token endpoint, for the length of one callback. That would stall any other
+ * launch in flight, so the spec's cases run one after another in a single
+ * worker (`mode: "default"`: in order, and a failure skips nothing after it),
+ * and the `epic` project runs after the `fhircast` project, whose specs reach
+ * the same shim (playwright.config.ts).
  *
  * Epic Login's part of the E2E gate (frontend/AGENTS.md). It runs only in the
- * `epic` project, which `make integration-test` declares by exporting the
- * launcher's FHIR base; that script also starts the launcher and the backend
- * with Epic Login pointed at it.
+ * `epic` project, which `make integration-test` declares when it starts the
+ * stand-in and the backend with Epic Login pointed at it.
  *
  * The User is one this spec provisions over SCIM, as `accounts-admin.spec.ts`
  * does, with a token issued through the Admin session `setup` saved; it is
@@ -53,79 +71,36 @@ import {
  * which the flagged-User case pins by launching for a User left unsettled.
  */
 
-/** The launcher's FHIR base: the launch `iss`, which must equal `APP_EPIC_FHIR_BASE` (D10). */
-const FHIR_BASE = process.env.E2E_EPIC_FHIR_BASE ?? "";
-/** Our JWKS as the launcher container reaches it, to verify our client assertion. */
-const JWKS_URL = process.env.E2E_EPIC_JWKS_URL ?? "";
-/** The launcher's Docker container, paused to make its token endpoint unreachable. */
-const LAUNCHER_CONTAINER = process.env.E2E_EPIC_LAUNCHER_CONTAINER ?? "";
+/** The shim's Docker container, paused to make the token endpoint unreachable. */
+const SHIM_CONTAINER = process.env.E2E_EPIC_SHIM_CONTAINER ?? "";
 
 test.describe.configure({ mode: "default" });
-
-/** The Practitioner ID, and so the `userName` of the User it links to (D2, D3). */
-const PRACTITIONER = `${E2E_PREFIX}epic-${runId()}`;
-/**
- * Tan Wei Ming's Epic id, one of the dev profile's patient fixtures: the
- * launcher puts it in the token response's `patient`, the backend passes it to
- * the SPA in the landing's fragment (D8), and Home's Patient card reads him.
- */
-const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
 
 const directory = workerConnector("epic");
 
 /**
- * The launch options exactly as the launcher's own UI encodes them for a
- * provider EHR launch (its `src/isomorphic/codec.ts`): a base64url JSON array.
- * The login and approval screens are skipped and no encounter is picked, so
- * the launcher's authorize answers at once; the client is asymmetric, so the
- * launcher verifies our `private_key_jwt` against our published JWKS. The
- * patient, the token response's `patient`, is Tan Wei Ming.
+ * The launch the EHR opens in the clinician's browser: `iss`, which must equal
+ * `APP_EPIC_FHIR_BASE` (D10), and a SmartAppLaunch whose patient, the token
+ * response's `patient`, is Tan Wei Ming — one of the dev profile's patient
+ * fixtures, whose Epic id the backend passes to the SPA in the landing's
+ * fragment (D8) for Home's Patient card to read — or nobody.
  */
-function launchOptions(practitioner: string): string {
-  return encodedLaunch(0 /* provider-ehr */, practitioner, TAN_WEI_MING);
+async function launchUrl({
+  iss = FHIR_BASE,
+  withPatient = true,
+}: { iss?: string; withPatient?: boolean } = {}): Promise<string> {
+  const launch = new URLSearchParams({
+    iss,
+    launch: await createLaunch(withPatient ? await tanWeiMing() : undefined),
+  });
+  return `/api/auth/epic/launch?${launch.toString()}`;
 }
 
-/**
- * A launch whose token response names no patient. The launcher shows its
- * patient picker for any provider EHR launch without one (its
- * `needToPickPatient`), so this encodes its `provider-standalone` type, under
- * which it asks for no patient while we ask for no `launch/patient` scope, and
- * names none. The browser still opens our EHR launch route with it as `launch`,
- * and the launcher signs the same Practitioner in.
- */
-function launchOptionsWithNoPatient(practitioner: string): string {
-  return encodedLaunch(2 /* provider-standalone */, practitioner, "");
-}
-
-function encodedLaunch(launchType: number, practitioner: string, patient: string): string {
-  const options = [
-    launchType, // launch_type, an index into the launcher's `launchTypes`
-    patient, // patient: the token response's `patient`; empty for none
-    practitioner, // provider: the user the id_token's fhirUser names
-    "NONE", // encounter: none, so nothing is looked up
-    1, // skip_login
-    1, // skip_auth
-    0, // sim_ehr
-    "", // scope: whatever the client asks for
-    "", // redirect_uris: not pinned
-    "", // client_id: not pinned
-    "", // client_secret
-    "", // auth_error: none simulated
-    JWKS_URL,
-    "", // jwks
-    2, // client_type: confidential-asymmetric
-    1, // pkce: auto
-    "", // fhir_server: the launcher's default
-  ];
-  return Buffer.from(JSON.stringify(options), "utf8").toString("base64url");
-}
-
-test("a provider EHR launch from the SMART launcher lands on Home as the Practitioner's User", async ({
+test("an EHR launch from the local Epic stand-in lands on Home as the Practitioner's User", async ({
   browser,
   page: adminPage,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expectStandInConfigured();
 
   // The Group carrying the Helpdesk's Permissions, read the way an operator
   // reviews them: the Groups listing, where each row carries its Permissions.
@@ -138,23 +113,25 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
     groupPermissionsOf("helpdesk"),
   );
 
-  const id = await provisionUser(directory.scim, PRACTITIONER);
+  const signIn = seededClinician("epic-helpdesk@example.com");
+  // The Practitioner ID, and so the `userName` of the User it links to (D2, D3).
+  const practitioner = signIn.practitionerId;
+  const id = await provisionServerNamedUser(directory.scim, practitioner);
   const clinician = await freshBrowser(browser);
   try {
-    await settlePassword(PRACTITIONER);
+    await settlePassword(practitioner);
     const added = await scimPatch(directory.scim, `/scim/v2/Groups/${helpdesk!.id}`, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
     expect(added.status(), "adding the User to the Helpdesk Group").toBe(200);
 
-    // What the EHR opens in the clinician's browser.
-    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(PRACTITIONER) });
     const page = await clinician.newPage();
-    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
 
     // The landing's fragment is read and stripped, so the address bar is Home's alone.
     await expect(page).toHaveURL("/");
-    await expect(page.getByText(`Signed in as ${PRACTITIONER}`)).toBeVisible();
+    await expect(page.getByText(`Signed in as ${practitioner}`)).toBeVisible();
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
       permissions: string[];
       username: string;
@@ -162,7 +139,7 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
     expect(me).toEqual(
       expect.objectContaining({
         permissions: [...DEV_FIXTURES.helpdesk.permissions],
-        username: PRACTITIONER,
+        username: practitioner,
       }),
     );
     await expectPatientInContext(page, "Tan Wei Ming");
@@ -176,22 +153,22 @@ test("a provider EHR launch from the SMART launcher lands on Home as the Practit
   }
 });
 
-test("a provider EHR launch for a User with the change-required flag lands on Home, not /change-password", async ({
+test("an EHR launch for a User with the change-required flag lands on Home, not /change-password", async ({
   browser,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expectStandInConfigured();
 
   // Provisioned and never settled: the connector's password write leaves the
   // change-required flag set. Only a password Login is confined by it; an Epic
   // Login presents no password of ours (D20), so its session is not confined.
-  const flagged = `${E2E_PREFIX}epic-flagged-${runId()}`;
-  const id = await provisionUser(directory.scim, flagged);
+  const signIn = seededClinician("epic-flagged@example.com");
+  const flagged = signIn.practitionerId;
+  const id = await provisionServerNamedUser(directory.scim, flagged);
   const clinician = await freshBrowser(browser);
   try {
-    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(flagged) });
     const page = await clinician.newPage();
-    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL("/");
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
@@ -210,20 +187,17 @@ test("a provider EHR launch for a User with the change-required flag lands on Ho
 test("a launch whose token response names no patient lands on Home with no patient in context", async ({
   browser,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expectStandInConfigured();
 
-  const clinician = `${E2E_PREFIX}epic-no-patient-${runId()}`;
-  const id = await provisionUser(directory.scim, clinician);
+  const signIn = seededClinician("epic-no-patient@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
   const browserContext = await freshBrowser(browser);
   try {
-    const launch = new URLSearchParams({
-      iss: FHIR_BASE,
-      launch: launchOptionsWithNoPatient(clinician),
-    });
     const page = await browserContext.newPage();
     const patientRequests = recordPatientRequests(page);
-    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    // A SmartAppLaunch with no patient: Medplum's token response names none.
+    await page.goto(await launchUrl({ withPatient: false }));
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL("/");
     await expectNoPatientInContext(page);
@@ -234,19 +208,18 @@ test("a launch whose token response names no patient lands on Home with no patie
   }
 });
 
-test("a provider EHR launch for an unprovisioned Practitioner lands on the refused notice", async ({
+test("an EHR launch for an unprovisioned Practitioner lands on the refused notice", async ({
   browser,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expectStandInConfigured();
 
-  // No User carries this userName: Epic proves a clinician nobody provisioned.
-  const unprovisioned = `${E2E_PREFIX}epic-unprovisioned-${runId()}`;
+  // No User carries this Practitioner's id: Epic proves a clinician nobody provisioned.
+  const signIn = seededClinician("epic-unprovisioned@example.com");
   const clinician = await freshBrowser(browser);
   try {
-    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(unprovisioned) });
     const page = await clinician.newPage();
-    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL(/\/login\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
@@ -258,20 +231,15 @@ test("a provider EHR launch for an unprovisioned Practitioner lands on the refus
 test("a launch whose iss is not exactly the FHIR base lands on the refused notice", async ({
   browser,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
+  expectStandInConfigured();
 
-  // The launcher's own FHIR base with a trailing slash: `iss` is compared as an
+  // Medplum's own FHIR base with a trailing slash: `iss` is compared as an
   // exact string, never normalized (D10), so the launch is refused before any
-  // redirect to the launcher.
+  // redirect to Medplum, and nobody signs in there.
   const clinician = await freshBrowser(browser);
   try {
-    const launch = new URLSearchParams({
-      iss: `${FHIR_BASE}/`,
-      launch: launchOptions(`${E2E_PREFIX}epic-wrong-iss-${runId()}`),
-    });
     const page = await clinician.newPage();
-    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    await page.goto(await launchUrl({ iss: `${FHIR_BASE}/` }));
 
     await expect(page).toHaveURL(/\/login\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
@@ -280,48 +248,38 @@ test("a launch whose iss is not exactly the FHIR base lands on the refused notic
   }
 });
 
-test("a provider EHR launch whose token endpoint is unreachable lands on the unavailable notice", async ({
+test("an EHR launch whose token endpoint is unreachable lands on the unavailable notice", async ({
   browser,
 }) => {
-  expect(FHIR_BASE, "E2E_EPIC_FHIR_BASE names the launcher's FHIR base").not.toBe("");
-  expect(JWKS_URL, "E2E_EPIC_JWKS_URL names our JWKS as the launcher reaches it").not.toBe("");
-  expect(LAUNCHER_CONTAINER, "E2E_EPIC_LAUNCHER_CONTAINER names the launcher's container").not.toBe(
-    "",
-  );
+  expectStandInConfigured();
+  expect(SHIM_CONTAINER, "E2E_EPIC_SHIM_CONTAINER names the DCR shim's container").not.toBe("");
 
   // Who the launch is for does not matter: the Login never gets as far as a User.
-  const practitioner = `${E2E_PREFIX}epic-unavailable-${runId()}`;
+  const signIn = seededClinician("epic-unprovisioned@example.com");
   const clinician = await freshBrowser(browser);
   let paused = false;
   try {
     const page = await clinician.newPage();
-    // The launch, our authorize hop and the launcher's authorization, one hop
-    // at a time with the browser's own cookies, up to the redirect back to our
-    // callback. Playwright cannot hold a navigation reached by a redirect, so
-    // the browser is not walked there itself.
-    const launch = new URLSearchParams({ iss: FHIR_BASE, launch: launchOptions(practitioner) });
-    let next = `/api/auth/epic/launch?${launch.toString()}`;
-    for (const hop of ["our authorize hop", "the launcher's authorize", "our callback"]) {
-      const answer = await page.request.get(next, { maxRedirects: 0 });
-      expect(answer.status(), `redirected to ${hop}`).toBe(302);
-      next = answer.headers()["location"];
-    }
-    expect(new URL(next, "http://localhost").pathname).toBe("/api/auth/epic/callback");
-
-    // The launcher becomes unreachable before our callback redeems the code,
-    // so our one token call gets no answer and times out (D23, D26).
-    execFileSync("docker", ["pause", LAUNCHER_CONTAINER]);
-    paused = true;
-    await page.goto(next);
+    // The shim, which fronts Medplum's token endpoint, becomes unreachable as
+    // Medplum's page sends the browser on to our callback, so our one token
+    // call to redeem the code gets no answer and times out (D23, D26).
+    await page.route("**/api/auth/epic/callback?**", async (route) => {
+      execFileSync("docker", ["pause", SHIM_CONTAINER]);
+      paused = true;
+      await route.continue();
+    });
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
 
     // Past the backend's read timeout (APP_EPIC_READ_TIMEOUT, 5 seconds by default).
     await expect(page).toHaveURL(/\/login\?signin=unavailable$/, { timeout: 20_000 });
+    expect(paused, "the shim was paused for the callback").toBe(true);
     await expect(page.getByRole("status")).toHaveText(
       "Sign-in from Epic is temporarily unavailable. Try again shortly.",
     );
   } finally {
     if (paused) {
-      execFileSync("docker", ["unpause", LAUNCHER_CONTAINER]);
+      execFileSync("docker", ["unpause", SHIM_CONTAINER]);
     }
     await clinician.close();
   }

@@ -187,7 +187,7 @@ class EpicLoginConfigTests {
                         + " must be an absolute https URL");
     }
 
-    /** D21: the dev profile alone may use {@code http}, for the local Docker launcher. */
+    /** D21: the dev profile alone may use {@code http}, for the local Epic stand-in. */
     @Test
     void theDevProfileMayUseHttpUrls() {
         Map<String, Object> environment = validEnvironment();
@@ -201,7 +201,7 @@ class EpicLoginConfigTests {
     }
 
     /**
-     * The dev profile alone accepts the relative {@code fhirUser} the local SMART launcher
+     * The dev profile alone accepts the relative {@code fhirUser} the local Epic stand-in
      * issues, decided where D21's {@code http} allowance is.
      */
     @Test

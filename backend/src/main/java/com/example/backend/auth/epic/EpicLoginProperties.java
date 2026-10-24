@@ -89,7 +89,7 @@ public record EpicLoginProperties(
      * otherwise gives it back parsed: each URL as a {@link URI} and each key, with its
      * {@code kid}, as an {@link EpicSigningKey}. Called only with the switch on.
      *
-     * @param allowances the local launcher's relaxations this deployment grants, if any
+     * @param allowances the local stand-in's relaxations this deployment grants, if any
      * @return the accepted configuration
      * @throws InvalidEpicConfigurationException naming the first variable found wanting
      */
@@ -174,7 +174,7 @@ public record EpicLoginProperties(
 
     /**
      * D21: an absolute URL with a host, whose scheme is {@code https} — or {@code http}, where
-     * the local launcher's allowance grants it. A value {@link URI} cannot parse is refused the same way, and the parser's
+     * the local stand-in's allowance grants it. A value {@link URI} cannot parse is refused the same way, and the parser's
      * exception, which quotes its input, is dropped rather than chained.
      */
     private static URI secureUrl(String variable, String value, boolean httpAllowed) {

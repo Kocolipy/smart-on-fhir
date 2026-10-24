@@ -14,9 +14,9 @@ an EHR launch names, by its EHR's FHIR id (ADR 0012, D8). Two choices had to be 
 served, and both are hard to reverse once a client depends on the wire:
 
 1. **Which FHIR version.** The EHRs this application launches from are R4: Epic's
-   FHIR API is R4, and the local SMART launcher that stands in for Epic
-   (`backend/docs/configuration/epic-login.md`, "Local Epic launcher") serves
-   `/v/r4/fhir`.
+   FHIR API is R4, and the local Epic stand-in, Medplum
+   (`backend/docs/configuration/epic-login.md`, "Local Epic stand-in"), serves
+   `/fhir/R4`.
 2. **Where the data comes from.** The service could proxy a FHIR server — Epic's,
    or a HAPI server of its own — or hold the Patients itself and render FHIR from
    its own rows.

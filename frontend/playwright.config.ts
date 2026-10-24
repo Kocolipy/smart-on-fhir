@@ -9,36 +9,32 @@ import { defineConfig, devices } from "@playwright/test";
  * that session (#64).
  */
 const adminSessionExtras = [
-  // Epic Login. It replays the Admin session only to issue its SCIM token: the
-  // one sign-in it makes is of a User it provisions itself, so it ends no
-  // session another project replays.
-  ...(process.env.E2E_EPIC_FHIR_BASE
+  // The local Epic stand-in: Medplum as the SMART EHR launcher and the
+  // FHIRcast hub, fronted by the DCR shim, named by Medplum's FHIR base. The
+  // backend's Epic Login points at it, and both projects below run against it.
+  // Each replays the Admin session only to issue its SCIM token: every sign-in
+  // either makes is of a User it provisions itself, so neither ends a session
+  // another project replays.
+  ...(process.env.E2E_FHIRCAST_FHIR_BASE
     ? [
-        {
-          name: "epic",
-          testMatch: /epic-launch\.spec\.ts/,
-          dependencies: ["setup"],
-          use: {
-            ...devices["Desktop Chrome"],
-            storageState: "test/e2e/.auth/admin.json",
-          },
-        },
-      ]
-    : []),
-  // The local FHIRcast stand-in: Medplum as the SMART EHR launcher and the
-  // FHIRcast hub, fronted by the DCR shim. Named by the origin of a second JAR,
-  // whose Epic Login points at Medplum, so `epic` keeps the SMART launcher. It
-  // replays the Admin session only to issue its SCIM token, as `epic` does; the
-  // one sign-in it makes is of a User it provisions itself.
-  ...(process.env.E2E_FHIRCAST_BASE_URL
-    ? [
+        // The stand-in itself: an EHR launch through Medplum, and its hub.
         {
           name: "fhircast",
           testMatch: /fhircast-(?:launch|hub)\.spec\.ts/,
           dependencies: ["setup"],
           use: {
             ...devices["Desktop Chrome"],
-            baseURL: process.env.E2E_FHIRCAST_BASE_URL,
+            storageState: "test/e2e/.auth/admin.json",
+          },
+        },
+        // Epic Login. After `fhircast`, not beside it: its unavailable case
+        // pauses the shim, which `fhircast`'s specs reach too.
+        {
+          name: "epic",
+          testMatch: /epic-launch\.spec\.ts/,
+          dependencies: ["setup", "fhircast"],
+          use: {
+            ...devices["Desktop Chrome"],
             storageState: "test/e2e/.auth/admin.json",
           },
         },

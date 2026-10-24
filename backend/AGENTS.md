@@ -34,13 +34,13 @@ Changes to Redis-backed session persistence require an integration-level check a
 
 ### The FHIRcast shim
 
-`fhircast-shim/` is not part of the service: it is the local FHIRcast
+`fhircast-shim/` is not part of the service: it is the local Epic
 stand-in's DCR shim and Medplum seed (`compose.yaml`, profile `fhircast`;
-`docs/configuration/epic-login.md`, "Local FHIRcast stand-in"), plain Node
+`docs/configuration/epic-login.md`, "Local Epic stand-in"), plain Node
 with no dependencies, which compose runs on the pinned Node image. Maven never
 builds it, so the baseline gate stays Node-free; the Semgrep scan covers it,
 and `make integration-test` runs its unit tests first, the gate whose
-`fhircast` project runs against it. Iterate with
+`epic` and `fhircast` projects run against it. Iterate with
 `node --test fhircast-shim/test/*.test.mjs`.
 
 ### Test suite policy
