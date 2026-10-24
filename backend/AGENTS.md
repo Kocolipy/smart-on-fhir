@@ -32,6 +32,17 @@ Run the gate as part of finishing the work, not as a separate pre-commit step. A
 
 Changes to Redis-backed session persistence require an integration-level check against Redis; the controller tests use servlet mocks and do not exercise Redis.
 
+### The FHIRcast shim
+
+`fhircast-shim/` is not part of the service: it is the local FHIRcast
+stand-in's DCR shim and Medplum seed (`compose.yaml`, profile `fhircast`;
+`docs/configuration/epic-login.md`, "Local FHIRcast stand-in"), plain Node
+with no dependencies, which compose runs on the pinned Node image. Maven never
+builds it, so the baseline gate stays Node-free; the Semgrep scan covers it,
+and `make integration-test` runs its unit tests first, the gate whose
+`fhircast` project runs against it. Iterate with
+`node --test fhircast-shim/test/*.test.mjs`.
+
 ### Test suite policy
 
 The inner loop under the baseline gate. `README.md` ("Test layers") holds the layers and their measured times; `scripts/test-gates.sh` holds the lists.

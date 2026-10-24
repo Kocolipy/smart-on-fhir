@@ -134,6 +134,30 @@ export async function provisionUser(
   return ((await created.json()) as { id: string }).id;
 }
 
+/**
+ * Provisions an active User whose `userName` another server assigned — the
+ * one exception to {@link E2E_PREFIX}, for a name the spec cannot choose, such
+ * as the Practitioner id an EHR signs in. `sweepLeftovers()` cannot see such a
+ * name, so any User already holding it, a crashed run's leftover, is deleted
+ * first. Safe only for a name no other spec provisions.
+ */
+export async function provisionServerNamedUser(
+  scim: APIRequestContext,
+  userName: string,
+): Promise<string> {
+  const filter = encodeURIComponent(`userName eq "${userName}"`);
+  const leftovers = (await (await scim.get(`/scim/v2/Users?filter=${filter}`)).json()) as {
+    Resources?: Array<{ id: string }>;
+  };
+  for (const leftover of leftovers.Resources ?? []) await deprovisionUser(scim, leftover.id);
+
+  const created = await scim.post("/scim/v2/Users", {
+    data: { active: true, password: PROVISIONED_PASSWORD, schemas: [USER_SCHEMA], userName },
+  });
+  expect(created.status(), `provisioning ${userName}`).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
 /** The resource's current ETag, for a conditional write. */
 async function etagOf(scim: APIRequestContext, path: string): Promise<string> {
   const current = await scim.get(path);

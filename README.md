@@ -17,16 +17,18 @@ lists every target; `make bootstrap`, `make dev`, `make verify`, and
 
 Every toolchain version is pinned in the repo, so every machine resolves the same one:
 
-| Tool  | Pinned in                                                       | Enforced by                                                                 |
-| ----- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Node  | `/.nvmrc`, `/.tool-versions`, `frontend/package.json` `engines` | `frontend/.npmrc` (`engine-strict`), `scripts/lib.sh`                       |
-| npm   | `frontend/package.json` `packageManager`                        | Corepack, plus `engines.npm`                                                |
-| Maven | `backend/.mvn/wrapper/maven-wrapper.properties`                 | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
-| JDK   | `/.tool-versions`                                               | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)              |
+| Tool    | Pinned in                                                                                                                       | Enforced by                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Node    | `/.nvmrc`, `/.tool-versions`, `frontend/package.json` `engines`, and the FHIRcast shim's `node` image in `backend/compose.yaml` | `frontend/.npmrc` (`engine-strict`), `scripts/lib.sh`                       |
+| npm     | `frontend/package.json` `packageManager`                                                                                        | Corepack, plus `engines.npm`                                                |
+| Maven   | `backend/.mvn/wrapper/maven-wrapper.properties`                                                                                 | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
+| JDK     | `/.tool-versions`                                                                                                               | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)              |
+| Medplum | `backend/compose.yaml`: `medplum/medplum-server` and `medplum/medplum-app`, one release for both                                | the tag and digest pulled (below)                                           |
 
 A bump to Node, Maven, or the JDK lands in every row of its line in the same
 commit — a pin that disagrees with its neighbour surfaces as a build error
-somewhere unrelated.
+somewhere unrelated. The two Medplum images move together, as one Medplum
+release, and the shim's `node` image moves with the Node pin.
 
 Activate the Node and JDK pins with `nvm use` (reads `/.nvmrc`), or
 `asdf install` / `mise install` (both read `/.tool-versions`) from the repo
@@ -47,7 +49,10 @@ reviewed monthly (ADR 0013, "Database patching"). It is x86_64 only: Apple
 Silicon is not a supported development platform
 (`backend/docs/configuration/database.md`, "Local setup"). The local Epic
 launcher, `smartonfhir/smart-launcher-2`, publishes `latest` only, so its
-digest alone is the pin.
+digest alone is the pin. The local FHIRcast stand-in pins Medplum 5.2.7
+(`medplum/medplum-server` and `medplum/medplum-app`), its Postgres and Redis,
+and the shim's `node:22.23.3-alpine` the same way, tag and digest
+(`backend/docs/configuration/epic-login.md`, "Local FHIRcast stand-in").
 
 ## Releasing and deploying
 

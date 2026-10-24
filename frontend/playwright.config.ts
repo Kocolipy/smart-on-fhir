@@ -3,8 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * The projects only `make integration-test` declares (frontend/AGENTS.md), each
  * when that run's environment names what it needs, so a bare `npm run
- * test:e2e` against a backend started some other way never sees them. Both
- * replay the Admin session `setup` saves, as the `admin` project does, so they
+ * test:e2e` against a backend started some other way never sees them. Each
+ * replays the Admin session `setup` saves, as the `admin` project does, so they
  * run beside it and ahead of `guest`, whose sign-in as the seeded Admin ends
  * that session (#64).
  */
@@ -20,6 +20,25 @@ const adminSessionExtras = [
           dependencies: ["setup"],
           use: {
             ...devices["Desktop Chrome"],
+            storageState: "test/e2e/.auth/admin.json",
+          },
+        },
+      ]
+    : []),
+  // The local FHIRcast stand-in: Medplum as the SMART EHR launcher and the
+  // FHIRcast hub, fronted by the DCR shim. Named by the origin of a second JAR,
+  // whose Epic Login points at Medplum, so `epic` keeps the SMART launcher. It
+  // replays the Admin session only to issue its SCIM token, as `epic` does; the
+  // one sign-in it makes is of a User it provisions itself.
+  ...(process.env.E2E_FHIRCAST_BASE_URL
+    ? [
+        {
+          name: "fhircast",
+          testMatch: /fhircast-(?:launch|hub)\.spec\.ts/,
+          dependencies: ["setup"],
+          use: {
+            ...devices["Desktop Chrome"],
+            baseURL: process.env.E2E_FHIRCAST_BASE_URL,
             storageState: "test/e2e/.auth/admin.json",
           },
         },
