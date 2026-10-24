@@ -18,6 +18,36 @@ const ADMIN_TOKEN = "the-super-admins-medplum-token";
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const WEBSOCKET_GREETING = "the hub's first message";
 
+/**
+ * Medplum's subscription confirmation, as its hub sends it on the socket:
+ * every subscription granted an hour's lease. The topic is long enough that
+ * the frame carries its length in 16 bits.
+ */
+const CONFIRMATION = {
+  "hub.mode": "subscribe",
+  "hub.topic": "a-topic-".repeat(16),
+  "hub.events": "Patient-open,Patient-close",
+  "hub.lease_seconds": 3600,
+};
+
+/** What Medplum's hub sends on a socket at an endpoint it does not know, before closing it. */
+const DENIAL = {
+  "hub.mode": "denied",
+  "hub.topic": "",
+  "hub.events": "",
+  "hub.reason": "invalid endpoint",
+};
+
+/** An unmasked websocket text frame, as a server sends one, holding `text`. */
+function textFrame(text) {
+  const payload = Buffer.from(text);
+  const length =
+    payload.length < 126
+      ? Buffer.from([payload.length])
+      : Buffer.from([126, payload.length >> 8, payload.length & 0xff]);
+  return Buffer.concat([Buffer.from([0x81]), length, payload]);
+}
+
 /** A fake Medplum: only what the shim calls, answering as Medplum 5 does. */
 function fakeMedplum() {
   const server = createServer(async (req, res) => {
@@ -86,9 +116,13 @@ function fakeMedplum() {
     }
     reply(404, {});
   });
-  // Medplum's FHIRcast websocket: the handshake, then one text frame, as the
-  // hub's subscription confirmation would be.
+  // Medplum's FHIRcast websocket: the handshake, then one text frame. At
+  // `endpoint-1` that is a greeting; at `endpoint-confirms`, the hub's
+  // subscription confirmation, granting Medplum's own hour's lease; at any
+  // other endpoint, the denial Medplum sends for one it does not know, after
+  // which it closes. Every upgrade it is sent is recorded in `upgrades`.
   const websockets = new Set();
+  server.upgrades = [];
   const closeHttpConnections = server.closeAllConnections.bind(server);
   server.closeAllConnections = () => {
     closeHttpConnections();
@@ -96,8 +130,9 @@ function fakeMedplum() {
   };
   server.on("upgrade", (req, socket) => {
     websockets.add(socket);
+    server.upgrades.push({ url: req.url, headers: req.headers });
     // As Medplum does: any upgrade but its websocket, h2c included, is a 404.
-    if (req.url !== "/ws/fhircast/endpoint-1") {
+    if (!req.url.startsWith("/ws/fhircast/")) {
       return socket.end("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
     }
     const accept = createHash("sha1")
@@ -109,8 +144,13 @@ function fakeMedplum() {
       "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
-    const text = Buffer.from(WEBSOCKET_GREETING);
-    socket.write(Buffer.concat([Buffer.from([0x81, text.length]), text]));
+    if (req.url === "/ws/fhircast/endpoint-1") {
+      return socket.write(textFrame(WEBSOCKET_GREETING));
+    }
+    if (req.url === "/ws/fhircast/endpoint-confirms") {
+      return socket.write(textFrame(JSON.stringify(CONFIRMATION)));
+    }
+    socket.end(textFrame(JSON.stringify(DENIAL)));
   });
   return server;
 }
@@ -186,6 +226,7 @@ describe("the FHIRcast DCR shim", () => {
       medplumUrl,
       admin: ADMIN,
       tokenLifetimeSeconds: 3600,
+      leaseSeconds: 3600,
       testState: true,
       now: () => now,
       ...options,
@@ -272,10 +313,7 @@ describe("the FHIRcast DCR shim", () => {
         { headers: { Origin: "http://localhost:8081" } },
       );
 
-      assert.equal(
-        answer.headers.get("access-control-allow-origin"),
-        "*",
-      );
+      assert.equal(answer.headers.get("access-control-allow-origin"), "*");
     });
   });
 
@@ -589,6 +627,24 @@ describe("the FHIRcast DCR shim", () => {
       assert.equal(answer.status, 401);
     });
 
+    it("lists a token whose configured lifetime has passed in its test state", async () => {
+      await startShim({ tokenLifetimeSeconds: 60 });
+      const token = await hubToken(await registeredClient());
+
+      now += 60_000;
+
+      assert.deepEqual((await state()).expiredTokens, [token]);
+    });
+
+    it("lists no token still within its configured lifetime as expired", async () => {
+      await startShim({ tokenLifetimeSeconds: 60 });
+      await hubToken(await registeredClient());
+
+      now += 59_000;
+
+      assert.deepEqual((await state()).expiredTokens, []);
+    });
+
     it("accepts at the hub a token still within its configured lifetime", async () => {
       await startShim({ tokenLifetimeSeconds: 60 });
       const token = await hubToken(await registeredClient());
@@ -708,6 +764,172 @@ describe("the FHIRcast DCR shim", () => {
         }
       },
     );
+  });
+
+  /**
+   * A websocket to the shim at the channel endpoint `id`: the first message
+   * the hub sends on it, parsed, and when it closes.
+   */
+  function channelSocket(id) {
+    const socket = new WebSocket(
+      `${shimUrl.replace("http:", "ws:")}/ws/fhircast/${id}`,
+    );
+    const first = new Promise((resolve, reject) => {
+      socket.addEventListener("message", ({ data }) =>
+        resolve(JSON.parse(data)),
+      );
+      socket.addEventListener("error", () =>
+        reject(new Error("the websocket failed")),
+      );
+    });
+    const closed = new Promise((resolve) =>
+      socket.addEventListener("close", () => resolve()),
+    );
+    return { closed, first, socket };
+  }
+
+  describe("the subscription's lease", () => {
+    it(
+      "states the configured lease in the hub's confirmation, the rest as Medplum wrote it",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 60 });
+        const { first, socket } = channelSocket("endpoint-confirms");
+        try {
+          assert.deepEqual(await first, {
+            ...CONFIRMATION,
+            "hub.lease_seconds": 60,
+          });
+        } finally {
+          socket.close();
+        }
+      },
+    );
+
+    it(
+      "states what is left of the lease when the endpoint is reopened",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 60 });
+        const opened = channelSocket("endpoint-confirms");
+        await opened.first;
+        opened.socket.close();
+
+        now += 20_500;
+        const reopened = channelSocket("endpoint-confirms");
+        try {
+          assert.equal((await reopened.first)["hub.lease_seconds"], 40);
+        } finally {
+          reopened.socket.close();
+        }
+      },
+    );
+
+    it(
+      "closes the socket when the lease runs out",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 0.2 });
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        await closed;
+      },
+    );
+
+    it(
+      "has the hub deny an endpoint whose lease has run out",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 60 });
+        const opened = channelSocket("endpoint-confirms");
+        await opened.first;
+        opened.socket.close();
+
+        now += 60_000;
+        const reopened = channelSocket("endpoint-confirms");
+        try {
+          assert.deepEqual(await reopened.first, DENIAL);
+        } finally {
+          reopened.socket.close();
+        }
+      },
+    );
+
+    it(
+      "lists an endpoint whose lease has run out in its test state",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 60 });
+        const opened = channelSocket("endpoint-confirms");
+        await opened.first;
+        opened.socket.close();
+
+        now += 60_000;
+
+        assert.deepEqual((await state()).endedLeases, ["endpoint-confirms"]);
+      },
+    );
+
+    it(
+      "lists no endpoint still leased as ended",
+      { timeout: 5000 },
+      async () => {
+        await startShim({ leaseSeconds: 60 });
+        const opened = channelSocket("endpoint-confirms");
+        await opened.first;
+        opened.socket.close();
+
+        now += 59_000;
+
+        assert.deepEqual((await state()).endedLeases, []);
+      },
+    );
+
+    it(
+      "offers Medplum no websocket extension, so the hub's frames stay plain",
+      { timeout: 5000 },
+      async () => {
+        const { first, socket } = channelSocket("endpoint-confirms");
+        try {
+          await first;
+          assert.equal(
+            medplum.upgrades.at(-1).headers["sec-websocket-extensions"],
+            undefined,
+          );
+        } finally {
+          socket.close();
+        }
+      },
+    );
+  });
+
+  describe("the test-only drop", () => {
+    it(
+      "closes the sockets at a channel endpoint, as a network fault would",
+      { timeout: 5000 },
+      async () => {
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        await fetch(`${shimUrl}/dcr/test/drop?endpoint=endpoint-confirms`, {
+          method: "POST",
+        });
+
+        await closed;
+      },
+    );
+
+    it("is not there unless test state is on", async () => {
+      await startShim({ testState: false });
+
+      const answer = await fetch(
+        `${shimUrl}/dcr/test/drop?endpoint=endpoint-confirms`,
+        { method: "POST" },
+      );
+
+      assert.equal(answer.status, 404);
+    });
   });
 
   /** A FHIRcast STU3 websocket subscribe, at the hub URL the shim fronts. */

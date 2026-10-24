@@ -13,6 +13,14 @@ if (!Number.isInteger(tokenLifetimeSeconds) || tokenLifetimeSeconds <= 0) {
   process.exit(1);
 }
 
+const leaseSeconds = Number(required("SHIM_LEASE_SECONDS"));
+if (!Number.isInteger(leaseSeconds) || leaseSeconds <= 0) {
+  console.error(
+    "fhircast-shim: SHIM_LEASE_SECONDS must be a positive whole number of seconds",
+  );
+  process.exit(1);
+}
+
 const shim = createShim({
   publicBaseUrl: required("SHIM_PUBLIC_BASE_URL"),
   medplumUrl: required("SHIM_MEDPLUM_URL"),
@@ -21,6 +29,7 @@ const shim = createShim({
     password: required("SHIM_MEDPLUM_ADMIN_PASSWORD"),
   },
   tokenLifetimeSeconds,
+  leaseSeconds,
   testState: process.env.SHIM_TEST_STATE === "enabled",
 });
 
@@ -28,7 +37,7 @@ const shim = createShim({
 // host's 127.0.0.1 alone.
 shim.listen(port, () => {
   console.log(
-    `fhircast-shim: listening on ${port}, hub tokens last ${tokenLifetimeSeconds}s`,
+    `fhircast-shim: listening on ${port}, hub tokens last ${tokenLifetimeSeconds}s, leases ${leaseSeconds}s`,
   );
 });
 

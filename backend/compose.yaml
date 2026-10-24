@@ -227,9 +227,14 @@ services:
       SHIM_MEDPLUM_URL: http://medplum:8103/
       SHIM_MEDPLUM_ADMIN_EMAIL: *medplum-admin-email
       SHIM_MEDPLUM_ADMIN_PASSWORD: *medplum-admin-password
-      # An hour, as Epic's hub tokens last; `make integration-test` sets 60.
+      # An hour, as Epic's hub tokens last; `make integration-test` sets 75.
       SHIM_TOKEN_LIFETIME_SECONDS: ${FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS:-3600}
-      # GET /dcr/test/state: registrations and revoked tokens, for E2E assertions.
+      # A subscription's lease, which the shim holds the hub's sockets to: an
+      # hour, as Medplum grants; `make integration-test` sets 75.
+      SHIM_LEASE_SECONDS: ${FHIRCAST_LEASE_SECONDS:-3600}
+      # GET /dcr/test/state: registrations, revoked and expired tokens, and
+      # ended leases, for E2E assertions; POST /dcr/test/drop: a channel endpoint's sockets closed,
+      # for E2E's dropped-socket case.
       SHIM_TEST_STATE: enabled
     ports:
       - "127.0.0.1:8103:8103"
@@ -276,7 +281,7 @@ services:
       # UUIDs, the only ids Medplum takes from a client; `make integration-test`
       # hands this list to frontend/test/e2e/epic-launch.spec.ts and
       # fhircast-card.spec.ts as E2E_EPIC_CLINICIANS.
-      SEED_EPIC_LOGIN_CLINICIANS: epic-helpdesk@example.com=5d5b1795-6573-4d8f-be48-800ce6154bc4,epic-flagged@example.com=6adfd95f-f494-466d-97f8-895e3183d8fe,epic-no-patient@example.com=4f7fb5fd-7b93-4cb3-9719-1a1aa4edee05,epic-unprovisioned@example.com=9359400f-b33d-4d34-93b9-49d588fb7857,fhircast-card@example.com=deb22ada-0dc3-4290-9974-db41652d266f,fhircast-events@example.com=68107579-b306-40f5-b730-660c27a1f979
+      SEED_EPIC_LOGIN_CLINICIANS: epic-helpdesk@example.com=5d5b1795-6573-4d8f-be48-800ce6154bc4,epic-flagged@example.com=6adfd95f-f494-466d-97f8-895e3183d8fe,epic-no-patient@example.com=4f7fb5fd-7b93-4cb3-9719-1a1aa4edee05,epic-unprovisioned@example.com=9359400f-b33d-4d34-93b9-49d588fb7857,fhircast-card@example.com=deb22ada-0dc3-4290-9974-db41652d266f,fhircast-events@example.com=68107579-b306-40f5-b730-660c27a1f979,fhircast-renewal@example.com=45888464-41bf-4f95-baa2-de6e21cd34b0,fhircast-reconnect@example.com=ce6f554e-68a9-4435-b1ac-808a5733a783
       # Tan Wei Ming, one of the backend dev profile's patient fixtures
       # (DevPatientFixtures), by his Epic id.
       SEED_PATIENT_EPIC_ID: eq081-VQEgP8drUUqCWzHfw3
