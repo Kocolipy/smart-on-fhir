@@ -192,8 +192,10 @@ decide where a visitor goes.
   may open.
 - `fhircast-card.tsx` — the FHIRcast card: asks for the release, connects
   through `lib/fhircast.ts`, and shows one of four generic states, closing its
-  socket when Home goes. It reports nothing to the page status: its state is
-  its own line.
+  socket when Home goes. While connected it lists the last event the module
+  hands on — name, time, and the Patient id when there is one — held in its
+  own state only, so a reload starts with none. It reports nothing to the page
+  status: its state is its own line.
 - `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
   an optional `patientId` prop. Without one it shows "No patient in context" and
   never calls the gated read; with one, a child component reads
@@ -235,6 +237,10 @@ to which none of `apiFetch`'s session, CSRF or status rules apply — so it uses
 SMART access token, the `jwt-bearer` Hub Token, the subscription and the socket,
 each URL the hub names held to loopback. It answers a closed `FhircastOutcome`
 (`connected`, `unavailable`, `blocked`) and never surfaces what the hub said.
+On a connected socket it holds every message to the FHIRcast STU3 notification
+shape, the subscribed events and the session's topic, acknowledges a valid one
+on the socket, and hands the caller only a `PatientEvent`: the event, its
+`timestamp` and a grammar-checked Patient id. Nothing of a message is logged.
 The release it starts from still comes from the backend through the session
 seam (`auth/use-fhircast-release.ts`). `test/arch/rawNetwork.test.ts`
 (`no_raw_network_outside_transport`) names these two modules and no others.

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import { useFhircastRelease } from "@/auth/use-fhircast-release";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { connectFhircast } from "@/lib/fhircast";
+import { connectFhircast, type PatientEvent } from "@/lib/fhircast";
+import { formatInstant } from "@/lib/time";
 
 /** The card's states: where connecting to the local hub has got to. */
 type FhircastState = "connecting" | "connected" | "unavailable" | "blocked";
@@ -19,15 +20,42 @@ const COPY: Record<FhircastState, string> = {
 };
 
 /**
+ * The last event, each field a plain text node: the event's name, its time in
+ * Singapore, and the Patient id when the event named one in the grammar.
+ */
+function LastEvent({ event }: { event: PatientEvent }) {
+  const rows: [label: string, value: string][] = [
+    ["Event", event.event],
+    ["Time", formatInstant(event.timestamp)],
+  ];
+  if (event.patientId !== null) rows.push(["Patient", event.patientId]);
+  return (
+    <div aria-label="Last event" role="group">
+      <dl className="mt-2 flex flex-col gap-1 text-sm">
+        {rows.map(([label, value]) => (
+          <div className="flex gap-4" key={label}>
+            <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/**
  * The FHIRcast card, on Home in an Epic session: asks the backend for the
  * release, then connects to Epic's local FHIRcast hub through the FHIRcast
  * module (`@/lib/fhircast`), and shows how far it got. Once on mount; the
  * socket is closed when Home goes, and a connection the hub drops shows as
- * unavailable. Events are not shown yet.
+ * unavailable. While connected it shows the last `Patient-open` or
+ * `Patient-close` the hub sent, held in this component's state alone: a
+ * reload starts with none.
  */
 export function FhircastCard() {
   const release = useFhircastRelease();
   const [state, setState] = useState<FhircastState>("connecting");
+  const [last, setLast] = useState<PatientEvent | null>(null);
 
   useEffect(() => {
     // Home gone before the release answered connects to nothing; gone while
@@ -43,6 +71,7 @@ export function FhircastCard() {
         return;
       }
       const outcome = await connectFhircast(released, {
+        onEvent: setLast,
         onLost: () => setState("unavailable"),
       });
       if (outcome.kind === "connected") close = outcome.close;
@@ -64,6 +93,7 @@ export function FhircastCard() {
         <p aria-labelledby="fhircast-card-title" className="text-sm" role="status">
           {COPY[state]}
         </p>
+        {state === "connected" && last !== null && <LastEvent event={last} />}
       </CardContent>
     </Card>
   );

@@ -130,11 +130,27 @@ the SPA registers a fresh ES384 key by dynamic client registration with the SMAR
 access token as `Bearer`; it signs a five-minute `jwt-bearer` assertion with that
 key for a **Hub Token**; with the Hub Token it makes the **Hub Subscription** to
 `Patient-open` and `Patient-close` on the topic, over a websocket held to
-`ws(s)://127.0.0.1`. The FHIRcast card shows `Connecting`, `Connected`,
+`ws(s)://127.0.0.1`. The FHIRcast card's status is `Connecting`, `Connected`,
 `FHIRcast unavailable` or `Local hub blocked by browser`, nothing more. The SMART access
 token, the Hub Token, the registered `client_id` and the private key live in the
 tab's `sessionStorage` and go when the session ends. ADR 0016 has the decision,
 and ADR 0011 the deviations it accepts.
+
+**The last event** — while connected, the card shows the last **Event
+Notification** the hub sent on the socket: its `hub.event` (`Patient-open` or
+`Patient-close`), its `timestamp` in Singapore time, and the Patient's FHIR id —
+the `id` of the resource under the `patient` key of its `context` — and nothing
+else: no name, no MRN. Each message is held to the FHIRcast STU3 notification
+shape: a `timestamp` that reads as a time, a non-empty `id`, and an `event`
+carrying `hub.topic`, `hub.event` and a `context` list. Its `hub.event` must be
+one of the two subscribed events, in any case, and its `hub.topic` exactly the
+session's. A message that fails any of these — the hub's `heartbeat` among
+them — is ignored and not acknowledged. A valid one is acknowledged on the same
+socket with `{"id": <its id>, "status": "200"}`, then shown, replacing the event
+before it. A Patient id outside `[A-Za-z0-9\-.]{1,64}` is omitted while the
+event and its time still show. Every value is rendered as text, and nothing a
+notification carries is logged. The event is held in the card's memory alone:
+it is not shown once the hub drops the socket, and a reload starts with none.
 
 **The Launch context goes to the browser, never into the session** — the
 token response's `patient` and `encounter` are the **Launch context**. Each is

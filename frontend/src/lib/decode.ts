@@ -42,6 +42,8 @@ export interface ObjectReader {
   oneOf<T extends string>(key: string, allowed: readonly T[]): T;
   nullableOneOf<T extends string>(key: string, allowed: readonly T[]): T | null;
   array<T>(key: string, decode: (item: unknown) => T): T[];
+  /** A nested object, read the same way; its errors name it under this one. */
+  object(key: string): ObjectReader;
 }
 
 /** An array, each element decoded by `decode`; `what` names it in the error. */
@@ -84,6 +86,7 @@ export function readObject(value: unknown, what: string): ObjectReader {
     oneOf,
     nullableOneOf: (key, allowed) => (value[key] === null ? null : oneOf(key, allowed)),
     array: (key, decode) => decodeArray(value[key], decode, `${what}.${key}`),
+    object: (key) => readObject(value[key], `${what}.${key}`),
   };
 }
 

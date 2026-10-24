@@ -4,7 +4,9 @@ import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 
 // A fake of Epic's local FHIRcast hub, the other origin the FHIRcast module
 // talks to: its `.well-known` metadata, RFC 7591 registration, the
-// `jwt-bearer` token endpoint, the subscription, and the websocket. It answers
+// `jwt-bearer` token endpoint, the subscription, and the websocket, which a
+// test can push notifications down (`notify`) and read the page's
+// acknowledgements from (`received`). It answers
 // through the fake backend's other-origin hook (`serveOtherOrigin`), so it runs
 // beside the backend a page suite fakes, and stubs the global `WebSocket`.
 // Every request is recorded, as the hub saw it. It answers by method and path,
@@ -72,6 +74,10 @@ export interface FakeHub {
   dropSockets: () => void;
   /** How many sockets the page opened and has not closed. */
   openSockets: () => number;
+  /** Sends `message` on every open socket from the hub's side: a string as it is, anything else as JSON. */
+  notify: (message: unknown) => void;
+  /** Everything the page sent on its sockets, in order, as sent. */
+  received: () => readonly string[];
 }
 
 const json = (body: unknown, status = 200): { status: number; body?: unknown } => ({
@@ -133,6 +139,7 @@ function answer(given: HubAnswer | undefined): Promise<Response> {
 export function fakeHub(options: HubOptions = {}): FakeHub {
   const sent: HubRequest[] = [];
   const sockets: FakeSocket[] = [];
+  const fromPage: string[] = [];
   const hubPath = pathOf(HUB_URL);
   const answers: Record<string, HubAnswer> = {
     [`GET ${hubPath}/.well-known/fhircast-configuration`]:
@@ -196,6 +203,15 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
       );
     }
 
+    send(data: string) {
+      fromPage.push(data);
+    }
+
+    /** A message from the hub's side. */
+    deliver(data: string) {
+      this.emit("message", { data });
+    }
+
     close() {
       if (this.closed) return;
       this.closed = true;
@@ -223,7 +239,12 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
     dropSockets: () => {
       for (const socket of sockets) socket.close();
     },
+    notify: (message) => {
+      const data = typeof message === "string" ? message : JSON.stringify(message);
+      for (const socket of sockets.filter((open) => !open.closed)) socket.deliver(data);
+    },
     openSockets: () => sockets.filter((socket) => !socket.closed).length,
+    received: () => [...fromPage],
     requestTo: (url) => {
       const found = sent.find((request) => request.url === url);
       if (found === undefined) throw new Error(`the hub was sent nothing at ${url}`);
