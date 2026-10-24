@@ -3,14 +3,18 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 
 /**
- * The local FHIRcast stand-in, from the specs' side: self-hosted Medplum as the
+ * The local Epic stand-in, from the specs' side: self-hosted Medplum as the
  * SMART EHR launcher and FHIRcast STU3 hub, fronted by the DCR shim
  * (`backend/compose.yaml`, profile `fhircast`). `make integration-test`
- * starts it and sets every variable below (frontend/README.md lists each).
+ * starts it, points the one JAR's Epic Login at it, and sets every variable
+ * below (frontend/README.md lists each). The `epic` and `fhircast` projects
+ * both run against it.
  *
  * Medplum is called as its super admin: a FHIRcast topic is scoped to the
  * Medplum project of whoever subscribes and publishes, and the shim subscribes
- * as the super admin, so a publisher must be the super admin too.
+ * as the super admin, so a publisher must be the super admin too. The super
+ * admin also creates the launches, and finds what the seed made: the
+ * clinicians a spec signs in as, and Tan Wei Ming.
  */
 
 /** Medplum's base URL, which the shim answers on; its FHIRcast hub is under it. */
@@ -83,34 +87,99 @@ async function medplumAdminToken(): Promise<string> {
   return String(tokens.access_token);
 }
 
-/**
- * A SmartAppLaunch: what the EHR names in a launch's `launch`. Its patient,
- * by the identifier Medplum's token response puts in `patient`, is `patientId`.
- */
-export async function createLaunch(patientId: string): Promise<string> {
-  const launch = await medplumJson("fhir/R4/SmartAppLaunch", {
-    method: "POST",
+/** A FHIR request to Medplum as its super admin, its JSON answer asserted ok. */
+async function asMedplumAdmin(
+  path: string,
+  method = "GET",
+  body?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return medplumJson(`fhir/R4/${path}`, {
+    method,
     headers: {
       Authorization: `Bearer ${await medplumAdminToken()}`,
-      "Content-Type": "application/fhir+json",
+      ...(body === undefined ? {} : { "Content-Type": "application/fhir+json" }),
     },
-    body: JSON.stringify({
-      resourceType: "SmartAppLaunch",
-      patient: { identifier: { value: patientId } },
-    }),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+/** The one resource a search answers, which the seed made (`backend/fhircast-shim/src/seed.mjs`). */
+async function seeded(query: string): Promise<Record<string, unknown>> {
+  const found = await asMedplumAdmin(query);
+  const entries = (found.entry ?? []) as Array<{ resource: Record<string, unknown> }>;
+  expect(entries, `the seed made one ${query}`).toHaveLength(1);
+  return entries[0].resource;
+}
+
+/** A Patient the seed made in Medplum: his Medplum id, and his Epic id beside it. */
+export interface MedplumPatient {
+  id: string;
+  epicId: string;
+}
+
+/** Tan Wei Ming as the seed made him, found by his Epic id. */
+export async function tanWeiMing(): Promise<MedplumPatient> {
+  const patient = await seeded(`Patient?identifier=${TAN_WEI_MING}`);
+  return { id: String(patient.id), epicId: TAN_WEI_MING };
+}
+
+/**
+ * A SmartAppLaunch: what the EHR names in a launch's `launch`. Its patient is
+ * `patient`, by reference and by Epic id: Medplum's token response puts the
+ * identifier's value in `patient` ahead of the reference's id, so the backend
+ * is handed the Epic id. With none, the token response names no patient at all.
+ */
+export async function createLaunch(patient?: MedplumPatient): Promise<string> {
+  const launch = await asMedplumAdmin("SmartAppLaunch", "POST", {
+    resourceType: "SmartAppLaunch",
+    ...(patient === undefined
+      ? {}
+      : {
+          patient: { reference: `Patient/${patient.id}`, identifier: { value: patient.epicId } },
+        }),
   });
   return String(launch.id);
 }
 
+/** Who signs in on Medplum's page. */
+export interface MedplumSignIn {
+  email: string;
+  password: string;
+}
+
+/** A clinician the seed made: a Practitioner with a Medplum sign-in in the local EHR's project. */
+export interface MedplumClinician extends MedplumSignIn {
+  /**
+   * The Practitioner id Medplum assigned, which the seed finds again on every
+   * run, so it holds from one run to the next: the `fhirUser` a launch signs
+   * in, and so the `userName` of the User it links to (ADR 0012 D2, D3).
+   */
+  practitionerId: string;
+}
+
 /**
- * Signs the seeded clinician in on Medplum's own sign-in page, where Medplum's
- * authorize sends the browser, and grants the scopes the app asked for; the
- * browser then goes on to the app's callback.
+ * One of the clinicians the seed made for Epic Login's cases, by the email it
+ * signs in with (compose.yaml's `SEED_EPIC_LOGIN_CLINICIAN_EMAILS`); every
+ * seeded clinician signs in with the clinician's password.
  */
-export async function signInAtMedplum(page: Page): Promise<void> {
-  await page.getByLabel("Email").fill(CLINICIAN.email);
+export async function seededClinician(email: string): Promise<MedplumClinician> {
+  const practitioner = await seeded(`Practitioner?email=${encodeURIComponent(email)}`);
+  return { email, password: CLINICIAN.password, practitionerId: String(practitioner.id) };
+}
+
+/**
+ * Signs a clinician in on Medplum's own sign-in page, where Medplum's
+ * authorize sends the browser, and grants the scopes the app asked for; the
+ * browser then goes on to the app's callback. The seeded clinician unless
+ * another is named.
+ */
+export async function signInAtMedplum(
+  page: Page,
+  clinician: MedplumSignIn = CLINICIAN,
+): Promise<void> {
+  await page.getByLabel("Email").fill(clinician.email);
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByLabel(/^Password/).fill(CLINICIAN.password);
+  await page.getByLabel(/^Password/).fill(clinician.password);
   await page.getByRole("button", { name: "Sign In" }).click();
   await page.getByRole("button", { name: "Set Scope" }).click();
 }

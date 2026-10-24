@@ -241,8 +241,8 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * The dev profile alone also accepts the relative {@code Practitioner/{id}} the local SMART
-     * launcher issues as {@code fhirUser}; this context runs in it.
+     * The dev profile alone also accepts the relative {@code Practitioner/{id}} the local Epic
+     * stand-in issues as {@code fhirUser}; this context runs in it.
      */
     @Test
     void inTheDevProfileARelativeFhirUserSignsThePractitionerIn() throws Exception {

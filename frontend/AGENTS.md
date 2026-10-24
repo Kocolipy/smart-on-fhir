@@ -152,26 +152,23 @@ until its trigger narrows the scope, so none belongs in the baseline.
 **E2E** is one run of every Playwright project against one stack. `make
 integration-test` runs the FHIRcast DCR shim's unit tests
 (`backend/fhircast-shim`), packages the JAR with the SPA, starts SQL Server,
-Redis, the SMART Health IT launcher standing in for Epic (compose profile
-`epic-launcher`) and the local FHIRcast stand-in, Medplum and the DCR shim
-(compose profile `fhircast`), and seeds Medplum. It runs the JAR twice in the
-`dev` profile, on the one database and Redis, each with a freshly generated
-key: on 8080 with the `APP_EPIC_*` values in
-`backend/docs/configuration/epic-login.md`, "Local Epic launcher", and on 8081
-with those in "Local FHIRcast stand-in". Then it runs `npm run test:e2e`.
-Three projects exist only in that run:
+Redis and the local Epic stand-in, Medplum and the DCR shim (compose profile
+`fhircast`), and seeds Medplum. It runs the JAR once in the `dev` profile, with
+a freshly generated key and the `APP_EPIC_*` values in
+`backend/docs/configuration/epic-login.md`, "Local Epic stand-in". Then it runs
+`npm run test:e2e`. Three projects exist only in that run:
 
-- **`epic`** drives a real SMART provider EHR launch through
-  `/api/auth/epic/launch`, the launcher's authorization and our callback to Home
-  (`/`). "Epic Login" means anything on that path: `backend/.../auth/epic/`, the
-  Epic routes' security or session handling, `logInFromEpic`, the SPA's handling
-  of the launch landing, and the launcher setup itself.
-- **`fhircast`** loads the 8081 JAR's origin and drives an EHR launch through
-  Medplum to Home, and the FHIRcast hub through the helper that publishes
-  `Patient-open` / `Patient-close`. The stand-in itself — the compose
-  `fhircast` services, `backend/fhircast-shim` and its seed — is part of Epic
-  Login for this gate's trigger.
-- **`packaged`** loads the 8080 JAR's own origin. Every other project runs through
+- **`epic`** drives a real SMART EHR launch through `/api/auth/epic/launch`,
+  Medplum's authorization and our callback to Home (`/`). "Epic Login" means
+  anything on that path: `backend/.../auth/epic/`, the Epic routes' security or
+  session handling, `logInFromEpic`, the SPA's handling of the launch landing,
+  and the stand-in itself — the compose `fhircast` services,
+  `backend/fhircast-shim` and its seed.
+- **`fhircast`** drives an EHR launch through Medplum to Home as the seeded
+  clinician, and the FHIRcast hub through the helper that publishes
+  `Patient-open` / `Patient-close`. `epic` runs after it, since `epic` pauses
+  the shim both reach.
+- **`packaged`** loads the JAR's own origin. Every other project runs through
   `npm run dev`, which serves neither the built bundle nor the backend's CSP, so
   an inline script or a third-party origin breaks only here.
 

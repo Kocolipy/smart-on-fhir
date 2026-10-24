@@ -28,7 +28,7 @@ import org.springframework.core.env.Profiles;
 public class EpicLoginConfig {
 
     /**
-     * The one profile granted the local Docker launcher's relaxations: {@code http} URLs (D21)
+     * The one profile granted the local Epic stand-in's relaxations: {@code http} URLs (D21)
      * and the relative {@code fhirUser} {@code Practitioner/{id}}.
      */
     static final String DEV_PROFILE = "dev";
@@ -38,7 +38,7 @@ public class EpicLoginConfig {
     public EpicLoginSettings epicLoginSettings(
             EpicLoginProperties properties, Environment environment) {
         return properties.validate(environment.acceptsProfiles(Profiles.of(DEV_PROFILE))
-                ? EpicDevAllowances.LOCAL_LAUNCHER
+                ? EpicDevAllowances.LOCAL_STAND_IN
                 : EpicDevAllowances.NONE);
     }
 

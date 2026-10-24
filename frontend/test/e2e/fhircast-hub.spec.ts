@@ -16,7 +16,7 @@ import {
  * FHIRcast card's specs (#187 on) publish through the same helper.
  *
  * It runs only in the `fhircast` project, which `make integration-test`
- * declares when it starts the stand-in.
+ * declares when it starts the local Epic stand-in.
  */
 
 test("a Patient-open published to a topic reaches a websocket subscriber of that topic", async () => {

@@ -8,7 +8,7 @@
 # only: the image has no arm64 build, and Apple Silicon runs it only through slow,
 # unsupported emulation (backend/README.md).
 
-# The local FHIRcast stand-in's shared settings (the `fhircast` profile below).
+# The local Epic stand-in's shared settings (the `fhircast` profile below).
 # Development fixtures for services published on 127.0.0.1 alone, and nothing
 # that opens anything else: the super admin is Medplum's own published default.
 x-fhircast-medplum-super-admin:
@@ -39,7 +39,11 @@ services:
       - sqlserver-data:/var/opt/mssql
     healthcheck:
       # The password reaches sqlcmd through its environment, not its arguments.
-      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' -o /dev/null"]
+      test:
+        [
+          "CMD-SHELL",
+          'SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q ''SELECT 1'' -o /dev/null',
+        ]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -91,47 +95,22 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # The SMART Health IT launcher: a local stand-in for Epic, for a real SMART EHR
-  # launch with no Epic sandbox (/docs/adr/0012-epic-login.md).
-  # Opt-in: the `epic-launcher` profile keeps it out of a plain `up`, so
-  # `make infra-up` still starts only SQL Server and Redis. Start it with
-  # `make epic-launcher-up`; docs/configuration/epic-login.md, "Local Epic launcher", has the
-  # APP_EPIC_* values that point at it. Upstream publishes `latest` only, so the
-  # digest is the pin.
-  smart-launcher:
-    image: smartonfhir/smart-launcher-2:latest@sha256:72bd3e3c682ce4c74e6dddb605d89acad7c8aae446ae38079e8dfe8455b84793
-    profiles: ["epic-launcher"]
-    ports:
-      - "9009:80"
-    # The launcher fetches our JWKS to verify the client assertion, from the
-    # backend running on the host.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    # 127.0.0.1, not localhost: the launcher listens on IPv4 only, and
-    # `localhost` resolves to ::1 first inside the container.
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1/keys').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-
-  # --- The local FHIRcast stand-in (`fhircast` profile) ----------------------
+  # --- The local Epic stand-in (`fhircast` profile) --------------------------
   #
-  # A stand-in for Epic's local FHIRcast hub, which runs on the clinician's own
-  # machine, so its `hub.url` is a loopback address. Self-hosted Medplum is both
-  # the SMART EHR launcher and the FHIRcast STU3 websocket hub; the DCR shim in
-  # ./fhircast-shim plays the hub's authorization role, which Medplum lacks.
+  # The one local stand-in for Epic, for a real SMART EHR launch with no Epic
+  # sandbox (/docs/adr/0012-epic-login.md), and for Epic's local FHIRcast hub,
+  # which runs on the clinician's own machine, so its `hub.url` is a loopback
+  # address. Self-hosted Medplum is both the SMART EHR launcher and the FHIRcast
+  # STU3 websocket hub; the DCR shim in ./fhircast-shim plays the hub's
+  # authorization role, which Medplum lacks.
   # The shim also fronts Medplum: Medplum names its `hub.url` from its own base
   # URL, and the shim must answer the `.well-known` metadata under it, so that
   # base URL — http://127.0.0.1:8103/ — is the shim's port, and the shim passes
-  # everything else through. Opt-in: `make fhircast-up`.
-  # docs/configuration/epic-login.md, "Local FHIRcast stand-in", has the ports
-  # and the APP_EPIC_* values that point the backend at it.
+  # everything else through. Opt-in: the `fhircast` profile keeps it out of a
+  # plain `up`, so `make infra-up` still starts only SQL Server and Redis; start
+  # it with `make fhircast-up`. docs/configuration/epic-login.md, "Local Epic
+  # stand-in", has the ports and the APP_EPIC_* values that point the backend
+  # at it.
   medplum-postgres:
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     profiles: ["fhircast"]
@@ -269,7 +248,7 @@ services:
   # One-shot and idempotent, like sqlserver-init: seeds Medplum for this app
   # (./fhircast-shim/src/seed.mjs has what and why), printing the ids a caller
   # needs. Run in the foreground after `up --wait`, every time:
-  # scripts/lib.sh's fhircast_up does, restarting Medplum when the seed says
+  # scripts/lib.sh's fhircast_seed does, restarting Medplum when the seed says
   # its signing key changed. Its own profile keeps it out of a plain `up`.
   medplum-init:
     image: node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
@@ -289,6 +268,14 @@ services:
       SEED_CLINICIAN_PASSWORD: fhircast-stand-in-clinician
       SEED_CLINICIAN_FIRST_NAME: Local
       SEED_CLINICIAN_LAST_NAME: Clinician
+      # One clinician per Epic Login E2E case that signs in at Medplum
+      # (frontend/test/e2e/epic-launch.spec.ts names each), with the password above.
+      SEED_EPIC_LOGIN_CLINICIAN_EMAILS: epic-helpdesk@example.com,epic-flagged@example.com,epic-no-patient@example.com,epic-unprovisioned@example.com
+      # Tan Wei Ming, one of the backend dev profile's patient fixtures
+      # (DevPatientFixtures), by his Epic id.
+      SEED_PATIENT_EPIC_ID: eq081-VQEgP8drUUqCWzHfw3
+      SEED_PATIENT_FAMILY: Tan
+      SEED_PATIENT_GIVEN: Wei Ming
       SEED_CLIENT_NAME: smart-on-fhir
       # Our JWKS as Medplum's container reaches the backend on the host, and
       # where the backend's callback and launch are: `make dev`'s by default,

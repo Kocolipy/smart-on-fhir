@@ -74,7 +74,7 @@ class MigrationProfilesTests {
         assertThat(migratesUnder("local")).isTrue();
     }
 
-    /** The Epic E2E run's profiles: local for the schema, dev for the launcher's http URLs. */
+    /** The Epic E2E run's profiles: local for the schema, dev for the stand-in's http URLs. */
     @Test
     void aLocalRunInTheDevProfileMigrates() {
         assertThat(migratesUnder("local", "dev")).isTrue();

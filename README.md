@@ -48,11 +48,10 @@ backend's gate scripts read their shared test server's from `compose.yaml`); it 
 reviewed monthly (ADR 0013, "Database patching"). It is x86_64 only: Apple
 Silicon is not a supported development platform
 (`backend/docs/configuration/database.md`, "Local setup"). The local Epic
-launcher, `smartonfhir/smart-launcher-2`, publishes `latest` only, so its
-digest alone is the pin. The local FHIRcast stand-in pins Medplum 5.2.7
-(`medplum/medplum-server` and `medplum/medplum-app`), its Postgres and Redis,
-and the shim's `node:22.23.3-alpine` the same way, tag and digest
-(`backend/docs/configuration/epic-login.md`, "Local FHIRcast stand-in").
+stand-in pins Medplum 5.2.7 (`medplum/medplum-server` and
+`medplum/medplum-app`), its Postgres and Redis, and the shim's
+`node:22.23.3-alpine` the same way, tag and digest
+(`backend/docs/configuration/epic-login.md`, "Local Epic stand-in").
 
 ## Releasing and deploying
 

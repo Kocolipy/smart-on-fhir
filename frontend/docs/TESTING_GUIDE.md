@@ -193,18 +193,17 @@ one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admi
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
-- **`epic`** holds `epic-launch.spec.ts` and is declared when
-  `E2E_EPIC_FHIR_BASE` names the SMART launcher. It replays the Admin session
-  only to issue a SCIM token; the one sign-in it makes, the Epic launch, is of a
-  User it provisions itself.
-- **`fhircast`** holds `fhircast-launch.spec.ts` and `fhircast-hub.spec.ts`
-  and is declared when `E2E_FHIRCAST_BASE_URL` names the second JAR, whose
-  Epic Login points at the local FHIRcast stand-in (Medplum and the DCR shim).
-  Its `baseURL` is that JAR's origin. It replays the Admin session only to
-  issue a SCIM token; the one sign-in it makes, the EHR launch through Medplum,
-  is of a User it provisions itself. `fhircast.helpers.ts` holds what its
-  specs share: Medplum's sign-in page, a `SmartAppLaunch`, and publishing
-  `Patient-open` / `Patient-close` to a hub topic.
+- **`fhircast`** holds `fhircast-launch.spec.ts` and `fhircast-hub.spec.ts`,
+  and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+  `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
+  points at the local Epic stand-in (Medplum and the DCR shim), and both run
+  against it. Each replays the Admin session only to issue a SCIM token; every
+  sign-in either makes, an EHR launch through Medplum, is of a User it
+  provisions itself. `epic` depends on `fhircast` as well, so the two never run
+  at once: its unavailable case pauses the shim `fhircast`'s specs reach.
+  `fhircast.helpers.ts` holds what their specs share: Medplum's sign-in page, a
+  `SmartAppLaunch`, the clinicians and Tan Wei Ming the Medplum seed makes, and
+  publishing `Patient-open` / `Patient-close` to a hub topic.
 - **`packaged`** holds `packaged-csp.spec.ts` and is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's
   origin, so its specs load the built bundle under the backend's CSP rather
@@ -283,12 +282,16 @@ died before its `finally` are swept once, by `sweepLeftovers()` in
 `auth.setup.ts`, before any other project starts.
 
 The one exception is a `userName` another server assigns, which the spec
-cannot choose: the `fhircast` launch signs in Medplum's Practitioner id, so its
-User is named with that id. Such a User is provisioned only through
+cannot choose: an EHR launch through Medplum signs in the Practitioner id
+Medplum assigned, so its User is named with that id — the seeded clinician's
+in the `fhircast` launch, and in the `epic` spec that of the clinician the seed
+makes for each case. The seed finds each again on every run, so the name holds
+from one run to the next. Such a User is provisioned only through
 `provisionServerNamedUser`, which deletes any User already holding the exact
 name — the leftover `sweepLeftovers()` cannot see — before provisioning its
 own. That is safe only because one spec alone provisions that name; a second
-spec must not share it.
+spec must not share it, which is why the seed makes the `epic` spec clinicians
+of its own rather than letting it reuse the `fhircast` launch's.
 
 A spec that needs a known **backend defect** to be visible marks the test
 `test.fail(true, "#<issue>: …")`: the suite stays green while the issue is open

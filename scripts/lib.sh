@@ -305,10 +305,10 @@ stack_e2e() {
   (cd "$FRONTEND_DIR" && "$NPM" run "$script")
 }
 
-# --- The local FHIRcast stand-in --------------------------------------------
+# --- The local Epic stand-in ------------------------------------------------
 #
 # Medplum and the DCR shim, the compose `fhircast` profile
-# (backend/docs/configuration/epic-login.md, "Local FHIRcast stand-in").
+# (backend/docs/configuration/epic-login.md, "Local Epic stand-in").
 
 # fhircast_seed <compose array name>
 #
