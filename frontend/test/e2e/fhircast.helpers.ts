@@ -23,6 +23,8 @@ const MEDPLUM_URL = process.env.E2E_FHIRCAST_MEDPLUM_URL ?? "";
 export const FHIR_BASE = process.env.E2E_FHIRCAST_FHIR_BASE ?? "";
 /** The seeded clinician's Practitioner id: the `fhirUser` a launch signs in. */
 export const PRACTITIONER_ID = process.env.E2E_FHIRCAST_PRACTITIONER_ID ?? "";
+/** The Epic Login clinicians, as compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`: email=Practitioner id, comma-separated. */
+const EPIC_LOGIN_CLINICIANS = process.env.E2E_EPIC_CLINICIANS ?? "";
 
 /** Tan Wei Ming's Epic id, one of the dev profile's patient fixtures. */
 export const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
@@ -154,8 +156,7 @@ export interface MedplumSignIn {
 /** A clinician the seed made: a Practitioner with a Medplum sign-in in the local EHR's project. */
 export interface MedplumClinician extends MedplumSignIn {
   /**
-   * The Practitioner id Medplum assigned, which the seed finds again on every
-   * run, so it holds from one run to the next: the `fhirUser` a launch signs
+   * The Practitioner id the seed made it at: the `fhirUser` a launch signs
    * in, and so the `userName` of the User it links to (ADR 0012 D2, D3).
    */
   practitionerId: string;
@@ -163,12 +164,19 @@ export interface MedplumClinician extends MedplumSignIn {
 
 /**
  * One of the clinicians the seed made for Epic Login's cases, by the email it
- * signs in with (compose.yaml's `SEED_EPIC_LOGIN_CLINICIAN_EMAILS`); every
- * seeded clinician signs in with the clinician's password.
+ * signs in with, at the Practitioner id compose.yaml's
+ * `SEED_EPIC_LOGIN_CLINICIANS` gives it, which `make integration-test` passes
+ * on as `E2E_EPIC_CLINICIANS`; every seeded clinician signs in with the
+ * clinician's password.
  */
-export async function seededClinician(email: string): Promise<MedplumClinician> {
-  const practitioner = await seeded(`Practitioner?email=${encodeURIComponent(email)}`);
-  return { email, password: CLINICIAN.password, practitionerId: String(practitioner.id) };
+export function seededClinician(email: string): MedplumClinician {
+  const pair = EPIC_LOGIN_CLINICIANS.split(",").find((entry) => entry.startsWith(`${email}=`));
+  expect(pair, `E2E_EPIC_CLINICIANS names ${email} (make integration-test sets it)`).toBeDefined();
+  return {
+    email,
+    password: CLINICIAN.password,
+    practitionerId: pair!.slice(email.length + 1),
+  };
 }
 
 /**

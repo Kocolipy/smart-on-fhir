@@ -12,10 +12,11 @@
 //      project: the `fhirUser` an EHR launch signs in, and so the `userName` of
 //      the User the backend links it to (ADR 0012 D2, D3). The clinician, whom
 //      `make fhircast-up` hands a developer, and one per Epic Login E2E case
-//      that signs in (frontend/test/e2e/epic-launch.spec.ts), each signing in
-//      with the clinician's password. Medplum assigns every Practitioner id —
-//      it takes a client's only when that is a UUID — and the seed finds each
-//      clinician by email after, so the ids hold from one run to the next.
+//      that signs in (frontend/test/e2e/epic-launch.spec.ts), each at the
+//      Practitioner id compose.yaml gives it, so the id is the same on every
+//      volume and every run. Medplum takes an id a client chooses only when
+//      that is a UUID, so those are UUIDs. Every clinician signs in with the
+//      clinician's password.
 //   4. Tan Wei Ming, a Patient in that project carrying his Epic id, one of the
 //      backend dev profile's patient fixtures: a launch names him by that id,
 //      which Medplum's token response then puts in `patient`.
@@ -38,14 +39,23 @@ const settings = {
   },
   projectName: required("SEED_PROJECT_NAME"),
   clinician: {
+    id: required("SEED_CLINICIAN_ID"),
     email: required("SEED_CLINICIAN_EMAIL"),
     password: required("SEED_CLINICIAN_PASSWORD"),
     firstName: required("SEED_CLINICIAN_FIRST_NAME"),
     lastName: required("SEED_CLINICIAN_LAST_NAME"),
   },
-  epicLoginClinicianEmails: required("SEED_EPIC_LOGIN_CLINICIAN_EMAILS").split(
-    ",",
-  ),
+  epicLoginClinicians: required("SEED_EPIC_LOGIN_CLINICIANS")
+    .split(",")
+    .map((pair) => {
+      const [email, id, ...rest] = pair.split("=");
+      if (!email || !id || rest.length > 0) {
+        throw new Error(
+          `SEED_EPIC_LOGIN_CLINICIANS holds "${pair}", not email=Practitioner id`,
+        );
+      }
+      return { email, id };
+    }),
   patient: {
     epicId: required("SEED_PATIENT_EPIC_ID"),
     family: required("SEED_PATIENT_FAMILY"),
@@ -109,14 +119,35 @@ async function ensureProject() {
   });
 }
 
-/** Step 3: a clinician's Practitioner, invited once and found by email after. */
+/**
+ * Step 3: a clinician's Practitioner at its own id, then a sign-in invited
+ * with that Practitioner as its profile, each made once. A volume a seed
+ * filled before the ids were fixed holds the sign-in already, under a
+ * Practitioner Medplum assigned, so the invite is refused as a member already:
+ * that volume is removed and seeded afresh (epic-login.md, "Local Epic stand-in").
+ */
 async function ensureClinician(
   project,
-  { email, password, firstName, lastName },
+  { id, email, password, firstName, lastName },
 ) {
-  const byEmail = `Practitioner?email=${encodeURIComponent(email)}&_project=${project.id}`;
-  const [existing] = await search(byEmail);
-  if (existing) return existing;
+  const profile = { reference: `Practitioner/${id}` };
+  const [practitioner] = await search(`Practitioner?_id=${id}`);
+  if (!practitioner) {
+    await medplum.request(`/fhir/R4/${profile.reference}`, {
+      method: "PUT",
+      body: {
+        resourceType: "Practitioner",
+        id,
+        meta: { project: project.id },
+        name: [{ given: [firstName], family: lastName }],
+        telecom: [{ system: "email", use: "work", value: email }],
+      },
+    });
+  }
+  const [membership] = await search(
+    `ProjectMembership?profile=${profile.reference}&project=Project/${project.id}`,
+  );
+  if (membership) return;
   await medplum.request(`/admin/projects/${project.id}/invite`, {
     method: "POST",
     body: {
@@ -126,18 +157,16 @@ async function ensureClinician(
       email,
       password,
       sendEmail: false,
+      membership: { profile },
     },
   });
-  const [invited] = await search(byEmail);
-  if (!invited)
-    throw new Error(`the invited clinician ${email} has no Practitioner`);
-  return invited;
 }
 
-/** Step 3, Epic Login's: one clinician per email, named for its local part. */
+/** Step 3, Epic Login's: one clinician per case, named for its email's local part. */
 async function ensureEpicLoginClinicians(project) {
-  for (const email of settings.epicLoginClinicianEmails) {
+  for (const { email, id } of settings.epicLoginClinicians) {
     await ensureClinician(project, {
+      id,
       email,
       password: settings.clinician.password,
       firstName: "Epic Login",
@@ -199,11 +228,10 @@ async function ensureClient(project) {
 
 const restartRequired = await ensureRs256SigningKey();
 const project = await ensureProject();
-const clinician = await ensureClinician(project, settings.clinician);
+await ensureClinician(project, settings.clinician);
 await ensureEpicLoginClinicians(project);
 await ensurePatient(project);
 const client = await ensureClient(project);
 
 console.log(`MEDPLUM_RESTART_REQUIRED=${restartRequired}`);
 console.log(`MEDPLUM_CLIENT_ID=${client.id}`);
-console.log(`MEDPLUM_PRACTITIONER_ID=${clinician.id}`);

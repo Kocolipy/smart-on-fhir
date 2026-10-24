@@ -122,21 +122,29 @@ topic the app subscribes to publishes as the super admin too.
 healthy, as `make infra-up` runs `sqlserver-init`. It seeds Medplum
 idempotently (`backend/fhircast-shim/src/seed.mjs`): a project for the local
 EHR; a clinician, `clinician@example.com`, as a Practitioner with a Medplum
-sign-in, and one more for each Epic Login E2E case that signs in at Medplum
-(`SEED_EPIC_LOGIN_CLINICIAN_EMAILS`); Tan Wei Ming, one of the dev profile's
-patient fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
+sign-in at the Practitioner id `SEED_CLINICIAN_ID` gives it, and one more for
+each Epic Login E2E case that signs in at Medplum, each at the Practitioner id
+`SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; Tan Wei Ming, one of
+the dev profile's patient fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
 and this app's ClientApplication — `private_key_jwt` against our JWKS
 (`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
 container reaches the backend), PKCE, and the redirect and launch URIs of
 `make dev`. It also gives Medplum an RS256 signing key, generated then and
 never written anywhere else: Medplum creates an ES384 one on first start, and
 the backend verifies an `id_token` as RS256 only (ADR 0012), so the first run
-on a fresh volume restarts Medplum to load it. Medplum assigns every id — it
-takes one a client chooses only when that is a UUID, so neither an Epic id nor
-an `e2e-` name can be one — and the seed finds each resource again on every
-run, so the ids hold from one run to the next. The ClientApplication's id — the
-client id — and the clinician's Practitioner id come from the seed:
-`make fhircast-up` prints both. Every sign-in is a
+on a fresh volume restarts Medplum to load it. Medplum takes an id a client
+chooses only when that is a UUID, so neither an Epic id nor an `e2e-` name can
+be one: the clinicians' fixed ids are UUIDs, and Medplum assigns every other
+id, which the seed finds again on every run, so the ids hold from one run to
+the next. `make fhircast-up` prints the ClientApplication's id — the client id,
+which comes from the seed — and the clinician's Practitioner id.
+
+A Medplum volume seeded before the clinicians' ids were fixed holds each
+sign-in under a Practitioner Medplum assigned, and the seed then fails on
+Medplum's "User is already a member of this project". Remove the volume and
+seed afresh: `make fhircast-down`, then
+`docker volume rm backend_medplum-postgres-data`, then `make fhircast-up`. SQL
+Server's and Redis's volumes are left as they are. Every sign-in is a
 development fixture in `compose.yaml`; the super admin is Medplum's own
 published default.
 

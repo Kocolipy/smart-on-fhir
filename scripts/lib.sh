@@ -313,8 +313,8 @@ stack_e2e() {
 # fhircast_seed <compose array name>
 #
 # Seeds Medplum through the one-shot `medplum-init`, in the foreground so a
-# failure stops the caller, and sets FHIRCAST_CLIENT_ID and
-# FHIRCAST_PRACTITIONER_ID from what it prints. The seed's first run on a fresh
+# failure stops the caller, and sets FHIRCAST_CLIENT_ID from what it prints.
+# The seed's first run on a fresh
 # volume replaces Medplum's signing key, which Medplum reads at startup alone,
 # so that run restarts Medplum, and the shim, whose Medplum token the old key
 # signed, and seeds once more.
@@ -331,9 +331,7 @@ fhircast_seed() {
       die "seeding Medplum failed — see the medplum-init output above."
   fi
   FHIRCAST_CLIENT_ID="$(sed -n 's/^MEDPLUM_CLIENT_ID=//p' <<<"$seeded")"
-  FHIRCAST_PRACTITIONER_ID="$(sed -n 's/^MEDPLUM_PRACTITIONER_ID=//p' <<<"$seeded")"
-  [[ -n $FHIRCAST_CLIENT_ID && -n $FHIRCAST_PRACTITIONER_ID ]] ||
-    die "the Medplum seed printed no client or Practitioner id"
+  [[ -n $FHIRCAST_CLIENT_ID ]] || die "the Medplum seed printed no client id"
 }
 
 # compose_env <compose array name> <service> <variable>

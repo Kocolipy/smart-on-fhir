@@ -28,8 +28,9 @@ import {
  * at Medplum; the `epic` project drives Epic Login itself through the same
  * stand-in.
  *
- * Medplum gives the clinician a server-assigned Practitioner id, so the User's
- * `userName` is that id rather than an `e2e-` name: `provisionServerNamedUser`
+ * The seed makes the clinician at a fixed Practitioner id, a UUID, the only id
+ * Medplum takes from a client, so the User's `userName` is that id rather than
+ * an `e2e-` name: `provisionServerNamedUser`
  * clears any User of that name a crashed run left behind before provisioning
  * its own, and the spec deletes its own in a `finally`. The seeded clinician
  * is this spec's alone; the seed makes the `epic` spec clinicians of its own.

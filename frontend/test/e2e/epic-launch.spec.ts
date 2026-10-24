@@ -44,11 +44,12 @@ import {
  * The clinicians and Tan Wei Ming are Medplum seed data
  * (`backend/fhircast-shim/src/seed.mjs`), each case signing in as a clinician
  * of its own: Medplum signs in whoever signs in on its page, as the
- * Practitioner that sign-in's profile is, and assigns that Practitioner's id
- * itself, a UUID, which the spec reads back. So a User is named with that id,
- * through `provisionServerNamedUser`, rather than with an `e2e-` name; the id
- * holds from one run to the next, so that also clears any User a crashed run
- * left behind.
+ * Practitioner that sign-in's profile is. The seed makes each Practitioner at
+ * the id compose.yaml gives it, which `seededClinician` reads — a UUID, the
+ * only id Medplum takes from a client.
+ * So a User is named with that id, through `provisionServerNamedUser`, rather
+ * than with an `e2e-` name; the id is the same on every run, so that also
+ * clears any User a crashed run left behind.
  *
  * The unavailable case pauses the DCR shim's container, which serves Medplum's
  * token endpoint, for the length of one callback. That would stall any other
@@ -112,9 +113,9 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
     groupPermissionsOf("helpdesk"),
   );
 
-  const medplum = await seededClinician("epic-helpdesk@example.com");
+  const signIn = seededClinician("epic-helpdesk@example.com");
   // The Practitioner ID, and so the `userName` of the User it links to (D2, D3).
-  const practitioner = medplum.practitionerId;
+  const practitioner = signIn.practitionerId;
   const id = await provisionServerNamedUser(directory.scim, practitioner);
   const clinician = await freshBrowser(browser);
   try {
@@ -126,7 +127,7 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
 
     const page = await clinician.newPage();
     await page.goto(await launchUrl());
-    await signInAtMedplum(page, medplum);
+    await signInAtMedplum(page, signIn);
 
     // The landing's fragment is read and stripped, so the address bar is Home's alone.
     await expect(page).toHaveURL("/");
@@ -160,14 +161,14 @@ test("an EHR launch for a User with the change-required flag lands on Home, not 
   // Provisioned and never settled: the connector's password write leaves the
   // change-required flag set. Only a password Login is confined by it; an Epic
   // Login presents no password of ours (D20), so its session is not confined.
-  const medplum = await seededClinician("epic-flagged@example.com");
-  const flagged = medplum.practitionerId;
+  const signIn = seededClinician("epic-flagged@example.com");
+  const flagged = signIn.practitionerId;
   const id = await provisionServerNamedUser(directory.scim, flagged);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
     await page.goto(await launchUrl());
-    await signInAtMedplum(page, medplum);
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL("/");
     const me = (await (await page.request.get("/api/auth/me")).json()) as {
@@ -188,15 +189,15 @@ test("a launch whose token response names no patient lands on Home with no patie
 }) => {
   expectStandInConfigured();
 
-  const medplum = await seededClinician("epic-no-patient@example.com");
-  const id = await provisionServerNamedUser(directory.scim, medplum.practitionerId);
+  const signIn = seededClinician("epic-no-patient@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
   const browserContext = await freshBrowser(browser);
   try {
     const page = await browserContext.newPage();
     const patientRequests = recordPatientRequests(page);
     // A SmartAppLaunch with no patient: Medplum's token response names none.
     await page.goto(await launchUrl({ withPatient: false }));
-    await signInAtMedplum(page, medplum);
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL("/");
     await expectNoPatientInContext(page);
@@ -213,12 +214,12 @@ test("an EHR launch for an unprovisioned Practitioner lands on the refused notic
   expectStandInConfigured();
 
   // No User carries this Practitioner's id: Epic proves a clinician nobody provisioned.
-  const medplum = await seededClinician("epic-unprovisioned@example.com");
+  const signIn = seededClinician("epic-unprovisioned@example.com");
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
     await page.goto(await launchUrl());
-    await signInAtMedplum(page, medplum);
+    await signInAtMedplum(page, signIn);
 
     await expect(page).toHaveURL(/\/login\?signin=refused$/);
     await expect(page.getByRole("status")).toHaveText("Sign-in from Epic was refused");
@@ -254,7 +255,7 @@ test("an EHR launch whose token endpoint is unreachable lands on the unavailable
   expect(SHIM_CONTAINER, "E2E_EPIC_SHIM_CONTAINER names the DCR shim's container").not.toBe("");
 
   // Who the launch is for does not matter: the Login never gets as far as a User.
-  const medplum = await seededClinician("epic-unprovisioned@example.com");
+  const signIn = seededClinician("epic-unprovisioned@example.com");
   const clinician = await freshBrowser(browser);
   let paused = false;
   try {
@@ -268,7 +269,7 @@ test("an EHR launch whose token endpoint is unreachable lands on the unavailable
       await route.continue();
     });
     await page.goto(await launchUrl());
-    await signInAtMedplum(page, medplum);
+    await signInAtMedplum(page, signIn);
 
     // Past the backend's read timeout (APP_EPIC_READ_TIMEOUT, 5 seconds by default).
     await expect(page).toHaveURL(/\/login\?signin=unavailable$/, { timeout: 20_000 });

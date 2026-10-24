@@ -31,5 +31,5 @@ APP_EPIC_REDIRECT_URI=$(compose_env compose medplum-init SEED_CLIENT_REDIRECT_UR
 APP_EPIC_CLIENT_KEY and APP_EPIC_CLIENT_KEY_ID: a key generated for the purpose
 
 The clinician to sign in as on Medplum's page is the Practitioner
-$FHIRCAST_PRACTITIONER_ID — provision a User with that userName over SCIM.
+$(compose_env compose medplum-init SEED_CLINICIAN_ID) — provision a User with that userName over SCIM.
 EOF

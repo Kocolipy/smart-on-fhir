@@ -281,12 +281,13 @@ sweep deletes a fixture another spec is still using. Leftovers from a run that
 died before its `finally` are swept once, by `sweepLeftovers()` in
 `auth.setup.ts`, before any other project starts.
 
-The one exception is a `userName` another server assigns, which the spec
-cannot choose: an EHR launch through Medplum signs in the Practitioner id
-Medplum assigned, so its User is named with that id — the seeded clinician's
-in the `fhircast` launch, and in the `epic` spec that of the clinician the seed
-makes for each case. The seed finds each again on every run, so the name holds
-from one run to the next. Such a User is provisioned only through
+The one exception is a `userName` another server holds, which the spec
+cannot give an `e2e-` name: an EHR launch through Medplum signs in the
+Practitioner id Medplum holds, so its User is named with that id — the seeded
+clinician's in the `fhircast` launch, and in the `epic` spec that of the
+clinician the seed makes for each case. The seed makes each at a fixed UUID in
+`compose.yaml`, the only id Medplum takes from a client, so the name is the
+same on every run. Such a User is provisioned only through
 `provisionServerNamedUser`, which deletes any User already holding the exact
 name — the leftover `sweepLeftovers()` cannot see — before provisioning its
 own. That is safe only because one spec alone provisions that name; a second
