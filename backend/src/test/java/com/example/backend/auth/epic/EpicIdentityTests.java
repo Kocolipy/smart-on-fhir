@@ -18,7 +18,7 @@ class EpicIdentityTests {
     @Test
     void anEpicIdentityCarriesItsLaunchContextToTheSuccessHandler() {
         EpicIdentity identity = new EpicIdentity(idToken(),
-                LaunchContext.of(Map.of("patient", "pat-1")));
+                LaunchContext.of(Map.of("patient", "pat-1")), FhircastHubMembers.none());
 
         assertThat(EpicIdentity.launchContextOf(
                 new TestingAuthenticationToken(identity, null)).fragment())
@@ -32,7 +32,8 @@ class EpicIdentityTests {
     @Test
     void aSerializedEpicIdentityCarriesNoLaunchContext() {
         EpicIdentity identity = new EpicIdentity(idToken(),
-                LaunchContext.of(Map.of("patient", "pat-1", "encounter", "enc-1")));
+                LaunchContext.of(Map.of("patient", "pat-1", "encounter", "enc-1")),
+                FhircastHubMembers.none());
 
         assertThat(EpicIdentity.launchContextOf(
                 new TestingAuthenticationToken(roundTripped(identity), null)).fragment())
@@ -41,7 +42,8 @@ class EpicIdentityTests {
 
     @Test
     void anEpicIdentityHoldsNoAuthorityOfEpics() {
-        assertThat(new EpicIdentity(idToken(), LaunchContext.none()).getAuthorities()).isEmpty();
+        assertThat(new EpicIdentity(idToken(), LaunchContext.none(), FhircastHubMembers.none())
+                .getAuthorities()).isEmpty();
     }
 
     @Test
@@ -49,6 +51,34 @@ class EpicIdentityTests {
         assertThat(EpicIdentity.launchContextOf(
                 new TestingAuthenticationToken("someone", null)).fragment())
                 .isEqualTo("launch");
+    }
+
+    // ---- the FHIRcast hub members (ADR 0016) ----------------------------------------------------
+
+    @Test
+    void anEpicIdentityCarriesItsHubMembersToTheSuccessHandler() {
+        EpicIdentity identity = new EpicIdentity(idToken(), LaunchContext.none(),
+                new FhircastHubMembers("http://127.0.0.1:8103/hub", 7));
+
+        assertThat(EpicIdentity.fhircastHubOf(new TestingAuthenticationToken(identity, null)))
+                .isEqualTo(new FhircastHubMembers("http://127.0.0.1:8103/hub", 7));
+    }
+
+    /** Transient as the launch context is: a serialized identity carries no hub members. */
+    @Test
+    void aSerializedEpicIdentityCarriesNoHubMembers() {
+        EpicIdentity identity = new EpicIdentity(idToken(), LaunchContext.none(),
+                new FhircastHubMembers("http://127.0.0.1:8103/hub", "topic-1"));
+
+        assertThat(EpicIdentity.fhircastHubOf(
+                new TestingAuthenticationToken(roundTripped(identity), null)))
+                .isEqualTo(new FhircastHubMembers(null, null));
+    }
+
+    @Test
+    void anotherKindOfPrincipalCarriesNoHubMembers() {
+        assertThat(EpicIdentity.fhircastHubOf(new TestingAuthenticationToken("someone", null)))
+                .isEqualTo(new FhircastHubMembers(null, null));
     }
 
     /** Through the serializer Spring Session's Redis repository writes session attributes with. */

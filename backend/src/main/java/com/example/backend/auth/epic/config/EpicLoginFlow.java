@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic.config;
 
+import com.example.backend.auth.domain.FhircastHub;
 import com.example.backend.auth.domain.PendingAuthorizations;
 import com.example.backend.auth.epic.CauseChain;
 import com.example.backend.auth.epic.ClientAssertionSigner;
@@ -10,11 +11,13 @@ import com.example.backend.auth.epic.EpicOutboundCall;
 import com.example.backend.auth.epic.EpicOutboundException;
 import com.example.backend.auth.epic.EpicRoutes;
 import com.example.backend.auth.epic.EpicTokenHandOff;
+import com.example.backend.auth.epic.FhircastHubMembers;
 import com.example.backend.auth.epic.LaunchContext;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.ObjectPostProcessor;
@@ -262,10 +265,13 @@ final class EpicLoginFlow {
 
     /**
      * The validated {@code id_token} as the identity, with no user-info call to Epic, carrying the
-     * token response's launch context to the success handler ({@link EpicIdentity}).
+     * token response's launch context and FHIRcast hub members to the success handler
+     * ({@link EpicIdentity}).
      */
     private static OidcUser identityOnly(OidcUserRequest request) {
-        return new EpicIdentity(request.getIdToken(),
-                LaunchContext.of(request.getAdditionalParameters()));
+        Map<String, Object> members = request.getAdditionalParameters();
+        return new EpicIdentity(request.getIdToken(), LaunchContext.of(members),
+                new FhircastHubMembers(members.get(FhircastHub.URL),
+                        members.get(FhircastHub.TOPIC)));
     }
 }

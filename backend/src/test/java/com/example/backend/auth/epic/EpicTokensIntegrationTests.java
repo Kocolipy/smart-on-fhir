@@ -13,8 +13,10 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.FhircastHub;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
+import com.example.backend.contract.OpenApiContract;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +41,7 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
@@ -46,6 +51,8 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The Epic tokens a successful Epic Login keeps (ADR 0012, D29), end to end: the
@@ -105,6 +112,12 @@ class EpicTokensIntegrationTests {
     @Autowired
     private RedisConnectionFactory redis;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    /** The FHIRcast release: the SMART access token and the hub, for the SPA (ADR 0016). */
+    private static final String FHIRCAST_RELEASE = "/api/auth/epic/fhircast";
+
     @Value("${server.servlet.session.cookie.name:SESSION}")
     private String sessionCookieName;
 
@@ -117,8 +130,8 @@ class EpicTokensIntegrationTests {
 
     /**
      * The signed-in session keeps what Epic issued: the access token, the {@code id_token}, the
-     * granted scope — and no refresh token, since Epic issues none for
-     * {@code launch openid fhirUser}, which is what we ask for today.
+     * granted scope — and no refresh token, since Epic issues none for identity and the FHIRcast
+     * scopes, which is what we ask for today.
      */
     @Test
     void theTokensEpicIssuedAreKeptForTheSignedInSession() throws Exception {
@@ -128,7 +141,8 @@ class EpicTokensIntegrationTests {
 
         assertThat(kept.accessToken()).isEqualTo(EPIC.fake().accessToken);
         assertThat(kept.idToken()).isEqualTo(EPIC.fake().idTokens.getFirst());
-        assertThat(kept.scope()).isEqualTo(Set.of("launch", "openid", "fhirUser"));
+        assertThat(kept.scope()).isEqualTo(Set.of("launch", "openid", "fhirUser",
+                "fhircast/Patient-open.read", "fhircast/Patient-close.read"));
         assertThat(kept.refreshToken()).isEmpty();
     }
 
@@ -179,6 +193,12 @@ class EpicTokensIntegrationTests {
         assertThat(epicTokens.forSession("no-such-session")).isEmpty();
     }
 
+    @Test
+    void noSessionIdHasNoEpicTokensAndNoHub() {
+        assertThat(List.of(epicTokens.forSession(null), epicTokens.fhircastHubForSession(null)))
+                .containsExactly(Optional.empty(), Optional.empty());
+    }
+
     /** A refused launch keeps nothing anywhere: not under its session, not under any key. */
     @Test
     void aRefusedLaunchKeepsNoTokenAnywhereInTheStore() throws Exception {
@@ -188,6 +208,244 @@ class EpicTokensIntegrationTests {
         FakeEpic epic = EPIC.fake();
         assertThat(List.of(epic.accessToken, epic.idTokens.getFirst()))
                 .allSatisfy(token -> assertThat(everythingInRedis).doesNotContain(token));
+    }
+
+    // ---- the FHIRcast hub (ADR 0016) ----------------------------------------------------------
+
+    /** Epic's local hub on loopback and a topic within the grammar are kept beside the tokens. */
+    @Test
+    void aLoopbackHubAndAValidTopicAreKeptForTheSignedInSession() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn).map(hub -> List.of(hub.url(), hub.topic())))
+                .contains(List.of("http://127.0.0.1:8103/fhircast/STU3", EPIC.fake().hubTopic));
+    }
+
+    /** Loopback on any port, over https as over http. */
+    @Test
+    void anHttpsLoopbackHubOnAnyPortIsKept() throws Exception {
+        EPIC.fake().hub("https://127.0.0.1:61443/hub", "Topic.with-every_char~1");
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn).map(hub -> List.of(hub.url(), hub.topic())))
+                .contains(List.of("https://127.0.0.1:61443/hub", "Topic.with-every_char~1"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "http://192.168.1.20:8103/fhircast/STU3",
+        "http://localhost:8103/fhircast/STU3",
+        "http://127.0.0.2:8103/fhircast/STU3",
+        "http://evil@127.0.0.1:8103/fhircast/STU3",
+        "ws://127.0.0.1:8103/fhircast/STU3",
+        "not a url"})
+    void aHubUrlOffLoopbackIsDropped(String url) throws Exception {
+        EPIC.fake().hub(url, EPIC.fake().hubTopic);
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "has space", "slash/inside", "percent%20", "ünicode"})
+    void aMalformedTopicIsDropped(String topic) throws Exception {
+        EPIC.fake().hub(EPIC.fake().hubUrl, topic);
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn)).isEmpty();
+    }
+
+    @Test
+    void aTopicLongerThan128CharactersIsDropped() throws Exception {
+        EPIC.fake().hub(EPIC.fake().hubUrl, "t".repeat(129));
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn)).isEmpty();
+    }
+
+    @Test
+    void aTokenResponseNamingNoHubKeepsNone() throws Exception {
+        EPIC.fake().hub(null, null);
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(hubOf(signedIn)).isEmpty();
+    }
+
+    /** Dropping the hub drops nothing else: the tokens and the landing's launch context stay. */
+    @Test
+    void aDroppedHubLeavesTheTokensAndTheLaunchContext() throws Exception {
+        EPIC.fake().hub("http://192.168.1.20:8103/fhircast/STU3", EPIC.fake().hubTopic);
+
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(tokensOf(signedIn)).isPresent();
+    }
+
+    @Test
+    void aPasswordLoginKeepsNoHub() throws Exception {
+        Cookie byPassword = logIn(EPIC.practitioners().provision());
+
+        assertThat(hubOf(byPassword)).isEmpty();
+    }
+
+    // ---- the FHIRcast release (ADR 0016) ------------------------------------------------------
+
+    /** The access token, its expiry, its scope and the hub: what the SPA connects to the hub with. */
+    @Test
+    void theReleaseAnswersTheAccessTokenItsExpiryItsScopeAndTheHub() throws Exception {
+        Cookie signedIn = signInFromEpic();
+        Instant expiresAt = tokensOf(signedIn).orElseThrow().accessTokenExpiresAt();
+
+        JsonNode released = json(release(signedIn));
+
+        assertThat(List.of(released.get("accessToken").asString(),
+                        Instant.parse(released.get("expiresAt").asString()),
+                        released.get("hubUrl").asString(), released.get("hubTopic").asString()))
+                .containsExactly(EPIC.fake().accessToken, expiresAt,
+                        "http://127.0.0.1:8103/fhircast/STU3", EPIC.fake().hubTopic);
+    }
+
+    /** The granted scope, sorted, as the API document says. */
+    @Test
+    void theReleaseAnswersTheGrantedScopeSorted() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        JsonNode scope = json(release(signedIn)).get("scope");
+
+        assertThat(scope.valueStream().map(JsonNode::asString).toList())
+                .containsExactly("fhirUser", "fhircast/Patient-close.read",
+                        "fhircast/Patient-open.read", "launch", "openid");
+    }
+
+    @Test
+    void theReleaseNamesExactlyItsFiveMembers() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(json(release(signedIn)).propertyNames())
+                .containsExactlyInAnyOrder("accessToken", "expiresAt", "scope", "hubUrl",
+                        "hubTopic");
+    }
+
+    /** The 200 the contract fixtures cannot produce, held to the API document here. */
+    @Test
+    void theReleaseConformsToTheApiDocument() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(OpenApiContract.load()
+                .check("GET", FHIRCAST_RELEASE, release(signedIn).getResponse()).violations())
+                .isEmpty();
+    }
+
+    @Test
+    void theReleaseIsNeverStored() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(release(signedIn).getResponse().getHeader("Cache-Control"))
+                .isEqualTo("no-store");
+    }
+
+    /** The access token alone: the id_token and the refresh token never leave the backend. */
+    @Test
+    void theReleaseCarriesNeitherTheIdTokenNorTheRefreshToken() throws Exception {
+        EPIC.fake().issuingRefreshTokens();
+        Cookie signedIn = signInFromEpic();
+
+        String answer = release(signedIn).getResponse().getContentAsString();
+
+        assertThat(List.of(EPIC.fake().idTokens.getFirst(), EPIC.fake().refreshToken))
+                .noneSatisfy(token -> assertThat(answer).contains(token));
+    }
+
+    @Test
+    void aPasswordSessionIsAnsweredNotFound() throws Exception {
+        Cookie byPassword = logIn(EPIC.practitioners().provision());
+
+        assertThat(release(byPassword).getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    void aSessionThatKeptNoHubIsAnsweredNotFound() throws Exception {
+        EPIC.fake().hub("http://192.168.1.20:8103/fhircast/STU3", EPIC.fake().hubTopic);
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(release(signedIn).getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    void anExpiredAccessTokenIsAnsweredNotFound() throws Exception {
+        Cookie signedIn = signInFromEpic();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        assertThat(release(signedIn).getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    void aRequestWithNoSessionIsAnsweredUnauthorized() throws Exception {
+        int status = EPIC.mvc().perform(get(FHIRCAST_RELEASE)).andReturn().getResponse()
+                .getStatus();
+
+        assertThat(status).isEqualTo(401);
+    }
+
+    @Test
+    void aReleaseIsAuditedAsOneSuccess() throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+
+        release(signedIn);
+
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("SUCCESS/");
+    }
+
+    @Test
+    void aPasswordSessionsRefusalIsAuditedAsOneFailure() throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        Cookie byPassword = logIn(practitioner);
+
+        release(byPassword);
+
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/NO_EPIC_TOKENS");
+    }
+
+    @Test
+    void aSessionWithNoHubsRefusalIsAuditedAsOneFailure() throws Exception {
+        EPIC.fake().hub(null, null);
+        String practitioner = EPIC.practitioners().provision();
+        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+
+        release(signedIn);
+
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/NO_FHIRCAST_HUB");
+    }
+
+    @Test
+    void anExpiredTokensRefusalIsAuditedAsOneFailure() throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        release(signedIn);
+
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/TOKEN_EXPIRED");
+    }
+
+    /** D22: whatever the release answers, the audit trail holds none of Epic's tokens. */
+    @Test
+    void theAuditTrailHoldsNoTokenValue() throws Exception {
+        EPIC.fake().issuingRefreshTokens();
+        Cookie signedIn = signInFromEpic();
+
+        release(signedIn);
+
+        String trail = jdbc.queryForList("SELECT * FROM audit_events").toString();
+        FakeEpic epic = EPIC.fake();
+        assertThat(List.of(epic.accessToken, epic.refreshToken, epic.idTokens.getFirst()))
+                .noneSatisfy(token -> assertThat(trail).contains(token));
     }
 
     // ---- the tokens never leave the backend -----------------------------------------------------
@@ -349,6 +607,29 @@ class EpicTokensIntegrationTests {
 
     private Optional<EpicTokenSet> tokensOf(Cookie session) {
         return epicTokens.forSession(sessionId(session));
+    }
+
+    private Optional<FhircastHub> hubOf(Cookie session) {
+        return epicTokens.fhircastHubForSession(sessionId(session));
+    }
+
+    /** The FHIRcast release, asked for by {@code session}. */
+    private static MvcResult release(Cookie session) throws Exception {
+        return EPIC.mvc().perform(get(FHIRCAST_RELEASE).cookie(session)).andReturn();
+    }
+
+    private static JsonNode json(MvcResult result) throws Exception {
+        assertThat(result.getResponse().getStatus()).as("released").isEqualTo(200);
+        return JsonMapper.builder().build().readTree(result.getResponse().getContentAsString());
+    }
+
+    /** Every FHIRcast release recorded against {@code practitioner}'s User, as outcome/reason. */
+    private List<String> releasesRecordedFor(String practitioner) {
+        return jdbc.queryForList(
+                "SELECT outcome + '/' + COALESCE(error_code, '') FROM audit_events"
+                        + " WHERE operation = 'FHIRCAST_TOKEN_RELEASE' AND subject_id = ?"
+                        + " AND actor_id = subject_id",
+                String.class, EPIC.practitioners().idOf(practitioner));
     }
 
     /** A password Login; the signed-in session cookie. */

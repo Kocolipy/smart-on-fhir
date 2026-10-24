@@ -188,6 +188,33 @@ function answerBook(initial: Answers): AnswerBook {
   };
 }
 
+/** A request to another origin than the backend's: a URL with a scheme. */
+const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/** What answers a request to another origin, when a suite installed one. */
+type OtherOrigin = (url: string, init?: RequestInit) => Promise<Response>;
+
+let otherOrigins: OtherOrigin | undefined;
+
+/**
+ * Another origin's server — the local FHIRcast hub's (`fake-hub.testHelpers.ts`) — beside the
+ * fake backend, for the rest of the test: every request to an absolute URL goes to `serve`. With
+ * none installed such a request fails the test by name, as an unanswered backend request does.
+ */
+export function serveOtherOrigin(serve: OtherOrigin): void {
+  otherOrigins = serve;
+  onTestFinished(() => {
+    otherOrigins = undefined;
+  });
+}
+
+function otherOrigin(url: string, init?: RequestInit): Promise<Response> {
+  if (otherOrigins === undefined) {
+    return Promise.reject(new Error(`No other origin was installed to answer ${url}`));
+  }
+  return otherOrigins(url, init);
+}
+
 export interface FakeBackend {
   /** Replaces the answers to the keys named, each starting again from its first turn. */
   answer: (more: Answers) => void;
@@ -228,6 +255,8 @@ export function fakeBackend(initial: Answers = {}): FakeBackend {
   const sent: { contentType: string | null; request: SentRequest }[] = [];
 
   const respond = (path: string, init?: RequestInit): Promise<Response> => {
+    // An absolute URL is another origin's — the local FHIRcast hub's — never the backend's.
+    if (ABSOLUTE_URL.test(path)) return otherOrigin(path, init);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = parseBody(init?.body);
     const refusal = contractRefusal(method, body, init);

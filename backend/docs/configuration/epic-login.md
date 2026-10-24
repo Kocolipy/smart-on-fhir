@@ -68,6 +68,30 @@ through `ClientAssertionSigner`. The runbook for promoting a key is
 curl -i localhost:8080/api/auth/epic/jwks.json
 ```
 
+### Scopes, the FHIRcast hub and the CSP
+
+Epic Login asks for exactly
+`launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`
+(FHIRcast STU3 scope syntax; ADR 0016). Nothing configures it: the registration
+at Epic must allow all five, or Epic narrows the grant and the session keeps no
+FHIRcast hub. No `offline_access` or `online_access` is asked for, so Epic issues
+no refresh token.
+
+The token response's `hub.url` is kept only on host `127.0.0.1` (any port,
+`http` or `https`) and `hub.topic` only within `[A-Za-z0-9\-._~]{1,128}`; a
+deployment whose Epic names its hub anywhere else gets "FHIRcast unavailable" on
+Home, with no log line naming either value. `GET /api/auth/epic/fhircast` then
+releases the session's access token to its SPA, and is answered `404` with the
+rest of the namespace while the switch is off.
+
+The CSP (`SecurityConfig`) carries the hub's loopback entries in `connect-src`
+whatever the switch says: `'self' http://127.0.0.1:* https://127.0.0.1:*
+ws://127.0.0.1:* wss://127.0.0.1:*`, and no Epic origin — the browser never
+calls Epic. A managed Chrome needs the application's origin allowed for Local
+Network Access, through the `LocalNetworkAccessAllowedForUrls` policy, or each
+clinician answers the browser's prompt once
+(`/frontend/docs/BACKEND_CONTRACT.md`).
+
 ## Local Epic stand-in
 
 A real SMART EHR launch, locally and without Epic, and a stand-in for Epic's
@@ -188,11 +212,15 @@ with no `patient`, the token response names none — and open
 `http://localhost:5173/api/auth/epic/launch?iss=http://127.0.0.1:8103/fhir/R4&launch={SmartAppLaunch id}`.
 Sign in on Medplum's page as the clinician, with the password `compose.yaml`
 seeds, and grant the scopes; the launch lands on Home (`/`) signed in as that
-User, with its Groups' Permissions. The other seeded clinicians sign in with
-the same password.
+User, with its Groups' Permissions, and Home's FHIRcast card connects to
+Medplum's hub through the shim and reads `Connected`. The other seeded
+clinicians sign in with the same password. Medplum always names its hub on
+`127.0.0.1` with a well-formed topic, so it cannot show a dropped hub; the drop
+rules are covered by the backend's tests against FakeEpic.
 
 `make integration-test` runs the same launch as Playwright specs, part of the
 E2E gate (`frontend/AGENTS.md`): the `epic` project drives Epic Login through
 it, as the seeded clinician of each case, and the `fhircast` project
-the seeded clinician's launch and the hub. It generates its own key, sets all
-of the above itself, and runs the shim's own unit tests first.
+the seeded clinician's launch, the hub, and the FHIRcast card
+(`fhircast-card.spec.ts`, as a clinician seeded for it alone). It generates its
+own key, sets all of the above itself, and runs the shim's own unit tests first.

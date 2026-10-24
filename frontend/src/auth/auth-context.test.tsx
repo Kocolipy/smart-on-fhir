@@ -13,6 +13,7 @@ import {
   requestKey,
   type FakeBackend,
 } from "@/lib/fake-backend.testHelpers";
+import { FHIRCAST_STORAGE_KEYS } from "@/lib/fhircast";
 
 import type { LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
 import { AuthProvider } from "./auth-context";
@@ -572,5 +573,52 @@ describe("AuthProvider and the Launch context", () => {
     await settle(session, (auth) => auth.login(...CREDENTIALS));
 
     expect(launchContext()).toEqual({ patient: PATIENT });
+  });
+});
+
+describe("AuthProvider and what the FHIRcast module kept", () => {
+  /** What connecting to the hub left in the tab (ADR 0016). */
+  const keptByFhircast = () => {
+    for (const key of Object.values(FHIRCAST_STORAGE_KEYS)) {
+      window.sessionStorage.setItem(key, `${key}-value`);
+    }
+  };
+
+  const stillKept = () =>
+    Object.values(FHIRCAST_STORAGE_KEYS).filter((key) => window.sessionStorage.getItem(key));
+
+  it("forgets it on sign-out", async () => {
+    keptByFhircast();
+    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
+
+    await settle(session, (auth) => auth.logout());
+
+    expect(stillKept()).toEqual([]);
+  });
+
+  it("forgets it when the session expires", async () => {
+    keptByFhircast();
+    const { result } = await mounted(SIGNED_IN);
+
+    act(() => result.current.expireSession());
+
+    expect(stillKept()).toEqual([]);
+  });
+
+  it("forgets it on a password Login", async () => {
+    keptByFhircast();
+    const session = await mounted({ ...SIGNED_IN, [LOGIN]: json(USER) });
+
+    await settle(session, (auth) => auth.login(...CREDENTIALS));
+
+    expect(stillKept()).toEqual([]);
+  });
+
+  it("keeps it while the session stands", async () => {
+    keptByFhircast();
+
+    await mounted(SIGNED_IN);
+
+    expect(stillKept()).toHaveLength(4);
   });
 });

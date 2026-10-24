@@ -17,6 +17,8 @@ import java.util.Optional;
  *
  * <p>Nothing here hands a token to the browser. No web adapter's response is built from an
  * {@link EpicTokenSet}, and {@code ArchitectureTest} holds that no REST controller depends on one.
+ * The one release, of the access token alone, is {@code FhircastAccessService}'s, which reads it
+ * here with the {@link FhircastHub} kept beside it (ADR 0016).
  */
 public interface EpicTokens {
 
@@ -28,4 +30,13 @@ public interface EpicTokens {
      *     or has ended — its absolute lifetime included — and for no id at all
      */
     Optional<EpicTokenSet> forSession(String sessionId);
+
+    /**
+     * The FHIRcast hub the live session {@code sessionId} kept beside its tokens (ADR 0016).
+     *
+     * @param sessionId the id the session is stored under, as signed in
+     * @return the hub; empty for every session {@link #forSession} answers empty for, and for an
+     *     Epic session whose token response named no hub this service would keep
+     */
+    Optional<FhircastHub> fhircastHubForSession(String sessionId);
 }

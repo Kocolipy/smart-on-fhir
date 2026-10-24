@@ -25,6 +25,12 @@ public final class EpicRoutes {
     /** Our public JWKS, which Epic verifies our client assertions against (D14). */
     public static final String JWKS = NAMESPACE + "/jwks.json";
 
+    /**
+     * The FHIRcast release: the signed-in Epic session's SMART access token and hub, for the SPA
+     * (ADR 0016). Self-service, unlike the four public routes above.
+     */
+    public static final String FHIRCAST = NAMESPACE + "/fhircast";
+
     private EpicRoutes() {
     }
 }

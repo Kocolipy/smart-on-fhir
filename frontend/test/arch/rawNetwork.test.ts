@@ -11,6 +11,14 @@ import { readSources } from "./sources";
 // skips all three.
 const TRANSPORT = "src/lib/http.ts";
 
+// The one other module that may reach the network: the FHIRcast module, which
+// talks to Epic's local FHIRcast hub on loopback (ADR 0016) — another origin,
+// so none of the transport's session rules apply to it.
+const FHIRCAST = "src/lib/fhircast.ts";
+
+/** Every module allowed raw network access, and nothing else. */
+const NETWORK_MODULES = [TRANSPORT, FHIRCAST];
+
 // The browser's network entry points. `\bfetch\s*\(` rather than `fetch`
 // alone, so identifiers like `refetch` and words in strings stay out.
 const RAW_NETWORK =
@@ -27,7 +35,7 @@ const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
-  .filter(({ path }) => path !== TRANSPORT)
+  .filter(({ path }) => !NETWORK_MODULES.includes(path))
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
 
 describe("raw network access", () => {
@@ -35,13 +43,13 @@ describe("raw network access", () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
-  it("keeps src/lib/http.ts as the transport", () => {
-    // Guards the exemption: if the transport moves and TRANSPORT is not moved
-    // with it, the exemption would cover a file that no longer calls fetch.
-    const transport = sources.find(({ path }) => path === TRANSPORT);
+  it.each(NETWORK_MODULES)("keeps %s as a network module", (path) => {
+    // Guards the exemption: if the module moves and its entry is not moved
+    // with it, the exemption would cover a file that no longer reaches the network.
+    const module = sources.find((source) => source.path === path);
 
-    expect(transport, `${TRANSPORT} is where apiFetch lives.`).toBeDefined();
-    expect(RAW_NETWORK.test(blankComments(transport?.code ?? ""))).toBe(true);
+    expect(module, `${path} is an exempt network module.`).toBeDefined();
+    expect(RAW_NETWORK.test(blankComments(module?.code ?? ""))).toBe(true);
   });
 
   it("has no no_raw_network_outside_transport violation", () => {
@@ -56,7 +64,7 @@ describe("raw network access", () => {
     const why =
       `Requests go through apiFetch in ${TRANSPORT}, reached via useSessionRequest ` +
       "(in practice useGatedRead / useGatedWrite), so CSRF, the single retry and the " +
-      "session's 401 are handled once.\n";
+      `session's 401 are handled once. Only ${FHIRCAST} reaches the local FHIRcast hub.\n`;
 
     expect(violations, why + violations.join("\n")).toEqual([]);
   });

@@ -21,7 +21,8 @@ import java.util.UUID;
  *       never a failure.
  *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0012,
  *       D29), and are never handed out once the session has outlived its absolute lifetime,
- *       whatever the store still holds.
+ *       whatever the store still holds. So is the <b>FHIRcast hub</b> the token response named,
+ *       beside them (ADR 0016).
  *   <li><b>The idle bound</b> of a session holding them is cut to what remains of that lifetime
  *       once that is the shorter ({@link AbsoluteSessionLifetimePolicy#idleBoundAt}), so the store
  *       never keeps the session, and the tokens with it, past the lifetime's end. Applied when the
@@ -47,6 +48,12 @@ public final class SignedInSession {
 
     /** The attribute an Epic Login keeps its tokens under, read by {@link EpicTokens}. */
     public static final String EPIC_TOKENS_ATTRIBUTE = "app.epic.tokens";
+
+    /**
+     * The attribute an Epic Login keeps its FHIRcast hub under, beside the tokens (ADR 0016), read
+     * by {@link EpicTokens}.
+     */
+    public static final String FHIRCAST_HUB_ATTRIBUTE = "app.epic.fhircast-hub";
 
     /**
      * A session as this module sees it: an attribute map, a creation time and an idle bound — what
@@ -132,6 +139,30 @@ public final class SignedInSession {
         }
         return session.attribute(EPIC_TOKENS_ATTRIBUTE) instanceof EpicTokenSet tokens
                 ? Optional.of(tokens)
+                : Optional.empty();
+    }
+
+    /**
+     * Keeps the FHIRcast hub Epic's token response named on the session, beside the tokens (ADR
+     * 0016). Kept together with them, so the store keeps it exactly as long.
+     */
+    public void keepFhircastHub(FhircastHub hub) {
+        session.setAttribute(FHIRCAST_HUB_ATTRIBUTE, hub);
+    }
+
+    /**
+     * The FHIRcast hub the session holds, as of {@code now}.
+     *
+     * @return the hub; empty for a session holding none — a password Login's, or an Epic one whose
+     *     token response named no hub this service keeps — and for one that has outlived
+     *     {@code lifetime}
+     */
+    public Optional<FhircastHub> fhircastHub(AbsoluteSessionLifetimePolicy lifetime, Instant now) {
+        if (hasOutlived(lifetime, now)) {
+            return Optional.empty();
+        }
+        return session.attribute(FHIRCAST_HUB_ATTRIBUTE) instanceof FhircastHub hub
+                ? Optional.of(hub)
                 : Optional.empty();
     }
 

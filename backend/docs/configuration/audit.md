@@ -100,3 +100,17 @@ recorded as `ACCESS_DENIED`, like every authorization refusal. When the new set
 lacks a Permission the Group carried, each direct member's ended sessions are a
 `USER_SESSIONS_REVOKE` after the commit, with the reason
 `GROUP_PERMISSIONS_REDUCED` and the Superuser as actor.
+
+## FHIRcast release operation
+
+`FHIRCAST_TOKEN_RELEASE` records a signed-in User asking for its Epic session's
+SMART access token (`GET /api/auth/epic/fhircast`, ADR 0016). The User is actor,
+subject and resource:
+
+| Outcome   | Recorded when                         | Carries                                                                      |
+| --------- | ------------------------------------- | ---------------------------------------------------------------------------- |
+| `SUCCESS` | The access token is released (`200`)  | Nothing more; fail-closed, so a release the trail cannot record does not happen |
+| `FAILURE` | Nothing is released (`404`)           | One `error_code`: `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or `TOKEN_EXPIRED`      |
+
+No row carries the token. The release gate's `404` while Epic Login is off records
+nothing: the route is not served then.

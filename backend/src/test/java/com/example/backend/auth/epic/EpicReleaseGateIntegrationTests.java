@@ -58,6 +58,7 @@ class EpicReleaseGateIntegrationTests {
         "/api/auth/epic/authorize",
         "/api/auth/epic/callback",
         "/api/auth/epic/jwks.json",
+        "/api/auth/epic/fhircast",
         "/api/auth/epic/anything",
         "/api/auth/epic/",
         "/api/auth/epic",

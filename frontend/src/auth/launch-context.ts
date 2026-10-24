@@ -84,6 +84,15 @@ export function launchContext(): LaunchContext {
   return withinGrammar(Reflect.get(value, "patient"), Reflect.get(value, "encounter"));
 }
 
+/**
+ * Whether this tab's session began with an EHR launch: an Epic landing put a
+ * Launch context here, the bare marker's included, and no password Login or
+ * end of the session has cleared it since. Home shows the FHIRcast card on it.
+ */
+export function landedFromEpic(): boolean {
+  return window.sessionStorage.getItem(STORAGE_KEY) !== null;
+}
+
 /** Forgets the tab's Launch context. */
 export function clearLaunchContext(): void {
   window.sessionStorage.removeItem(STORAGE_KEY);

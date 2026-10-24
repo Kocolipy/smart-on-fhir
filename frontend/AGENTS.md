@@ -58,9 +58,12 @@ Permissions, and the reasoning; this list holds the rules.
   declares its endpoints. A page requests only through `useGatedRead` /
   `useGatedWrite`, reads `declaration.permission` — of the declaration that
   control sends — to decide whether to offer it, and never calls `apiFetch`
-  (`mb-transport-is-behind-the-session-seam`). The one exception is
+  (`mb-transport-is-behind-the-session-seam`). There are two exceptions:
   `change-password.tsx`, whose marked `401` is about the current password and
-  must not end the session. No page has a control that writes `active` or Group
+  must not end the session; and `fhircast-card.tsx`, which asks for the
+  FHIRcast release through `useFhircastRelease` (ADR 0016), because the
+  operation is self-service and `ReadDeclaration.permission` cannot express
+  "no Permission". No page has a control that writes `active` or Group
   membership. A new signed-in page is one entry in `SIGNED_IN_PAGES`
   (`src/pages/signed-in-pages.tsx`).
 - **`src/components/`** — shared non-primitive components.
@@ -165,9 +168,9 @@ a freshly generated key and the `APP_EPIC_*` values in
   and the stand-in itself — the compose `fhircast` services,
   `backend/fhircast-shim` and its seed.
 - **`fhircast`** drives an EHR launch through Medplum to Home as the seeded
-  clinician, and the FHIRcast hub through the helper that publishes
-  `Patient-open` / `Patient-close`. `epic` runs after it, since `epic` pauses
-  the shim both reach.
+  clinician, the FHIRcast hub through the helper that publishes
+  `Patient-open` / `Patient-close`, and Home's FHIRcast card connecting to that
+  hub. `epic` runs after it, since `epic` pauses the shim both reach.
 - **`packaged`** loads the JAR's own origin. Every other project runs through
   `npm run dev`, which serves neither the built bundle nor the backend's CSP, so
   an inline script or a third-party origin breaks only here.

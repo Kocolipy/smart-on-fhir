@@ -8,12 +8,15 @@ import com.example.backend.auth.controller.LoginCompletion;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.EpicMfaEvidence;
+import com.example.backend.auth.domain.EpicTokenSet;
+import com.example.backend.auth.domain.FhircastHub;
 import com.example.backend.auth.domain.SignedInSession;
 import com.example.backend.auth.epic.EpicIdentity;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicTokenHandOff;
 import com.example.backend.auth.epic.FhirUserReference;
+import com.example.backend.auth.epic.FhircastHubMembers;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -116,14 +119,29 @@ public class EpicLoginSuccessHandler implements AuthenticationSuccessHandler {
                 retained -> login.logInFromEpic(practitionerId.get(), retained, factor.get()),
                 // On the signed-in (rotated) session, before the ending is recorded.
                 session -> EpicTokenCapture.take(request, epic, clock.instant())
-                        .ifPresent(tokens -> HttpSessionAttributes.signedIn(session)
-                                .keepEpicTokens(tokens, absoluteLifetime, clock.instant())),
+                        .ifPresent(tokens -> keep(HttpSessionAttributes.signedIn(session), tokens,
+                                hubOf(epic))),
                 request, response).isPresent();
         if (signedIn) {
             EpicLanding.signedIn(EpicIdentity.launchContextOf(epic), request, response);
         } else {
             EpicLanding.REFUSED.sendTo(request, response);
         }
+    }
+
+    /**
+     * Keeps Epic's tokens on the signed-in session, and the FHIRcast hub beside them when the
+     * token response named one this service keeps (ADR 0016).
+     */
+    private void keep(SignedInSession session, EpicTokenSet tokens, Optional<FhircastHub> hub) {
+        hub.ifPresent(session::keepFhircastHub);
+        session.keepEpicTokens(tokens, absoluteLifetime, clock.instant());
+    }
+
+    /** The hub {@code epic}'s token response named, when it passes {@link FhircastHub#of}. */
+    private static Optional<FhircastHub> hubOf(Authentication epic) {
+        FhircastHubMembers members = EpicIdentity.fhircastHubOf(epic);
+        return FhircastHub.of(members.url(), members.topic());
     }
 
     /** The MFA factor the Login was made with, as {@link EpicMfaEvidence#factorOf} decides it. */

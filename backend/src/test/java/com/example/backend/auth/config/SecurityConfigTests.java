@@ -260,6 +260,37 @@ class SecurityConfigTests {
                         containsString("object-src 'none'")));
     }
 
+    /**
+     * The SPA may connect to its own origin and to Epic's local FHIRcast hub on loopback, over the
+     * four schemes the hub may use, on any port (ADR 0016) — and to no Epic origin or other host.
+     */
+    @Test
+    void connectSrcAdmitsOnlyTheOriginAndTheLoopbackHub() throws Exception {
+        String policy = mvc.perform(get("/")).andReturn().getResponse()
+                .getHeader("Content-Security-Policy");
+
+        assertThat(java.util.Arrays.stream(policy.split("; "))
+                        .filter(directive -> directive.startsWith("connect-src "))
+                        .toList())
+                .containsExactly("connect-src 'self' http://127.0.0.1:* https://127.0.0.1:*"
+                        + " ws://127.0.0.1:* wss://127.0.0.1:*");
+    }
+
+    /** Every other directive is as strict as before: the loopback hub is connect-src's alone. */
+    @Test
+    void noOtherDirectiveAdmitsAnOtherOrigin() throws Exception {
+        String policy = mvc.perform(get("/")).andReturn().getResponse()
+                .getHeader("Content-Security-Policy");
+
+        assertThat(java.util.Arrays.stream(policy.split("; "))
+                        .filter(directive -> !directive.startsWith("connect-src "))
+                        .toList())
+                .containsExactly("default-src 'self'", "script-src 'self'",
+                        "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
+                        "font-src 'self'", "object-src 'none'", "base-uri 'self'",
+                        "form-action 'self'", "frame-ancestors 'none'");
+    }
+
     @Test
     void responsesCarryTheReferrerPolicy() throws Exception {
         mvc.perform(get("/"))

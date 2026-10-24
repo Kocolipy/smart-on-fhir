@@ -8,8 +8,13 @@ Accepted, finalised 2026-10-08 and consolidated 2026-10-10. This ADR is the sole
 authority on Epic Login: the flow, every decision D1–D29, the accepted risk D13,
 the IM8 policy position and the App-Standards deviations. D29 (#24) supersedes D8
 for Epic's tokens, and #153 revised D8 in place: the Launch context is passed to
-the SPA, never kept server-side. How a Login ends, for both methods, is ADR
-0001's. ADR 0011 records the ac-2, ac-12 and as-8 positions this changes.
+the SPA, never kept server-side. **Amended at D29 by ADR 0016:** the SMART access
+token alone is released to the SPA, for Epic's local FHIRcast hub, and the
+FHIRcast hub the token response names is kept beside the tokens; ADR 0016 is the
+authority on both, and the D28 and D29 passages below defer to it. How a Login
+ends, for both methods, is ADR 0001's. ADR 0011 records the ac-2, ac-12 and as-8
+positions this changes. Last revised 2026-10-24: D29 amended by ADR 0016 for
+the SMART access token. History is in git.
 
 ## Context
 
@@ -37,7 +42,8 @@ Out of scope, deliberately:
   Login;
 - using the Launch context beyond showing its patient on Home (D8) — the
   encounter is held but unused — or any FHIR API call. Epic's tokens are kept
-  for the session (D29), but using them, refreshing included, is out of scope;
+  for the session (D29), but using them, refreshing included, is out of scope,
+  beyond releasing the access token to the SPA for FHIRcast (ADR 0016);
 - just-in-time provisioning: an Epic Login never creates or modifies a User;
 - single sign-out with Epic;
 - signing-key generation, scheduling or expiry: key rotation is operated outside
@@ -77,7 +83,9 @@ authorization-request filter builds the request.
 2. **Authorize.** The internal hop `GET /api/auth/epic/authorize` is Spring
    Security's authorization-request filter, with a resolver that adds `launch`
    and `aud` to Spring's own request: `response_type=code`, `client_id`, the
-   registered `redirect_uri`, `scope=launch openid fhirUser`, `state`, `nonce`
+   registered `redirect_uri`,
+   `scope=launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`
+   (the FHIRcast scopes are ADR 0016's), `state`, `nonce`
    and PKCE S256. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on first use, never
    at startup, and a successful read is kept for 24 hours (D26). The `state` and
    `nonce` are Spring Security's own (256 and 768 random bits), and the PKCE
@@ -109,7 +117,9 @@ authorization-request filter builds the request.
    the success handler on the callback's request alone, which keeps them only if
    step 7 signs a session in (D29). Its `patient` and `encounter` reach the
    success handler on the request's own identity alone (`EpicIdentity`), for the
-   landing's fragment (D8). The rest of the token response is dropped.
+   landing's fragment (D8). Its `hub.url` and `hub.topic` reach it the same way,
+   and are kept beside the tokens when both pass (ADR 0016). The rest of the
+   token response is dropped.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
    non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
    refused as `INVALID_FHIR_USER`. The dev profile
@@ -261,10 +271,11 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   which the same User could already read by id. Binding the read to the launch
   would mean keeping the context server-side, which this decision avoids.
 
-  The rest of the token response is discarded. D8 first discarded Epic's tokens
-  and the launch context too. D29 superseded that for the tokens: the access
-  token, the refresh token and the `id_token` are kept for the session; #153
-  revised it for the launch context, as above.
+  The rest of the token response is discarded, the FHIRcast hub aside (ADR
+  0016). D8 first discarded Epic's tokens and the launch context too. D29
+  superseded that for the tokens: the access token, the refresh token and the
+  `id_token` are kept for the session; #153 revised it for the launch context,
+  as above.
 
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
@@ -389,7 +400,9 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   - _Server-side it holds._ D8 still keeps nothing clinical Epic sends: the
     Launch context reaches no session, Redis key, Epic token set, log record or
     audit event (D22). The tokens D29 keeps are credentials, not clinical data,
-    and today's scope (`launch openid fhirUser`) reads none.
+    and today's scope reads no FHIR resource. The FHIRcast scopes ADR 0016
+    adds make the access token a key to patient-context events, which ADR 0016
+    classifies Restricted, Sensitive High: that is this decision's revisit.
   - _In the browser it does not._ The patient id names the patient the clinician
     opened in Epic — clinical context — so it is handled as the Patient it names
     is (Restricted, `/docs/domain/patient.md`, "Data classification"). It is an
@@ -581,9 +594,10 @@ and no FHIR API is called yet.
 
   Epic issues a refresh token only when the registration allows one and the
   request asks for `offline_access` or `online_access`. The authorize request asks
-  only for `launch openid fhirUser`, so today the refresh token is always absent
-  and the access token reads no FHIR resource. Adding the scopes, and refreshing,
-  belong to a later ticket. An expired access token reports so by the
+  only for `launch openid fhirUser` and the two FHIRcast subscription scopes (ADR
+  0016), so today the refresh token is always absent and the access token reads no
+  FHIR resource. Adding FHIR resource scopes, and refreshing, belong to a later
+  ticket. An expired access token reports so by the
   injected clock (`EpicTokenSet.isExpired`). Expiry ends nothing: the refresh token
   and the `id_token` stay with the session.
 
@@ -622,13 +636,10 @@ and no FHIR API is called yet.
   nothing is handed out once the lifetime is over, even if no request has ended
   the session yet.
 
-  **The port has no production caller yet, deliberately.** Only tests read it
-  until the FHIR / token-refresh work lands. #24 asked for the read path
-  explicitly, and the port is that read path, kept so the later feature reads
-  the tokens through it rather than through the session attribute. One adapter
-  and no caller is therefore the intended state for now, not a seam left over.
-  The FHIR / token-refresh ticket that first calls `forSession` is the one that
-  takes this note out.
+  Its production caller is the FHIRcast release (`FhircastAccessService`, ADR
+  0016), which reads the tokens and the hub kept beside them
+  (`fhircastHubForSession`) through it rather than through the session
+  attribute.
 
 - **Storage is bounded by the remaining absolute lifetime.** The store expires a
   session its idle bound after its last request, and every request renews that.
@@ -644,10 +655,14 @@ and no FHIR API is called yet.
   expiry, during which the adapter answers nothing. That grace is the same for a
   session that idles out, and it was left as it is.
   `EpicTokensStorageLifetimeIntegrationTests` holds both bounds against real Redis.
-- **Never leaves the backend.** No endpoint returns any of the three tokens, and
-  the SPA keeps no SMART credential.
+- **Never leaves the backend, the access token's FHIRcast release aside.** No
+  endpoint returns the refresh token or the `id_token`. The access token alone
+  is released, to its own session, by `GET /api/auth/epic/fhircast` for the
+  SPA's FHIRcast connection — ADR 0016 replaces this decision for it.
   `ArchitectureTest.epic_tokens_never_reach_a_rest_controller` holds that no REST
-  controller depends on `EpicTokenSet` or `EpicTokens`. The one web adapter that
+  controller, that one included, depends on `EpicTokenSet` or `EpicTokens`, and
+  `the_released_access_token_reaches_one_rest_controller` holds the released
+  projection to that one controller. The one web adapter that
   writes them, the success handler, answers only with a redirect. D22 covers all
   three, the `id_token` included, since it carries the clinician's identity
   claims. `EpicTokenSet.toString()` names each token by its presence alone.
@@ -663,10 +678,11 @@ and no FHIR API is called yet.
   `/infra/docs/database-credentials.md`). Application-level encryption
   would need a key held in the same environment as the Redis credentials (D16's
   position for the signing key), and would protect only against a compromise of
-  Redis alone. Today's tokens grant `launch openid fhirUser`, and no refresh token
-  exists. The ticket that adds FHIR scopes or a refresh token revisits this,
-  together with revocation (D13). The options then are envelope encryption under a
-  KMS key, or an encrypted replication group.
+  Redis alone. ADR 0016 revisited this, together with revocation (D13), when it
+  added the FHIRcast scopes, and kept it an accepted risk: the token reads no FHIR
+  resource, and no refresh token exists. The ticket that adds a FHIR resource
+  scope or a refresh token revisits it again. The options then are envelope
+  encryption under a KMS key, or an encrypted replication group.
 
 ### Accepted risk (D13)
 
@@ -764,7 +780,8 @@ changes a decision.
   token can revoke kept tokens when the session ends (D13, D29).
 
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
-audience, R4, `openid fhirUser`, our public JWKS URL, the launch URL and redirect
+audience, R4, `openid fhirUser` and the FHIRcast scopes of ADR 0016, our public
+JWKS URL, the launch URL and redirect
 URI), its practitioner provisioned by FHIR ID — is configuration only, and its
 values belong in `/infra/docs/parameters.md` once registered.
 
@@ -803,4 +820,6 @@ values belong in `/infra/docs/parameters.md` once registered.
   next launch or the idle bound to end it. The Epic tokens it holds (D29) live
   exactly as long.
 - Beyond the login method, an Epic session differs from a password one only in
-  the Epic tokens it holds, which only the backend can read (D29).
+  the Epic tokens it holds, which only the backend can read (D29) — the access
+  token aside, which its own SPA tab is released for FHIRcast (ADR 0016) — and
+  in the FHIRcast card Home shows it.

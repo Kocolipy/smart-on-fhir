@@ -76,8 +76,10 @@ straight into `lib/http`) but may never point back up.
   an EHR launch put in context: `adoptLaunchLanding()` (called by `main.tsx`
   before the router reads the URL) reads an Epic landing's fragment, holds each
   value to FHIR's id grammar, keeps it in `sessionStorage` and strips the
-  fragment; `launchContext()` reads it back, decoded rather than trusted; and
-  `clearLaunchContext()` forgets it, on every session end and a password Login
+  fragment; `launchContext()` reads it back, decoded rather than trusted;
+  `landedFromEpic()` says whether the tab holds one at all, which is how Home
+  knows an EHR launch began the session; and `clearLaunchContext()` forgets it,
+  on every session end and a password Login, beside `clearFhircastStorage()`
   (`docs/BACKEND_CONTRACT.md`).
 - `auth-context.tsx` — the `AuthProvider`: checks the session on mount and on
   `retrySessionCheck` (`ok` signs in, `401` ends, anything else is
@@ -100,6 +102,10 @@ straight into `lib/http`) but may never point back up.
 - `use-session-request.ts` — the seam features request through. It acts on
   `unauthenticated` itself and returns a `SessionResult` with no such member,
   so no page can forget to relay a session ending.
+- `use-fhircast-release.ts` — `useFhircastRelease`, the FHIRcast release
+  (`GET /api/auth/epic/fhircast`) through that seam. Not a declaration: the
+  operation is self-service and carries no Permission, and the card needs only
+  the release or `null`.
 - `use-gated-read.ts` / `use-gated-write.ts` — the gated read and write (below).
 - `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
   authenticated session (`docs/BACKEND_CONTRACT.md` has the rule it keeps).
@@ -181,8 +187,13 @@ decide where a visitor goes.
   the server session, so a polling page would never reach the idle timeout. The
   pager names a total only once a read of the current query has stated one.
 - `home.tsx` — the Patient card, handed the tab's Launch context's patient
-  (`launchContext()`), then the Pages card: a link to each page the session
+  (`launchContext()`), beside it the FHIRcast card in a tab an EHR launch began
+  (`landedFromEpic()`), then the Pages card: a link to each page the session
   may open.
+- `fhircast-card.tsx` — the FHIRcast card: asks for the release, connects
+  through `lib/fhircast.ts`, and shows one of four generic states, closing its
+  socket when Home goes. It reports nothing to the page status: its state is
+  its own line.
 - `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
   an optional `patientId` prop. Without one it shows "No patient in context" and
   never calls the gated read; with one, a child component reads
@@ -216,6 +227,17 @@ not decode is `failed`.
 
 It lives in `lib/` because `auth/` sits above it and it must not know about
 sessions or React — `mb-lib-is-a-leaf` holds that.
+
+**The one other module that reaches the network is `lib/fhircast.ts`** (ADR
+0016). It talks to Epic's local FHIRcast hub on `127.0.0.1` — another origin,
+to which none of `apiFetch`'s session, CSRF or status rules apply — so it uses
+`fetch` and `WebSocket` itself: discovery, dynamic client registration with the
+SMART access token, the `jwt-bearer` Hub Token, the subscription and the socket,
+each URL the hub names held to loopback. It answers a closed `FhircastOutcome`
+(`connected`, `unavailable`, `blocked`) and never surfaces what the hub said.
+The release it starts from still comes from the backend through the session
+seam (`auth/use-fhircast-release.ts`). `test/arch/rawNetwork.test.ts`
+(`no_raw_network_outside_transport`) names these two modules and no others.
 
 ### Why every time goes through `lib/time.ts`
 

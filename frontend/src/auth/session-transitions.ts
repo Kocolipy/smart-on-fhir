@@ -11,7 +11,9 @@
  *
  * Ending a session also forgets the tab's Launch context (`launch-context.ts`):
  * the patient an EHR launch put in context belongs to the session it signed
- * in, and is not shown to whoever signs in next.
+ * in, and is not shown to whoever signs in next. So does what the FHIRcast
+ * module kept for that session — the SMART access token, the Hub Token, the
+ * dynamic `client_id` and the private key (`@/lib/fhircast`, ADR 0016).
  *
  * Two transitions change the auth state without changing the session, and so
  * keep the token: a start-up check that did not answer (`checkFailed`), which
@@ -21,6 +23,7 @@
 
 import { useCallback, useState } from "react";
 
+import { clearFhircastStorage } from "@/lib/fhircast";
 import { discardCsrfToken } from "@/lib/http";
 
 import type { AuthUser, SessionCheckFailure } from "./api";
@@ -72,6 +75,7 @@ export function useSessionTransitions(): SessionTransitions {
   const end = useCallback((reason: SessionEndReason | null) => {
     discardCsrfToken();
     clearLaunchContext();
+    clearFhircastStorage();
     setSession({ checkFailure: null, signInReason: reason, status: "guest", user: null });
   }, []);
 

@@ -193,8 +193,9 @@ one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admi
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
-- **`fhircast`** holds `fhircast-launch.spec.ts` and `fhircast-hub.spec.ts`,
-  and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+- **`fhircast`** holds `fhircast-launch.spec.ts`, `fhircast-hub.spec.ts` and
+  `fhircast-card.spec.ts` (Home's FHIRcast card reaching `Connected` after a
+  launch, and absent after a password Login), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
   against it. Each replays the Admin session only to issue a SCIM token; every
@@ -284,8 +285,8 @@ died before its `finally` are swept once, by `sweepLeftovers()` in
 The one exception is a `userName` another server holds, which the spec
 cannot give an `e2e-` name: an EHR launch through Medplum signs in the
 Practitioner id Medplum holds, so its User is named with that id — the seeded
-clinician's in the `fhircast` launch, and in the `epic` spec that of the
-clinician the seed makes for each case. The seed makes each at a fixed UUID in
+clinician's in the `fhircast` launch, and in the `fhircast-card` and `epic`
+specs that of the clinician the seed makes for each case. The seed makes each at a fixed UUID in
 `compose.yaml`, the only id Medplum takes from a client, so the name is the
 same on every run. Such a User is provisioned only through
 `provisionServerNamedUser`, which deletes any User already holding the exact

@@ -99,11 +99,42 @@ lifetime, every session revocation and the next launch in that browser each
 leave nothing to retrieve, and a session holding them is stored no longer than
 its remaining absolute lifetime, however recently it was used. An expired
 access token ends nothing; the refresh token and the `id_token` stay with the
-session. Only backend code reads them, by session: no response carries them,
-`/api/auth/me` included, and the SPA holds no Epic credential. The rest of the
-token response is discarded, the Launch context aside (below), and no FHIR API is
-called yet. Today Epic issues no refresh token, because the Login asks only for
-`launch openid fhirUser` (ADR 0012, D29).
+session. Only backend code reads them, by session, with one exception, the
+FHIRcast release (below): no other response carries any of them, `/api/auth/me`
+included. The rest of the token response is discarded, the Launch context and the
+FHIRcast Hub aside (below), and no FHIR API is called yet. The Login asks for
+`launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`:
+identity, and the FHIRcast subscription scopes. Today Epic issues no refresh
+token, because the Login asks for neither `offline_access` nor `online_access`
+(ADR 0012, D29; ADR 0016).
+
+**The FHIRcast Hub, and the SMART access token's one way out** — the token
+response's `hub.url` and `hub.topic` name the clinician's **FHIRcast Hub**, Epic's
+local hub on their own workstation. They are kept on the signed-in session beside
+the Epic tokens, for exactly as long, when both pass: `hub.url` an `http` or
+`https` URL on host `127.0.0.1`, any port, with no user-info, and `hub.topic`
+within `[A-Za-z0-9\-._~]{1,128}`. Either failing drops the pair; the tokens and
+the Launch context are kept regardless. `GET /api/auth/epic/fhircast` then
+releases, to that session alone, its access token with the expiry, the granted
+scope and the hub — never the `id_token` or a refresh token — answered
+`Cache-Control: no-store`. It answers `404`, the same each time, for a password
+Login's session, a session that kept no hub and an access token past its expiry,
+and, like every Epic route, while Epic Login is off. Each release and each
+refusal the endpoint makes is one `FHIRCAST_TOKEN_RELEASE` audit event against
+the caller, `SUCCESS` or `FAILURE` with `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
+`TOKEN_EXPIRED`; none carries the token.
+
+The token chain from there is the browser's, on Home: the hub's `.well-known`
+metadata names its registration and token endpoints, each held to `127.0.0.1`;
+the SPA registers a fresh ES384 key by dynamic client registration with the SMART
+access token as `Bearer`; it signs a five-minute `jwt-bearer` assertion with that
+key for a **Hub Token**; with the Hub Token it makes the **Hub Subscription** to
+`Patient-open` and `Patient-close` on the topic, over a websocket held to
+`ws(s)://127.0.0.1`. The FHIRcast card shows `Connecting`, `Connected`,
+`FHIRcast unavailable` or `Local hub blocked by browser`, nothing more. The SMART access
+token, the Hub Token, the registered `client_id` and the private key live in the
+tab's `sessionStorage` and go when the session ends. ADR 0016 has the decision,
+and ADR 0011 the deviations it accepts.
 
 **The Launch context goes to the browser, never into the session** — the
 token response's `patient` and `encounter` are the **Launch context**. Each is
@@ -186,5 +217,6 @@ flag confines only the User's password Login.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
 nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, the
-Launch context's patient and encounter, our client assertion and our signing keys
-appear in no log record and no audit event (D22).
+Launch context's patient and encounter, the FHIRcast Hub's topic, the Hub Token,
+our client assertion and our signing keys appear in no log record and no audit
+event (D22).

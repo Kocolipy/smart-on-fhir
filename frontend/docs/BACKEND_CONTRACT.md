@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: Backend contract
-description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, JSON request bodies, the session bounds, one session per User, Epic Login's landing and its Launch context, logout's Clear-Site-Data, and the CSP.
+description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, JSON request bodies, the session bounds, one session per User, Epic Login's landing and its Launch context, the FHIRcast release and what the tab keeps of it, logout's Clear-Site-Data, and the CSP with its loopback hub entries.
 tags: [csrf, sessions, csp, contract]
 ---
 
@@ -203,7 +203,34 @@ change, when the backend side moves. What the SPA has to honour:
   logout itself too. Nothing in the SPA may rely on storage surviving logout. The
   CSRF token is unaffected: it lives in memory only and in the session the
   logout ended, and the SPA discards it on logout anyway.
-- **The CSP forbids inline script, `eval`, and every third-party origin** for
-  scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
-  and prefer Vite plugins that keep their output out of an inline `<script>`.
-  Inline _styles_ are allowed.
+- **An Epic session's FHIRcast release is `GET /api/auth/epic/fhircast`** (ADR 0016) — self-service, no Permission, no CSRF token (a `GET`). It answers the
+  session's SMART access token, `expiresAt`, the granted `scope` (sorted),
+  `hubUrl` and `hubTopic`, with `Cache-Control: no-store`; never the `id_token`
+  or a refresh token. `404` — one answer for every reason — means nothing is
+  released: a password session, an Epic session that kept no hub, an expired
+  access token, or Epic Login off. The SPA asks for it only on Home in a tab an
+  EHR launch began (the tab holds a Launch context), through `useSessionRequest`
+  (`use-fhircast-release.ts`), so a `401` ends the session as anywhere else. The
+  FHIRcast module (`src/lib/fhircast.ts`) then talks to the hub directly; no hub
+  call goes through `apiFetch`.
+- **What the FHIRcast module keeps is in `sessionStorage`**, per tab, under
+  `fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id` and
+  `fhircast-private-jwk` (the exported ES384 private JWK). The SPA clears all four
+  wherever it clears the Launch context — every end of the session and a password
+  Login — and logout's `Clear-Site-Data` drops them too. An accepted deviation
+  (ADR 0011, "FHIRcast in the browser").
+- **The CSP forbids inline script, `eval`, and every third-party origin but the
+  loopback FHIRcast Hub** for scripts, styles, fonts, images and `fetch`.
+  `connect-src` is `'self'` plus exactly `http://127.0.0.1:*`,
+  `https://127.0.0.1:*`, `ws://127.0.0.1:*` and `wss://127.0.0.1:*`, for Epic's
+  local hub, whose port and scheme Epic chooses; no Epic origin is admitted, and
+  nothing else may connect to loopback. Self-host instead of adding a CDN, and
+  prefer Vite plugins that keep their output out of an inline `<script>`. Inline
+  _styles_ are allowed.
+- **Chrome's Local Network Access prompt** guards a public origin's requests to
+  `127.0.0.1`. A clinician who refuses it sees "Local hub blocked by browser" on
+  the FHIRcast card, read from the `local-network-access` permission's `denied`
+  state. Synapxe can push Chrome's `LocalNetworkAccessAllowedForUrls` enterprise
+  policy, listing the application's origin, so the prompt never appears on
+  managed workstations. A page served from a loopback origin, as in local
+  development and the E2E run, never prompts.
