@@ -58,8 +58,12 @@ export function expectStandInConfigured(): void {
 
 async function medplumJson(path: string, init: RequestInit): Promise<Record<string, unknown>> {
   const answer = await fetch(new URL(path, MEDPLUM_URL), init);
-  expect(answer.ok, `Medplum answers ${init.method ?? "GET"} ${path}`).toBe(true);
-  return (await answer.json()) as Record<string, unknown>;
+  const text = await answer.text();
+  expect(
+    answer.ok,
+    `Medplum answers ${init.method ?? "GET"} ${path}, not ${answer.status}: ${text}`,
+  ).toBe(true);
+  return JSON.parse(text) as Record<string, unknown>;
 }
 
 /** An access token for Medplum's super admin, signed in as Medplum's own client does. */
