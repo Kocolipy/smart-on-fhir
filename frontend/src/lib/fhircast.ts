@@ -26,6 +26,14 @@
  *
  * Nothing a notification carries is logged.
  *
+ * Connected, it stays connected. Before the Hub Token or the lease the hub
+ * granted (`hub.lease_seconds`) runs out, it renews: steps 3 to 5 again, with
+ * the key and `client_id` it registered, its new socket replacing the old
+ * once confirmed. A socket the hub drops, and a renewal that fails, start
+ * reconnecting: retries spaced by a doubling backoff, each reopening the
+ * socket — or subscribing anew once the hub denies that endpoint, or after a
+ * failed renewal — until one connects or the retries run out.
+ *
  * It answers one generic outcome and nothing else: no hub's or Epic's
  * `error_description`, and no response body, is ever handed back or logged.
  * What it obtains is kept in the tab's `sessionStorage` under
@@ -47,8 +55,8 @@ export interface FhircastRelease {
 }
 
 /**
- * How connecting came out: `connected`, holding the open socket until
- * `close`; `unavailable`, for anything the hub did or did not do; or
+ * How connecting came out: `connected`, staying connected until `close`;
+ * `unavailable`, for anything the hub did or did not do; or
  * `blocked`, when the browser kept the tab off the local network because the
  * clinician refused Chrome's Local Network Access prompt.
  */
@@ -119,6 +127,34 @@ const ASSERTION_LIFETIME = 300;
 
 /** How long the hub has to confirm the subscription on the socket. */
 const CONFIRMATION_TIMEOUT_MS = 10_000;
+
+/** The wait before the first retry once a connection is lost; each later one doubles it. */
+const RECONNECT_BACKOFF_MS = 1_000;
+
+/** How many retries a lost connection gets before it is given up. */
+const RECONNECT_ATTEMPTS = 5;
+
+/** The longest wait a browser timer holds: anything longer fires at once. */
+const LONGEST_TIMER_MS = 2_147_483_647;
+
+/**
+ * The soonest a renewal starts after what it renews was granted. Only a
+ * lifetime under 65 s brings 60 s before its end this close: one of a minute
+ * or less has no such time left at all, and renewing it the moment it is
+ * granted would mint a Hub Token and subscribe again without pause.
+ */
+const SOONEST_RENEWAL_MS = 5_000;
+
+/**
+ * When to renew what lasts `seconds`, in milliseconds from when it was
+ * granted: at 80% of its lifetime or 60 s before it ends, whichever is sooner
+ * — though never sooner than {@link SOONEST_RENEWAL_MS}. Never, for a lifetime
+ * the hub did not say.
+ */
+function renewalDelay(seconds: number | null): number {
+  if (seconds === null) return Infinity;
+  return Math.max(1000 * Math.min(seconds * 0.8, seconds - 60), SOONEST_RENEWAL_MS);
+}
 
 /** The one host the hub, and everything it names, may be on. */
 const LOOPBACK = "127.0.0.1";
@@ -272,8 +308,22 @@ async function assertion(
   return `${signed}.${base64Url(new Uint8Array(signature))}`;
 }
 
+/** A Hub Token, and how long the hub says it lasts: `null` when it does not say. */
+interface HubToken {
+  token: string;
+  lifetime: number | null;
+}
+
+/**
+ * A lifetime a hub stated, in seconds: a positive number, or `null` for
+ * anything else, so that a hub that says nothing usable is never renewed by.
+ */
+function secondsIn(value: unknown): number | null {
+  return typeof value === "number" && value > 0 ? value : null;
+}
+
 /** Step 3: the Hub Token, by the `jwt-bearer` grant. */
-async function hubToken(tokenEndpoint: string, signedAssertion: string): Promise<string> {
+async function hubToken(tokenEndpoint: string, signedAssertion: string): Promise<HubToken> {
   const granted = await hubJson(
     tokenEndpoint,
     {
@@ -283,7 +333,10 @@ async function hubToken(tokenEndpoint: string, signedAssertion: string): Promise
     },
     200,
   );
-  return member(granted, "access_token");
+  return {
+    lifetime: secondsIn(memberOf(granted, "expires_in")),
+    token: member(granted, "access_token"),
+  };
 }
 
 /** Step 4: the subscription; the channel endpoint the hub answers, held to loopback. */
@@ -317,14 +370,19 @@ function memberOf(value: unknown, key: string): unknown {
 }
 
 /**
- * Whether a socket message is the hub's confirmation of the subscription:
- * JSON whose `hub.mode` is `subscribe`. Anything else, JSON or not, is not.
+ * What a socket message says of the subscription: JSON whose `hub.mode` is
+ * `subscribe` confirms it, granting the lease its `hub.lease_seconds` names;
+ * one whose `hub.mode` is `denied` refuses it, as a hub does at an endpoint it
+ * no longer knows. Anything else, JSON or not, says nothing: `null`.
  */
-function confirms(data: unknown): boolean {
+function verdictOf(data: unknown): { lease: number | null } | "denied" | null {
   try {
-    return memberOf(JSON.parse(String(data)), "hub.mode") === "subscribe";
+    const message: unknown = JSON.parse(String(data));
+    const mode = memberOf(message, "hub.mode");
+    if (mode === "subscribe") return { lease: secondsIn(memberOf(message, "hub.lease_seconds")) };
+    return mode === "denied" ? "denied" : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -373,48 +431,216 @@ function notificationOf(data: unknown, topic: string): Notification | null {
   }
 }
 
+/** A socket the hub confirmed the subscription on: the lease it granted, and how to close it. */
+interface Channel {
+  lease: number | null;
+  close: () => void;
+}
+
 /**
- * Step 5: the socket, connected once the hub confirms the subscription on it,
- * and unavailable if it closes, or stays silent, first. A browser fires
- * `close` after any socket `error`, so `close` alone is listened for. Once
- * connected, a `close` the hub causes is reported through `onLost`; one the
- * caller asks for is not. A connected socket's every other message is held to
- * {@link notificationOf}: a notification that passes is acknowledged on the
- * socket and handed to `onEvent`; anything else is ignored, unacknowledged.
+ * How opening a socket came out: the {@link Channel} the hub confirmed;
+ * `denied`, when the hub refused the endpoint; or `failed`, when the socket
+ * closed, or stayed silent, before either.
+ */
+type Opened = Channel | "denied" | "failed";
+
+/**
+ * Step 5: the socket, {@link Opened} as the hub answered it. A browser fires `close` after any socket `error`, so `close`
+ * alone is listened for. Once confirmed, a `close` the hub causes is reported
+ * through `onDropped`; one the caller asks for is not. A confirmed socket's
+ * every other message is held to {@link notificationOf}: a notification that
+ * passes is acknowledged on the socket and handed to `onEvent`; anything else
+ * is ignored, unacknowledged.
  */
 function open(
   endpoint: string,
   topic: string,
-  { onEvent, onLost }: Required<FhircastHandlers>,
-): Promise<FhircastOutcome> {
+  onEvent: (event: PatientEvent) => void,
+  onDropped: () => void,
+): Promise<Opened> {
   return new Promise((settle) => {
     const socket = new WebSocket(endpoint);
-    let connected = false;
+    let confirmed = false;
+    let denied = false;
     const timer = setTimeout(() => socket.close(), CONFIRMATION_TIMEOUT_MS);
     const close = () => {
-      connected = false;
+      confirmed = false;
       socket.close();
     };
     socket.addEventListener("message", ({ data }) => {
-      if (connected) {
+      if (confirmed) {
         const notification = notificationOf(data, topic);
         if (notification === null) return;
         socket.send(JSON.stringify({ id: notification.id, status: ACKNOWLEDGED }));
         onEvent(notification.event);
         return;
       }
-      if (!confirms(data)) return;
-      connected = true;
+      const verdict = verdictOf(data);
+      if (verdict === null) return;
+      if (verdict === "denied") {
+        denied = true;
+        socket.close();
+        return;
+      }
+      confirmed = true;
       clearTimeout(timer);
-      settle({ close, kind: "connected" });
+      settle({ close, lease: verdict.lease });
     });
     // A socket closes once; settling an already settled outcome changes
     // nothing, and the timer closing a closed socket does nothing either.
     socket.addEventListener("close", () => {
-      if (connected) onLost();
-      settle({ kind: "unavailable" });
+      if (confirmed) onDropped();
+      settle(denied ? "denied" : "failed");
     });
   });
+}
+
+/** Everything connecting obtained that staying connected needs again. */
+interface Registered {
+  release: FhircastRelease;
+  endpoints: HubEndpoints;
+  clientId: string;
+  signing: SigningKey;
+  handlers: Required<FhircastHandlers>;
+}
+
+/**
+ * The connection once the key is registered: steps 3 to 5, then renewal
+ * before the Hub Token or the lease runs out, and reconnecting when a socket
+ * drops or a renewal fails. A socket that drops while a renewal is under way
+ * is left to the renewal.
+ */
+class Connection {
+  private channel: Channel | null = null;
+  /** The endpoint the socket was last opened at: set with the first socket, before any retry. */
+  private endpoint!: string;
+  /** When the Hub Token, and the lease, are due for renewal, on `Date.now()`'s clock. */
+  private tokenRenewsAt = Infinity;
+  private leaseRenewsAt = Infinity;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private renewing = false;
+  private closed = false;
+  /** Whether a retry subscribes anew, rather than reopening the endpoint. */
+  private resubscribing = false;
+
+  constructor(private readonly registered: Registered) {}
+
+  /**
+   * Steps 3 to 5: a Hub Token from a fresh assertion, a new subscription, and
+   * its socket. Whether a socket was confirmed; a {@link HubFailure} when the
+   * hub refused a step. Once closed, it keeps nothing it is granted.
+   */
+  async subscribe(): Promise<boolean> {
+    const { clientId, endpoints, signing } = this.registered;
+    const granted = await hubToken(
+      endpoints.token,
+      await assertion(clientId, endpoints.token, signing),
+    );
+    return !this.closed && (await this.subscribeWith(granted));
+  }
+
+  /** Stops everything: no renewal, no retry, and the socket closed. */
+  close() {
+    this.closed = true;
+    clearTimeout(this.timer);
+    this.channel?.close();
+  }
+
+  /** Steps 4 and 5 with the Hub Token `granted`, which the tab keeps and renewal is then due by. */
+  private async subscribeWith(granted: HubToken): Promise<boolean> {
+    this.tokenRenewsAt = Date.now() + renewalDelay(granted.lifetime);
+    window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.hubToken, granted.token);
+    return (await this.reopen(await subscribe(this.registered.release, granted.token))) === true;
+  }
+
+  /**
+   * Opens `endpoint`: `true` once the hub confirms the socket, which then
+   * replaces the one before, or is closed again when the connection was
+   * closed meanwhile; otherwise `denied` or `failed`, as {@link open} answered.
+   */
+  private async reopen(endpoint: string): Promise<true | Exclude<Opened, Channel>> {
+    const { handlers, release } = this.registered;
+    const opened = await open(endpoint, release.hubTopic, handlers.onEvent, () => this.dropped());
+    if (typeof opened === "string") return opened;
+    if (this.closed) opened.close();
+    else this.adopt(opened, endpoint);
+    return true;
+  }
+
+  /** `opened`, at `endpoint`, as the socket: the one before closed, and renewal due by its lease too. */
+  private adopt(opened: Channel, endpoint: string) {
+    this.channel?.close();
+    this.channel = opened;
+    this.endpoint = endpoint;
+    this.leaseRenewsAt = Date.now() + renewalDelay(opened.lease);
+    this.schedule();
+  }
+
+  /** Sets the renewal timer for whichever of the Hub Token and the lease is due first. */
+  private schedule() {
+    clearTimeout(this.timer);
+    const due = Math.min(this.tokenRenewsAt, this.leaseRenewsAt);
+    if (!Number.isFinite(due)) return;
+    this.timer = setTimeout(() => void this.renew(), Math.min(due - Date.now(), LONGEST_TIMER_MS));
+  }
+
+  /** Renewal: steps 3 to 5 again; reconnecting, by subscribing anew, when it fails. */
+  private async renew() {
+    this.renewing = true;
+    let renewed = false;
+    try {
+      renewed = await this.subscribe();
+    } catch {
+      // The hub refused a step: the renewal failed.
+    }
+    this.renewing = false;
+    if (this.closed || renewed) return;
+    this.channel?.close();
+    this.channel = null;
+    this.resubscribing = true;
+    this.reconnect(0);
+  }
+
+  /** The confirmed socket, closed by the hub. */
+  private dropped() {
+    this.channel = null;
+    if (this.renewing) return;
+    clearTimeout(this.timer);
+    this.reconnect(0);
+  }
+
+  /** Retry `attempt`, from 0, after its backoff; once the retries run out, disconnected. */
+  private reconnect(attempt: number) {
+    const { onConnection } = this.registered.handlers;
+    if (attempt === 0) onConnection("reconnecting");
+    if (attempt === RECONNECT_ATTEMPTS) {
+      onConnection("disconnected");
+      return;
+    }
+    this.timer = setTimeout(() => void this.retry(attempt), RECONNECT_BACKOFF_MS * 2 ** attempt);
+  }
+
+  /** One retry: connected again once a socket is confirmed, or the next retry. */
+  private async retry(attempt: number) {
+    try {
+      await this.restore();
+    } catch {
+      // The hub refused a step: this retry failed.
+    }
+    if (this.closed) return;
+    if (this.channel === null) this.reconnect(attempt + 1);
+    else this.registered.handlers.onConnection("connected");
+  }
+
+  /**
+   * Reopens the endpoint; subscribes anew when the hub denies it, or after a
+   * failed renewal, until a new subscription's socket is confirmed.
+   */
+  private async restore() {
+    if (!this.resubscribing && (await this.reopen(this.endpoint)) !== "denied") return;
+    this.resubscribing = true;
+    this.resubscribing = !(await this.subscribe());
+  }
 }
 
 /**
@@ -433,10 +659,17 @@ async function blockedByBrowser(): Promise<boolean> {
   }
 }
 
-/** What a caller hears of a connected socket. */
+/**
+ * Where a connection that was connected has got to: `reconnecting` once its
+ * socket drops or a renewal fails, `connected` again when a retry wins it
+ * back, and `disconnected` when the retries run out.
+ */
+export type FhircastConnectionState = "connected" | "reconnecting" | "disconnected";
+
+/** What a caller hears of a connection. */
 export interface FhircastHandlers {
-  /** Called once if the hub drops a connected socket. */
-  onLost?: () => void;
+  /** Called each time a connected connection is lost, won back or given up. */
+  onConnection?: (state: FhircastConnectionState) => void;
   /** Called with each valid event notification, once it is acknowledged. */
   onEvent?: (event: PatientEvent) => void;
 }
@@ -464,15 +697,18 @@ export async function connectFhircast(
     );
     const clientId = await register(endpoints.registration, release.accessToken, signing);
     storage.setItem(FHIRCAST_STORAGE_KEYS.clientId, clientId);
-    const token = await hubToken(
-      endpoints.token,
-      await assertion(clientId, endpoints.token, signing),
-    );
-    storage.setItem(FHIRCAST_STORAGE_KEYS.hubToken, token);
-    return await open(await subscribe(release, token), release.hubTopic, {
-      onEvent: options.onEvent ?? (() => undefined),
-      onLost: options.onLost ?? (() => undefined),
+    const connection = new Connection({
+      clientId,
+      endpoints,
+      handlers: {
+        onConnection: options.onConnection ?? (() => undefined),
+        onEvent: options.onEvent ?? (() => undefined),
+      },
+      release,
+      signing,
     });
+    if (!(await connection.subscribe())) return { kind: "unavailable" };
+    return { close: () => connection.close(), kind: "connected" };
   } catch (failure) {
     if (failure instanceof HubFailure && failure.unreachable && (await blockedByBrowser())) {
       return { kind: "blocked" };

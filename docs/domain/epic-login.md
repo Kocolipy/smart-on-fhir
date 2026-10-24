@@ -131,10 +131,34 @@ access token as `Bearer`; it signs a five-minute `jwt-bearer` assertion with tha
 key for a **Hub Token**; with the Hub Token it makes the **Hub Subscription** to
 `Patient-open` and `Patient-close` on the topic, over a websocket held to
 `ws(s)://127.0.0.1`. The FHIRcast card's status is `Connecting`, `Connected`,
-`FHIRcast unavailable` or `Local hub blocked by browser`, nothing more. The SMART access
-token, the Hub Token, the registered `client_id` and the private key live in the
-tab's `sessionStorage` and go when the session ends. ADR 0016 has the decision,
-and ADR 0011 the deviations it accepts.
+`Reconnecting`, `Disconnected`, `FHIRcast unavailable` or `Local hub blocked by
+browser`, nothing more. The SMART access token, the Hub Token, the registered
+`client_id` and the private key live in the tab's `sessionStorage` and go when
+the session ends. ADR 0016 has the decision, and ADR 0011 the deviations it
+accepts.
+
+**Staying connected** — once connected, the card stays connected through the
+clinician's working session. Before the Hub Token or the subscription's lease
+(the confirmation's `hub.lease_seconds`) runs out, the SPA renews: a fresh
+`jwt-bearer` assertion (five minutes, a `jti` of its own) signed with the key it
+registered, a new Hub Token, and a new Hub Subscription, whose socket replaces
+the old one once the hub confirms it. It does not register again. Renewal
+starts at 80% of the token's or lease's lifetime, or 60 seconds before it ends,
+whichever is sooner, though never sooner than 5 seconds after it was granted:
+a lifetime of a minute or less has no time 60 seconds before it ends, and is
+not renewed without pause. A lifetime the hub does not state is never renewed
+by. A renewal is unseen: the card stays `Connected`.
+
+A socket the hub drops, and a renewal that fails, start reconnecting: the card
+shows `Reconnecting`, and the SPA retries five times, waiting 1, 2, 4, 8 and 16
+seconds before each. A retry reopens the socket at the same endpoint; when the
+hub answers that the endpoint has gone (its `hub.mode` `denied`), or after a
+failed renewal, it subscribes anew instead, with a new Hub Token. The first
+retry whose socket the hub confirms brings the card back to `Connected`. When
+all five fail, the card shows `Disconnected` and a **Retry** button, which
+connects again from the start, from the release on. Leaving Home, including
+every end of the session, stops all of it. The chain's renewals are not bound
+to the session's lifetime: ADR 0011 records that deviation.
 
 **The last event** — while connected, the card shows the last **Event
 Notification** the hub sent on the socket: its `hub.event` (`Patient-open` or
@@ -150,7 +174,8 @@ socket with `{"id": <its id>, "status": "200"}`, then shown, replacing the event
 before it. A Patient id outside `[A-Za-z0-9\-.]{1,64}` is omitted while the
 event and its time still show. Every value is rendered as text, and nothing a
 notification carries is logged. The event is held in the card's memory alone:
-it is not shown once the hub drops the socket, and a reload starts with none.
+it stays shown through renewal and while `Reconnecting`, is not shown once
+`Disconnected`, and a reload, or a Retry, starts with none.
 
 **The Launch context goes to the browser, never into the session** — the
 token response's `patient` and `encounter` are the **Launch context**. Each is

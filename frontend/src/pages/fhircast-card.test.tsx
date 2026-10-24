@@ -1,5 +1,5 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { adoptLaunchLanding } from "@/auth/launch-context";
 import {
@@ -10,7 +10,13 @@ import {
   renderAsSession,
   type Answers,
 } from "@/auth/session-adapter.testHelpers";
-import { type FakeHub, fakeHub, HUB_URL, type HubOptions } from "@/lib/fake-hub.testHelpers";
+import {
+  type FakeHub,
+  fakeHub,
+  HUB_URL,
+  type HubOptions,
+  REGISTRATION_ENDPOINT,
+} from "@/lib/fake-hub.testHelpers";
 
 import { Home } from "./home";
 
@@ -45,6 +51,29 @@ async function renderEpicHome(answers: Answers, hub: HubOptions = {}) {
 
 /** The card's one status line. */
 const status = () => screen.getByRole("status", { name: "FHIRcast" });
+
+/** Home for an Epic session, connected to a hub answering `options`. */
+async function connectedHome(options: HubOptions = {}) {
+  landedFromEpic();
+  const hub = fakeHub(options);
+  await renderAsSession(<Home pages={[]} />, SESSION, {
+    answers: { [RELEASE_REQUEST]: json(RELEASE) },
+  });
+  await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+  return hub;
+}
+
+/** Fake timers that still follow the real clock, so `waitFor` keeps polling. */
+const onTheClock = () =>
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+/** Every retry a dropped connection gets, each failing, until it is given up. */
+const RETRIES_RUN_OUT_MS = 1_000 + 2_000 + 4_000 + 8_000 + 16_000 + 1_000;
+
+/** A hub whose first socket confirms, then five that close, then one that confirms again. */
+const RETRIES_FAIL_THEN_CONFIRM: HubOptions = {
+  socket: ["confirms", "closes", "closes", "closes", "closes", "closes", "confirms"],
+};
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
@@ -112,7 +141,7 @@ describe("the FHIRcast card", () => {
     await waitFor(() => expect(status()).toHaveTextContent(/^Local hub blocked by browser$/));
   });
 
-  it("shows FHIRcast unavailable once the hub drops a connection", async () => {
+  it("shows reconnecting once the hub drops a connection", async () => {
     landedFromEpic();
     const hub = fakeHub();
     await renderAsSession(<Home pages={[]} />, SESSION, {
@@ -120,9 +149,78 @@ describe("the FHIRcast card", () => {
     });
     await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
 
-    hub.dropSockets();
+    act(() => hub.dropSockets());
 
-    await waitFor(() => expect(status()).toHaveTextContent(/^FHIRcast unavailable$/));
+    expect(status()).toHaveTextContent(/^Reconnecting$/);
+  });
+
+  it("offers no retry while connected", async () => {
+    await renderEpicHome({ [RELEASE_REQUEST]: json(RELEASE) });
+    await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  describe("on the clock", () => {
+    beforeEach(onTheClock);
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows connected again once a retry wins the connection back", async () => {
+      const hub = await connectedHome();
+      act(() => hub.dropSockets());
+      expect(status()).toHaveTextContent(/^Reconnecting$/);
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+
+      await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+    });
+
+    it("shows disconnected, with a retry, once the retries run out", async () => {
+      const hub = await connectedHome({ socket: ["confirms", "closes"] });
+      act(() => hub.dropSockets());
+
+      await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
+
+      await waitFor(() =>
+        expect([
+          status().textContent,
+          screen.queryByRole("button", { name: "Retry" }) !== null,
+        ]).toEqual(["Disconnected", true]),
+      );
+    });
+
+    it("shows connecting as soon as the clinician retries", async () => {
+      const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
+      act(() => hub.dropSockets());
+      await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
+      await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      const shownOnRetry = status().textContent;
+      // Let the retry's connection settle, so nothing of it reaches the next test.
+      await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+
+      expect(shownOnRetry).toBe("Connecting");
+    });
+
+    it("connects again from the start when the clinician retries", async () => {
+      const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
+      act(() => hub.dropSockets());
+      await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
+      await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+      await waitFor(() =>
+        expect([status().textContent, hub.requestsTo(REGISTRATION_ENDPOINT).length]).toEqual([
+          "Connected",
+          2,
+        ]),
+      );
+    });
   });
 
   it("closes its socket when Home goes", async () => {
@@ -200,17 +298,6 @@ describe("the FHIRcast card", () => {
 
     /** What the card shows of `notification("Patient-open")` with its defaults. */
     const SHOWN_OPEN = { Event: "Patient-open", Patient: "patient-1", Time: "2026-10-24 10:00" };
-
-    /** Home for an Epic session, connected to the hub. */
-    async function connectedHome() {
-      landedFromEpic();
-      const hub = fakeHub();
-      await renderAsSession(<Home pages={[]} />, SESSION, {
-        answers: { [RELEASE_REQUEST]: json(RELEASE) },
-      });
-      await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
-      return hub;
-    }
 
     /** What the card lists of the last event, each field's label beside its value. */
     const shown = () => {
@@ -351,13 +438,66 @@ describe("the FHIRcast card", () => {
       expect(console.flatMap((spy) => spy.mock.calls)).toEqual([]);
     });
 
-    it("shows no event once the hub drops the connection", async () => {
+    it("keeps showing the last event while reconnecting", async () => {
       const hub = await connectedHome();
       act(() => hub.notify(notification("Patient-open")));
 
       act(() => hub.dropSockets());
 
-      expect([status().textContent, shown()]).toEqual(["FHIRcast unavailable", null]);
+      expect([status().textContent, shown()]).toEqual(["Reconnecting", SHOWN_OPEN]);
+    });
+
+    describe("on the clock", () => {
+      beforeEach(onTheClock);
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("keeps showing the last event through a renewal", async () => {
+        const hub = await connectedHome({ leaseSeconds: 200 });
+        act(() => hub.notify(notification("Patient-open")));
+
+        await act(() => vi.advanceTimersByTimeAsync(140_000));
+        await waitFor(() => expect([hub.sockets().length, hub.openSockets()]).toEqual([2, 1]));
+
+        expect([status().textContent, shown()]).toEqual(["Connected", SHOWN_OPEN]);
+      });
+
+      it("keeps showing the last event once reconnected", async () => {
+        const hub = await connectedHome();
+        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.dropSockets());
+
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+
+        expect(shown()).toEqual(SHOWN_OPEN);
+      });
+
+      it("shows no event once disconnected", async () => {
+        const hub = await connectedHome({ socket: ["confirms", "closes"] });
+        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.dropSockets());
+
+        await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
+        await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));
+
+        expect(shown()).toBeNull();
+      });
+
+      it("shows no event after a retry until the hub sends one", async () => {
+        const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
+        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.dropSockets());
+        await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
+        await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));
+
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+
+        expect(shown()).toBeNull();
+      });
     });
   });
 
