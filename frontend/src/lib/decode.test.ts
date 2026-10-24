@@ -109,6 +109,31 @@ describe("readObject", () => {
     }
   });
 
+  it("reads a nested object's fields", () => {
+    expect(
+      readObject({ owner: { name: "ada" } }, "Body")
+        .object("owner")
+        .string("name"),
+    ).toBe("ada");
+  });
+
+  it.each([
+    ["missing", {}],
+    ["null", { owner: null }],
+    ["an array", { owner: [] }],
+    ["a string", { owner: "ada" }],
+  ])("refuses a nested object that is %s, naming it under its parent", (_, value) => {
+    expect(refusal(() => readObject(value, "Body").object("owner"))).toBe(
+      "Body.owner is not an object",
+    );
+  });
+
+  it("names a nested object's field under its parent's name", () => {
+    expect(refusal(() => readObject({ owner: {} }, "Body").object("owner").string("name"))).toBe(
+      "Body.owner.name is not a string",
+    );
+  });
+
   it("names a nested element's field under its parent", () => {
     expect(refusal(() => readObject({ tags: ["a", 1] }, "Body").array("tags", asString))).toBe(
       "not a string",

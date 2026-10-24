@@ -330,8 +330,17 @@ _Avoid_: FHIRcast token, access token (for this one)
 **Hub Subscription**:
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
 `Patient-close` on the clinician's topic. Connected once the hub confirms it on
-the socket; it ends with Home.
+the socket; it ends with Home. Once connected, every Event Notification on the
+socket is acknowledged or ignored.
 _Avoid_: listener, FHIRcast session
+
+**Event Notification**:
+A FHIRcast STU3 message the FHIRcast Hub sends on a connected Hub Subscription's
+socket: a `timestamp`, an `id`, and an `event` naming `hub.topic`, `hub.event`
+and a `context`; only a well-formed `Patient-open` or `Patient-close` on the
+clinician's topic is acknowledged, with its `id`, and shown on the FHIRcast card
+as the event, its time and the Patient's FHIR id.
+_Avoid_: FHIRcast message, context change, push
 
 **MFA factor**:
 The second factor an EHR launch's Login was made with, recorded on its

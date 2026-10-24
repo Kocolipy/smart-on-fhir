@@ -70,6 +70,12 @@ export function formatInstant(instant: string): string {
   return `${date} ${minute}`;
 }
 
+/**
+ * Whether `text` names an instant {@link formatInstant} can show: one another
+ * origin sent, such as a FHIRcast notification's `timestamp`.
+ */
+export const isInstant = (text: string): boolean => !Number.isNaN(Date.parse(text));
+
 /** Whether `year` has a 29 February, by the Gregorian rule. */
 const isLeapYear = (year: number): boolean =>
   year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);

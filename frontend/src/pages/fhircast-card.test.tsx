@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { adoptLaunchLanding } from "@/auth/launch-context";
@@ -10,7 +10,7 @@ import {
   renderAsSession,
   type Answers,
 } from "@/auth/session-adapter.testHelpers";
-import { fakeHub, HUB_URL, type HubOptions } from "@/lib/fake-hub.testHelpers";
+import { type FakeHub, fakeHub, HUB_URL, type HubOptions } from "@/lib/fake-hub.testHelpers";
 
 import { Home } from "./home";
 
@@ -48,6 +48,8 @@ const status = () => screen.getByRole("status", { name: "FHIRcast" });
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
+  // A console spy left in place would collect what a later test writes.
+  vi.restoreAllMocks();
 });
 
 describe("the FHIRcast card", () => {
@@ -174,6 +176,189 @@ describe("the FHIRcast card", () => {
     confirm();
 
     await waitFor(() => expect(hub.openSockets()).toBe(0));
+  });
+
+  describe("the last event", () => {
+    /** A notification on the session's topic: `event` for Patient `patientId`. */
+    const notification = (
+      event: string,
+      {
+        id = "event-1",
+        patientId = "patient-1",
+        timestamp = "2026-10-24T02:00:05Z",
+        topic = "topic-1",
+      } = {},
+    ) => ({
+      event: {
+        context: [{ key: "patient", resource: { id: patientId, resourceType: "Patient" } }],
+        "hub.event": event,
+        "hub.topic": topic,
+      },
+      id,
+      timestamp,
+    });
+
+    /** What the card shows of `notification("Patient-open")` with its defaults. */
+    const SHOWN_OPEN = { Event: "Patient-open", Patient: "patient-1", Time: "2026-10-24 10:00" };
+
+    /** Home for an Epic session, connected to the hub. */
+    async function connectedHome() {
+      landedFromEpic();
+      const hub = fakeHub();
+      await renderAsSession(<Home pages={[]} />, SESSION, {
+        answers: { [RELEASE_REQUEST]: json(RELEASE) },
+      });
+      await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+      return hub;
+    }
+
+    /** What the card lists of the last event, each field's label beside its value. */
+    const shown = () => {
+      const list = screen.queryByRole("group", { name: "Last event" });
+      if (list === null) return null;
+      const values = within(list)
+        .getAllByRole("definition")
+        .map((value) => value.textContent);
+      return Object.fromEntries(
+        within(list)
+          .getAllByRole("term")
+          .map((label, index) => [label.textContent, values[index]]),
+      );
+    };
+
+    const acknowledged = (hub: FakeHub) =>
+      hub.received().map((sent) => JSON.parse(sent) as unknown);
+
+    it("shows a Patient-open: its name, its time in Singapore, and the Patient id", async () => {
+      const hub = await connectedHome();
+
+      act(() => hub.notify(notification("Patient-open")));
+
+      expect(shown()).toEqual(SHOWN_OPEN);
+    });
+
+    it("shows a Patient-close", async () => {
+      const hub = await connectedHome();
+
+      act(() => hub.notify(notification("Patient-close")));
+
+      expect(shown()).toEqual({ ...SHOWN_OPEN, Event: "Patient-close" });
+    });
+
+    it.each(["Patient-open", "Patient-close"])("acknowledges a %s with its id", async (event) => {
+      const hub = await connectedHome();
+
+      act(() => hub.notify(notification(event, { id: "event-9" })));
+
+      expect(acknowledged(hub)).toEqual([{ id: "event-9", status: "200" }]);
+    });
+
+    it("shows no event before the hub sends one", async () => {
+      await connectedHome();
+
+      expect(shown()).toBeNull();
+    });
+
+    it("replaces the shown event with a newer one", async () => {
+      const hub = await connectedHome();
+      act(() => hub.notify(notification("Patient-open", { id: "event-1" })));
+
+      act(() =>
+        hub.notify(
+          notification("Patient-close", {
+            id: "event-2",
+            patientId: "patient-2",
+            timestamp: "2026-10-24T03:30:00Z",
+          }),
+        ),
+      );
+
+      expect(shown()).toEqual({
+        Event: "Patient-close",
+        Patient: "patient-2",
+        Time: "2026-10-24 11:30",
+      });
+    });
+
+    it.each<[string, unknown]>([
+      ["a malformed notification", { ...notification("Patient-open"), timestamp: undefined }],
+      ["a notification on another topic", notification("Patient-open", { topic: "topic-2" })],
+      ["an event not subscribed to", notification("Encounter-open")],
+    ])("ignores %s, unacknowledged", async (_name, message) => {
+      const hub = await connectedHome();
+
+      act(() => hub.notify(message));
+
+      expect([shown(), acknowledged(hub)]).toEqual([null, []]);
+    });
+
+    it("keeps showing the last event past one it ignores", async () => {
+      const hub = await connectedHome();
+      act(() => hub.notify(notification("Patient-open")));
+
+      act(() => hub.notify(notification("Patient-close", { topic: "topic-2" })));
+
+      expect(shown()).toEqual(SHOWN_OPEN);
+    });
+
+    it("omits a Patient id outside the grammar, still showing the event", async () => {
+      const hub = await connectedHome();
+
+      act(() => hub.notify(notification("Patient-open", { patientId: "patient/1" })));
+
+      expect(shown()).toEqual({ Event: "Patient-open", Time: "2026-10-24 10:00" });
+    });
+
+    it("never renders markup a notification carries", async () => {
+      const markup = "<b>Tan</b> <img src=x onerror=alert(1)>";
+      const hub = await connectedHome();
+      const open = notification("Patient-open", { id: markup, patientId: markup });
+
+      act(() =>
+        hub.notify({
+          ...open,
+          event: {
+            ...open.event,
+            context: [...open.event.context, { key: markup, resource: { id: markup } }],
+          },
+        }),
+      );
+
+      expect([
+        shown(),
+        document.querySelector("b, img"),
+        document.body.textContent?.includes("Tan"),
+      ]).toEqual([{ Event: "Patient-open", Time: "2026-10-24 10:00" }, null, false]);
+    });
+
+    it("logs nothing of an event's context", async () => {
+      const hub = await connectedHome();
+      const console = [
+        vi.spyOn(globalThis.console, "error"),
+        vi.spyOn(globalThis.console, "warn"),
+        vi.spyOn(globalThis.console, "log"),
+        vi.spyOn(globalThis.console, "info"),
+        vi.spyOn(globalThis.console, "debug"),
+      ];
+
+      act(() => {
+        hub.notify(notification("Patient-open", { patientId: "patient-secret" }));
+        hub.notify(notification("Patient-open", { patientId: "patient/secret" }));
+        hub.notify(notification("Patient-open", { patientId: "secret", topic: "topic-2" }));
+        hub.notify("not json secret");
+      });
+
+      expect(console.flatMap((spy) => spy.mock.calls)).toEqual([]);
+    });
+
+    it("shows no event once the hub drops the connection", async () => {
+      const hub = await connectedHome();
+      act(() => hub.notify(notification("Patient-open")));
+
+      act(() => hub.dropSockets());
+
+      expect([status().textContent, shown()]).toEqual(["FHIRcast unavailable", null]);
+    });
   });
 
   it("shows no card, and asks for nothing, in a session no EHR launch began", async () => {

@@ -195,7 +195,8 @@ would end the session they replay. The routing arch test reads their
 
 - **`fhircast`** holds `fhircast-launch.spec.ts`, `fhircast-hub.spec.ts` and
   `fhircast-card.spec.ts` (Home's FHIRcast card reaching `Connected` after a
-  launch, and absent after a password Login), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+  launch, showing a published `Patient-open` and then the `Patient-close` that
+  replaces it, and absent after a password Login), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
   against it. Each replays the Admin session only to issue a SCIM token; every

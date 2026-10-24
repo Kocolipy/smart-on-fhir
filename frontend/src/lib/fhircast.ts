@@ -19,7 +19,12 @@
  * 4. the subscription to `Patient-open` and `Patient-close` on the topic, over
  *    a websocket, the Hub Token as `Bearer`;
  * 5. the socket at `hub.channel.endpoint`, held to `ws(s)` on `127.0.0.1`,
- *    connected once the hub confirms the subscription on it.
+ *    connected once the hub confirms the subscription on it;
+ * 6. on the connected socket, each event notification held to the FHIRcast
+ *    STU3 shape, the two events and the topic, acknowledged with its `id` and
+ *    handed on as a {@link PatientEvent}; anything else ignored, unanswered.
+ *
+ * Nothing a notification carries is logged.
  *
  * It answers one generic outcome and nothing else: no hub's or Epic's
  * `error_description`, and no response body, is ever handed back or logged.
@@ -29,6 +34,7 @@
  */
 
 import { DecodeError, jsonDecoder, readObject } from "./decode";
+import { isInstant } from "./time";
 
 /** What the backend releases for FHIRcast: `GET /api/auth/epic/fhircast`. */
 export interface FhircastRelease {
@@ -48,6 +54,31 @@ export interface FhircastRelease {
  */
 export type FhircastOutcome =
   { kind: "connected"; close: () => void } | { kind: "unavailable" } | { kind: "blocked" };
+
+/** The two events the subscription asks for, as this module names them. */
+const PATIENT_EVENTS = ["Patient-open", "Patient-close"] as const;
+
+/**
+ * One event notification the hub sent, as far as it is shown: the event, the
+ * notification's `timestamp` as the hub wrote it, and the Patient FHIR id from
+ * its `context` — `null` when the context names none within
+ * `[A-Za-z0-9\-.]{1,64}`. Nothing else of the context is kept.
+ */
+export interface PatientEvent {
+  event: (typeof PATIENT_EVENTS)[number];
+  timestamp: string;
+  patientId: string | null;
+}
+
+/** The Patient FHIR id grammar: anything else is never handed on. */
+const PATIENT_ID = /^[A-Za-z0-9\-.]{1,64}$/;
+
+/**
+ * The `status` of an acknowledgement. STU3 is inconsistent on string or
+ * number; the hub (Medplum's STU3 socket) accepts any JSON, and this is the
+ * spec's example.
+ */
+const ACKNOWLEDGED = "200";
 
 /**
  * Where the tab keeps what connecting obtained. `smartAccess` holds the SMART
@@ -277,14 +308,68 @@ async function subscribe(release: FhircastRelease, token: string): Promise<strin
 }
 
 /**
+ * The member `key` of `value`, or `undefined` when `value` is no object or has
+ * no such member: a lenient read, for where an absence is an answer and not a
+ * malformed message.
+ */
+function memberOf(value: unknown, key: string): unknown {
+  return Reflect.get(Object(value), key);
+}
+
+/**
  * Whether a socket message is the hub's confirmation of the subscription:
  * JSON whose `hub.mode` is `subscribe`. Anything else, JSON or not, is not.
  */
 function confirms(data: unknown): boolean {
   try {
-    return Reflect.get(Object(JSON.parse(String(data))), "hub.mode") === "subscribe";
+    return memberOf(JSON.parse(String(data)), "hub.mode") === "subscribe";
   } catch {
     return false;
+  }
+}
+
+/** A notification worth handing on: its `id`, to acknowledge, and the event it carries. */
+interface Notification {
+  id: string;
+  event: PatientEvent;
+}
+
+/**
+ * The Patient FHIR id in an event's `context`: the `id` of the resource under
+ * the `patient` key, or `null` when there is none or it is outside the grammar.
+ */
+function patientIdIn(context: readonly unknown[]): string | null {
+  const entry: unknown = context.find((candidate) => memberOf(candidate, "key") === "patient");
+  const id: unknown = memberOf(memberOf(entry, "resource"), "id");
+  return typeof id === "string" && PATIENT_ID.test(id) ? id : null;
+}
+
+/**
+ * A socket message read as a FHIRcast STU3 event notification: `timestamp`,
+ * `id`, and an `event` with `hub.topic`, `hub.event` and `context`, the event
+ * one of the two subscribed to and the topic the session's. Anything else is
+ * `null`, and what was wrong with it is dropped unread.
+ */
+function notificationOf(data: unknown, topic: string): Notification | null {
+  try {
+    const message = readObject(JSON.parse(String(data)), "notification");
+    const id = message.string("id");
+    const timestamp = message.string("timestamp");
+    const event = message.object("event");
+    const receivedEvent = event.string("hub.event").toLowerCase();
+    const subscribedEvent = PATIENT_EVENTS.find((known) => known.toLowerCase() === receivedEvent);
+    const context = event.array("context", (entry) => entry);
+    if (
+      id === "" ||
+      !isInstant(timestamp) ||
+      subscribedEvent === undefined ||
+      event.string("hub.topic") !== topic
+    ) {
+      return null;
+    }
+    return { event: { event: subscribedEvent, patientId: patientIdIn(context), timestamp }, id };
+  } catch {
+    return null;
   }
 }
 
@@ -293,9 +378,15 @@ function confirms(data: unknown): boolean {
  * and unavailable if it closes, or stays silent, first. A browser fires
  * `close` after any socket `error`, so `close` alone is listened for. Once
  * connected, a `close` the hub causes is reported through `onLost`; one the
- * caller asks for is not.
+ * caller asks for is not. A connected socket's every other message is held to
+ * {@link notificationOf}: a notification that passes is acknowledged on the
+ * socket and handed to `onEvent`; anything else is ignored, unacknowledged.
  */
-function open(endpoint: string, onLost: () => void): Promise<FhircastOutcome> {
+function open(
+  endpoint: string,
+  topic: string,
+  { onEvent, onLost }: Required<FhircastHandlers>,
+): Promise<FhircastOutcome> {
   return new Promise((settle) => {
     const socket = new WebSocket(endpoint);
     let connected = false;
@@ -305,6 +396,13 @@ function open(endpoint: string, onLost: () => void): Promise<FhircastOutcome> {
       socket.close();
     };
     socket.addEventListener("message", ({ data }) => {
+      if (connected) {
+        const notification = notificationOf(data, topic);
+        if (notification === null) return;
+        socket.send(JSON.stringify({ id: notification.id, status: ACKNOWLEDGED }));
+        onEvent(notification.event);
+        return;
+      }
       if (!confirms(data)) return;
       connected = true;
       clearTimeout(timer);
@@ -335,15 +433,21 @@ async function blockedByBrowser(): Promise<boolean> {
   }
 }
 
+/** What a caller hears of a connected socket. */
+export interface FhircastHandlers {
+  /** Called once if the hub drops a connected socket. */
+  onLost?: () => void;
+  /** Called with each valid event notification, once it is acknowledged. */
+  onEvent?: (event: PatientEvent) => void;
+}
+
 /**
  * Connects to the hub `release` names, running every step in order; any
  * failure along the way is one generic outcome.
- *
- * @param options.onLost called once if the hub drops a connected socket
  */
 export async function connectFhircast(
   release: FhircastRelease,
-  options: { onLost?: () => void } = {},
+  options: FhircastHandlers = {},
 ): Promise<FhircastOutcome> {
   if (!onLoopback(release.hubUrl, HTTP_SCHEMES)) return { kind: "unavailable" };
   const storage = window.sessionStorage;
@@ -365,7 +469,10 @@ export async function connectFhircast(
       await assertion(clientId, endpoints.token, signing),
     );
     storage.setItem(FHIRCAST_STORAGE_KEYS.hubToken, token);
-    return await open(await subscribe(release, token), options.onLost ?? (() => undefined));
+    return await open(await subscribe(release, token), release.hubTopic, {
+      onEvent: options.onEvent ?? (() => undefined),
+      onLost: options.onLost ?? (() => undefined),
+    });
   } catch (failure) {
     if (failure instanceof HubFailure && failure.unreachable && (await blockedByBrowser())) {
       return { kind: "blocked" };
