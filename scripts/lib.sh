@@ -227,34 +227,37 @@ stop_group() {
 # --- Full-stack E2E runs ----------------------------------------------------
 #
 # The lifecycle `make integration-test` runs: compose dependencies, the
-# backend, then Playwright, which starts the Vite dev server itself. A caller runs `stack_up`, exports
-# whatever its backend and specs need, then `stack_e2e`. Everything started is
+# backends, then Playwright, which starts the Vite dev server itself. A caller
+# runs `stack_up`, exports whatever its backends and specs need, starts each
+# backend with `stack_backend`, then runs `stack_e2e`. Everything started is
 # torn down on exit unless KEEP_UP=1.
 
 STACK_COMPOSE=()
-stack_backend_pid=""
+STACK_BACKEND_PIDS=()
 
 stack_cleanup() {
   local status=$?
   trap - INT TERM EXIT
   if [[ ${KEEP_UP:-0} == 1 ]]; then
-    log "KEEP_UP=1 — leaving the backend and the compose services running"
+    log "KEEP_UP=1 — leaving the backends and the compose services running"
   else
     log "tearing down"
-    stop_group "$stack_backend_pid"
+    local pid
+    for pid in "${STACK_BACKEND_PIDS[@]}"; do stop_group "$pid"; done
     "${STACK_COMPOSE[@]}" down >/dev/null 2>&1 || true
   fi
   exit "$status"
 }
 
-# stack_up <description> [compose profile]
+# stack_up <description> [compose profile...]
 #
-# Checks the toolchain, starts the compose services (with the profile, when
-# given), exports backend/.env and sets BACKEND_PORT. Refuses to run against a
-# leftover backend or dev server: the suite would pass or fail against code that
-# is not the tree under test.
+# Checks the toolchain, starts the compose services (with each profile given),
+# exports backend/.env and sets BACKEND_PORT. Refuses to run against a leftover
+# backend or dev server: the suite would pass or fail against code that is not
+# the tree under test.
 stack_up() {
-  local description=$1 profile=${2:-}
+  local description=$1 profile
+  shift
   require_node
   require_maven
   require_cmd curl
@@ -263,7 +266,7 @@ stack_up() {
     die "frontend/node_modules missing — run 'make bootstrap' first."
 
   STACK_COMPOSE=(docker compose -f "$BACKEND_DIR/compose.yaml")
-  [[ -z $profile ]] || STACK_COMPOSE+=(--profile "$profile")
+  for profile in "$@"; do STACK_COMPOSE+=(--profile "$profile"); done
   trap stack_cleanup INT TERM EXIT
 
   log "starting $description"
@@ -279,16 +282,77 @@ stack_up() {
   require_port_free 5173 "the Vite dev server Playwright starts"
 }
 
-# stack_e2e <npm script> <backend command...>
+# stack_backend <label> <port> <command...>
 #
-# Starts the backend with the command given and the environment exported so
-# far, waits for it, then runs the frontend's Playwright script.
+# Starts a backend with the command given and the environment exported so far
+# (an `env NAME=value ...` prefix sets what differs for this one), and waits
+# until it answers on the port. One at a time: each runs the `local` profile's
+# migrations and seed at startup, against the one database they share.
+stack_backend() {
+  local label=$1 port=$2 pid
+  shift 2
+  bg_start pid "$label" "$BACKEND_DIR" "$@"
+  STACK_BACKEND_PIDS+=("$pid")
+  wait_for_http "http://localhost:$port/actuator/health" "$label" 180 "$pid"
+}
+
+# stack_e2e <npm script>
+#
+# Runs the frontend's Playwright script against the backends started so far.
 stack_e2e() {
   local script=$1
-  shift
-  bg_start stack_backend_pid backend "$BACKEND_DIR" "$@"
-  wait_for_http "http://localhost:$BACKEND_PORT/actuator/health" backend 180 "$stack_backend_pid"
-
   log "running 'npm run $script' (Playwright starts the Vite dev server itself)"
   (cd "$FRONTEND_DIR" && "$NPM" run "$script")
+}
+
+# --- The local FHIRcast stand-in --------------------------------------------
+#
+# Medplum and the DCR shim, the compose `fhircast` profile
+# (backend/docs/configuration/epic-login.md, "Local FHIRcast stand-in").
+
+# fhircast_seed <compose array name>
+#
+# Seeds Medplum through the one-shot `medplum-init`, in the foreground so a
+# failure stops the caller, and sets FHIRCAST_CLIENT_ID and
+# FHIRCAST_PRACTITIONER_ID from what it prints. The seed's first run on a fresh
+# volume replaces Medplum's signing key, which Medplum reads at startup alone,
+# so that run restarts Medplum, and the shim, whose Medplum token the old key
+# signed, and seeds once more.
+fhircast_seed() {
+  local -n _compose=$1
+  local seeded
+  seeded="$("${_compose[@]}" run --rm -T medplum-init)" ||
+    die "seeding Medplum failed — see the medplum-init output above."
+  if [[ $seeded == *MEDPLUM_RESTART_REQUIRED=true* ]]; then
+    log "Medplum's signing key was replaced: restarting Medplum and the shim to load it"
+    "${_compose[@]}" restart medplum fhircast-shim
+    "${_compose[@]}" up -d --wait
+    seeded="$("${_compose[@]}" run --rm -T medplum-init)" ||
+      die "seeding Medplum failed — see the medplum-init output above."
+  fi
+  FHIRCAST_CLIENT_ID="$(sed -n 's/^MEDPLUM_CLIENT_ID=//p' <<<"$seeded")"
+  FHIRCAST_PRACTITIONER_ID="$(sed -n 's/^MEDPLUM_PRACTITIONER_ID=//p' <<<"$seeded")"
+  [[ -n $FHIRCAST_CLIENT_ID && -n $FHIRCAST_PRACTITIONER_ID ]] ||
+    die "the Medplum seed printed no client or Practitioner id"
+}
+
+# compose_env <compose array name> <service> <variable>
+#
+# Prints one environment value of a compose service as compose resolves it, so
+# a caller reads the stand-in's settings from compose.yaml, their one home,
+# rather than repeating them. The `init` profile is added so that the
+# one-shots' settings resolve too.
+compose_env() {
+  local -n _compose_cmd=$1
+  "${_compose_cmd[@]}" --profile init config --format json |
+    node -e '
+      let text = "";
+      process.stdin.on("data", (chunk) => (text += chunk));
+      process.stdin.on("end", () => {
+        const env = JSON.parse(text).services[process.argv[1]]?.environment ?? {};
+        const value = env[process.argv[2]];
+        if (value === undefined || value === null) process.exit(1);
+        process.stdout.write(String(value));
+      });
+    ' "$2" "$3" || die "compose.yaml sets no $3 on $2"
 }

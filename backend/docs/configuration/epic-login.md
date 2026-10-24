@@ -1,7 +1,7 @@
 ---
 type: Configuration Reference
 title: Epic Login
-description: The APP_EPIC_* variables, startup validation, signing keys and the JWKS, and running a real EHR launch locally against the SMART launcher.
+description: The APP_EPIC_* variables, startup validation, signing keys and the JWKS, and running a real EHR launch locally against the SMART launcher or the local FHIRcast stand-in.
 tags: [epic, smart-on-fhir, configuration]
 ---
 
@@ -125,3 +125,104 @@ Launching lands on Home (`/`), signed in as that User with its Groups'
 Permissions. `make integration-test` runs the same launch as a Playwright
 spec, part of the E2E gate (`frontend/AGENTS.md`); it generates its own key and
 sets all of the above itself.
+
+## Local FHIRcast stand-in
+
+A local stand-in for Epic's FHIRcast hub (Subspace), which runs on the
+clinician's own machine, so its `hub.url` is a loopback address; the stand-in
+is built to look the same. It is behind the `fhircast` compose profile, apart
+from `epic-launcher`, so neither `make infra-up` nor `make epic-launcher-up`
+starts it. From the repository root:
+
+```bash
+make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum and prints the values below
+make fhircast-down   # stops them all; the volumes, Medplum's database among them, are kept
+```
+
+Two parts, both on `127.0.0.1` alone:
+
+- **Medplum** (`medplum/medplum-server`, self-hosted, with its own Postgres and
+  Redis, apart from the app's) is both the SMART EHR launcher and the FHIRcast
+  STU3 websocket hub. When a `fhircast/` scope is granted, its token response
+  carries `hub.url` (`http://127.0.0.1:8103/fhircast/STU3`) and `hub.topic`.
+- **The DCR shim** (`backend/fhircast-shim`, a small Node service) plays the
+  hub's authorization role, which Medplum lacks. Medplum names `hub.url` from
+  its own base URL, and the hub's metadata must be under `hub.url`, so the shim
+  fronts Medplum: Medplum's base URL is the shim's port, and the shim passes
+  everything that is not its own through to Medplum, websockets included.
+
+| Port             | What answers                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `127.0.0.1:8103` | Medplum's base URL, through the shim: its OIDC issuer, FHIR base (`/fhir/R4`), hub, and the shim's `/dcr/*` |
+| `127.0.0.1:3103` | Medplum's web app: the sign-in page Medplum's authorize sends the browser to                                |
+
+The shim's part, under that base URL:
+
+| Endpoint                                                | Does                                                                                                                                                                                              |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /fhircast/STU3/.well-known/fhircast-configuration` | Medplum's hub metadata, plus `registration_endpoint`, `token_endpoint` and `revocation_endpoint`                                                                                                  |
+| `POST /dcr/register`                                    | RFC 7591: with a SMART access token Medplum's introspection calls active as `Bearer`, stores the one public JWK posted in `jwks` and answers a new `client_id`                                    |
+| `POST /dcr/token`                                       | the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant: an `assertion` signed by that key, `iss` = `sub` = `client_id`, `aud` this URL, an unexpired `exp` and an unused `jti`, gets a hub token |
+| `POST /dcr/revoke`                                      | RFC 7009 revocation of a hub token                                                                                                                                                                |
+| `DELETE /dcr/register/{client_id}`                      | RFC 7592 deletion, with the registration's `registration_access_token`; its tokens stop working and it gets no more                                                                               |
+| `GET /dcr/test/state`                                   | test-only: the registrations and the revoked tokens, for E2E assertions                                                                                                                           |
+
+The hub accepts a hub token on its own paths (`/fhircast/`) through the shim,
+which exchanges it for Medplum's super admin token while it is live, and
+refuses it once revoked, expired or its registration deleted. A hub token
+lasts an hour; `FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS` sets another lifetime,
+and `make integration-test` sets 60. Medplum keeps a FHIRcast topic per Medplum
+project, and the shim subscribes as the super admin, so whoever publishes to a
+topic the app subscribes to publishes as the super admin too.
+
+`make fhircast-up` runs the one-shot `medplum-init` after every service is
+healthy, as `make infra-up` runs `sqlserver-init`. It seeds Medplum
+idempotently (`backend/fhircast-shim/src/seed.mjs`): a project for the local
+EHR; a clinician, `clinician@example.com`, as a Practitioner with a Medplum
+sign-in; and this app's ClientApplication — `private_key_jwt` against our JWKS
+(`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
+container reaches the backend), PKCE, and the redirect and launch URIs of
+`make dev`. It also gives Medplum an RS256 signing key, generated then and
+never written anywhere else: Medplum creates an ES384 one on first start, and
+the backend verifies an `id_token` as RS256 only (ADR 0012), so the first run
+on a fresh volume restarts Medplum to load it. Medplum assigns every id, so the
+ClientApplication's id — the client id — and the clinician's Practitioner id
+come from the seed: `make fhircast-up` prints both. Every sign-in is a
+development fixture in `compose.yaml`; the super admin is Medplum's own
+published default.
+
+Medplum is plain `http` too, and its `fhirUser` is the relative
+`Practitioner/{id}`, so the backend runs in the **`dev` profile** beside
+`local`, exactly as for the launcher (D21). Run it with these in place of the
+Epic lines in `.env`:
+
+| Variable                 | Value for the stand-in                              |
+| ------------------------ | --------------------------------------------------- |
+| `SPRING_PROFILES_ACTIVE` | `local,dev`                                         |
+| `APP_EPIC_ENABLED`       | `true`                                              |
+| `APP_EPIC_FHIR_BASE`     | `http://127.0.0.1:8103/fhir/R4`                     |
+| `APP_EPIC_OAUTH_ISSUER`  | `http://127.0.0.1:8103`, without the trailing slash |
+| `APP_EPIC_CLIENT_ID`     | the client id `make fhircast-up` prints             |
+| `APP_EPIC_REDIRECT_URI`  | `http://localhost:5173/api/auth/epic/callback`      |
+| `APP_EPIC_CLIENT_KEY`    | a key generated for the purpose (see above)         |
+| `APP_EPIC_CLIENT_KEY_ID` | any `kid`, e.g. `local-1`                           |
+
+The issuer is Medplum's base URL without its slash because the backend
+discovers it at `{APP_EPIC_OAUTH_ISSUER}/.well-known/openid-configuration` and
+holds the document's `issuer` and the `id_token`'s `iss` to it exactly; Medplum
+is configured to issue that same string. The FHIR base is the `iss` the launch
+names, and Medplum accepts it as the `aud` the backend sends.
+
+To launch by hand, provision a User over SCIM whose `userName` is the
+clinician's Practitioner id, create a `SmartAppLaunch` in Medplum (its
+`patient.identifier.value` is what the token response names as `patient`), and
+open
+`http://localhost:5173/api/auth/epic/launch?iss=http://127.0.0.1:8103/fhir/R4&launch={SmartAppLaunch id}`.
+Sign in on Medplum's page as the clinician, with the password `compose.yaml`
+seeds, and grant the scopes; the launch lands on Home (`/`) signed in as that
+User. `make integration-test` runs the same launch as the `fhircast`
+Playwright project, against a second JAR on `8081` whose `APP_EPIC_*` point at
+Medplum, while the `epic` project keeps the SMART launcher; it seeds Medplum
+with that JAR's JWKS and callback (`FHIRCAST_BACKEND_JWKS_URI`,
+`FHIRCAST_APP_REDIRECT_URIS`, `FHIRCAST_APP_LAUNCH_URI`) and runs the shim's
+own unit tests first.

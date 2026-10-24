@@ -185,7 +185,7 @@ Running one project alone still runs every project ahead of it in the chain.
 `playwright.config.ts` carries the reason beside each `dependencies` line;
 update both together.
 
-Two projects sit outside that chain, declared only by the environment `make
+Three projects sit outside that chain, declared only by the environment `make
 integration-test` sets up, so a bare `npm run test:e2e` against a backend
 started some other way runs without them. Each depends on `setup` and replays
 the Admin session, so it runs beside `admin`, and `guest` lists each declared
@@ -197,6 +197,14 @@ would end the session they replay. The routing arch test reads their
   `E2E_EPIC_FHIR_BASE` names the SMART launcher. It replays the Admin session
   only to issue a SCIM token; the one sign-in it makes, the Epic launch, is of a
   User it provisions itself.
+- **`fhircast`** holds `fhircast-launch.spec.ts` and `fhircast-hub.spec.ts`
+  and is declared when `E2E_FHIRCAST_BASE_URL` names the second JAR, whose
+  Epic Login points at the local FHIRcast stand-in (Medplum and the DCR shim).
+  Its `baseURL` is that JAR's origin. It replays the Admin session only to
+  issue a SCIM token; the one sign-in it makes, the EHR launch through Medplum,
+  is of a User it provisions itself. `fhircast.helpers.ts` holds what its
+  specs share: Medplum's sign-in page, a `SmartAppLaunch`, and publishing
+  `Patient-open` / `Patient-close` to a hub topic.
 - **`packaged`** holds `packaged-csp.spec.ts` and is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's
   origin, so its specs load the built bundle under the backend's CSP rather
@@ -273,6 +281,14 @@ spec must never sweep by prefix during a run: specs run in parallel, so a prefix
 sweep deletes a fixture another spec is still using. Leftovers from a run that
 died before its `finally` are swept once, by `sweepLeftovers()` in
 `auth.setup.ts`, before any other project starts.
+
+The one exception is a `userName` another server assigns, which the spec
+cannot choose: the `fhircast` launch signs in Medplum's Practitioner id, so its
+User is named with that id. Such a User is provisioned only through
+`provisionServerNamedUser`, which deletes any User already holding the exact
+name — the leftover `sweepLeftovers()` cannot see — before provisioning its
+own. That is safe only because one spec alone provisions that name; a second
+spec must not share it.
 
 A spec that needs a known **backend defect** to be visible marks the test
 `test.fail(true, "#<issue>: …")`: the suite stays green while the issue is open

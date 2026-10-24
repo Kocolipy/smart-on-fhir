@@ -7,6 +7,14 @@
 # backend/.env, which compose reads for interpolation (copy .env.example). x86_64
 # only: the image has no arm64 build, and Apple Silicon runs it only through slow,
 # unsupported emulation (backend/README.md).
+
+# The local FHIRcast stand-in's shared settings (the `fhircast` profile below).
+# Development fixtures for services published on 127.0.0.1 alone, and nothing
+# that opens anything else: the super admin is Medplum's own published default.
+x-fhircast-medplum-super-admin:
+  email: &medplum-admin-email admin@example.com
+  password: &medplum-admin-password medplum_admin
+
 services:
   sqlserver:
     # SQL Server 2022 CU27, Developer Edition (free for development and test use).
@@ -112,6 +120,185 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # --- The local FHIRcast stand-in (`fhircast` profile) ----------------------
+  #
+  # A stand-in for Epic's local FHIRcast hub, which runs on the clinician's own
+  # machine, so its `hub.url` is a loopback address. Self-hosted Medplum is both
+  # the SMART EHR launcher and the FHIRcast STU3 websocket hub; the DCR shim in
+  # ./fhircast-shim plays the hub's authorization role, which Medplum lacks.
+  # The shim also fronts Medplum: Medplum names its `hub.url` from its own base
+  # URL, and the shim must answer the `.well-known` metadata under it, so that
+  # base URL — http://127.0.0.1:8103/ — is the shim's port, and the shim passes
+  # everything else through. Opt-in: `make fhircast-up`.
+  # docs/configuration/epic-login.md, "Local FHIRcast stand-in", has the ports
+  # and the APP_EPIC_* values that point the backend at it.
+  medplum-postgres:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    profiles: ["fhircast"]
+    # Reached by Medplum alone, on the compose network: no port is published.
+    environment:
+      POSTGRES_USER: medplum
+      POSTGRES_PASSWORD: medplum
+      POSTGRES_DB: medplum
+    volumes:
+      - medplum-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "medplum", "-d", "medplum"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  medplum-redis:
+    image: redis:8.2.10-alpine@sha256:8d02c1dc547ea659066d2ca18fce4e80f0a84cfe56a61af2ced2c2a48de3597c
+    profiles: ["fhircast"]
+    # Medplum's own, apart from the app's sessions: no port is published.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  medplum:
+    image: medplum/medplum-server:5.2.7@sha256:afe9806b4cb36a0ef84b6fad8bc3fab01e783a2faa2ac988231fbe9f7ce28b03
+    profiles: ["fhircast"]
+    depends_on:
+      medplum-postgres:
+        condition: service_healthy
+      medplum-redis:
+        condition: service_healthy
+    # The image's entrypoint is the server; `env` makes it read the settings
+    # below rather than a config file the image does not ship.
+    command: ["env"]
+    environment:
+      MEDPLUM_PORT: "8103"
+      # The shim's address: the shim fronts Medplum (see above).
+      MEDPLUM_BASE_URL: http://127.0.0.1:8103/
+      # Without the trailing slash: the backend discovers the issuer at
+      # {issuer}/.well-known/openid-configuration and holds the document's
+      # `issuer` and the id_token's `iss` to exactly this.
+      MEDPLUM_ISSUER: http://127.0.0.1:8103
+      MEDPLUM_APP_BASE_URL: http://127.0.0.1:3103/
+      MEDPLUM_BINARY_STORAGE: file:./binary/
+      MEDPLUM_DATABASE_HOST: medplum-postgres
+      MEDPLUM_DATABASE_PORT: "5432"
+      MEDPLUM_DATABASE_DBNAME: medplum
+      MEDPLUM_DATABASE_USERNAME: medplum
+      MEDPLUM_DATABASE_PASSWORD: medplum
+      MEDPLUM_REDIS_HOST: medplum-redis
+      MEDPLUM_REDIS_PORT: "6379"
+      MEDPLUM_DEFAULT_SUPER_ADMIN_EMAIL: *medplum-admin-email
+      MEDPLUM_DEFAULT_SUPER_ADMIN_PASSWORD: *medplum-admin-password
+      # Any origin: the SPA calls the hub from its own origin, whichever port
+      # the backend serves it on.
+      MEDPLUM_ALLOWED_ORIGINS: "*"
+      # Medplum fetches our JWKS over http from the host's private address.
+      MEDPLUM_ALLOW_UNSAFE_OUTBOUND: "true"
+      MEDPLUM_EMAIL_PROVIDER: none
+      MEDPLUM_REGISTER_ENABLED: "false"
+      MEDPLUM_RATE_LIMITS_ENABLED: "false"
+      MEDPLUM_LOG_LEVEL: warn
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8103/healthcheck').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      # The first start on an empty volume runs Medplum's migrations and its
+      # own seed before it serves: about three minutes.
+      start_period: 300s
+    restart: unless-stopped
+
+  # Medplum's web app: the sign-in page Medplum's authorize sends the browser
+  # to (MEDPLUM_APP_BASE_URL above).
+  medplum-app:
+    image: medplum/medplum-app:5.2.7@sha256:894c5a99eed5f7cf089b67f926547241ccf3363859b0d5481894c5c38e2e524a
+    profiles: ["fhircast"]
+    environment:
+      MEDPLUM_BASE_URL: http://127.0.0.1:8103/
+      MEDPLUM_REGISTER_ENABLED: "false"
+      RECAPTCHA_SITE_KEY: ""
+    ports:
+      - "127.0.0.1:3103:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  fhircast-shim:
+    image: node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    profiles: ["fhircast"]
+    depends_on:
+      medplum:
+        condition: service_healthy
+    volumes:
+      - ./fhircast-shim:/shim:ro
+    command: ["node", "/shim/src/main.mjs"]
+    environment:
+      SHIM_PORT: "8103"
+      SHIM_PUBLIC_BASE_URL: http://127.0.0.1:8103/
+      SHIM_MEDPLUM_URL: http://medplum:8103/
+      SHIM_MEDPLUM_ADMIN_EMAIL: *medplum-admin-email
+      SHIM_MEDPLUM_ADMIN_PASSWORD: *medplum-admin-password
+      # An hour, as Epic's hub tokens last; `make integration-test` sets 60.
+      SHIM_TOKEN_LIFETIME_SECONDS: ${FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS:-3600}
+      # GET /dcr/test/state: registrations and revoked tokens, for E2E assertions.
+      SHIM_TEST_STATE: enabled
+    ports:
+      - "127.0.0.1:8103:8103"
+    healthcheck:
+      # Through the shim to Medplum: healthy only when both answer.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8103/fhircast/STU3/.well-known/fhircast-configuration').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot and idempotent, like sqlserver-init: seeds Medplum for this app
+  # (./fhircast-shim/src/seed.mjs has what and why), printing the ids a caller
+  # needs. Run in the foreground after `up --wait`, every time:
+  # scripts/lib.sh's fhircast_up does, restarting Medplum when the seed says
+  # its signing key changed. Its own profile keeps it out of a plain `up`.
+  medplum-init:
+    image: node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    profiles: ["init"]
+    depends_on:
+      medplum:
+        condition: service_healthy
+    volumes:
+      - ./fhircast-shim:/shim:ro
+    command: ["node", "/shim/src/seed.mjs"]
+    environment:
+      SEED_MEDPLUM_URL: http://medplum:8103/
+      SEED_MEDPLUM_ADMIN_EMAIL: *medplum-admin-email
+      SEED_MEDPLUM_ADMIN_PASSWORD: *medplum-admin-password
+      SEED_PROJECT_NAME: smart-on-fhir local EHR
+      SEED_CLINICIAN_EMAIL: clinician@example.com
+      SEED_CLINICIAN_PASSWORD: fhircast-stand-in-clinician
+      SEED_CLINICIAN_FIRST_NAME: Local
+      SEED_CLINICIAN_LAST_NAME: Clinician
+      SEED_CLIENT_NAME: smart-on-fhir
+      # Our JWKS as Medplum's container reaches the backend on the host, and
+      # where the backend's callback and launch are: `make dev`'s by default,
+      # the E2E's own when `make integration-test` sets them.
+      SEED_CLIENT_JWKS_URI: ${FHIRCAST_BACKEND_JWKS_URI:-http://host.docker.internal:8080/api/auth/epic/jwks.json}
+      SEED_CLIENT_REDIRECT_URIS: ${FHIRCAST_APP_REDIRECT_URIS:-http://localhost:5173/api/auth/epic/callback}
+      SEED_CLIENT_LAUNCH_URI: ${FHIRCAST_APP_LAUNCH_URI:-http://localhost:5173/api/auth/epic/launch}
+    restart: "no"
+
 volumes:
   sqlserver-data:
   redis-data:
+  medplum-postgres-data:
