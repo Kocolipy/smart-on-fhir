@@ -86,6 +86,22 @@ follows from that; ADR 0016 has the design.
     them. The backend refuses to release an access token past its expiry.
   - _Residual risk:_ a token copied out of the tab stays valid at Epic, and at
     the hub, until it expires. Nothing revokes it at Epic (ADR 0012, D13).
+- **The FHIRcast chain can outlive the application session (IM8 as-11; SSO:
+  refresh tokens do not extend the local session lifetime).** The registered
+  key mints a new Hub Token by the `jwt-bearer` grant whenever the last one or
+  the lease nears its end, and the 8-hour absolute session lifetime is not
+  enforced on that chain, nor the idle timeout tracked by it.
+  - _Rationale:_ the hub, not this application, issues the Hub Token and keeps
+    the registration, and a `jwt-bearer` assertion needs neither the SMART
+    access token nor the backend, so nothing on the server can stop a renewal.
+    In the tab the chain stops with the session: every end of it leaves Home,
+    which closes the connection, and clears the key from `sessionStorage`.
+    Renewals are not activity, so they never keep the session alive either.
+  - _Residual risk:_ a private key and `client_id` copied out of the tab keep
+    minting Hub Tokens, and so reading the clinician's FHIRcast events, after
+    the session has ended — past its absolute lifetime and however long idle —
+    until the hub drops the registration. Only from the clinician's own
+    workstation, where the hub listens on loopback.
 - **DCR registrations absent from the application's audit trail (Logging audit
   contract, IM8 lm-4).** The trail records each release of the SMART access token
   (`FHIRCAST_TOKEN_RELEASE`). It does not record the registration, the Hub

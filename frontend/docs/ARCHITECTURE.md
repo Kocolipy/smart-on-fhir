@@ -191,10 +191,14 @@ decide where a visitor goes.
   (`landedFromEpic()`), then the Pages card: a link to each page the session
   may open.
 - `fhircast-card.tsx` — the FHIRcast card: asks for the release, connects
-  through `lib/fhircast.ts`, and shows one of four generic states, closing its
-  socket when Home goes. While connected it lists the last event the module
-  hands on — name, time, and the Patient id when there is one — held in its
-  own state only, so a reload starts with none. It reports nothing to the page
+  through `lib/fhircast.ts`, and shows one of six generic states, closing its
+  socket when Home goes. The module renews the Hub Token and the subscription
+  unseen, and reconnects a dropped socket while the card shows `Reconnecting`;
+  once its retries run out the card shows `Disconnected` and a Retry button,
+  which connects again from the release. While connected or reconnecting it
+  lists the last event the module hands on — name, time, and the Patient id
+  when there is one — held in its own state only, so a reload, or a Retry,
+  starts with none. It reports nothing to the page
   status: its state is its own line.
 - `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
   an optional `patientId` prop. Without one it shows "No patient in context" and

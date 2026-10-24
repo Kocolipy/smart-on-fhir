@@ -230,6 +230,38 @@ export async function publishPatientEvent(
   return id;
 }
 
+/** The id the shim knows a channel endpoint by: the last segment of its websocket URL. */
+export function channelEndpointId(endpoint: string): string {
+  return new URL(endpoint).pathname.split("/").at(-1) ?? "";
+}
+
+/**
+ * Closes every socket the shim carries to the hub at the channel endpoint
+ * `endpoint` (its websocket URL), as a network fault would: the shim's
+ * test-only `POST /dcr/test/drop`.
+ */
+export async function dropHubSockets(endpoint: string): Promise<void> {
+  const query = new URLSearchParams({ endpoint: channelEndpointId(endpoint) }).toString();
+  const answer = await fetch(new URL(`dcr/test/drop?${query}`, MEDPLUM_URL), { method: "POST" });
+  expect(answer.status, "the shim drops the sockets").toBe(204);
+}
+
+/** What the shim's test-only `GET /dcr/test/state` says has run out, on its own clock. */
+export interface HubExpiries {
+  /** The hub tokens whose lifetime has passed. */
+  expiredTokens: string[];
+  /** The ids of the channel endpoints whose lease has ended. */
+  endedLeases: string[];
+}
+
+/** The hub tokens and leases the shim counts as run out by now. */
+export async function hubExpiries(): Promise<HubExpiries> {
+  const answer = await fetch(new URL("dcr/test/state", MEDPLUM_URL));
+  expect(answer.status, "the shim answers its test state").toBe(200);
+  const { endedLeases, expiredTokens } = (await answer.json()) as HubExpiries;
+  return { endedLeases, expiredTokens };
+}
+
 /** What a websocket subscriber receives: the hub's messages, in order. */
 export interface HubSubscriber {
   /** The next message whose `predicate` holds, waiting up to `timeout` ms. */

@@ -330,8 +330,9 @@ _Avoid_: FHIRcast token, access token (for this one)
 **Hub Subscription**:
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
 `Patient-close` on the clinician's topic. Connected once the hub confirms it on
-the socket; it ends with Home. Once connected, every Event Notification on the
-socket is acknowledged or ignored.
+the socket, made anew before its lease or its Hub Token runs out, and when the
+hub says its endpoint has gone; it ends with Home. Once connected, every Event
+Notification on the socket is acknowledged or ignored.
 _Avoid_: listener, FHIRcast session
 
 **Event Notification**:

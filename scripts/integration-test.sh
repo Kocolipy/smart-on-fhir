@@ -33,9 +33,12 @@ node --test "$BACKEND_DIR"/fhircast-shim/test/*.test.mjs
 jar="$(find "$BACKEND_DIR/target" -maxdepth 1 -name 'backend-*.jar' ! -name '*-plain.jar' -print -quit)"
 [[ -n $jar ]] || die "no backend-*.jar in backend/target after packaging"
 
-# Hub tokens of about a minute, so the specs that need one can outlive it. Set
-# before the stand-in starts: compose hands it to the shim then.
-export FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS=60
+# Hub tokens and subscription leases of about a minute, so the specs that need
+# one can outlive it: 75 s, so that the SPA renews them 60 s before they end
+# rather than as soon as it may. Set before the stand-in starts: compose hands
+# both to the shim then.
+export FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS=75
+export FHIRCAST_LEASE_SECONDS=75
 
 stack_up "SQL Server, Redis and the local Epic stand-in" fhircast
 

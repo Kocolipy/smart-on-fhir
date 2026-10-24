@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, request } from "node:http";
 import { connect } from "node:net";
+import { Transform } from "node:stream";
 
 import {
   decodeJson,
@@ -18,14 +19,21 @@ const JSON_TYPE = {
 /**
  * The local hub's authorization role, which Medplum lacks: RFC 7591 dynamic
  * registration, the RFC 7523 `jwt-bearer` grant, RFC 7009 revocation and
- * RFC 7592 deletion.
+ * RFC 7592 deletion. It also holds each subscription to a lease of its own,
+ * which Medplum grants but never enforces on an open socket: the hub's
+ * confirmation states what is left of it, the socket is closed when it runs
+ * out, and the endpoint is denied from then on, as Medplum denies one it does
+ * not know.
  *
  * @param {object} options
  * @param {string} options.publicBaseUrl the URL the browser and the backend reach the shim at, with a trailing slash
  * @param {string} options.medplumUrl Medplum's own URL, as the shim reaches it
  * @param {{email: string, password: string}} options.admin Medplum's super admin
  * @param {number} options.tokenLifetimeSeconds how long a hub token lasts
- * @param {boolean} options.testState whether `GET /dcr/test/state` answers
+ * @param {number} options.leaseSeconds how long a subscription's lease lasts, from its first socket
+ * @param {boolean} options.testState whether `GET /dcr/test/state` and `POST /dcr/test/drop` answer;
+ *   the state lists the registrations, and the hub tokens revoked and expired
+ *   and the channel endpoints whose lease has ended
  * @param {() => number} [options.now] the clock, in milliseconds
  */
 export function createShim(options) {
@@ -182,6 +190,12 @@ export function createShim(options) {
       revokedTokens: [...hubTokens]
         .filter(([, issued]) => issued.revoked)
         .map(([token]) => token),
+      expiredTokens: [...hubTokens]
+        .filter(([, issued]) => issued.expiresAt <= nowMs())
+        .map(([token]) => token),
+      endedLeases: [...leaseEnds]
+        .filter(([, end]) => end <= nowMs())
+        .map(([id]) => id),
     });
   }
 
@@ -252,31 +266,87 @@ export function createShim(options) {
   /** Upgraded sockets, which the HTTP server no longer tracks: closed with it. */
   const tunnels = new Set();
 
+  /** channel endpoint id -> when its lease ends, in ms. */
+  const leaseEnds = new Map();
+
+  /** channel endpoint id -> the sockets of the tunnels open at it, both ends. */
+  const tunnelsAt = new Map();
+
+  /** Closes every tunnel open at the channel endpoint `id`, both its ends. */
+  function dropTunnelsAt(id) {
+    for (const end of tunnelsAt.get(id) ?? []) end.destroy();
+  }
+
+  /**
+   * When the lease of the channel endpoint `id` ends, begun with its first
+   * socket — Medplum's answer to the subscription names no lease, so that is
+   * the shim's first sight of it — and its tunnels closed then.
+   */
+  function leaseEndOf(id) {
+    if (!leaseEnds.has(id)) {
+      const lease = options.leaseSeconds * 1000;
+      leaseEnds.set(id, nowMs() + lease);
+      setTimeout(() => dropTunnelsAt(id), lease).unref();
+    }
+    return leaseEnds.get(id);
+  }
+
   /**
    * A websocket upgrade — the hub's `hub.channel.endpoint` — goes to Medplum
-   * byte for byte: the request line and headers as received, Host aside, and
-   * then both directions piped.
+   * byte for byte, but for three things: the Host; no extension offer, so the
+   * hub's frames stay plain; and the lease. At an endpoint whose lease has
+   * run out, the request names an endpoint Medplum does not know, so Medplum
+   * denies it itself; at one still leased, the hub's confirmation states the
+   * whole seconds left of the lease. Then both directions are piped.
    */
   function tunnel(req, socket, head) {
     const target = new URL(options.medplumUrl);
+    const id = channelEndpointIdOf(req.url);
+    const leaseEnd = id === undefined ? undefined : leaseEndOf(id);
+    const leased = leaseEnd !== undefined && leaseEnd > nowMs();
+    const requestTarget =
+      leaseEnd === undefined || leased
+        ? req.url
+        : req.url.replace(`/${id}`, `/${id}${LEASE_ENDED}`);
     const upstream = connect(Number(target.port || 80), target.hostname, () => {
-      const lines = [`${req.method} ${req.url} HTTP/1.1`];
+      const lines = [`${req.method} ${requestTarget} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i];
+        if (name.toLowerCase() === "sec-websocket-extensions") continue;
         const value =
           name.toLowerCase() === "host" ? target.host : req.rawHeaders[i + 1];
         lines.push(`${name}: ${value}`);
       }
       upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
       if (head.length > 0) upstream.write(head);
-      socket.pipe(upstream).pipe(socket);
+      socket.pipe(upstream);
+      if (!leased) return upstream.pipe(socket);
+      const secondsLeft = () =>
+        Math.max(1, Math.ceil((leaseEnd - nowMs()) / 1000));
+      upstream.pipe(withLeaseInConfirmation(secondsLeft)).pipe(socket);
     });
     for (const end of [socket, upstream]) {
       tunnels.add(end);
       end.on("close", () => tunnels.delete(end));
+      if (leased) {
+        if (!tunnelsAt.has(id)) tunnelsAt.set(id, new Set());
+        tunnelsAt.get(id).add(end);
+        end.on("close", () => tunnelsAt.get(id).delete(end));
+      }
     }
     upstream.on("error", () => socket.destroy());
     socket.on("error", () => upstream.destroy());
+  }
+
+  /**
+   * `POST /dcr/test/drop?endpoint={id}`: closes every tunnel at that channel
+   * endpoint, as a network fault would, for E2E's dropped-socket case.
+   */
+  function handleTestDrop(req, res) {
+    const id = new URL(req.url, "http://shim").searchParams.get("endpoint");
+    if (id !== null) dropTunnelsAt(id);
+    res.writeHead(204, { "Cache-Control": "no-store" });
+    res.end();
   }
 
   function route(req, res) {
@@ -308,6 +378,8 @@ export function createShim(options) {
       );
     else if (methodAndPath === "GET /dcr/test/state" && options.testState)
       handled = handleTestState(res);
+    else if (methodAndPath === "POST /dcr/test/drop" && options.testState)
+      handled = handleTestDrop(req, res);
     else if (pathname.startsWith("/dcr/"))
       handled = sendJson(res, 404, { error: "not_found" });
     else handled = forward(req, res);
@@ -340,15 +412,106 @@ export const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 /** What sets the shim's hub tokens apart from Medplum's own, which pass through untouched. */
 const HUB_TOKEN_PREFIX = "hub_";
 
+/** Where Medplum's hub answers a subscription's socket: `/ws/fhircast/{id}`. */
+const CHANNEL_ENDPOINT = /^\/ws\/fhircast\/([^/?#]+)/;
+
+/** The channel endpoint id an upgrade's request target names, if it names one. */
+function channelEndpointIdOf(requestTarget) {
+  return CHANNEL_ENDPOINT.exec(requestTarget)?.[1];
+}
+
+/** Appended to an endpoint whose lease has ended: an endpoint Medplum knows nothing of. */
+const LEASE_ENDED = "-lease-ended";
+
+/**
+ * Medplum's answer to an upgrade, its first websocket frame rewritten when
+ * that is the subscription's confirmation, `hub.mode` `subscribe`, to state
+ * `secondsLeft()` as its `hub.lease_seconds`; everything else as it came.
+ */
+function withLeaseInConfirmation(secondsLeft) {
+  let pending = Buffer.alloc(0);
+  let handshakeSeen = false;
+  let rewritten = false;
+  return new Transform({
+    transform(chunk, _encoding, done) {
+      if (rewritten) return done(null, chunk);
+      pending = Buffer.concat([pending, chunk]);
+      if (!handshakeSeen) {
+        const end = pending.indexOf("\r\n\r\n");
+        if (end < 0) return done();
+        handshakeSeen = true;
+        this.push(pending.subarray(0, end + 4));
+        pending = pending.subarray(end + 4);
+      }
+      const first = withLeaseIn(pending, secondsLeft());
+      if (first === undefined) return done();
+      rewritten = true;
+      done(null, first);
+    },
+    flush(done) {
+      done(null, rewritten ? undefined : pending);
+    },
+  });
+}
+
+/**
+ * `bytes`, which start with a websocket frame from the hub, with that frame's
+ * `hub.lease_seconds` stated as `seconds` when it is the subscription's
+ * confirmation; as they are when it is anything else; `undefined` while the
+ * frame is still incomplete.
+ */
+function withLeaseIn(bytes, seconds) {
+  const frame = firstTextFrame(bytes);
+  if (frame === undefined) return undefined;
+  const message = frame === null ? null : parseJson(frame.text);
+  if (message?.["hub.mode"] !== "subscribe") return bytes;
+  return Buffer.concat([
+    textFrame(JSON.stringify({ ...message, "hub.lease_seconds": seconds })),
+    bytes.subarray(frame.end),
+  ]);
+}
+
+/**
+ * RFC 6455 §5.2: the text of the whole, unmasked text frame `bytes` start
+ * with, and where it ends; `null` when they start with any other frame;
+ * `undefined` until enough bytes have come to tell.
+ */
+function firstTextFrame(bytes) {
+  if (bytes.length < 2) return undefined;
+  if (bytes[0] !== FINAL_TEXT_FRAME || bytes[1] > 126) return null;
+  const extended = bytes[1] === 126;
+  const start = extended ? 4 : 2;
+  if (bytes.length < start) return undefined;
+  const end = start + (extended ? bytes.readUInt16BE(2) : bytes[1]);
+  if (bytes.length < end) return undefined;
+  return { text: bytes.subarray(start, end).toString("utf8"), end };
+}
+
+/** The first byte of a whole text frame: FIN set, opcode 1. */
+const FINAL_TEXT_FRAME = 0x81;
+
+/** An unmasked text frame, as a server sends one, holding `text`. */
+function textFrame(text) {
+  const payload = Buffer.from(text);
+  const header =
+    payload.length < 126
+      ? Buffer.from([FINAL_TEXT_FRAME, payload.length])
+      : Buffer.from([
+          FINAL_TEXT_FRAME,
+          126,
+          payload.length >> 8,
+          payload.length & 0xff,
+        ]);
+  return Buffer.concat([header, payload]);
+}
+
 /** The hub's metadata, under the hub URL Medplum's token response names. */
 const FHIRCAST_CONFIGURATION =
   "/fhircast/STU3/.well-known/fhircast-configuration";
 
 /** The paths the shim answers itself; every other goes to Medplum. */
 function isShimPath(pathname) {
-  return (
-    pathname.startsWith("/dcr/") || pathname === FHIRCAST_CONFIGURATION
-  );
+  return pathname.startsWith("/dcr/") || pathname === FHIRCAST_CONFIGURATION;
 }
 
 /**

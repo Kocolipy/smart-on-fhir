@@ -9,7 +9,9 @@ alone: that one token is released to the signed-in SPA, through one endpoint,
 so the browser can connect to Epic's local FHIRcast hub. The `id_token` and any
 refresh token stay server-side exactly as D29 keeps them. It is also the revisit
 D28 asks for once FHIR scopes are added, and the revisit of D29's at-rest and
-revocation positions. ADR 0011 records the deviations it accepts.
+revocation positions. ADR 0011 records the deviations it accepts. Last revised
+2026-10-24: the connection is renewed and reconnected, and the card shows six
+generic states. History is in git.
 
 ## Context
 
@@ -102,9 +104,23 @@ SMART access token, which D29 keeps server-side and never releases.
 
   The SMART access token, the Hub Token, the dynamic `client_id` and the exported
   private JWK are kept in the tab's `sessionStorage` and cleared when the session
-  ends (ADR 0011). The card shows one of four generic states — `connecting`,
-  `connected`, `FHIRcast unavailable`, `local hub blocked by browser` — and never
-  renders or logs a hub's or Epic's `error_description` or any response body.
+  ends (ADR 0011). The card shows one of six generic states — `connecting`,
+  `connected`, `reconnecting`, `disconnected`, `FHIRcast unavailable`, `local
+  hub blocked by browser` — and never renders or logs a hub's or Epic's
+  `error_description` or any response body.
+- **The connection stays up.** Before the Hub Token or the subscription's lease
+  (`hub.lease_seconds`) expires, the module renews: a new Hub Token from a fresh
+  assertion signed with the key it registered, then a new subscription, whose
+  socket replaces the old one once confirmed. Renewal starts at 80% of the
+  lifetime or 60 s before expiry, whichever is sooner, and never sooner than
+  5 s after the grant, so a lifetime of a minute or less is not renewed without
+  pause. A socket the hub drops, and a failed renewal, put the card in
+  `reconnecting`: up to five retries with a doubling backoff, each reopening the
+  endpoint, or subscribing anew once the hub denies it or after a failed
+  renewal. When they run out the card shows `disconnected` and a retry button,
+  which connects again from the release. The last event stays shown through
+  renewal and `reconnecting`. The chain is not bound to the session's lifetime
+  (ADR 0011).
 
 ### Data classification (D28, revisited)
 
