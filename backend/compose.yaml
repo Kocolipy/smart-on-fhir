@@ -109,8 +109,8 @@ services:
   # everything else through. Opt-in: the `fhircast` profile keeps it out of a
   # plain `up`, so `make infra-up` still starts only SQL Server and Redis; start
   # it with `make fhircast-up`. docs/configuration/epic-login.md, "Local Epic
-  # stand-in", has the ports and the APP_EPIC_* values that point the backend
-  # at it.
+  # stand-in", has the ports, and the managed backend/.env block that points the
+  # backend at it.
   medplum-postgres:
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     profiles: ["fhircast"]
@@ -269,8 +269,10 @@ services:
       SEED_MEDPLUM_ADMIN_EMAIL: *medplum-admin-email
       SEED_MEDPLUM_ADMIN_PASSWORD: *medplum-admin-password
       SEED_PROJECT_NAME: smart-on-fhir local EHR
-      # The clinician's Practitioner id, which `make fhircast-up` prints: a UUID,
-      # the only id Medplum takes from a client, so it is the same everywhere.
+      # The clinician's Practitioner id, which `make fhircast-up` hands the
+      # backend as APP_DEV_FIXTURES_EPIC_CLINICIAN, so the dev fixtures seed its
+      # User: a UUID, the only id Medplum takes from a client, so it is the same
+      # everywhere.
       SEED_CLINICIAN_ID: af74a102-ebaf-46ef-b445-4f72157c473f
       SEED_CLINICIAN_EMAIL: clinician@example.com
       SEED_CLINICIAN_PASSWORD: fhircast-stand-in-clinician

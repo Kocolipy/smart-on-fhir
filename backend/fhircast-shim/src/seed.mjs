@@ -22,6 +22,14 @@
 //      which Medplum's token response then puts in `patient`.
 //   5. This app's ClientApplication in that project: `private_key_jwt` against
 //      the backend's JWKS, PKCE required, its redirect and launch URIs.
+//   6. A SmartAppLaunch for Tan Wei Ming, the one `make fhircast-up` prints a
+//      launch URL for: it names his Patient reference and his Epic id, as
+//      frontend/test/e2e/fhircast.helpers.ts' createLaunch does. Medplum does
+//      not consume a launch on use (backend/docs/configuration/epic-login.md
+//      records how that was found), so one is made once and found by its tag on
+//      every run after: the URL stays the same, and a bookmark keeps working.
+//      The tag is what tells it from the launches the E2E specs make for the
+//      same Patient, since Medplum has no `patient` search parameter on it.
 //
 // It prints what a caller needs as KEY=value lines (scripts/lib.sh reads
 // them), and nothing secret. Every value below comes from the environment
@@ -60,6 +68,11 @@ const settings = {
     epicId: required("SEED_PATIENT_EPIC_ID"),
     family: required("SEED_PATIENT_FAMILY"),
     given: required("SEED_PATIENT_GIVEN").split(" "),
+  },
+  // Not configuration: what marks the seed's launch among the others.
+  launchTag: {
+    system: "urn:smart-on-fhir:fhircast-up",
+    code: "default-patient-launch",
   },
   client: {
     name: required("SEED_CLIENT_NAME"),
@@ -194,6 +207,48 @@ async function ensurePatient(project) {
   });
 }
 
+/**
+ * Step 6: the launch, found by its tag. One that names another Patient than
+ * the current one, as after the Patient was deleted and made again, is pointed
+ * at the current one rather than left stale.
+ */
+async function ensureLaunch(patient) {
+  const wanted = {
+    reference: `Patient/${patient.id}`,
+    identifier: { value: settings.patient.epicId },
+  };
+  const tag = settings.launchTag;
+  const [existing, ...extras] = await search(
+    `SmartAppLaunch?_tag=${encodeURIComponent(`${tag.system}|${tag.code}`)}`,
+  );
+  // One launch by this tag, should an interrupted run ever have left two.
+  for (const extra of extras) {
+    await medplum.request(`/fhir/R4/SmartAppLaunch/${extra.id}`, {
+      method: "DELETE",
+    });
+  }
+  if (!existing) {
+    return medplum.request("/fhir/R4/SmartAppLaunch", {
+      method: "POST",
+      body: {
+        resourceType: "SmartAppLaunch",
+        meta: { tag: [tag] },
+        patient: wanted,
+      },
+    });
+  }
+  if (
+    existing.patient?.reference === wanted.reference &&
+    existing.patient?.identifier?.value === wanted.identifier.value
+  ) {
+    return existing;
+  }
+  return medplum.request(`/fhir/R4/SmartAppLaunch/${existing.id}`, {
+    method: "PUT",
+    body: { ...existing, patient: wanted },
+  });
+}
+
 /** Step 5: created once, then brought back to these settings on every run. */
 async function ensureClient(project) {
   const wanted = {
@@ -230,8 +285,10 @@ const restartRequired = await ensureRs256SigningKey();
 const project = await ensureProject();
 await ensureClinician(project, settings.clinician);
 await ensureEpicLoginClinicians(project);
-await ensurePatient(project);
+const patient = await ensurePatient(project);
 const client = await ensureClient(project);
+const launch = await ensureLaunch(patient);
 
 console.log(`MEDPLUM_RESTART_REQUIRED=${restartRequired}`);
 console.log(`MEDPLUM_CLIENT_ID=${client.id}`);
+console.log(`MEDPLUM_LAUNCH_ID=${launch.id}`);

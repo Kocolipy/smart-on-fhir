@@ -403,6 +403,8 @@ public class ArchitectureTest {
                             + " and the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedDevFixtures",
                     "startup seeding of the development fixtures: the next start seeds"),
+            Map.entry("com.example.backend.scim.application.ScimSeedService#seedEpicClinicianFixture",
+                    "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedDormantDevFixture",
                     "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedGroupPermissionFixtures",

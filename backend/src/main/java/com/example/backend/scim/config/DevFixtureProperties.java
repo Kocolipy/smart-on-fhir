@@ -13,6 +13,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param password       every fixture User's password
  * @param baselineMember the userName of a User in no Group, holding only the baseline
  *                       Permissions; {@code null} for none
+ * @param epicClinician  the userName of a User in no Group, holding only the baseline
+ *                       Permissions, that the local Epic stand-in's clinician signs in as: the
+ *                       clinician's Practitioner id, which Epic Login links by character for
+ *                       character ({@code make fhircast-up} sets it); {@code null} or blank for
+ *                       none
  * @param groups         the fixture Groups, each with one User in it
  * @param dormantMember  the userName of a User whose dormancy basis is backdated past the
  *                       revocation window at every startup, so the development profile's startup
@@ -28,6 +33,7 @@ public record DevFixtureProperties(
         boolean enabled,
         String password,
         String baselineMember,
+        String epicClinician,
         List<GroupFixture> groups,
         String dormantMember,
         List<UUID> dormantGroups,

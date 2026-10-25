@@ -19,6 +19,15 @@ FHIR ID. There is no separate link, no schema change, and no just-in-time
 provisioning: an Epic Login never creates or modifies a User, so nobody Epic can
 authenticate gets an account the directory did not give them.
 
+**The local exception** — under the `local` profile alone, the development
+fixtures can seed one clinician directly, as they seed every other fixture User:
+`app.dev-fixtures.epic-clinician` (`APP_DEV_FIXTURES_EPIC_CLINICIAN`) names the
+`userName`, which is the clinician's Practitioner id, so the local Epic stand-in's
+clinician signs in with no SCIM step. That User is in no Group and holds baseline
+access only ([authorization](authorization.md), "Development fixtures"). Outside
+`local` the fixtures are refused outright, so a clinician is a User only because
+SCIM provisioned it. `backend/docs/configuration/epic-login.md` has the setup.
+
 **Exact match** — the Practitioner ID comes from the `id_token`'s `fhirUser`,
 which must be exactly `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`: the deployment's
 own FHIR base, the `Practitioner` type, a non-blank id and nothing after it. The

@@ -217,7 +217,13 @@ with one User in it: Auditors and Helpdesk. The Superuser's User is the
 Bootstrap Admin. Their Users get `APP_DEV_FIXTURES_PASSWORD`, never
 overwriting one that exists, together with two Users in no Group: `guest`,
 holding only baseline access, and `dormant`, put past the dormancy lockout window
-at every startup. What each Group confers is a separate block active under the
+at every startup. A third, optional User in no Group, the `epic-clinician`
+(`APP_DEV_FIXTURES_EPIC_CLINICIAN`), is the local exception to "a clinician is a
+User because SCIM provisioned it" ([Epic Login](epic-login.md)): its `userName` is
+the local Epic stand-in's Practitioner id, it holds baseline access only and is
+no administrator, and it is seeded only when the variable is set. Like every
+fixture it is off unless the fixtures are enabled and refused outside the `local`
+profile. What each Group confers is a separate block active under the
 `local` profile alone, applied at startup only to a Group that carries nothing
 yet; no other profile seeds a Group Permission. The Auditors hold every read —
 `user:read`, `group:read`, `ops:read`, `connector:read` and `audit:read` — and

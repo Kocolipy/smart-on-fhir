@@ -106,8 +106,15 @@ load_backend_env() {
   log "loaded backend/.env"
 }
 
-# Wait until something answers on an HTTP URL. Any HTTP status counts as up:
-# /actuator/health may legitimately answer 401 behind Spring Security.
+# Succeed when something answers on an HTTP URL within 2 s. Any HTTP status
+# counts as up: /actuator/health may legitimately answer 401 behind Spring
+# Security.
+http_answers() {
+  require_cmd curl
+  curl -sS -o /dev/null --max-time 2 "$1" 2>/dev/null
+}
+
+# Wait until something answers on an HTTP URL (http_answers).
 #
 # Takes the supervised child's pid so a process that died during startup is
 # reported as a crash immediately, instead of as a timeout minutes later.
@@ -116,7 +123,7 @@ wait_for_http() {
   require_cmd curl
   log "waiting for $name at $url (timeout ${timeout}s)"
   while ((waited < timeout)); do
-    if curl -sS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
+    if http_answers "$url"; then
       log "$name is up"
       return 0
     fi
@@ -313,7 +320,8 @@ stack_e2e() {
 # fhircast_seed <compose array name>
 #
 # Seeds Medplum through the one-shot `medplum-init`, in the foreground so a
-# failure stops the caller, and sets FHIRCAST_CLIENT_ID from what it prints.
+# failure stops the caller, and sets FHIRCAST_CLIENT_ID and FHIRCAST_LAUNCH_ID
+# (the SmartAppLaunch that opens Tan Wei Ming) from what it prints.
 # The seed's first run on a fresh
 # volume replaces Medplum's signing key, which Medplum reads at startup alone,
 # so that run restarts Medplum, and the shim, whose Medplum token the old key
@@ -332,6 +340,8 @@ fhircast_seed() {
   fi
   FHIRCAST_CLIENT_ID="$(sed -n 's/^MEDPLUM_CLIENT_ID=//p' <<<"$seeded")"
   [[ -n $FHIRCAST_CLIENT_ID ]] || die "the Medplum seed printed no client id"
+  FHIRCAST_LAUNCH_ID="$(sed -n 's/^MEDPLUM_LAUNCH_ID=//p' <<<"$seeded")"
+  [[ -n $FHIRCAST_LAUNCH_ID ]] || die "the Medplum seed printed no launch id"
 }
 
 # compose_env <compose array name> <service> <variable>
