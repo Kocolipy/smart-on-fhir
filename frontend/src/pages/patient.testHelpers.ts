@@ -17,3 +17,16 @@ export const TAN_WEI_MING = {
   name: [{ family: "Tan", given: ["Wei", "Ming"], text: "Tan Wei Ming", use: "official" }],
   resourceType: "Patient",
 } satisfies Patient;
+
+/** The read of Siti Nurhaliza binte Ahmad, another development fixture, as an answer-table key. */
+export const SITI_READ = "GET /api/patient/erXuFYUfucBZaryVksYEcMg3";
+
+/** Siti Nurhaliza binte Ahmad, the R5 `Patient` the backend serves for `SITI_READ`. */
+export const SITI = {
+  birthDate: "1992-08-21",
+  gender: "female",
+  id: "erXuFYUfucBZaryVksYEcMg3",
+  identifier: [{ system: "https://fhir.synapxe.sg/NamingSystem/nric", value: "S9212345A" }],
+  name: [{ text: "Siti Nurhaliza binte Ahmad", use: "official" }],
+  resourceType: "Patient",
+} satisfies Patient;

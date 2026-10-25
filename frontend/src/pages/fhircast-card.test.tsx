@@ -7,22 +7,14 @@ import { bare, deferred, holding, json, type Answers } from "@/auth/session-adap
 import {
   type FakeHub,
   fakeHub,
-  HUB_URL,
+  HUB_RELEASE as RELEASE,
   type HubOptions,
+  patientNotification as notification,
   REGISTRATION_CLIENT_URI,
   REGISTRATION_ENDPOINT,
 } from "@/lib/fake-hub.testHelpers";
 
 import { renderSignedIn } from "./signed-in-shell.testHelpers";
-
-/** The release the backend answers an Epic session that kept a hub. */
-const RELEASE = {
-  accessToken: `smart-${crypto.randomUUID()}`,
-  expiresAt: "2026-10-24T10:00:00Z",
-  hubTopic: "topic-1",
-  hubUrl: HUB_URL,
-  scope: ["fhircast/Patient-close.read", "fhircast/Patient-open.read", "openid"],
-};
 
 const RELEASE_REQUEST = "GET /api/auth/epic/fhircast";
 
@@ -52,12 +44,24 @@ async function renderEpicHome(answers: Answers, options: HubOptions = {}) {
 const status = () => screen.getByRole("status", { name: "FHIRcast" });
 
 /**
+ * The reads of the patients this suite's events open, which the Patient card
+ * beside this card sends as it follows them: never answered, as what the
+ * Patient card shows is its own suite's.
+ */
+const PATIENTS_OPENED: Answers = Object.fromEntries(
+  ["patient-1", "patient-2", "patient-secret"].map((id) => [
+    `GET /api/patient/${id}`,
+    deferred().answer,
+  ]),
+);
+
+/**
  * Home for an Epic session, connected to a hub answering `options`, the
  * backend answering `answers` beside the release; what the page sent with it.
  */
 async function connectedHome(options: HubOptions = {}, answers: Answers = {}) {
   const { hub, requests, session } = await renderEpicHome(
-    { [RELEASE_REQUEST]: json(RELEASE), ...answers },
+    { [RELEASE_REQUEST]: json(RELEASE), ...PATIENTS_OPENED, ...answers },
     options,
   );
   await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
@@ -331,25 +335,6 @@ describe("the FHIRcast card", () => {
   });
 
   describe("the last event", () => {
-    /** A notification on the session's topic: `event` for Patient `patientId`. */
-    const notification = (
-      event: string,
-      {
-        id = "event-1",
-        patientId = "patient-1",
-        timestamp = "2026-10-24T02:00:05Z",
-        topic = "topic-1",
-      } = {},
-    ) => ({
-      event: {
-        context: [{ key: "patient", resource: { id: patientId, resourceType: "Patient" } }],
-        "hub.event": event,
-        "hub.topic": topic,
-      },
-      id,
-      timestamp,
-    });
-
     /** What the card shows of `notification("Patient-open")` with its defaults. */
     const SHOWN_OPEN = { Event: "Patient-open", Patient: "patient-1", Time: "2026-10-24 10:00" };
 

@@ -11,24 +11,29 @@
  * keeps what passed. Its lifecycle (`docs/BACKEND_CONTRACT.md`):
  *
  * - every Epic landing, the bare marker included, **replaces** it;
- * - a reload carries no fragment, so it **keeps** it;
+ * - the FHIRcast hub's events **move** it, so it follows the chart the
+ *   clinician has open in the EHR ({@link followPatientEvent}): a
+ *   `Patient-open` sets the patient and drops the encounter, a
+ *   `Patient-close` empties it;
+ * - a reload carries no fragment, so it **keeps** it, as last moved; so does a
+ *   lost or failed FHIRcast connection;
  * - every end of the session — sign-out, expiry, an Idle sign-out, a password
  *   change — and a password Login **clear** it (`session-transitions.ts`,
  *   `auth-context.tsx`).
  *
  * Whether the key exists at all says whether this tab's session began with an
- * EHR launch: present, even naming nothing, after any landing; absent after a
- * password Login or once cleared.
+ * EHR launch: present, even naming nothing, after any landing or a
+ * `Patient-close`; absent after a password Login or once cleared.
  *
  * It is a subscribable store, shaped for `useSyncExternalStore`
  * ({@link useEhrContext}): Home, the Patient card and the FHIRcast card's gate
- * re-render when it changes, not only on load. Nothing yet changes it after it
- * is seeded but the end of the session. The encounter is held but nothing
- * reads it yet.
+ * re-render when it changes, not only on load. The encounter is held but
+ * nothing reads it yet.
  */
 
 import { useSyncExternalStore } from "react";
 
+import type { PatientEvent } from "@/lib/fhircast";
 import { watchers } from "@/lib/watchers";
 
 /** The patient and encounter in context, each a FHIR id; either may be absent. */
@@ -78,10 +83,9 @@ const watching = watchers();
 export function adoptLaunchLanding(): void {
   const landed = landingIn(window.location.hash);
   if (landed === null) return;
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(landed));
   const { pathname, search } = window.location;
   window.history.replaceState(window.history.state, "", `${pathname}${search}`);
-  watching.changed();
+  keep(landed);
 }
 
 /** What the stored text decodes to: held to the grammar again rather than trusted. */
@@ -121,6 +125,35 @@ export const subscribeEhrContext: (listener: () => void) => () => void = watchin
 /** The tab's EHR context, or `null`, re-rendering the caller whenever it changes. */
 export function useEhrContext(): EhrContext | null {
   return useSyncExternalStore(subscribeEhrContext, ehrContext);
+}
+
+/**
+ * Moves the tab's EHR context as the FHIRcast hub's event says the clinician
+ * moved in the EHR (ADR 0016, "The events and the EHR context"):
+ *
+ * - a `Patient-open` naming a FHIR id puts that patient in context and drops
+ *   the encounter, which belonged to the patient before, or to an earlier
+ *   chart of the same one — never left beside a patient it may not match;
+ * - a `Patient-open` naming none within the grammar is ignored;
+ * - a `Patient-close`, whatever it names, empties the context, keeping it as
+ *   one that names nothing, so the tab is still the one an EHR launch began.
+ *
+ * Only a context the tab already holds is moved: an event never makes one.
+ */
+export function followPatientEvent({ event, patientId }: PatientEvent): void {
+  if (ehrContext() === null) return;
+  if (event === "Patient-open") {
+    if (patientId === null) return;
+    keep({ patient: patientId });
+  } else {
+    keep({});
+  }
+}
+
+/** Keeps `context` as the tab's EHR context, and tells every watcher. */
+function keep(context: EhrContext): void {
+  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(context));
+  watching.changed();
 }
 
 /** Forgets the tab's EHR context. */

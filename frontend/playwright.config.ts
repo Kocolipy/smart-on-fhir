@@ -18,11 +18,12 @@ const adminSessionExtras = [
   ...(process.env.E2E_FHIRCAST_FHIR_BASE
     ? [
         // The stand-in itself: an EHR launch through Medplum, its hub, the
-        // FHIRcast card connecting to that hub from Home, and logout tearing
+        // FHIRcast card connecting to that hub from Home, the Patient card
+        // following the events it publishes, and logout tearing
         // that connection down.
         {
           name: "fhircast",
-          testMatch: /fhircast-(?:launch|hub|card|logout)\.spec\.ts/,
+          testMatch: /fhircast-(?:launch|hub|card|patient|logout)\.spec\.ts/,
           dependencies: ["setup"],
           use: {
             ...devices["Desktop Chrome"],

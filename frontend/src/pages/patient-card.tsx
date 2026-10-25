@@ -54,15 +54,16 @@ function PatientReading({ clock, view }: { clock: Clock; view: ReadView<PatientS
     case "failed":
       return null;
     default:
-      // `ready`, or `stale` — which this card never produces, as it never re-reads.
+      // `ready`, or `stale` — which this card never produces: a new patient is
+      // a new path, so a new first read, and the same patient is never re-read.
       return <PatientFields clock={clock} patient={view.data} />;
   }
 }
 
 /**
- * The read of the patient in context, once on mount with `patient:read`. A
- * component of its own so that only a card with a patient in context calls the
- * gated read at all.
+ * The read of the patient in context, with `patient:read`: once on mount, and
+ * again each time the patient in context changes. A component of its own so
+ * that only a card with a patient in context calls the gated read at all.
  */
 function PatientInContext({ clock, patientId }: { clock: Clock; patientId: string }) {
   const { view } = useGatedRead(PATIENT, {
@@ -77,8 +78,15 @@ function PatientInContext({ clock, patientId }: { clock: Clock; patientId: strin
  * Home's Patient card: the patient in context, or "No patient in context",
  * asking nothing, when there is none. The patient in context is the tab's EHR
  * context's (`@/auth/ehr-context`), which Home reads through its subscribable
- * store and hands down, so the card re-renders when it changes — a session
- * ending clears it — not only on load.
+ * store and hands down, so the card re-renders when it changes, not only on
+ * load: it follows the chart the clinician has open in the EHR, as the
+ * FHIRcast hub's `Patient-open` and `Patient-close` move the context, and a
+ * session ending clears it.
+ *
+ * A new patient in context is a new read: the card shows "Loading the
+ * patient…" at once, never the patient before, and an answer for an earlier
+ * patient that arrives late never lands (`useGatedRead`, the newest read
+ * wins). The same patient opened again is no new read.
  *
  * With a patient in context it reads `GET /api/patient/{patientId}` with
  * `patient:read`. A `404` is "No patient in context" too, which is not an
