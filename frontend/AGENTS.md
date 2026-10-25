@@ -169,8 +169,8 @@ a freshly generated key and the `APP_EPIC_*` values in
   `backend/fhircast-shim` and its seed.
 - **`fhircast`** drives an EHR launch through Medplum to Home as the seeded
   clinician, the FHIRcast hub through the helper that publishes
-  `Patient-open` / `Patient-close`, and Home's FHIRcast card connecting to that
-  hub. `epic` runs after it, since `epic` pauses the shim both reach.
+  `Patient-open` / `Patient-close`, Home's FHIRcast card connecting to that
+  hub, and logout tearing it down. `epic` runs after it, since `epic` pauses the shim both reach.
 - **`packaged`** loads the JAR's own origin. Every other project runs through
   `npm run dev`, which serves neither the built bundle nor the backend's CSP, so
   an inline script or a third-party origin breaks only here.

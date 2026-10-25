@@ -4,7 +4,8 @@ import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 
 // A fake of Epic's local FHIRcast hub, the other origin the FHIRcast module
 // talks to: its `.well-known` metadata, RFC 7591 registration, the
-// `jwt-bearer` token endpoint, the subscription, and the websocket, which a
+// `jwt-bearer` token endpoint, the subscription and its unsubscription, RFC
+// 7009 revocation, RFC 7592 deletion, and the websocket, which a
 // test can push notifications down (`notify`) and read the page's
 // acknowledgements from (`received`). The token endpoint's and the
 // subscription's answers may be a sequence, one per request in turn, its last
@@ -22,12 +23,20 @@ export const REGISTRATION_ENDPOINT = "http://127.0.0.1:8103/dcr/register";
 
 export const TOKEN_ENDPOINT = "http://127.0.0.1:8103/dcr/token";
 
+/** RFC 7009's endpoint, which the hub's metadata names unless told otherwise. */
+export const REVOCATION_ENDPOINT = "http://127.0.0.1:8103/dcr/revoke";
+
 /** The `n`th subscription's channel endpoint, from 1. */
 export const channelEndpoint = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
 
 export const CHANNEL_ENDPOINT = channelEndpoint(1);
 
 export const CLIENT_ID = "client-1";
+
+/** Where RFC 7592 manages the registration: the registration's answer names it unless told otherwise. */
+export const REGISTRATION_CLIENT_URI = `${REGISTRATION_ENDPOINT}/${CLIENT_ID}`;
+
+export const REGISTRATION_ACCESS_TOKEN = `rat-${crypto.randomUUID()}`;
 
 export const HUB_TOKEN = `hub-${crypto.randomUUID()}`;
 
@@ -60,10 +69,19 @@ export type SocketBehaviour = "confirms" | "closes" | "says-otherwise" | "silent
 type InTurn<T> = T | readonly T[];
 
 export interface HubOptions {
-  /** The `.well-known/fhircast-configuration` answer; the SMART one answers `404` unless named. */
+  /**
+   * The `.well-known/fhircast-configuration` answer: by default the
+   * registration, token and revocation endpoints. The SMART one answers `404`
+   * unless named.
+   */
   fhircastConfiguration?: HubAnswer;
   smartConfiguration?: HubAnswer;
-  registration?: HubAnswer;
+  /**
+   * The registration's answer, now or once its promise settles: by default
+   * {@link CLIENT_ID}, with {@link REGISTRATION_CLIENT_URI} and
+   * {@link REGISTRATION_ACCESS_TOKEN} for RFC 7592.
+   */
+  registration?: HubAnswer | Promise<HubAnswer>;
   /**
    * The token endpoint's answers, each now or once its promise settles: by
    * default an hour's Hub Token, {@link HUB_TOKEN} the first.
@@ -72,6 +90,12 @@ export interface HubOptions {
   /** The subscription's answers: by default `endpoint-1`, then `endpoint-2`, and so on. */
   subscription?: InTurn<HubAnswer>;
   socket?: InTurn<SocketBehaviour>;
+  /** The answer to an unsubscription (`hub.mode` `unsubscribe`), now or once its promise settles: by default `202`. */
+  unsubscription?: HubAnswer | Promise<HubAnswer>;
+  /** The revocation endpoint's answer, now or once its promise settles: by default `200`. */
+  revocation?: HubAnswer | Promise<HubAnswer>;
+  /** The answer to a `DELETE` at {@link REGISTRATION_CLIENT_URI}, now or once its promise settles: by default `204`. */
+  deletion?: HubAnswer | Promise<HubAnswer>;
   /** The `hub.lease_seconds` a confirmation grants; it names none unless given. */
   leaseSeconds?: number;
   /**
@@ -108,8 +132,19 @@ const json = (body: unknown, status = 200): { status: number; body?: unknown } =
 
 const METADATA = json({
   registration_endpoint: REGISTRATION_ENDPOINT,
+  revocation_endpoint: REVOCATION_ENDPOINT,
   token_endpoint: TOKEN_ENDPOINT,
 });
+
+const REGISTERED = json(
+  {
+    client_id: CLIENT_ID,
+    client_id_issued_at: 1,
+    registration_access_token: REGISTRATION_ACCESS_TOKEN,
+    registration_client_uri: REGISTRATION_CLIENT_URI,
+  },
+  201,
+);
 
 /** The `n`th subscription's answer, from 1: a channel endpoint of its own, the first {@link CHANNEL_ENDPOINT}. */
 const subscribed = (n: number) => json({ "hub.channel.endpoint": channelEndpoint(n) }, 202);
@@ -142,7 +177,11 @@ type Listener = (event: { data?: unknown }) => void;
 
 const pathOf = (url: string): string => new URL(url).pathname;
 
+/** Statuses whose response carries no body at all. */
+const NO_BODY = [204, 205, 304];
+
 function toResponse(answer: Exclude<HubAnswer, "unreachable">): Response {
+  if (NO_BODY.includes(answer.status)) return new Response(null, { status: answer.status });
   return "text" in answer
     ? new Response(answer.text, { status: answer.status })
     : Response.json(answer.body ?? {}, { status: answer.status });
@@ -184,15 +223,23 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
       options.fhircastConfiguration ?? METADATA,
     [`GET ${hubPath}/.well-known/smart-configuration`]: () =>
       options.smartConfiguration ?? json({}, 404),
-    [`POST ${pathOf(REGISTRATION_ENDPOINT)}`]: () =>
-      options.registration ?? json({ client_id: CLIENT_ID, client_id_issued_at: 1 }, 201),
+    [`POST ${pathOf(REGISTRATION_ENDPOINT)}`]: () => options.registration ?? REGISTERED,
     [`POST ${pathOf(TOKEN_ENDPOINT)}`]: (n) =>
       options.token === undefined ? granted(n) : inTurn(options.token, n),
     [`POST ${hubPath}`]: (n) =>
       options.subscription === undefined ? subscribed(n) : inTurn(options.subscription, n),
+    [`POST ${hubPath} unsubscribe`]: () => options.unsubscription ?? json({}, 202),
+    [`POST ${pathOf(REVOCATION_ENDPOINT)}`]: () => options.revocation ?? json({}),
+    [`DELETE ${pathOf(REGISTRATION_CLIENT_URI)}`]: () => options.deletion ?? { status: 204 },
   };
 
-  const routeOf = ({ method, url }: HubRequest) => `${method} ${pathOf(url)}`;
+  /** A request's route: its method and path, an unsubscription apart from the subscriptions. */
+  const routeOf = ({ body, method, url }: HubRequest) => {
+    const route = `${method} ${pathOf(url)}`;
+    return new URLSearchParams(body).get("hub.mode") === "unsubscribe"
+      ? `${route} unsubscribe`
+      : route;
+  };
 
   serveOtherOrigin((url, init) => {
     const request = recorded(url, init);
@@ -315,4 +362,10 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
 export function hubOnly(options: HubOptions = {}): FakeHub {
   fakeBackend();
   return fakeHub(options);
+}
+
+/** Every request `hub` is sent from now on, in order, each time it is called. */
+export function requestsSince(hub: FakeHub): () => readonly HubRequest[] {
+  const before = hub.requests().length;
+  return () => hub.requests().slice(before);
 }

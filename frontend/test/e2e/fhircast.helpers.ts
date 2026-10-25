@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createPrivateKey, type JsonWebKeyInput, randomBytes, randomUUID, sign } from "node:crypto";
 
 import { expect, type Page } from "@playwright/test";
 
@@ -246,20 +246,85 @@ export async function dropHubSockets(endpoint: string): Promise<void> {
   expect(answer.status, "the shim drops the sockets").toBe(204);
 }
 
-/** What the shim's test-only `GET /dcr/test/state` says has run out, on its own clock. */
-export interface HubExpiries {
+/** What the shim's test-only `GET /dcr/test/state` says, on its own clock. */
+export interface HubState {
   /** The hub tokens whose lifetime has passed. */
   expiredTokens: string[];
   /** The ids of the channel endpoints whose lease has ended. */
   endedLeases: string[];
+  /** The hub tokens revoked by RFC 7009. */
+  revokedTokens: string[];
+  /** The `client_id` of every registration not deleted by RFC 7592. */
+  clientIds: string[];
 }
 
-/** The hub tokens and leases the shim counts as run out by now. */
-export async function hubExpiries(): Promise<HubExpiries> {
+/** The shim's registrations, and the hub tokens and leases it counts as revoked or run out by now. */
+export async function hubState(): Promise<HubState> {
   const answer = await fetch(new URL("dcr/test/state", MEDPLUM_URL));
   expect(answer.status, "the shim answers its test state").toBe(200);
-  const { endedLeases, expiredTokens } = (await answer.json()) as HubExpiries;
-  return { endedLeases, expiredTokens };
+  const { endedLeases, expiredTokens, registrations, revokedTokens } = (await answer.json()) as {
+    endedLeases: string[];
+    expiredTokens: string[];
+    registrations: { client_id: string }[];
+    revokedTokens: string[];
+  };
+  return {
+    clientIds: registrations.map(({ client_id }) => client_id),
+    endedLeases,
+    expiredTokens,
+    revokedTokens,
+  };
+}
+
+/**
+ * The `hub.mode` of the first message the hub sends a socket opened at the
+ * channel endpoint `endpoint`: `subscribe` while a subscription stands there,
+ * `denied` once none does. The socket is closed again either way.
+ */
+export function firstHubModeAt(endpoint: string): Promise<unknown> {
+  const socket = new WebSocket(endpoint);
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no hub message at ${endpoint}`)), 10_000);
+    socket.addEventListener("message", ({ data }) => {
+      clearTimeout(timer);
+      resolve((JSON.parse(String(data)) as Record<string, unknown>)["hub.mode"]);
+    });
+  }).finally(() => socket.close());
+}
+
+/**
+ * The status the shim's token endpoint answers a `jwt-bearer` grant for
+ * `clientId`, its assertion signed with `privateJwk` as the SPA signs one:
+ * ES384, five minutes, a `jti` of its own.
+ */
+export async function hubTokenRequestStatus(
+  clientId: string,
+  privateJwk: JsonWebKey,
+): Promise<number> {
+  const tokenEndpoint = new URL("dcr/token", MEDPLUM_URL).toString();
+  const segment = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const signed = `${segment({ alg: "ES384", typ: "JWT" })}.${segment({
+    aud: tokenEndpoint,
+    exp: now + 300,
+    iat: now,
+    iss: clientId,
+    jti: randomUUID(),
+    sub: clientId,
+  })}`;
+  const signature = sign("sha384", Buffer.from(signed), {
+    dsaEncoding: "ieee-p1363",
+    key: createPrivateKey({ format: "jwk", key: privateJwk as JsonWebKeyInput["key"] }),
+  }).toString("base64url");
+  const answer = await fetch(tokenEndpoint, {
+    body: new URLSearchParams({
+      assertion: `${signed}.${signature}`,
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  return answer.status;
 }
 
 /** What a websocket subscriber receives: the hub's messages, in order. */

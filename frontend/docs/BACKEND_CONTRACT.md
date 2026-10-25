@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: Backend contract
-description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, JSON request bodies, the session bounds, one session per User, Epic Login's landing and its Launch context, the FHIRcast release and what the tab keeps of it, logout's Clear-Site-Data, and the CSP with its loopback hub entries.
+description: The runtime contract the SPA honours with the backend — CSRF synchronizer token, 401 versus 403, JSON request bodies, the session bounds, one session per User, Epic Login's landing and its Launch context, the FHIRcast release and what the tab keeps of it, logout's Clear-Site-Data and FHIRcast cleanup, and the CSP with its loopback hub entries.
 tags: [csrf, sessions, csp, contract]
 ---
 
@@ -219,6 +219,19 @@ change, when the backend side moves. What the SPA has to honour:
   wherever it clears the Launch context — every end of the session and a password
   Login — and logout's `Clear-Site-Data` drops them too. An accepted deviation
   (ADR 0011, "FHIRcast in the browser").
+- **Logout's FHIRcast cleanup is the SPA's, after the backend's logout** — the
+  backend never reaches the loopback hub, and its logout revokes nothing there.
+  Once a logout answers signed out (and on every other end of the session),
+  the FHIRcast module (`endFhircast`) unsubscribes from the topic, revokes the
+  Hub Token by RFC 7009, deletes its dynamic registration by RFC 7592, closes
+  the socket and clears the four keys, in that order, for every connection the
+  tab registered; the keys are cleared once already, the moment the session
+  ends, as the steps run from what the module holds in memory. Revocation and deletion run only when the hub advertises them,
+  each step is bounded to 3 seconds, and none is awaited by the logout: a hub
+  that fails or hangs never keeps the session on screen. None of the steps uses
+  the SMART access token or the CSRF token. A logout that may have left the
+  session standing (ADR 0009) leaves the connection standing too. Best-effort,
+  an accepted deviation (ADR 0011); `Clear-Site-Data` stays the backstop.
 - **The CSP forbids inline script, `eval`, and every third-party origin but the
   loopback FHIRcast Hub** for scripts, styles, fonts, images and `fetch`.
   `connect-src` is `'self'` plus exactly `http://127.0.0.1:*`,

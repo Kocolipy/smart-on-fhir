@@ -8,7 +8,7 @@ import {
   dropHubSockets,
   expectStandInConfigured,
   FHIR_BASE,
-  hubExpiries,
+  hubState,
   publishPatientEvent,
   seededClinician,
   signInAtMedplum,
@@ -181,7 +181,7 @@ test("an event published once the first Hub Token and lease have expired still r
     await expect
       .poll(
         async () => {
-          const { endedLeases, expiredTokens } = await hubExpiries();
+          const { endedLeases, expiredTokens } = await hubState();
           return expiredTokens.includes(firstToken ?? "") && endedLeases.includes(firstLease);
         },
         { intervals: [2_000], timeout: 120_000 },

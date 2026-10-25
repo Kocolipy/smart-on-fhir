@@ -24,7 +24,10 @@ under "Testing".
 
 Vitest with happy-dom and Testing Library; `test/setup.ts` pulls in
 `@testing-library/jest-dom` and clears `sessionStorage` after every test, since
-one window serves a whole file and the tab's Launch context lives there.
+one window serves a whole file and the tab's Launch context lives there. It
+ends the FHIRcast module's connections first (`endFhircast`), for the same
+reason: otherwise a later test's end of the session would tear them down at
+that test's fake hub.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside
 `home.tsx` — and type-checked through `tsconfig.test.json`, which is the only
@@ -193,12 +196,15 @@ one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admi
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
-- **`fhircast`** holds `fhircast-launch.spec.ts`, `fhircast-hub.spec.ts` and
+- **`fhircast`** holds `fhircast-launch.spec.ts`, `fhircast-hub.spec.ts`,
   `fhircast-card.spec.ts` (Home's FHIRcast card reaching `Connected` after a
   launch, showing a published `Patient-open` and then the `Patient-close` that
   replaces it, still showing an event published once the first Hub Token and
   lease have run out, reconnecting after the shim drops its socket, and absent
-  after a password Login), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+  after a password Login) and `fhircast-logout.spec.ts` (after "Sign out", the
+  hub holding no subscription at the card's channel endpoint, the shim
+  reporting the Hub Token revoked and the registration deleted, and a token
+  request with the old registration refused), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
   against it. Each replays the Admin session only to issue a SCIM token; every

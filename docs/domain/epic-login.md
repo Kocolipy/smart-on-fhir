@@ -160,6 +160,41 @@ connects again from the start, from the release on. Leaving Home, including
 every end of the session, stops all of it. The chain's renewals are not bound
 to the session's lifetime: ADR 0011 records that deviation.
 
+**Tearing down** — every end of the session (sign-out, an Idle sign-out,
+expiry, a password change that ends it) tears down, at the hub, every
+connection the tab registered during it, Home's earlier visits and Retries
+included. Once the backend has ended the session, the SPA, in order:
+
+1. sends `hub.mode=unsubscribe` for the topic, naming the subscription's
+   `hub.channel.endpoint`, with the Hub Token as `Bearer`;
+2. revokes the Hub Token (RFC 7009) at the hub metadata's
+   `revocation_endpoint`, authenticating as the registered client with a
+   fresh assertion signed by its key;
+3. deletes its dynamic registration (RFC 7592) at the
+   `registration_client_uri` the registration answered, with its
+   `registration_access_token` as `Bearer`;
+4. closes the socket;
+5. removes every FHIRcast key from `sessionStorage`: the SMART access token,
+   the Hub Token, the `client_id` and the private key.
+
+The keys are cleared twice: once at the moment the session ends, before step
+1, and again at step 5. The teardown works from what the module holds in
+memory, so the first clear keeps the keys from outliving the session while a
+slow hub is answered; the second takes whatever a connection still registering
+stored in the meantime.
+
+Steps 2 and 3 are best-effort, and skipped when the hub names no such endpoint
+on `127.0.0.1`; a connection with no subscription or no Hub Token skips the
+steps that need one. Each step is given 3 seconds, and one that fails, is
+refused or goes unanswered never stops the next, nor the sign-out, which has
+already happened: the SPA shows the login page without waiting. A connection
+still registering when the session ends is torn down as soon as the hub
+answers it, and never connects. A logout that may have left the session
+standing leaves the connection standing too. Logout's `Clear-Site-Data` stays
+the backstop for what the tab kept. Nothing revokes the SMART access token at
+Epic (ADR 0012, D13); ADR 0011 records why revocation at the hub is only
+best-effort.
+
 **The last event** — while connected, the card shows the last **Event
 Notification** the hub sent on the socket: its `hub.event` (`Patient-open` or
 `Patient-close`), its `timestamp` in Singapore time, and the Patient's FHIR id —
