@@ -52,9 +52,10 @@ infra-logs: ## Tail the dependency logs
 # so `infra-up` above never starts it (`integration-test` starts its own).
 # Medplum as the SMART EHR launcher and FHIRcast hub, fronted by the DCR shim,
 # on 127.0.0.1:8103 (and its sign-in page on 127.0.0.1:3103). The script seeds
-# Medplum and prints the APP_EPIC_* values; backend/docs/configuration/epic-login.md,
-# "Local Epic stand-in", has the rest.
-fhircast-up: ## Start the local Epic stand-in (Medplum and the DCR shim) with the dependencies, and seed Medplum
+# Medplum, keeps the managed block in backend/.env that points `make dev` at it,
+# and prints the launch URL and the clinician to sign in as;
+# backend/docs/configuration/epic-login.md, "Local Epic stand-in", has the rest.
+fhircast-up: ## Start the local Epic stand-in (Medplum and the DCR shim), seed Medplum, set up backend/.env, and print the launch URL
 	@scripts/fhircast-up.sh
 
 fhircast-down: ## Stop the local Epic stand-in and the dependencies (volumes are kept)

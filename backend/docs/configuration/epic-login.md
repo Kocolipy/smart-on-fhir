@@ -102,9 +102,14 @@ the one local stand-in for Epic, behind the `fhircast` compose profile, so
 repository root:
 
 ```bash
-make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum and prints the values below
+make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
+make dev             # the app, which reads that .env
 make fhircast-down   # stops them all; the volumes, Medplum's database among them, are kept
 ```
+
+Then open the URL `make fhircast-up` printed and sign in on Medplum's page as
+the clinician it names; "Launching from the stand-in" below has what happens
+next and what is set up for you.
 
 Two parts, both on `127.0.0.1` alone:
 
@@ -157,6 +162,7 @@ sign-in at the Practitioner id `SEED_CLINICIAN_ID` gives it, and one more for
 each Epic Login E2E case that signs in at Medplum, each at the Practitioner id
 `SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; Tan Wei Ming, one of
 the dev profile's patient fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
+a `SmartAppLaunch` for him (see "Launching from the stand-in");
 and this app's ClientApplication — `private_key_jwt` against our JWKS
 (`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
 container reaches the backend), PKCE, and the redirect and launch URIs of
@@ -167,8 +173,8 @@ on a fresh volume restarts Medplum to load it. Medplum takes an id a client
 chooses only when that is a UUID, so neither an Epic id nor an `e2e-` name can
 be one: the clinicians' fixed ids are UUIDs, and Medplum assigns every other
 id, which the seed finds again on every run, so the ids hold from one run to
-the next. `make fhircast-up` prints the ClientApplication's id — the client id,
-which comes from the seed — and the clinician's Practitioner id.
+the next. The ClientApplication's id is the client id, which comes from the
+seed, and `make fhircast-up` writes it to `.env` itself.
 
 A Medplum volume seeded before the clinicians' ids were fixed holds each
 sign-in under a Practitioner Medplum assigned, and the seed then fails on
@@ -184,44 +190,99 @@ Medplum is plain `http`, so the backend must run in the **`dev` profile**
 Epic URLs (D21). That profile alone also accepts Medplum's relative `fhirUser`
 (`Practitioner/{id}`); outside it, `fhirUser` must be the absolute
 `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. Never use either allowance anywhere
-but a developer machine. Run the backend with these in place of the Epic lines
-in `.env`:
+but a developer machine.
 
-| Variable                 | Value for the stand-in                              |
-| ------------------------ | --------------------------------------------------- |
-| `SPRING_PROFILES_ACTIVE` | `local,dev`                                         |
-| `APP_EPIC_ENABLED`       | `true`                                              |
-| `APP_EPIC_FHIR_BASE`     | `http://127.0.0.1:8103/fhir/R4`                     |
-| `APP_EPIC_OAUTH_ISSUER`  | `http://127.0.0.1:8103`, without the trailing slash |
-| `APP_EPIC_CLIENT_ID`     | the client id `make fhircast-up` prints             |
-| `APP_EPIC_REDIRECT_URI`  | `http://localhost:5173/api/auth/epic/callback`      |
-| `APP_EPIC_CLIENT_KEY`    | a key generated for the purpose (see above)         |
-| `APP_EPIC_CLIENT_KEY_ID` | any `kid`, e.g. `local-1`                           |
+### What `make fhircast-up` sets in `.env`
 
-The issuer is Medplum's base URL without its slash because the backend
-discovers it at `{APP_EPIC_OAUTH_ISSUER}/.well-known/openid-configuration` and
-holds the document's `issuer` and the `id_token`'s `iss` to it exactly; Medplum
-is configured to issue that same string. The FHIR base is the `iss` the launch
+`make fhircast-up` keeps a managed block in `backend/.env`, between
+`# >>> fhircast-up (managed) >>>` and `# <<< fhircast-up <<<`: created when
+`.env` has none, rewritten in place when it has. It stops first, before any
+container starts, if `backend/.env` does not exist: copy `backend/.env.example`
+to it, as `make infra-up` also needs. The block holds:
+
+| Variable                          | Value for the stand-in                                                 |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `SPRING_PROFILES_ACTIVE`          | `local,dev`                                                            |
+| `APP_EPIC_ENABLED`                | `true`                                                                 |
+| `APP_EPIC_FHIR_BASE`              | `http://127.0.0.1:8103/fhir/R4`                                        |
+| `APP_EPIC_OAUTH_ISSUER`           | `http://127.0.0.1:8103`, without the trailing slash                    |
+| `APP_EPIC_CLIENT_ID`              | the ClientApplication's id, from the seed                              |
+| `APP_EPIC_REDIRECT_URI`           | `http://localhost:5173/api/auth/epic/callback`                         |
+| `APP_EPIC_CLIENT_KEY`             | an EC P-384 key, generated on the first run and never again            |
+| `APP_EPIC_CLIENT_KEY_ID`          | a `kid` made with it, `local-` and a timestamp                         |
+| `APP_DEV_FIXTURES_ENABLED`        | `true`                                                                 |
+| `APP_DEV_FIXTURES_EPIC_CLINICIAN` | the clinician's Practitioner id, `SEED_CLINICIAN_ID` in `compose.yaml` |
+
+Every value but the key is rewritten on each run from `compose.yaml` and the
+seed, so the block follows them. The key stays while the block holds one, so a
+second run leaves it as it is; remove its two lines from the block (or the
+whole block) to have another generated. It is one line, in single quotes, with
+its line breaks written as `\n`, which both bash (`make dev` sources `.env`) and
+the backend read. It is a private key: `.env` is git-ignored, and it stays there.
+
+Any other line of `.env`, above or below the block, that sets one of these
+variables is commented out, with a note that the block sets it now, so the block
+alone decides what the backend reads; every other line is left as it was, byte
+for byte. `.env.example` sets `SPRING_PROFILES_ACTIVE`, `APP_DEV_FIXTURES_ENABLED`
+and `APP_EPIC_ENABLED` itself, so on a copy of it the first run comments those
+out. `.env` is read when the backend starts, so a run that changed anything in
+the file says to restart the backend; a run that changed nothing does not.
+`make fhircast-down` leaves the block where it is. The issuer is Medplum's base
+URL without its slash because the backend discovers it at
+`{APP_EPIC_OAUTH_ISSUER}/.well-known/openid-configuration` and holds the
+document's `issuer` and the `id_token`'s `iss` to it exactly; Medplum is
+configured to issue that same string. The FHIR base is the `iss` the launch
 names, and Medplum accepts it as the `aud` the backend sends. The redirect URI
 goes through the Vite dev server (`make dev`), so the callback's `302 /` lands
-on the SPA. Generate the key per machine and keep it out of the repository,
-e.g. `export APP_EPIC_CLIENT_KEY="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384)"`.
+on the SPA.
 
-To launch by hand, provision a User over SCIM whose `userName` is the
-clinician's Practitioner id. A connector's write leaves a password change
-pending, which confines the User's password Login to `/change-password` but not
-its Epic Login: an Epic Login presents no password of ours, so it lands on Home
-(`/`) whether or not the change is pending (ADR 0008). Create a `SmartAppLaunch`
-in Medplum — its `patient` references the seeded Patient, and its
-`patient.identifier.value` (`eq081-VQEgP8drUUqCWzHfw3` for Tan Wei Ming) is what
-the token response names as `patient`, ahead of the reference's Medplum id;
-with no `patient`, the token response names none — and open
-`http://localhost:5173/api/auth/epic/launch?iss=http://127.0.0.1:8103/fhir/R4&launch={SmartAppLaunch id}`.
-Sign in on Medplum's page as the clinician, with the password `compose.yaml`
-seeds, and grant the scopes; the launch lands on Home (`/`) signed in as that
-User, with its Groups' Permissions, and Home's FHIRcast card connects to
-Medplum's hub through the shim and reads `Connected`. The other seeded
-clinicians sign in with the same password. Medplum always names its hub on
+### Launching from the stand-in
+
+Three steps, with nothing pasted, provisioned or created by hand:
+
+1. `make fhircast-up`.
+2. `make dev`. `make fhircast-up` does not start the app; if Vite (`:5173`) or
+   the backend (`:8080`) does not answer when it finishes, it warns and says so,
+   and still succeeds.
+3. Open the launch URL it printed,
+   `http://localhost:5173/api/auth/epic/launch?iss=http://127.0.0.1:8103/fhir/R4&launch={SmartAppLaunch id}`,
+   sign in on Medplum's page as `clinician@example.com` with the password
+   `compose.yaml` seeds (`fhircast-stand-in-clinician`), and approve the scopes.
+
+The launch lands on Home (`/`), signed in as the clinician with Tan Wei Ming in
+the Patient card, and Home's FHIRcast card connects to Medplum's hub through the
+shim and reads `Connected`. What the seed and the dev fixtures did for it:
+
+- **The `SmartAppLaunch`** is the seed's (step 6 of `seed.mjs`). Its `patient`
+  references the seeded Patient, and its `patient.identifier.value`
+  (`eq081-VQEgP8drUUqCWzHfw3`) is what Medplum's token response names as
+  `patient`, ahead of the reference's Medplum id; a launch with no `patient`
+  makes the token response name none. Medplum does not consume a launch on use:
+  signing in through one a second time, in a fresh browser, lands on Home the
+  same way. The seed therefore makes the launch once, finds it by a tag on every
+  run after, and the URL never changes, so it can be bookmarked. The tag is what
+  tells it from the launches the E2E specs make for the same Patient. A
+  Medplum volume removed takes the launch with it, and the next run prints a new URL.
+- **The clinician's User** is the dev fixtures' `epic-clinician` (below), which
+  `APP_DEV_FIXTURES_EPIC_CLINICIAN` sets from the block: a User whose `userName`
+  is the Practitioner id, in no Group, holding the baseline Permissions alone
+  (which include `patient:read`, enough for Home and the Patient card). It is no
+  administrator, and a member of none of the fixture Groups. Its password is the
+  fixtures' (`APP_DEV_FIXTURES_PASSWORD`), which an Epic Login never presents;
+  an Epic Login lands on Home (`/`) whether or not a password change is pending
+  (ADR 0008).
+
+`app.dev-fixtures.epic-clinician` (`APP_DEV_FIXTURES_EPIC_CLINICIAN`) follows the
+rules every development fixture does: nothing is seeded unless the fixtures are
+enabled (`APP_DEV_FIXTURES_ENABLED`), startup fails outside the `local` profile
+when they are, and with the variable unset or blank no such User is seeded. The
+User is created when absent and never overwritten. Its `userName` must equal the
+Practitioner id character for character, because that is how Epic Login links a
+clinician (`docs/domain/epic-login.md`, "Linking by `userName`"); `compose.yaml`
+is the one place the id is chosen, which is why the backend takes it from `.env`
+rather than carrying a copy. The other seeded clinicians, made for the E2E
+specs, sign in with the same password but have no User: one is provisioned by
+the spec that signs it in, or by hand over SCIM. Medplum always names its hub on
 `127.0.0.1` with a well-formed topic, so it cannot show a dropped hub; the drop
 rules are covered by the backend's tests against FakeEpic.
 
@@ -230,4 +291,8 @@ E2E gate (`frontend/AGENTS.md`): the `epic` project drives Epic Login through
 it, as the seeded clinician of each case, and the `fhircast` project
 the seeded clinician's launch, the hub, and the FHIRcast card
 (`fhircast-card.spec.ts`, as a clinician seeded for it alone). It generates its
-own key, sets all of the above itself, and runs the shim's own unit tests first.
+own key, sets every `APP_EPIC_*` value itself, and runs the shim's own unit
+tests first. It also unsets `APP_DEV_FIXTURES_EPIC_CLINICIAN` after loading
+`.env`, whatever the block says: the specs' backend seeds no Epic clinician, so
+`epic-unprovisioned` stays unprovisioned and the `fhircast` project provisions
+its own.

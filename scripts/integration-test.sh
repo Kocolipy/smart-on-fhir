@@ -71,6 +71,12 @@ APP_EPIC_CLIENT_KEY="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:
 export APP_EPIC_CLIENT_KEY
 export APP_EPIC_CLIENT_KEY_ID="e2e-$(date +%s)"
 unset APP_EPIC_CLIENT_NEXT_KEY APP_EPIC_CLIENT_NEXT_KEY_ID
+# The managed block `make fhircast-up` keeps in backend/.env names the seeded
+# clinician for the dev fixtures, which would provision it as a User at startup.
+# The E2E backend must not: `epic-unprovisioned` signs in as a clinician no User
+# exists for, and the `fhircast` project provisions its own over SCIM. Unset
+# after load_backend_env, whatever .env says.
+unset APP_DEV_FIXTURES_EPIC_CLINICIAN
 
 # What the `epic` and `fhircast` specs need (frontend/README.md lists each); a
 # set E2E_FHIRCAST_FHIR_BASE, the launch `iss`, is what declares both
