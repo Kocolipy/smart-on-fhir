@@ -25,7 +25,11 @@ import {
   decodeFhircastRelease,
   endFhircast,
   FHIRCAST_STORAGE_KEYS,
+  fhircastSnapshot,
   type FhircastRelease,
+  retryFhircast,
+  startFhircast,
+  watchFhircast,
 } from "./fhircast";
 
 const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
@@ -52,6 +56,26 @@ async function eventually(check: () => void): Promise<void> {
     }
     await new Promise((resolve) => realSetTimeout(resolve, 5));
   }
+}
+
+/**
+ * How long {@link throughout} watches, on the real clock: long enough for a
+ * step the page has begun to sign, and so to reach the hub.
+ */
+const THROUGHOUT_MS = 500;
+
+/**
+ * Holds `check` to passing for a while on the real clock, leaving the fake
+ * clock where it is: what a test asserts never happens is given the time a
+ * signed step takes to happen, rather than checked before it could.
+ */
+async function throughout(check: () => void): Promise<void> {
+  const stopAt = performance.now() + THROUGHOUT_MS;
+  while (performance.now() < stopAt) {
+    check();
+    await new Promise((resolve) => realSetTimeout(resolve, 5));
+  }
+  check();
 }
 
 const RELEASE: FhircastRelease = {
@@ -960,7 +984,7 @@ describe("connectFhircast", () => {
 
         await vi.advanceTimersByTimeAsync(3_000_000_000);
 
-        expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
+        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
       });
 
       it("never starts by a lease that is no number", async () => {
@@ -971,7 +995,7 @@ describe("connectFhircast", () => {
 
         await vi.advanceTimersByTimeAsync(3_000_000_000);
 
-        expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
+        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
       });
 
       it("waits out a lifetime longer than a browser timer holds", async () => {
@@ -979,7 +1003,7 @@ describe("connectFhircast", () => {
 
         await vi.advanceTimersByTimeAsync(2_147_483_646);
 
-        expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
+        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
       });
 
       /** Moves the clock `ms` on, then lets the hub confirm the socket the page has opened by then. */
@@ -1306,7 +1330,9 @@ describe("connectFhircast", () => {
 
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect([hub.sockets().length, hub.requestsTo(HUB_URL).length]).toEqual([2, 1]);
+        await throughout(() =>
+          expect([hub.sockets().length, hub.requestsTo(HUB_URL).length]).toEqual([2, 1]),
+        );
       });
 
       it("reopens the new subscription's endpoint when that socket drops in turn", async () => {
@@ -1760,6 +1786,130 @@ describe("endFhircast", () => {
 
       expect(openAfterClose).toBe(1);
     });
+  });
+});
+
+describe("the session's FHIRcast connection", () => {
+  const releasing = () => Promise.resolve(RELEASE);
+
+  /** What the connection shows, once it says connected. */
+  const connectedNow = () => eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+
+  /** A Patient-open on the release's topic, as the hub sends it. */
+  const PATIENT_OPEN = {
+    event: {
+      context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
+      "hub.event": "Patient-open",
+      "hub.topic": "topic-1",
+    },
+    id: "event-1",
+    timestamp: "2026-10-24T02:00:05Z",
+  };
+
+  it("connects anew on a start once the session's FHIRcast has ended", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+    await endFhircast();
+
+    startFhircast(releasing);
+    await connectedNow();
+
+    expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(2);
+  });
+
+  it("shows nothing of the ended session's connection to the next", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+    hub.notify(PATIENT_OPEN);
+
+    await endFhircast();
+
+    expect(fhircastSnapshot()).toEqual({ last: null, status: "connecting" });
+  });
+
+  it("asks for the release once however often it is started", async () => {
+    hubOnly();
+    const source = vi.fn(releasing);
+
+    startFhircast(source);
+    startFhircast(source);
+    await connectedNow();
+
+    expect(source).toHaveBeenCalledOnce();
+  });
+
+  it("closes the connection before when a retry connects again", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+
+    retryFhircast();
+    await connectedNow();
+
+    expect([hub.sockets().length, hub.openSockets()]).toEqual([2, 1]);
+  });
+
+  it("closes a connection a retry replaced while it was still connecting, once it connects", async () => {
+    let confirmFirst = () => undefined as void;
+    const hub = hubOnly({ hold: [new Promise((resolve) => (confirmFirst = resolve)), null] });
+    startFhircast(releasing);
+    await eventually(() => expect(hub.sockets()).toHaveLength(1));
+    retryFhircast();
+    await connectedNow();
+
+    confirmFirst();
+
+    await eventually(() => expect(hub.openSockets()).toBe(1));
+  });
+
+  it("connects again from the start on a retry after the hub refused", async () => {
+    const hub = hubOnly({ registration: { status: 401 } });
+    startFhircast(releasing);
+    await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
+
+    retryFhircast();
+
+    await eventually(() => expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(2));
+  });
+
+  it("shows no event the hub sends while the ended session's connection is torn down", async () => {
+    const never = new Promise<HubAnswer>(() => undefined);
+    const hub = hubOnly({ unsubscription: never });
+    startFhircast(releasing);
+    await connectedNow();
+    void endFhircast();
+
+    hub.notify(PATIENT_OPEN);
+
+    expect(fhircastSnapshot().last).toBeNull();
+  });
+
+  it("tells a watcher what it shows, until the watcher stops watching", async () => {
+    const hub = hubOnly();
+    const watcher = vi.fn();
+    const stop = watchFhircast(watcher);
+    startFhircast(releasing);
+    await connectedNow();
+    stop();
+    const heard = watcher.mock.calls.length;
+
+    hub.notify(PATIENT_OPEN);
+
+    expect([heard > 0, watcher.mock.calls.length]).toEqual([true, heard]);
+  });
+
+  it("connects nothing on a retry before any start", async () => {
+    const hub = hubOnly();
+
+    retryFhircast();
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
+
+    expect([fhircastSnapshot(), hub.requests()]).toEqual([
+      { last: null, status: "connecting" },
+      [],
+    ]);
   });
 });
 

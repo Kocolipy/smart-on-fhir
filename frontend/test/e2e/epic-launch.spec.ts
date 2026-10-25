@@ -144,7 +144,7 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
     );
     await expectPatientInContext(page, "Tan Wei Ming");
 
-    // A reload keeps the tab's Launch context, though the URL no longer carries it.
+    // A reload keeps the tab's EHR context, though the URL no longer carries it.
     await page.reload();
     await expectPatientInContext(page, "Tan Wei Ming");
   } finally {

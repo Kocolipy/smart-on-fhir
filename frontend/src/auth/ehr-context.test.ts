@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { adoptLaunchLanding, clearLaunchContext, launchContext } from "./launch-context";
+import {
+  adoptLaunchLanding,
+  clearEhrContext,
+  ehrContext,
+  subscribeEhrContext,
+} from "./ehr-context";
 
 // The subject is the tab itself: the page's URL, its history entry and its
 // sessionStorage, all jsdom's own.
@@ -21,11 +26,11 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-describe("the Launch context", () => {
+describe("the EHR context", () => {
   it("keeps the patient and encounter an Epic landing carries, for the tab", () => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc.42-A`);
 
-    expect(launchContext()).toEqual({ encounter: "enc.42-A", patient: TAN_WEI_MING });
+    expect(ehrContext()).toEqual({ encounter: "enc.42-A", patient: TAN_WEI_MING });
   });
 
   it("strips the landing's fragment from the URL, leaving the path", () => {
@@ -43,28 +48,28 @@ describe("the Launch context", () => {
   it("keeps whichever of the two a landing carries", () => {
     loadAt("/#encounter=enc-1");
 
-    expect(launchContext()).toEqual({ encounter: "enc-1" });
+    expect(ehrContext()).toEqual({ encounter: "enc-1" });
   });
 
   it("is replaced by every new landing, not merged with the one before", () => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc-1`);
     loadAt("/#patient=other-patient");
 
-    expect(launchContext()).toEqual({ patient: "other-patient" });
+    expect(ehrContext()).toEqual({ patient: "other-patient" });
   });
 
   it("is replaced with none by a landing with the bare marker", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
     loadAt("/#launch");
 
-    expect(launchContext()).toEqual({});
+    expect(ehrContext()).toEqual({});
   });
 
   it("survives a reload, which carries no fragment", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
     loadAt("/");
 
-    expect(launchContext()).toEqual({ patient: TAN_WEI_MING });
+    expect(ehrContext()).toEqual({ patient: TAN_WEI_MING });
   });
 
   it.each([
@@ -77,35 +82,88 @@ describe("the Launch context", () => {
   ])("ignores a value with %s, keeping the other", (_name, value) => {
     loadAt(`/#patient=${value}&encounter=enc-1`);
 
-    expect(launchContext()).toEqual({ encounter: "enc-1" });
+    expect(ehrContext()).toEqual({ encounter: "enc-1" });
   });
 
   it("keeps a value of exactly 64 characters", () => {
     loadAt(`/#patient=${"a".repeat(64)}`);
 
-    expect(launchContext()).toEqual({ patient: "a".repeat(64) });
+    expect(ehrContext()).toEqual({ patient: "a".repeat(64) });
   });
 
   it("leaves a fragment that is no Epic landing, and the context, alone", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
     loadAt("/#section-2");
 
-    expect({ address: addressBar(), context: launchContext() }).toEqual({
+    expect({ address: addressBar(), context: ehrContext() }).toEqual({
       address: "/#section-2",
       context: { patient: TAN_WEI_MING },
     });
   });
 
-  it("is none in a tab no landing ever reached", () => {
-    expect(launchContext()).toEqual({});
+  it("is absent in a tab no landing ever reached", () => {
+    expect(ehrContext()).toBeNull();
   });
 
-  it("is none once cleared", () => {
+  it("is absent once cleared", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
 
-    clearLaunchContext();
+    clearEhrContext();
 
-    expect(launchContext()).toEqual({});
+    expect(ehrContext()).toBeNull();
+  });
+
+  it("is present, naming nothing, after a landing with the bare marker", () => {
+    loadAt("/#launch");
+
+    expect(ehrContext()).toEqual({});
+  });
+
+  it("is the same value on every read until it changes", () => {
+    loadAt(`/#patient=${TAN_WEI_MING}`);
+
+    expect(ehrContext()).toBe(ehrContext());
+  });
+
+  it("tells a subscriber when a landing seeds it", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeEhrContext(listener);
+
+    loadAt(`/#patient=${TAN_WEI_MING}`);
+    unsubscribe();
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("tells a subscriber when it is cleared", () => {
+    loadAt(`/#patient=${TAN_WEI_MING}`);
+    const listener = vi.fn();
+    const unsubscribe = subscribeEhrContext(listener);
+
+    clearEhrContext();
+    unsubscribe();
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("tells a subscriber nothing once it has unsubscribed", () => {
+    const listener = vi.fn();
+    subscribeEhrContext(listener)();
+
+    loadAt(`/#patient=${TAN_WEI_MING}`);
+    clearEhrContext();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("tells a subscriber nothing of a URL that is no Epic landing", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeEhrContext(listener);
+
+    loadAt("/#section-2");
+    unsubscribe();
+
+    expect(listener).not.toHaveBeenCalled();
   });
 
   // The tab's storage is the page's to write, so what is read back is decoded
@@ -121,8 +179,8 @@ describe("the Launch context", () => {
     ],
     ["a value that is no string", '{"patient":7,"encounter":"enc-1"}', { encounter: "enc-1" }],
   ])("reads only what the grammar allows from storage holding %s", (_name, stored, expected) => {
-    window.sessionStorage.setItem("launch-context", stored);
+    window.sessionStorage.setItem("ehr-context", stored);
 
-    expect(launchContext()).toEqual(expected);
+    expect(ehrContext()).toEqual(expected);
   });
 });

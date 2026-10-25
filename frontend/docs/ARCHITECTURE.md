@@ -6,7 +6,7 @@ What is here today, and where a new concern belongs.
 
 ```
 src/
-  main.tsx            composition root — adopts an Epic landing's Launch context, mounts React, imports index.css
+  main.tsx            composition root — seeds the EHR context from an Epic landing's Launch context, mounts React, imports index.css
   App.tsx             app root — BrowserRouter, AuthProvider, the route table
   index.css           Tailwind entry + the design tokens
   vite-env.d.ts       /// <reference types="vite/client" />
@@ -69,17 +69,21 @@ straight into `lib/http`) but may never point back up.
 - `session-transitions.ts` — `useSessionTransitions`, the one place the auth
   state (status, user, sign-in reason) changes, as `signIn(user)` or
   `end(reason)`, each forgetting the CSRF token in the same step (ADR 0009);
-  `end` forgets the tab's Launch context too.
+  `end` forgets the tab's EHR context too, and stops the session's FHIRcast
+  connection (`endFhircast`).
   `checkFailed` (status `unchecked`) and `recheck` change the status without
   changing the session, so they keep the token.
-- `launch-context.ts` — the tab's **Launch context**, the patient and encounter
-  an EHR launch put in context: `adoptLaunchLanding()` (called by `main.tsx`
-  before the router reads the URL) reads an Epic landing's fragment, holds each
-  value to FHIR's id grammar, keeps it in `sessionStorage` and strips the
-  fragment; `launchContext()` reads it back, decoded rather than trusted;
-  `landedFromEpic()` says whether the tab holds one at all, which is how Home
-  knows an EHR launch began the session; and `clearLaunchContext()` forgets it,
-  on every session end and a password Login, beside `clearFhircastStorage()`
+- `ehr-context.ts` — the tab's **EHR context**, what the EHR has open for the
+  tab (today a patient and an encounter), as a subscribable store under one
+  `sessionStorage` key: `adoptLaunchLanding()` (called by `main.tsx` before
+  the router reads the URL) reads an Epic landing's fragment, its Launch
+  context, holds each value to FHIR's id grammar, seeds the EHR context with it
+  and strips the fragment; `ehrContext()` reads it back, decoded rather than
+  trusted, the same value until it changes, and `null` when the tab holds none
+  — which is how Home knows an EHR launch began the session;
+  `subscribeEhrContext()` / `useEhrContext()` re-render a reader when it
+  changes; and `clearEhrContext()` forgets it, on every session end and a
+  password Login, beside `clearFhircastStorage()`
   (`docs/BACKEND_CONTRACT.md`); every session end also starts `endFhircast()`,
   unawaited.
 - `auth-context.tsx` — the `AuthProvider`: checks the session on mount and on
@@ -103,10 +107,13 @@ straight into `lib/http`) but may never point back up.
 - `use-session-request.ts` — the seam features request through. It acts on
   `unauthenticated` itself and returns a `SessionResult` with no such member,
   so no page can forget to relay a session ending.
-- `use-fhircast-release.ts` — `useFhircastRelease`, the FHIRcast release
-  (`GET /api/auth/epic/fhircast`) through that seam. Not a declaration: the
-  operation is self-service and carries no Permission, and the card needs only
-  the release or `null`.
+- `use-session-fhircast.ts` — `useSessionFhircast`, called by the signed-in
+  layout: starts the FHIRcast module's session-long connection while the
+  session is signed in and the tab holds an EHR context, handing it a source
+  for the FHIRcast release (`GET /api/auth/epic/fhircast`) through that seam.
+  Not a declaration: the operation is self-service and carries no Permission,
+  and the module needs only the release or `null`. The glue is here because
+  `src/lib` imports nothing of `src/auth`.
 - `use-gated-read.ts` / `use-gated-write.ts` — the gated read and write (below).
 - `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
   authenticated session (`docs/BACKEND_CONTRACT.md` has the rule it keeps).
@@ -187,26 +194,28 @@ decide where a visitor goes.
   mount, submit, paging and Refresh, **never on a timer**: every request renews
   the server session, so a polling page would never reach the idle timeout. The
   pager names a total only once a read of the current query has stated one.
-- `home.tsx` — the Patient card, handed the tab's Launch context's patient
-  (`launchContext()`), beside it the FHIRcast card in a tab an EHR launch began
-  (`landedFromEpic()`), then the Pages card: a link to each page the session
-  may open.
-- `fhircast-card.tsx` — the FHIRcast card: asks for the release, connects
-  through `lib/fhircast.ts`, and shows one of six generic states, closing its
-  socket when Home goes. The module renews the Hub Token and the subscription
+- `home.tsx` — the Patient card, handed the tab's EHR context's patient,
+  beside it the FHIRcast card whenever the tab holds an EHR context, both read
+  through `useEhrContext()` so they re-render when it changes, then the Pages
+  card: a link to each page the session may open.
+- `fhircast-card.tsx` — the FHIRcast card: a pure view of the session's
+  FHIRcast connection, `lib/fhircast.ts`'s singleton (`fhircastSnapshot`,
+  `watchFhircast`), which the signed-in layout starts; it shows one of six
+  generic states and starts and closes nothing, so leaving Home keeps the
+  connection and its last event. The module renews the Hub Token and the subscription
   unseen, and reconnects a dropped socket while the card shows `Reconnecting`;
-  once its retries run out the card shows `Disconnected` and a Retry button,
-  which connects again from the release. While connected or reconnecting it
-  lists the last event the module hands on — name, time, and the Patient id
-  when there is one — held in its own state only, so a reload, or a Retry,
-  starts with none. It reports nothing to the page
+  once its retries run out the card shows `Disconnected` and a Retry button
+  (`retryFhircast`), which connects again from the release. While connected or
+  reconnecting it lists the last event the module hands on — name, time, and
+  the Patient id when there is one — held by the module's singleton only, so a
+  reload, or a Retry, starts with none. It reports nothing to the page
   status: its state is its own line.
 - `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
   an optional `patientId` prop. Without one it shows "No patient in context" and
   never calls the gated read; with one, a child component reads
   `GET /api/patient/{patientId}` through `PATIENT` (opting in to `absent`),
   decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes the
-  Launch context's patient. Every field renders as a plain text node; the age is computed from the
+  EHR context's patient. Every field renders as a plain text node; the age is computed from the
   card's injectable `Clock`.
 - `listing-body.tsx` — the one listing body: loading, empty, and a blank body
   for a failure (whose copy is on the error line). Each page names its
@@ -250,8 +259,12 @@ It keeps every connection it registered in a session, and `endFhircast()`, which
 the session transitions start on every end of the session, tears each down at
 the hub — the unsubscription, RFC 7009 revocation, RFC 7592 deletion, then the
 socket — best-effort, each step bounded, before clearing what the tab kept.
-The release it starts from still comes from the backend through the session
-seam (`auth/use-fhircast-release.ts`). `test/arch/rawNetwork.test.ts`
+It holds the session's one connection as a module-level singleton
+(`startFhircast`, idempotent; `retryFhircast`; `fhircastSnapshot` and
+`watchFhircast` for the card), which `endFhircast()` resets: no component
+lives as long as the session, so none could own it (ADR 0016, "The
+connection's lifetime"). The release it starts from still comes from the
+backend through the session seam (`auth/use-session-fhircast.ts`). `test/arch/rawNetwork.test.ts`
 (`no_raw_network_outside_transport`) names these two modules and no others.
 
 ### Why every time goes through `lib/time.ts`
@@ -354,6 +367,9 @@ renders only its body. A failed or CSRF-expired logout ends nothing — the
 session and its token stand (ADR 0009) — and the line goes to the page status.
 The idle warning's Sign out runs the same session action; the Idle sign-out at
 the limit is a separate path, and ends the session even when its logout fails.
+It also starts the session's FHIRcast connection while the tab holds an EHR
+context (`useSessionFhircast`): it outlives every page beneath it, so the
+connection lasts across navigation and Home remounts.
 
 `resolveSessionRoute` is the transition table behind both guards. It sends a
 Guest to login with a return destination and the provider's sign-in reason;

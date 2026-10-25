@@ -1,24 +1,19 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { adoptLaunchLanding } from "@/auth/launch-context";
-import {
-  bare,
-  deferred,
-  holding,
-  json,
-  renderAsSession,
-  type Answers,
-} from "@/auth/session-adapter.testHelpers";
+import { AUTH_REQUESTS } from "@/auth/auth-context.testHelpers";
+import { adoptLaunchLanding } from "@/auth/ehr-context";
+import { bare, deferred, holding, json, type Answers } from "@/auth/session-adapter.testHelpers";
 import {
   type FakeHub,
   fakeHub,
   HUB_URL,
   type HubOptions,
+  REGISTRATION_CLIENT_URI,
   REGISTRATION_ENDPOINT,
 } from "@/lib/fake-hub.testHelpers";
 
-import { Home } from "./home";
+import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 /** The release the backend answers an Epic session that kept a hub. */
 const RELEASE = {
@@ -42,26 +37,53 @@ const landedFromEpic = () => {
   adoptLaunchLanding();
 };
 
-/** Home for an Epic session, the backend answering `answers` and the hub `hub`. */
-async function renderEpicHome(answers: Answers, hub: HubOptions = {}) {
+/**
+ * Home for an Epic session, inside the signed-in layout that starts the
+ * session's FHIRcast connection, the backend answering `answers` and the hub
+ * `options`; the hub, beside what the page sent and the session.
+ */
+async function renderEpicHome(answers: Answers, options: HubOptions = {}) {
   landedFromEpic();
-  fakeHub(hub);
-  return renderAsSession(<Home pages={[]} />, SESSION, { answers });
+  const hub = fakeHub(options);
+  return { hub, ...(await renderSignedIn("/", SESSION, answers)) };
 }
 
 /** The card's one status line. */
 const status = () => screen.getByRole("status", { name: "FHIRcast" });
 
-/** Home for an Epic session, connected to a hub answering `options`. */
-async function connectedHome(options: HubOptions = {}) {
-  landedFromEpic();
-  const hub = fakeHub(options);
-  await renderAsSession(<Home pages={[]} />, SESSION, {
-    answers: { [RELEASE_REQUEST]: json(RELEASE) },
-  });
+/**
+ * Home for an Epic session, connected to a hub answering `options`, the
+ * backend answering `answers` beside the release; what the page sent with it.
+ */
+async function connectedHome(options: HubOptions = {}, answers: Answers = {}) {
+  const { hub, requests, session } = await renderEpicHome(
+    { [RELEASE_REQUEST]: json(RELEASE), ...answers },
+    options,
+  );
   await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
-  return hub;
+  return Object.assign(hub, { pageRequests: requests, session });
 }
+
+/** Leaves Home for another signed-in page, the password change, by Home's own link. */
+async function leaveHome() {
+  fireEvent.click(screen.getByRole("link", { name: "Change password" }));
+  await screen.findByRole("heading", { level: 1, name: "Change password" });
+}
+
+/** Comes back to Home by the page's back link. */
+async function returnHome() {
+  fireEvent.click(screen.getByRole("link", { name: "Back" }));
+  await screen.findByRole("heading", { level: 1, name: "Home" });
+}
+
+/** Signs out by the layout's Sign out, and waits for the session to have ended. */
+async function signOut(session: () => { status: string }) {
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await waitFor(() => expect(session().status).toBe("guest"));
+}
+
+/** The backend's answer to a logout that ends the session. */
+const SIGNS_OUT: Answers = { [AUTH_REQUESTS.logout]: bare(204) };
 
 /** Fake timers that still follow the real clock, so `waitFor` keeps polling. */
 const onTheClock = () =>
@@ -142,12 +164,7 @@ describe("the FHIRcast card", () => {
   });
 
   it("shows reconnecting once the hub drops a connection", async () => {
-    landedFromEpic();
-    const hub = fakeHub();
-    await renderAsSession(<Home pages={[]} />, SESSION, {
-      answers: { [RELEASE_REQUEST]: json(RELEASE) },
-    });
-    await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
+    const hub = await connectedHome();
 
     act(() => hub.dropSockets());
 
@@ -223,54 +240,91 @@ describe("the FHIRcast card", () => {
     });
   });
 
-  it("closes its socket when Home goes", async () => {
-    landedFromEpic();
-    const hub = fakeHub();
-    const { unmount } = await renderAsSession(<Home pages={[]} />, SESSION, {
-      answers: { [RELEASE_REQUEST]: json(RELEASE) },
-    });
-    await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
-
-    unmount();
-
-    expect(hub.openSockets()).toBe(0);
-  });
-
   it("keeps its socket open while Home stays", async () => {
-    landedFromEpic();
-    const hub = fakeHub();
-    await renderAsSession(<Home pages={[]} />, SESSION, {
-      answers: { [RELEASE_REQUEST]: json(RELEASE) },
-    });
+    const hub = await connectedHome();
 
-    await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
     expect(hub.openSockets()).toBe(1);
   });
 
-  it("connects to nothing when Home goes before the release answers", async () => {
+  it("keeps its socket open while the clinician is on another page", async () => {
+    const hub = await connectedHome();
+
+    await leaveHome();
+
+    expect(hub.openSockets()).toBe(1);
+  });
+
+  it("stays connected, registering nothing again, when the clinician leaves Home and comes back", async () => {
+    const hub = await connectedHome();
+    await leaveHome();
+
+    await returnHome();
+
+    expect([status().textContent, hub.requestsTo(REGISTRATION_ENDPOINT).length]).toEqual([
+      "Connected",
+      1,
+    ]);
+  });
+
+  it("asks the backend for the release once however often Home mounts", async () => {
+    const hub = await connectedHome();
+    await leaveHome();
+    await returnHome();
+
+    expect(
+      hub.pageRequests().filter(({ path }) => path === "/api/auth/epic/fhircast"),
+    ).toHaveLength(1);
+  });
+
+  it("connects on whichever signed-in page the tab is on, Home or not", async () => {
     landedFromEpic();
     const hub = fakeHub();
-    const release = deferred();
-    const { unmount } = await renderAsSession(<Home pages={[]} />, SESSION, {
-      answers: { [RELEASE_REQUEST]: release.answer },
+
+    await renderSignedIn("/change-password", SESSION, {
+      [RELEASE_REQUEST]: json(RELEASE),
     });
 
-    unmount();
+    await waitFor(() => expect(hub.openSockets()).toBe(1));
+  });
+
+  it("ends the session when the backend answers the release 401", async () => {
+    const { session } = await renderEpicHome({ [RELEASE_REQUEST]: bare(401) });
+
+    await waitFor(() => expect(session().status).toBe("guest"));
+  });
+
+  it("tears the connection down at the hub on sign-out", async () => {
+    const hub = await connectedHome({}, SIGNS_OUT);
+
+    await signOut(hub.session);
+
+    await waitFor(() =>
+      expect([hub.requestsTo(REGISTRATION_CLIENT_URI).length, hub.openSockets()]).toEqual([1, 0]),
+    );
+  });
+
+  it("connects to nothing when the session ends before the release answers", async () => {
+    const release = deferred();
+    const { hub, session } = await renderEpicHome({
+      [RELEASE_REQUEST]: release.answer,
+      ...SIGNS_OUT,
+    });
+
+    await signOut(session);
     await release.settle(json(RELEASE));
 
     expect(hub.requests()).toEqual([]);
   });
 
-  it("closes the socket a subscription confirms after Home has gone", async () => {
-    landedFromEpic();
+  it("closes the socket a subscription confirms after the session has ended", async () => {
     let confirm = () => undefined as void;
-    const hub = fakeHub({ hold: new Promise((resolve) => (confirm = resolve)) });
-    const { unmount } = await renderAsSession(<Home pages={[]} />, SESSION, {
-      answers: { [RELEASE_REQUEST]: json(RELEASE) },
-    });
+    const { hub, session } = await renderEpicHome(
+      { [RELEASE_REQUEST]: json(RELEASE), ...SIGNS_OUT },
+      { hold: new Promise((resolve) => (confirm = resolve)) },
+    );
     await waitFor(() => expect(hub.sockets()).toHaveLength(1));
 
-    unmount();
+    await signOut(session);
     confirm();
 
     await waitFor(() => expect(hub.openSockets()).toBe(0));
@@ -438,6 +492,16 @@ describe("the FHIRcast card", () => {
       expect(console.flatMap((spy) => spy.mock.calls)).toEqual([]);
     });
 
+    it("shows, back on Home, an event the hub sent while the clinician was on another page", async () => {
+      const hub = await connectedHome();
+      await leaveHome();
+
+      act(() => hub.notify(notification("Patient-open")));
+      await returnHome();
+
+      expect(shown()).toEqual(SHOWN_OPEN);
+    });
+
     it("keeps showing the last event while reconnecting", async () => {
       const hub = await connectedHome();
       act(() => hub.notify(notification("Patient-open")));
@@ -503,7 +567,7 @@ describe("the FHIRcast card", () => {
 
   it("shows no card, and asks for nothing, in a session no EHR launch began", async () => {
     fakeHub();
-    const { requests } = await renderAsSession(<Home pages={[]} />, SESSION);
+    const { requests } = await renderSignedIn("/", SESSION);
 
     expect([screen.queryByRole("status", { name: "FHIRcast" }), requests()]).toEqual([null, []]);
   });

@@ -1,20 +1,21 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
-import { useFhircastRelease } from "@/auth/use-fhircast-release";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { connectFhircast, type PatientEvent } from "@/lib/fhircast";
+import {
+  fhircastSnapshot,
+  retryFhircast,
+  watchFhircast,
+  type FhircastStatus,
+  type PatientEvent,
+} from "@/lib/fhircast";
 import { formatInstant } from "@/lib/time";
-
-/** The card's states: where connecting to the local hub, and staying connected, has got to. */
-type FhircastState =
-  "connecting" | "connected" | "reconnecting" | "disconnected" | "unavailable" | "blocked";
 
 /**
  * Only these generic lines are ever shown: what a hub or Epic said about a
  * refusal, and any response body, is neither rendered nor logged (ADR 0016).
  */
-const COPY: Record<FhircastState, string> = {
+const COPY: Record<FhircastStatus, string> = {
   blocked: "Local hub blocked by browser",
   connected: "Connected",
   connecting: "Connecting",
@@ -24,7 +25,7 @@ const COPY: Record<FhircastState, string> = {
 };
 
 /** The states the last event stays shown in: connected, and on the way back to it. */
-const SHOWS_LAST_EVENT: readonly FhircastState[] = ["connected", "reconnecting"];
+const SHOWS_LAST_EVENT: readonly FhircastStatus[] = ["connected", "reconnecting"];
 
 /**
  * The last event, each field a plain text node: the event's name, its time in
@@ -51,56 +52,21 @@ function LastEvent({ event }: { event: PatientEvent }) {
 }
 
 /**
- * The FHIRcast card, on Home in an Epic session: asks the backend for the
- * release, then connects to Epic's local FHIRcast hub through the FHIRcast
- * module (`@/lib/fhircast`), and shows how far it got. Once on mount; the
- * connection is closed when Home goes. Connected, it stays connected through
+ * The FHIRcast card, on Home in a tab that holds an EHR context: a pure view
+ * of the session's FHIRcast connection, the FHIRcast module's singleton
+ * (`@/lib/fhircast`), which the signed-in layout starts and the end of the
+ * session stops (`useSessionFhircast`). It shows how far connecting to
+ * Epic's local FHIRcast hub got. Connected, it stays connected through
  * renewals unseen; a dropped connection shows as reconnecting, and as
- * disconnected once the module's retries run out, with a retry that connects
+ * disconnected once the module's retries run out, with a Retry that connects
  * again from the start. While connected or reconnecting it shows the last
- * `Patient-open` or `Patient-close` the hub sent, held in this component's
- * state alone: a reload, or a retry, starts with none.
+ * `Patient-open` or `Patient-close` the hub sent. The connection outlives
+ * the card, so leaving Home and coming back neither reconnects nor loses the
+ * last event, and one sent meanwhile shows on return; a reload, or a Retry,
+ * starts with none.
  */
 export function FhircastCard() {
-  const release = useFhircastRelease();
-  const [state, setState] = useState<FhircastState>("connecting");
-  const [last, setLast] = useState<PatientEvent | null>(null);
-  // The connection's identity, a fresh object for each Retry: the effect
-  // connects again whenever it changes.
-  const [connectionKey, setConnectionKey] = useState({});
-
-  useEffect(() => {
-    // Home gone before the release answered connects to nothing; gone while
-    // connecting closes the socket as soon as it is open. A state set after
-    // Home has gone changes nothing.
-    let mounted = true;
-    let close: () => void = () => undefined;
-    void (async () => {
-      const released = await release();
-      if (!mounted) return;
-      if (released === null) {
-        setState("unavailable");
-        return;
-      }
-      const outcome = await connectFhircast(released, {
-        onConnection: setState,
-        onEvent: setLast,
-      });
-      if (outcome.kind === "connected") close = outcome.close;
-      if (!mounted) close();
-      setState(outcome.kind);
-    })();
-    return () => {
-      mounted = false;
-      close();
-    };
-  }, [release, connectionKey]);
-
-  const retry = () => {
-    setLast(null);
-    setState("connecting");
-    setConnectionKey({});
-  };
+  const { last, status } = useSyncExternalStore(watchFhircast, fhircastSnapshot);
 
   return (
     <Card className="w-full">
@@ -109,14 +75,14 @@ export function FhircastCard() {
       </CardHeader>
       <CardContent>
         <p aria-labelledby="fhircast-card-title" className="text-sm" role="status">
-          {COPY[state]}
+          {COPY[status]}
         </p>
-        {state === "disconnected" && (
-          <Button className="mt-2" onClick={retry} size="sm" variant="outline">
+        {status === "disconnected" && (
+          <Button className="mt-2" onClick={retryFhircast} size="sm" variant="outline">
             Retry
           </Button>
         )}
-        {SHOWS_LAST_EVENT.includes(state) && last !== null && <LastEvent event={last} />}
+        {SHOWS_LAST_EVENT.includes(status) && last !== null && <LastEvent event={last} />}
       </CardContent>
     </Card>
   );

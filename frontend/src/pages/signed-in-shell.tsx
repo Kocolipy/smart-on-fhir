@@ -3,6 +3,7 @@ import { Link, matchPath, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth/auth-context-value";
 import { PageStatusScope, useStatusReporter } from "@/auth/page-status";
 import { useSessionAction } from "@/auth/use-session-action";
+import { useSessionFhircast } from "@/auth/use-session-fhircast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HOME_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
@@ -24,9 +25,15 @@ import { HOME_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
  * `signed-out` one has already ended the session, and the guards send the user
  * to login with no Sign-in reason. The Idle sign-out is a separate path that
  * always ends it.
+ *
+ * The layout also starts the session's FHIRcast connection while the tab
+ * holds an EHR context (`useSessionFhircast`): it outlives every page beneath
+ * it, so the connection keeps running across navigation and Home remounts, and
+ * the FHIRcast card on Home is only a view of it.
  */
 export function SignedInShell() {
   const { pathname } = useLocation();
+  useSessionFhircast();
   return (
     <PageStatusScope resetKey={pathname}>
       {(error) => <SignedInLayout error={error} pathname={pathname} />}

@@ -5,7 +5,7 @@ import { clearFhircastStorage } from "@/lib/fhircast";
 import * as authApi from "./api";
 import { AuthContext, type AuthContextState } from "./auth-context-value";
 import { IdleSignOut } from "./idle-sign-out";
-import { clearLaunchContext } from "./launch-context";
+import { clearEhrContext } from "./ehr-context";
 import { useSessionTransitions } from "./session-transitions";
 import { sessionEndReasonFor } from "./sign-in-reason";
 
@@ -89,10 +89,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Guest's token goes with it and a retry fetches the next session's.
         // Any other outcome reached no verdict and changes nothing. A password
         // Login puts no patient in context, so it forgets any an earlier EHR
-        // launch in this tab left (`launch-context.ts`), and whatever the
+        // launch in this tab left (its EHR context, `ehr-context.ts`), and whatever the
         // FHIRcast module kept for that launch's session (`@/lib/fhircast`).
         if (outcome.kind === "signed-in") {
-          clearLaunchContext();
+          clearEhrContext();
           clearFhircastStorage();
           signIn(outcome.user);
         }

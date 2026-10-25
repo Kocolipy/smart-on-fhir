@@ -33,7 +33,9 @@ import {
  * FHIRcast hub through the DCR shim — discovery, registration, the
  * `jwt-bearer` Hub Token, the subscription and the websocket. Once connected,
  * the card shows the last `Patient-open` or `Patient-close` published to the
- * session's topic through Medplum's FHIRcast REST API.
+ * session's topic through Medplum's FHIRcast REST API. The connection lasts
+ * the session, not Home: one case leaves Home while connected, publishes from
+ * there, and comes back to the same connection showing what it sent.
  *
  * In the `fhircast` project. Each launch signs in a clinician the seed made
  * for this spec alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`), so the
@@ -226,6 +228,43 @@ test("a dropped socket shows reconnecting, then the card reconnects and shows th
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     await publishPatientEvent(hubTopic, "Patient-open", patient.id);
     await expect(field(page, "Event")).toHaveText("Patient-open");
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("the connection lasts while the clinician is on another page, and Home shows what the hub sent meanwhile", async ({
+  browser,
+}) => {
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-navigation@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinician = await freshBrowser(browser);
+  try {
+    const page = await clinician.newPage();
+    // Every registration the tab asks the hub for: one per connection begun.
+    const registrations: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/dcr/register") {
+        registrations.push(request.url());
+      }
+    });
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const hubTopic = await releasedTopic(page);
+    const patient = await tanWeiMing();
+
+    await page.getByRole("link", { name: "Change password" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Change password" })).toBeVisible();
+    await publishPatientEvent(hubTopic, "Patient-open", patient.id);
+    await page.getByRole("link", { name: "Back" }).click();
+
+    await expect(field(page, "Event")).toHaveText("Patient-open");
+    await expect(field(page, "Patient")).toHaveText(patient.id);
+    await expect(fhircastStatus(page)).toHaveText("Connected");
+    expect(registrations, "the tab registered once, before it left Home").toHaveLength(1);
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
