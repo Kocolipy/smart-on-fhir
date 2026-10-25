@@ -39,11 +39,11 @@ public class ScimSeedConfig {
 
     /**
      * Seeding, then the development fixtures when enabled — their Group Permissions after the
-     * Groups, and the dormant fixture last of them — then the two checks: that the reserved Admin
-     * group exists, and that every stored Group Permission names one a Group may carry. In that
-     * order, in one runner, so the checks see exactly what startup wrote and a failure of any step
-     * fails startup. A Group deleted over SCIM takes its Permissions with it, so it leaves nothing
-     * behind for a check to refuse.
+     * Groups, and the dormant fixture last of them — then the check that every stored Group
+     * Permission names one a Group may carry. In that order, in one runner, so the check sees
+     * exactly what startup wrote and a failure of any step fails startup. Seeding recreates a
+     * missing Admin group, so no check follows it. A Group deleted over SCIM takes its Permissions
+     * with it, so it leaves nothing behind for the check to refuse.
      *
      * <p>The development fixtures are refused outside the {@code local} profile, here, as the
      * runner is created, so a context that would seed them anywhere else fails to start before any
@@ -109,7 +109,6 @@ public class ScimSeedConfig {
                                     ? List.of() : devFixtures.dormantGroups());
                 }
             }
-            seeding.verifyAdminGroup();
             seeding.verifyGroupPermissions();
         };
     }

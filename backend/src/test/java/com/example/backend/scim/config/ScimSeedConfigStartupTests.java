@@ -40,8 +40,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * The startup step that seeds the directory, then the development fixtures when enabled — their
- * Group Permissions after their Groups — then refuses a directory without its Admin group or with
- * a stored Group Permission no Group may carry.
+ * Group Permissions after their Groups — then refuses a stored Group Permission no Group may
+ * carry.
  *
  * <p>The runner is taken from a real context, with {@code app.dev-fixtures} bound as a deployment's
  * configuration is, and run as startup runs it; a runner that throws is a failed startup. The
