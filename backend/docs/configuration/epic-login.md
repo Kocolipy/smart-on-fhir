@@ -170,9 +170,11 @@ idempotently (`backend/fhircast-shim/src/seed.mjs`): a project for the local
 EHR; a clinician, `clinician@example.com`, as a Practitioner with a Medplum
 sign-in at the Practitioner id `SEED_CLINICIAN_ID` gives it, and one more for
 each Epic Login E2E case that signs in at Medplum, each at the Practitioner id
-`SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; Tan Wei Ming, one of
-the development fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
-a `SmartAppLaunch` for him (see "Launching from the stand-in");
+`SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; every one of the
+backend's development patient fixtures (`DevPatientFixtures`), each as a
+Patient carrying the Epic id its fixture is held under, so a launch or a
+FHIRcast event can name any of them and the Patient card reads it;
+a `SmartAppLaunch` for Tan Wei Ming (see "Launching from the stand-in");
 and this app's ClientApplication — `private_key_jwt` against our JWKS
 (`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
 container reaches the backend), PKCE, and the redirect and launch URIs of
@@ -185,6 +187,24 @@ be one: the clinicians' fixed ids are UUIDs, and Medplum assigns every other
 id, which the seed finds again on every run, so the ids hold from one run to
 the next. The ClientApplication's id is the client id, which comes from the
 seed, and `make fhircast-up` writes it to `.env` itself.
+
+The seeded Patients are the backend's four fixtures, by Epic id
+(`backend/fhircast-shim/src/seed-patients.mjs`; each is made once, found by its
+Epic id on every run after, so a re-run makes no duplicate). Medplum holds only
+the name; everything the Patient card shows comes from the backend's own
+fixture:
+
+| Name                       | Epic id                    |
+| -------------------------- | -------------------------- |
+| Tan Wei Ming               | `eq081-VQEgP8drUUqCWzHfw3` |
+| Siti Nurhaliza binte Ahmad | `erXuFYUfucBZaryVksYEcMg3` |
+| Kumaravel                  | `e0w0LEDCYtfckT6N.CkJKCw3` |
+| Marcus Anthony de Souza    | `egqBHVfQlt4Bw3XGXoxVxHg3` |
+
+The default launch `make fhircast-up` prints names Tan Wei Ming. A FHIRcast
+event names a patient by the same Epic id:
+`make fhircast-publish EVENT=Patient-open PATIENT=erXuFYUfucBZaryVksYEcMg3`
+moves the Patient card to Siti Nurhaliza binte Ahmad.
 
 A Medplum volume seeded before the clinicians' ids were fixed holds each
 sign-in under a Practitioner Medplum assigned, and the seed then fails on

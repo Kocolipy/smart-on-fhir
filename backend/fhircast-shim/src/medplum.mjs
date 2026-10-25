@@ -50,6 +50,19 @@ export function medplumAdmin(medplumUrl, admin) {
     return answer.json();
   }
 
+  async function request(path, { method = "GET", body } = {}) {
+    return call(path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${await token()}`,
+        ...(body === undefined
+          ? {}
+          : { "Content-Type": "application/fhir+json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+
   return {
     token,
     /** Whether Medplum's introspection calls `accessToken` active. */
@@ -68,17 +81,20 @@ export function medplumAdmin(medplumUrl, admin) {
      * A call as the super admin, answering its JSON body; a body is sent as
      * JSON. Any status but 2xx is an error naming the path and the status.
      */
-    async request(path, { method = "GET", body } = {}) {
-      return call(path, {
-        method,
-        headers: {
-          Authorization: `Bearer ${await token()}`,
-          ...(body === undefined
-            ? {}
-            : { "Content-Type": "application/fhir+json" }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
+    request,
+    /** Every resource a FHIR R4 search for `query` answers, across pages. */
+    async search(query) {
+      const found = [];
+      let next = `/fhir/R4/${query}`;
+      while (next) {
+        const bundle = await request(next);
+        found.push(...(bundle.entry ?? []).map(({ resource }) => resource));
+        const link = bundle.link?.find(
+          ({ relation }) => relation === "next",
+        )?.url;
+        next = link ? new URL(link).pathname + new URL(link).search : undefined;
+      }
+      return found;
     },
   };
 }
