@@ -27,7 +27,7 @@ TAG ?= local
 export NPM
 export MVN
 
-.PHONY: help bootstrap infra-up infra-down infra-logs fhircast-up fhircast-down \
+.PHONY: help bootstrap infra-up infra-down infra-logs fhircast-up fhircast-publish fhircast-down \
         dev dev-stop verify-frontend verify-backend verify-contract verify integration-test package \
         container clean
 
@@ -57,6 +57,9 @@ infra-logs: ## Tail the dependency logs
 # backend/docs/configuration/epic-login.md, "Local Epic stand-in", has the rest.
 fhircast-up: ## Start the local Epic stand-in (Medplum and the DCR shim), seed Medplum, set up backend/.env, and print the launch URL
 	@scripts/fhircast-up.sh
+
+fhircast-publish: ## Publish a FHIRcast event to the local Epic stand-in's hub: EVENT=Patient-open|Patient-close PATIENT=<id> [TOPIC=<topic>]
+	@TOPIC="$(TOPIC)" scripts/fhircast-publish.sh "$(EVENT)" "$(PATIENT)"
 
 fhircast-down: ## Stop the local Epic stand-in and the dependencies (volumes are kept)
 	$(COMPOSE) --profile fhircast down

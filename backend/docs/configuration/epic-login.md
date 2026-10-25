@@ -104,12 +104,22 @@ repository root:
 ```bash
 make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
 make dev             # the app, which reads that .env
+make fhircast-publish EVENT=Patient-open PATIENT=<id>   # an event on the clinician's topic, as the EHR sends one
 make fhircast-down   # stops them all; the volumes, Medplum's database among them, are kept
 ```
 
 Then open the URL `make fhircast-up` printed and sign in on Medplum's page as
 the clinician it names; "Launching from the stand-in" below has what happens
 next and what is set up for you.
+
+`make fhircast-publish` plays the EHR's part once the FHIRcast card reads
+`Connected`: it publishes `EVENT` (`Patient-open` or `Patient-close`) for the
+Patient whose FHIR id is `PATIENT` (`scripts/fhircast-publish.sh`). It takes the
+topic from Medplum's token response for the seeded clinician, signed in with the
+`fhircast/` scopes, so it is the topic the launch subscribed on, and posts as
+Medplum's super admin, as the shim subscribes. `TOPIC=<topic>` publishes on
+another, such as the `hubTopic` `GET /api/auth/epic/fhircast` releases to a
+session signed in as another clinician.
 
 Two parts, both on `127.0.0.1` alone:
 
