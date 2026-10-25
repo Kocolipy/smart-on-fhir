@@ -69,7 +69,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * unavailable are {@link EpicLoginIntegrationTests}'s.
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicProtocolIntegrationTests {
 

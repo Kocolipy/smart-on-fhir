@@ -26,7 +26,7 @@ export const PRACTITIONER_ID = process.env.E2E_FHIRCAST_PRACTITIONER_ID ?? "";
 /** The Epic Login clinicians, as compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`: email=Practitioner id, comma-separated. */
 const EPIC_LOGIN_CLINICIANS = process.env.E2E_EPIC_CLINICIANS ?? "";
 
-/** Tan Wei Ming's Epic id, one of the dev profile's patient fixtures. */
+/** Tan Wei Ming's Epic id, one of the development fixtures. */
 export const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
 
 const ADMIN = {

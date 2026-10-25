@@ -19,7 +19,7 @@ import {
 } from "../src/env-block.mjs";
 
 const VALUES = {
-  SPRING_PROFILES_ACTIVE: "local,dev",
+  SPRING_PROFILES_ACTIVE: "local",
   APP_EPIC_ENABLED: "true",
   APP_EPIC_FHIR_BASE: "http://127.0.0.1:8103/fhir/R4",
   APP_EPIC_OAUTH_ISSUER: "http://127.0.0.1:8103",
@@ -94,7 +94,10 @@ describe("manageEnvBlock", () => {
   it("rewrites the block where it stands, with the text around it untouched", () => {
     const source = keySource();
     const block = manageEnvBlock("", VALUES, source).text;
-    const stale = block.replace("local,dev", "local");
+    const stale = block.replace(
+      "SPRING_PROFILES_ACTIVE=local\n",
+      "SPRING_PROFILES_ACTIVE=an-old-profile\n",
+    );
     const between = `top=1\n# a comment between\n\n${stale}\nbottom=2\n`;
 
     const { text, changed } = manageEnvBlock(
@@ -109,7 +112,7 @@ describe("manageEnvBlock", () => {
       text,
     );
     assert.ok(text.includes("APP_EPIC_CLIENT_ID=a-new-client\n"), text);
-    assert.ok(text.includes("SPRING_PROFILES_ACTIVE=local,dev\n"), text);
+    assert.ok(text.includes("SPRING_PROFILES_ACTIVE=local\n"), text);
     assert.ok(text.endsWith(BLOCK_END + "\n\nbottom=2\n"), text);
     assert.equal(text.split(BLOCK_BEGIN).length, 2);
   });

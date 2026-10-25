@@ -58,7 +58,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * {@link EpicDiscoveryIntegrationTests}' to hold to the same two properties.
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicLoginRedactionIntegrationTests {
 

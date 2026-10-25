@@ -5,6 +5,7 @@ import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.auth.epic.EpicLoginProperties;
 import com.example.backend.auth.epic.EpicLoginSettings;
 import com.example.backend.auth.epic.EpicSigningKeys;
+import com.example.backend.profile.LocalProfile;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
@@ -28,16 +29,15 @@ import org.springframework.core.env.Profiles;
 public class EpicLoginConfig {
 
     /**
-     * The one profile granted the local Epic stand-in's relaxations: {@code http} URLs (D21)
-     * and the relative {@code fhirUser} {@code Practitioner/{id}}.
+     * The settings, validated. The {@link LocalProfile} alone is granted the local Epic stand-in's
+     * relaxations: {@code http} URLs (D21) and the relative {@code fhirUser}
+     * {@code Practitioner/{id}}.
      */
-    static final String DEV_PROFILE = "dev";
-
     @Bean
     @Conditional(EpicLogin.WhenOn.class)
     public EpicLoginSettings epicLoginSettings(
             EpicLoginProperties properties, Environment environment) {
-        return properties.validate(environment.acceptsProfiles(Profiles.of(DEV_PROFILE))
+        return properties.validate(environment.acceptsProfiles(Profiles.of(LocalProfile.NAME))
                 ? EpicDevAllowances.LOCAL_STAND_IN
                 : EpicDevAllowances.NONE);
     }

@@ -81,8 +81,8 @@ const directory = workerConnector("epic");
 /**
  * The launch the EHR opens in the clinician's browser: `iss`, which must equal
  * `APP_EPIC_FHIR_BASE` (D10), and a SmartAppLaunch whose patient, the token
- * response's `patient`, is Tan Wei Ming — one of the dev profile's patient
- * fixtures, whose Epic id the backend passes to the SPA in the landing's
+ * response's `patient`, is Tan Wei Ming — one of the development fixtures,
+ * whose Epic id the backend passes to the SPA in the landing's
  * fragment (D8) for Home's Patient card to read — or nobody.
  */
 async function launchUrl({

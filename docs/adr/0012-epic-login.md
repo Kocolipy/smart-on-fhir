@@ -122,10 +122,10 @@ authorization-request filter builds the request.
    token response is dropped.
 5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
    non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
-   refused as `INVALID_FHIR_USER`. The dev profile
+   refused as `INVALID_FHIR_USER`. The `local` profile
    alone also accepts the relative `Practitioner/{id}` under the same rules,
    because the local Epic stand-in, Medplum, issues no other form; it is decided
-   where D21's `http` allowance is, and outside the dev profile parsing is
+   where D21's `http` allowance is, and outside the `local` profile parsing is
    unchanged. The stand-in's issuer, by contrast, is absorbed by configuration
    alone: `APP_EPIC_OAUTH_ISSUER` is its base URL and `APP_EPIC_FHIR_BASE` its
    `/fhir/R4`.
@@ -214,7 +214,7 @@ Configuration is environment variables only, with **no default credentials** (th
 remote is public): `backend/docs/configuration/epic-login.md` is the variable
 reference and `/infra/docs/parameters.md` the deployment's. Startup fails fast when
 the switch is on and anything required is missing or malformed, including a URL
-that is not `https` outside the dev profile (D21), and it does **not** contact
+that is not `https` outside the `local` profile (D21), and it does **not** contact
 Epic: discovery runs on first use (D26). The SPA's side — the login page's two
 notices and its "Clinicians: open this application from Epic." line — is
 `/frontend/docs/BACKEND_CONTRACT.md`'s.
@@ -344,10 +344,10 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   does not confine an Epic Login: a flagged User signed in through Epic holds
   the authorities it would hold unflagged, and the Login moves its dormancy
   basis, while the flag stays set for its password Login (ADR 0008, #23).
-- **D21: `https` only, outside the dev profile.** `APP_EPIC_OAUTH_ISSUER`,
+- **D21: `https` only, outside the `local` profile.** `APP_EPIC_OAUTH_ISSUER`,
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and
-  hostname checks are never disabled. Only the dev profile may use `http`, for
+  hostname checks are never disabled. Only the `local` profile may use `http`, for
   the local Epic stand-in, and that profile alone also accepts the stand-in's
   relative `fhirUser` (flow step 5).
 - **D22: never logged or audited.** The authorization code, `launch`, `state`,

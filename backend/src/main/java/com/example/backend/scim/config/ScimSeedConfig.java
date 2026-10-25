@@ -1,5 +1,6 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.profile.LocalProfile;
 import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.application.ScimSeedService.DevFixture;
 import com.example.backend.scim.application.ScimSeedService.GroupPermissionFixture;
@@ -37,13 +38,6 @@ import org.springframework.core.env.Profiles;
 public class ScimSeedConfig {
 
     /**
-     * The one profile that admits the development fixtures: a developer's run. {@code
-     * authorization.yaml} activates the fixture Group Permissions under the same name, so the two
-     * are renamed together.
-     */
-    static final String LOCAL_PROFILE = "local";
-
-    /**
      * Seeding, then the development fixtures when enabled — their Group Permissions after the
      * Groups, and the dormant fixture last of them — then the two checks: that the reserved Admin
      * group exists, and that every stored Group Permission names one a Group may carry. In that
@@ -69,10 +63,11 @@ public class ScimSeedConfig {
             Environment environment,
             @Value("${app.auth.bootstrap-username}") String recoveryUserName,
             @Value("${app.auth.bootstrap-password}") String recoveryPassword) {
-        if (devFixtures.enabled() && !environment.acceptsProfiles(Profiles.of(LOCAL_PROFILE))) {
+        if (devFixtures.enabled()
+                && !environment.acceptsProfiles(Profiles.of(LocalProfile.NAME))) {
             throw new IllegalStateException(
                     "app.dev-fixtures.enabled (APP_DEV_FIXTURES_ENABLED) is true, but the '"
-                            + LOCAL_PROFILE + "' profile is not active: the development"
+                            + LocalProfile.NAME + "' profile is not active: the development"
                             + " fixtures run on a developer's machine only");
         }
         // No fallback in application.yaml, so an unset APP_BOOTSTRAP_PASSWORD already fails as an

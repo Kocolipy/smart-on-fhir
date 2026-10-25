@@ -45,7 +45,7 @@ launch_url="${launch_uri}?iss=${fhir_base}&launch=${FHIRCAST_LAUNCH_ID}"
 # from a copy of its own.
 log "keeping the managed block in backend/.env"
 written="$(node "$BACKEND_DIR/fhircast-shim/src/write-env-block.mjs" "$env_file" \
-  "SPRING_PROFILES_ACTIVE=local,dev" \
+  "SPRING_PROFILES_ACTIVE=local" \
   "APP_EPIC_ENABLED=true" \
   "APP_EPIC_FHIR_BASE=$fhir_base" \
   "APP_EPIC_OAUTH_ISSUER=${base_url%/}" \

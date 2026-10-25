@@ -44,7 +44,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * after the Login: Epic's {@code id_token} is checked against it.
  */
 @SpringBootTest(properties = "app.session.absolute-lifetime=10m")
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicTokensStorageLifetimeIntegrationTests {
 
