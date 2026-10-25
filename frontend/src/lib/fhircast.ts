@@ -10,7 +10,8 @@
  *
  * 1. discovery: the hub's `.well-known/fhircast-configuration` under
  *    `hub.url` (falling back to `smart-configuration`) for its
- *    `registration_endpoint` and `token_endpoint`, each held to `127.0.0.1`;
+ *    `registration_endpoint` and `token_endpoint`, each held to `127.0.0.1`,
+ *    and its `revocation_endpoint` when it names one there;
  * 2. an ES384 key pair from WebCrypto, its public half registered by RFC 7591
  *    dynamic client registration, the SMART access token as `Bearer`;
  * 3. a Hub Token by the `jwt-bearer` grant, the assertion signed by that key —
@@ -33,6 +34,24 @@
  * reconnecting: retries spaced by a doubling backoff, each reopening the
  * socket — or subscribing anew once the hub denies that endpoint, or after a
  * failed renewal — until one connects or the retries run out.
+ *
+ * When the session ends, {@link endFhircast} tears down every connection the
+ * tab registered, in order:
+ *
+ * 1. `hub.mode=unsubscribe` for the topic, at the subscription's channel
+ *    endpoint, the Hub Token as `Bearer`;
+ * 2. the Hub Token revoked by RFC 7009 at the metadata's
+ *    `revocation_endpoint`, the client authenticated by an assertion signed
+ *    with its key;
+ * 3. the registration deleted by RFC 7592 at the `registration_client_uri`
+ *    the registration answered, its `registration_access_token` as `Bearer`;
+ * 4. the socket closed;
+ * 5. every key under {@link FHIRCAST_STORAGE_KEYS} removed.
+ *
+ * Steps 2 and 3 are skipped for a hub that names no such endpoint on
+ * `127.0.0.1`, and a step with nothing to act on is skipped too. Every request
+ * is best-effort and bounded: one that fails, or goes unanswered for three
+ * seconds, never stops the next (ADR 0011).
  *
  * It answers one generic outcome and nothing else: no hub's or Epic's
  * `error_description`, and no response body, is ever handed back or logged.
@@ -224,9 +243,25 @@ function member(body: unknown, name: string): string {
 interface HubEndpoints {
   registration: string;
   token: string;
+  /** RFC 7009's, which tearing down revokes the Hub Token at: `null` when the hub names none. */
+  revocation: string | null;
 }
 
-/** Step 1: the hub's registration and token endpoints, from its metadata. */
+/**
+ * A URL a hub's answer may carry under `name` or not — an endpoint in its
+ * metadata, or a registration's `registration_client_uri`: `null` unless it
+ * is a URL on `127.0.0.1`, so that a hub naming one anywhere else is taken to
+ * name none.
+ */
+function optionalLoopbackUrl(body: unknown, name: string): string | null {
+  const url = memberOf(body, name);
+  return typeof url === "string" && onLoopback(url, HTTP_SCHEMES) ? url : null;
+}
+
+/**
+ * Step 1: the hub's registration and token endpoints, from its metadata, and
+ * its revocation endpoint when it names one.
+ */
 async function discover(hubUrl: string): Promise<HubEndpoints> {
   const base = hubUrl.replace(/\/$/, "");
   let metadata: unknown;
@@ -241,7 +276,7 @@ async function discover(hubUrl: string): Promise<HubEndpoints> {
   if (!onLoopback(registration, HTTP_SCHEMES) || !onLoopback(token, HTTP_SCHEMES)) {
     throw new HubFailure(false);
   }
-  return { registration, token };
+  return { registration, revocation: optionalLoopbackUrl(metadata, "revocation_endpoint"), token };
 }
 
 const ES384 = { name: "ECDSA", namedCurve: "P-384" } as const;
@@ -261,12 +296,34 @@ interface SigningKey {
   keys: CryptoKeyPair;
 }
 
+/**
+ * What RFC 7592 manages the registration by: its `registration_client_uri`,
+ * held to `127.0.0.1`, and the `registration_access_token` that authorizes it.
+ */
+interface RegistrationManagement {
+  uri: string;
+  token: string;
+}
+
+/** The registration the hub answered: the dynamic `client_id`, and how to delete it, if the hub says. */
+interface Registration {
+  clientId: string;
+  management: RegistrationManagement | null;
+}
+
+/** RFC 7592's handle on a registration, or `null` when the answer names no usable one. */
+function managementOf(registered: unknown): RegistrationManagement | null {
+  const uri = optionalLoopbackUrl(registered, "registration_client_uri");
+  const token = memberOf(registered, "registration_access_token");
+  return uri !== null && typeof token === "string" && token !== "" ? { token, uri } : null;
+}
+
 /** Step 2: a fresh key pair, its public half registered; the dynamic `client_id`. */
 async function register(
   endpoint: string,
   smartAccessToken: string,
   { keyId, keys }: SigningKey,
-): Promise<string> {
+): Promise<Registration> {
   const { crv, kty, x, y } = await crypto.subtle.exportKey("jwk", keys.publicKey);
   const registered = await hubJson(
     endpoint,
@@ -282,7 +339,7 @@ async function register(
     },
     201,
   );
-  return member(registered, "client_id");
+  return { clientId: member(registered, "client_id"), management: managementOf(registered) };
 }
 
 /** The RFC 7523 assertion for `clientId` at `tokenEndpoint`, signed with the private key. */
@@ -358,6 +415,76 @@ async function subscribe(release: FhircastRelease, token: string): Promise<strin
   const endpoint = member(subscribed, "hub.channel.endpoint");
   if (!onLoopback(endpoint, WS_SCHEMES)) throw new HubFailure(false);
   return endpoint;
+}
+
+/** How long each step of tearing down may take before it is given up, and the next one runs. */
+const TEARDOWN_STEP_TIMEOUT_MS = 3_000;
+
+const CLIENT_ASSERTION = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+/**
+ * One step of tearing down, best-effort: the request `init` builds, sent to
+ * `url`, settled once the hub answers, the request fails, or
+ * {@link TEARDOWN_STEP_TIMEOUT_MS} passes, whichever is first. Whatever the
+ * hub answered is dropped unread: there is nothing to do differently.
+ */
+async function bestEffort(
+  url: string,
+  init: () => RequestInit | Promise<RequestInit>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const givenUp = new Promise<void>((settle) => {
+    timer = setTimeout(settle, TEARDOWN_STEP_TIMEOUT_MS);
+  });
+  const sent = (async () => {
+    await fetch(url, { ...(await init()), credentials: "omit", redirect: "error" });
+  })().catch(() => undefined);
+  await Promise.race([sent, givenUp]);
+  clearTimeout(timer);
+}
+
+/** Tearing down, step 1: the subscription at `endpoint` cancelled, the Hub Token as `Bearer`. */
+function unsubscribe(release: FhircastRelease, endpoint: string, token: string): Promise<void> {
+  return bestEffort(release.hubUrl, () => ({
+    body: new URLSearchParams({
+      "hub.channel.endpoint": endpoint,
+      "hub.channel.type": "websocket",
+      "hub.mode": "unsubscribe",
+      "hub.topic": release.hubTopic,
+    }).toString(),
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": FORM },
+    method: "POST",
+  }));
+}
+
+/**
+ * Tearing down, step 2: the Hub Token revoked by RFC 7009, the client
+ * authenticated as it registered, by an assertion signed with its key.
+ */
+function revoke(
+  revocation: string,
+  { clientId, endpoints, signing }: Registered,
+  token: string,
+): Promise<void> {
+  return bestEffort(revocation, async () => ({
+    body: new URLSearchParams({
+      client_assertion: await assertion(clientId, endpoints.token, signing),
+      client_assertion_type: CLIENT_ASSERTION,
+      client_id: clientId,
+      token,
+      token_type_hint: "access_token",
+    }).toString(),
+    headers: { "Content-Type": FORM },
+    method: "POST",
+  }));
+}
+
+/** Tearing down, step 3: the registration deleted by RFC 7592, its access token as `Bearer`. */
+function deleteRegistration({ token, uri }: RegistrationManagement): Promise<void> {
+  return bestEffort(uri, () => ({
+    headers: { Authorization: `Bearer ${token}` },
+    method: "DELETE",
+  }));
 }
 
 /**
@@ -496,10 +623,9 @@ function open(
 }
 
 /** Everything connecting obtained that staying connected needs again. */
-interface Registered {
+interface Registered extends Registration {
   release: FhircastRelease;
   endpoints: HubEndpoints;
-  clientId: string;
   signing: SigningKey;
   handlers: Required<FhircastHandlers>;
 }
@@ -512,8 +638,13 @@ interface Registered {
  */
 class Connection {
   private channel: Channel | null = null;
-  /** The endpoint the socket was last opened at: set with the first socket, before any retry. */
-  private endpoint!: string;
+  /**
+   * The endpoint the socket was last opened at: set with the first socket,
+   * before any retry; `null` until then.
+   */
+  private endpoint: string | null = null;
+  /** The Hub Token the hub last granted: `null` until it grants one. */
+  private hubToken: string | null = null;
   /** When the Hub Token, and the lease, are due for renewal, on `Date.now()`'s clock. */
   private tokenRenewsAt = Infinity;
   private leaseRenewsAt = Infinity;
@@ -546,9 +677,35 @@ class Connection {
     this.channel?.close();
   }
 
+  /**
+   * Stops everything, as {@link close} does, and tears the connection down at
+   * the hub, each step best-effort and in order: the subscription cancelled,
+   * the Hub Token revoked when the hub names a revocation endpoint, the
+   * registration deleted when the hub said how, and only then the socket
+   * closed. A step with nothing to act on — no subscription, no Hub Token —
+   * is skipped. The socket is the teardown's from the start: a `close` asked
+   * for meanwhile leaves it open, and one the hub causes is not reconnected.
+   */
+  async tearDown(): Promise<void> {
+    const channel = this.channel;
+    this.channel = null;
+    this.close();
+    const { endpoints, management, release } = this.registered;
+    const { endpoint, hubToken } = this;
+    if (hubToken !== null) {
+      if (endpoint !== null) await unsubscribe(release, endpoint, hubToken);
+      if (endpoints.revocation !== null) {
+        await revoke(endpoints.revocation, this.registered, hubToken);
+      }
+    }
+    if (management !== null) await deleteRegistration(management);
+    channel?.close();
+  }
+
   /** Steps 4 and 5 with the Hub Token `granted`, which the tab keeps and renewal is then due by. */
   private async subscribeWith(granted: HubToken): Promise<boolean> {
     this.tokenRenewsAt = Date.now() + renewalDelay(granted.lifetime);
+    this.hubToken = granted.token;
     window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.hubToken, granted.token);
     return (await this.reopen(await subscribe(this.registered.release, granted.token))) === true;
   }
@@ -601,10 +758,10 @@ class Connection {
     this.reconnect(0);
   }
 
-  /** The confirmed socket, closed by the hub. */
+  /** The confirmed socket, closed by the hub: nothing more once the connection is closed. */
   private dropped() {
     this.channel = null;
-    if (this.renewing) return;
+    if (this.closed || this.renewing) return;
     clearTimeout(this.timer);
     this.reconnect(0);
   }
@@ -637,7 +794,8 @@ class Connection {
    * failed renewal, until a new subscription's socket is confirmed.
    */
   private async restore() {
-    if (!this.resubscribing && (await this.reopen(this.endpoint)) !== "denied") return;
+    const reopening = this.resubscribing ? null : this.endpoint;
+    if (reopening !== null && (await this.reopen(reopening)) !== "denied") return;
     this.resubscribing = true;
     this.resubscribing = !(await this.subscribe());
   }
@@ -675,14 +833,31 @@ export interface FhircastHandlers {
 }
 
 /**
+ * Every connection this tab registered at a hub since its session's FHIRcast
+ * last ended — closed ones too, since their registrations still stand — for
+ * {@link endFhircast} to tear down.
+ */
+const toTearDown = new Set<Connection>();
+
+/**
+ * The generation of the session's FHIRcast in this tab, replaced each time
+ * it ends: a connection begun under a generation since replaced belongs to a
+ * session already over.
+ */
+let sessionGeneration: object = {};
+
+/**
  * Connects to the hub `release` names, running every step in order; any
- * failure along the way is one generic outcome.
+ * failure along the way is one generic outcome. Once registered, the
+ * connection is torn down when the session's FHIRcast ends, whatever its
+ * outcome — at once, and `unavailable`, when it ended while registering.
  */
 export async function connectFhircast(
   release: FhircastRelease,
   options: FhircastHandlers = {},
 ): Promise<FhircastOutcome> {
   if (!onLoopback(release.hubUrl, HTTP_SCHEMES)) return { kind: "unavailable" };
+  const begun = sessionGeneration;
   const storage = window.sessionStorage;
   storage.setItem(FHIRCAST_STORAGE_KEYS.smartAccess, release.accessToken);
   try {
@@ -695,10 +870,10 @@ export async function connectFhircast(
       FHIRCAST_STORAGE_KEYS.signingJwk,
       JSON.stringify(await crypto.subtle.exportKey("jwk", signing.keys.privateKey)),
     );
-    const clientId = await register(endpoints.registration, release.accessToken, signing);
-    storage.setItem(FHIRCAST_STORAGE_KEYS.clientId, clientId);
+    const registration = await register(endpoints.registration, release.accessToken, signing);
+    storage.setItem(FHIRCAST_STORAGE_KEYS.clientId, registration.clientId);
     const connection = new Connection({
-      clientId,
+      ...registration,
       endpoints,
       handlers: {
         onConnection: options.onConnection ?? (() => undefined),
@@ -707,6 +882,12 @@ export async function connectFhircast(
       release,
       signing,
     });
+    if (sessionGeneration !== begun) {
+      await connection.tearDown();
+      clearFhircastStorage();
+      return { kind: "unavailable" };
+    }
+    toTearDown.add(connection);
     if (!(await connection.subscribe())) return { kind: "unavailable" };
     return { close: () => connection.close(), kind: "connected" };
   } catch (failure) {
@@ -715,4 +896,19 @@ export async function connectFhircast(
     }
     return { kind: "unavailable" };
   }
+}
+
+/**
+ * Ends the session's FHIRcast: tears down every connection the tab
+ * registered (see `Connection.tearDown`), side by side, then forgets
+ * everything connecting kept ({@link clearFhircastStorage}). Never fails:
+ * every step is best-effort and bounded, so it settles within a few seconds
+ * however the hub behaves.
+ */
+export async function endFhircast(): Promise<void> {
+  sessionGeneration = {};
+  const ending = [...toTearDown];
+  toTearDown.clear();
+  await Promise.all(ending.map((connection) => connection.tearDown()));
+  clearFhircastStorage();
 }

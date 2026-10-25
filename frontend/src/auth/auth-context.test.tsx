@@ -13,7 +13,16 @@ import {
   requestKey,
   type FakeBackend,
 } from "@/lib/fake-backend.testHelpers";
-import { FHIRCAST_STORAGE_KEYS } from "@/lib/fhircast";
+import {
+  fakeHub,
+  HUB_URL,
+  type HubAnswer,
+  type HubOptions,
+  REGISTRATION_CLIENT_URI,
+  requestsSince,
+  REVOCATION_ENDPOINT,
+} from "@/lib/fake-hub.testHelpers";
+import { connectFhircast, FHIRCAST_STORAGE_KEYS, type FhircastRelease } from "@/lib/fhircast";
 
 import type { LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
 import { AuthProvider } from "./auth-context";
@@ -620,5 +629,68 @@ describe("AuthProvider and what the FHIRcast module kept", () => {
     await mounted(SIGNED_IN);
 
     expect(stillKept()).toHaveLength(4);
+  });
+});
+
+describe("AuthProvider and the FHIRcast connection", () => {
+  const RELEASE: FhircastRelease = {
+    accessToken: `smart-${crypto.randomUUID()}`,
+    expiresAt: "2026-10-24T10:00:00Z",
+    hubTopic: "topic-1",
+    hubUrl: HUB_URL,
+    scope: ["fhircast/Patient-open.read"],
+  };
+
+  /** Signed in over `answers`, connected to a hub answering `options`, and what the hub was sent from then on. */
+  async function connectedSession(answers: Answers, options: HubOptions = {}) {
+    const session = await mounted({ ...SIGNED_IN, ...answers });
+    const hub = fakeHub(options);
+    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    const sent = requestsSince(hub);
+    const since = () => sent().map(({ method, url }) => `${method} ${url}`);
+    return { hub, session, since };
+  }
+
+  const TORN_DOWN = [
+    `POST ${HUB_URL}`,
+    `POST ${REVOCATION_ENDPOINT}`,
+    `DELETE ${REGISTRATION_CLIENT_URI}`,
+  ];
+
+  it("tears it down at the hub on sign-out", async () => {
+    const { session, since } = await connectedSession({ [LOGOUT]: bare(204) });
+
+    await settle(session, (auth) => auth.logout());
+
+    await waitFor(() => expect(since()).toEqual(TORN_DOWN));
+  });
+
+  it("tears it down at the hub when the session expires", async () => {
+    const { session, since } = await connectedSession({});
+
+    act(() => session.result.current.expireSession());
+
+    await waitFor(() => expect(since()).toEqual(TORN_DOWN));
+  });
+
+  it("leaves it standing when a logout may have left the session standing", async () => {
+    const { hub, session, since } = await connectedSession({ [LOGOUT]: bare(500) });
+
+    await settle(session, (auth) => auth.logout());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect([since(), hub.openSockets()]).toEqual([[], 1]);
+  });
+
+  it("signs out without waiting on a hub that never answers", async () => {
+    const never = new Promise<HubAnswer>(() => undefined);
+    const { session } = await connectedSession(
+      { [LOGOUT]: bare(204) },
+      { deletion: never, revocation: never, unsubscription: never },
+    );
+
+    const { outcome, status } = await settle(session, (auth) => auth.logout());
+
+    expect([outcome?.kind, status]).toEqual(["signed-out", "guest"]);
   });
 });

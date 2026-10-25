@@ -324,15 +324,17 @@ _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 The bearer token the FHIRcast Hub issues the SPA by the `jwt-bearer` grant,
 after the SPA registered a key of its own with the SMART access token. It
 authorizes the Hub Subscription, and is the hub's credential, not one of the
-Epic tokens.
+Epic tokens. Revoked, best-effort, when the session ends.
 _Avoid_: FHIRcast token, access token (for this one)
 
 **Hub Subscription**:
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
 `Patient-close` on the clinician's topic. Connected once the hub confirms it on
 the socket, made anew before its lease or its Hub Token runs out, and when the
-hub says its endpoint has gone; it ends with Home. Once connected, every Event
-Notification on the socket is acknowledged or ignored.
+hub says its endpoint has gone; its socket closes with Home, and the
+subscription is cancelled at the hub (`hub.mode=unsubscribe`) when the session
+ends. Once connected, every Event Notification on the socket is acknowledged or
+ignored.
 _Avoid_: listener, FHIRcast session
 
 **Event Notification**:

@@ -8,8 +8,8 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-24: the
-FHIRcast deviations ADR 0016 accepts. History is in git.
+as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-25: the
+FHIRcast hub's revocation at the end of a session is best-effort. History is in git.
 
 ## Context
 
@@ -94,13 +94,48 @@ follows from that; ADR 0016 has the design.
   - _Rationale:_ the hub, not this application, issues the Hub Token and keeps
     the registration, and a `jwt-bearer` assertion needs neither the SMART
     access token nor the backend, so nothing on the server can stop a renewal.
-    In the tab the chain stops with the session: every end of it leaves Home,
-    which closes the connection, and clears the key from `sessionStorage`.
-    Renewals are not activity, so they never keep the session alive either.
+    In the tab the chain stops with the session: every end of it tears the
+    connection down at the hub (below) and clears the key from
+    `sessionStorage`. Renewals are not activity, so they never keep the session
+    alive either.
   - _Residual risk:_ a private key and `client_id` copied out of the tab keep
     minting Hub Tokens, and so reading the clinician's FHIRcast events, after
     the session has ended — past its absolute lifetime and however long idle —
-    until the hub drops the registration. Only from the clinician's own
+    until the registration is gone: deleted by the teardown where the hub
+    supports it, otherwise when the hub drops it. Only from the clinician's own
+    workstation, where the hub listens on loopback.
+- **Revocation at the hub is best-effort (IM8 ck-2; SSO: all tokens associated
+  with a logged-out session are revoked).** Every end of the session — logout,
+  an Idle sign-out, expiry, a password change that ends it — tears down what
+  the tab holds at the hub, in order: it unsubscribes from the topic, revokes
+  the Hub Token (RFC 7009), deletes its dynamic registration (RFC 7592), closes
+  the socket and clears `sessionStorage` — which it has cleared once already,
+  the moment the session ended, since the steps run from what the module
+  holds in memory. Revocation runs only when the hub's
+  metadata names a `revocation_endpoint`, and deletion only when the
+  registration's answer names a `registration_client_uri` and a
+  `registration_access_token`, as RFC 7592 has a hub advertise it; each is held
+  to `127.0.0.1` like every other hub endpoint. Each step is given 3 seconds,
+  and one that fails or times out never stops the next, nor the end of the
+  session. The SMART access token is not revoked: Epic offers no revocation
+  for it (ADR 0012, D13). Logout's `Clear-Site-Data` stays the backstop for
+  what the tab kept.
+  - _Rationale:_ the hub, not this application, holds the Hub Token, the
+    subscription and the registration, and only the browser can reach it, so
+    the browser revokes them. It does so after the backend has ended the
+    session, never before, so a hub that refuses, fails or hangs cannot keep a
+    clinician signed in. None of the steps needs the SMART access token, which
+    the backend's logout does not revoke anyway: the unsubscribe carries the
+    Hub Token, the revocation an assertion signed with the registered key, the
+    deletion the registration access token.
+  - _Residual risk:_ where the hub supports no RFC 7009 or RFC 7592, does not
+    answer in time, or is never reached — the tab closed or reloaded before the
+    session ended, which loses the registration access token kept in memory —
+    the Hub Token lives until it expires and the registration until the hub
+    drops it, and registrations can pile up at the hub, one per Home visit or
+    Retry. A connection still connecting or renewing when the session ends
+    finishes that step unwatched, and a Hub Token or subscription it obtains
+    then is left to the hub's expiry. Only from the clinician's own
     workstation, where the hub listens on loopback.
 - **DCR registrations absent from the application's audit trail (Logging audit
   contract, IM8 lm-4).** The trail records each release of the SMART access token

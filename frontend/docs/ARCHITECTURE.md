@@ -80,7 +80,8 @@ straight into `lib/http`) but may never point back up.
   `landedFromEpic()` says whether the tab holds one at all, which is how Home
   knows an EHR launch began the session; and `clearLaunchContext()` forgets it,
   on every session end and a password Login, beside `clearFhircastStorage()`
-  (`docs/BACKEND_CONTRACT.md`).
+  (`docs/BACKEND_CONTRACT.md`); every session end also starts `endFhircast()`,
+  unawaited.
 - `auth-context.tsx` — the `AuthProvider`: checks the session on mount and on
   `retrySessionCheck` (`ok` signs in, `401` ends, anything else is
   `checkFailed`) and maps each session event onto a transition with its sign-in
@@ -245,6 +246,10 @@ On a connected socket it holds every message to the FHIRcast STU3 notification
 shape, the subscribed events and the session's topic, acknowledges a valid one
 on the socket, and hands the caller only a `PatientEvent`: the event, its
 `timestamp` and a grammar-checked Patient id. Nothing of a message is logged.
+It keeps every connection it registered in a session, and `endFhircast()`, which
+the session transitions start on every end of the session, tears each down at
+the hub — the unsubscription, RFC 7009 revocation, RFC 7592 deletion, then the
+socket — best-effort, each step bounded, before clearing what the tab kept.
 The release it starts from still comes from the backend through the session
 seam (`auth/use-fhircast-release.ts`). `test/arch/rawNetwork.test.ts`
 (`no_raw_network_outside_transport`) names these two modules and no others.

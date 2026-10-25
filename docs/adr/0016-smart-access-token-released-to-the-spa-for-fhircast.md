@@ -10,8 +10,8 @@ so the browser can connect to Epic's local FHIRcast hub. The `id_token` and any
 refresh token stay server-side exactly as D29 keeps them. It is also the revisit
 D28 asks for once FHIR scopes are added, and the revisit of D29's at-rest and
 revocation positions. ADR 0011 records the deviations it accepts. Last revised
-2026-10-24: the connection is renewed and reconnected, and the card shows six
-generic states. History is in git.
+2026-10-25: every end of the session tears the connection down at the hub.
+History is in git.
 
 ## Context
 
@@ -149,8 +149,11 @@ audited, `no-store` endpoint, and never logged. The data owner's classification
   in the tab's `sessionStorage` until the session ends. Epic sets its lifetime
   (ADR 0011 records lifetimes over 30 minutes); nothing revokes it at Epic, so
   it stays valid there until it expires, as D13 already accepts. The dynamic
-  registration and the Hub Token are the hub's, on the clinician's workstation,
-  and end with the hub's own lifetimes.
+  registration and the Hub Token are the hub's, on the clinician's workstation:
+  every end of the session unsubscribes, revokes the Hub Token by RFC 7009 and
+  deletes the registration by RFC 7592, where the hub supports each, and leaves
+  the rest to the hub's own lifetimes — best-effort, an accepted deviation (ADR
+  0011).
 
 ## Consequences
 
