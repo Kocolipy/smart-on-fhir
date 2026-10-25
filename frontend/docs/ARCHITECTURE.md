@@ -82,7 +82,9 @@ straight into `lib/http`) but may never point back up.
   trusted, the same value until it changes, and `null` when the tab holds none
   — which is how Home knows an EHR launch began the session;
   `subscribeEhrContext()` / `useEhrContext()` re-render a reader when it
-  changes; and `clearEhrContext()` forgets it, on every session end and a
+  changes; `followPatientEvent()` moves it as the FHIRcast hub's
+  `Patient-open` / `Patient-close` say (ADR 0016, "The events and the EHR
+  context"); and `clearEhrContext()` forgets it, on every session end and a
   password Login, beside `clearFhircastStorage()`
   (`docs/BACKEND_CONTRACT.md`); every session end also starts `endFhircast()`,
   unawaited.
@@ -112,8 +114,11 @@ straight into `lib/http`) but may never point back up.
   session is signed in and the tab holds an EHR context, handing it a source
   for the FHIRcast release (`GET /api/auth/epic/fhircast`) through that seam.
   Not a declaration: the operation is self-service and carries no Permission,
-  and the module needs only the release or `null`. The glue is here because
-  `src/lib` imports nothing of `src/auth`.
+  and the module needs only the release or `null`. It also follows the
+  connection's events (`followFhircastEvents`) into the EHR context
+  (`followPatientEvent`), so the Patient card follows the EHR on every
+  signed-in page. The glue is here because `src/lib` imports nothing of
+  `src/auth`.
 - `use-gated-read.ts` / `use-gated-write.ts` — the gated read and write (below).
 - `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
   authenticated session (`docs/BACKEND_CONTRACT.md` has the rule it keeps).
@@ -215,7 +220,9 @@ decide where a visitor goes.
   never calls the gated read; with one, a child component reads
   `GET /api/patient/{patientId}` through `PATIENT` (opting in to `absent`),
   decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes the
-  EHR context's patient. Every field renders as a plain text node; the age is computed from the
+  EHR context's patient, which the FHIRcast hub's events move: a new id is a
+  new path, so a new first read, and a late answer for the id before never
+  lands. Every field renders as a plain text node; the age is computed from the
   card's injectable `Clock`.
 - `listing-body.tsx` — the one listing body: loading, empty, and a blank body
   for a failure (whose copy is on the error line). Each page names its

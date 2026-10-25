@@ -297,8 +297,8 @@ different value)
 **EHR context**:
 What the EHR currently has open for this browser tab: today a patient and an
 encounter, each a FHIR id, either possibly absent, with room for more members
-later. Kept by the tab alone, never server-side, and seeded by an EHR launch's
-Launch context.
+later. Kept by the tab alone, never server-side, seeded by an EHR launch's
+Launch context and moved by the FHIRcast hub's events.
 _Avoid_: Launch context (for what the tab holds after the landing), SMART
 context, patient context (for the pair), session context
 

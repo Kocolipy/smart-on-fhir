@@ -12,7 +12,8 @@ D28 asks for once FHIR scopes are added, and the revisit of D29's at-rest and
 revocation positions. ADR 0011 records the deviations it accepts. Last revised
 2026-10-25: every end of the session tears the connection down at the hub, and
 the connection lasts the session rather than Home ("The connection's
-lifetime"). History is in git.
+lifetime"); and the hub's events move the tab's EHR context ("The events and
+the EHR context"). History is in git.
 
 ## Context
 
@@ -155,6 +156,45 @@ signed-in page, not only while Home is mounted.
   connection the tab registered is unsubscribed, its Hub Token revoked, its
   registration deleted and its socket closed, then the tab's storage cleared.
   Leaving Home stops nothing.
+
+### The events and the EHR context
+
+Amended 2026-10-25 (#202). The hub's `Patient-open` and `Patient-close` move
+the tab's **EHR context** (`/CONTEXT.md`), so the Patient card follows the
+chart the clinician has open in Epic, on whichever signed-in page the tab is
+on. The FHIRcast module hands each event it shows to whoever follows its
+events; the auth-side glue (`useSessionFhircast`) follows them into the EHR
+context's store, so the module still imports nothing of the auth layer. The
+card's Last event is unchanged.
+
+- **A `Patient-open` naming a valid id sets the patient, and drops the
+  encounter.** The event names a patient and no encounter, and the encounter
+  held belonged to the chart before; kept beside a different patient it would
+  be a mismatched pair, and nothing can tell whether the clinician reopened the
+  same patient in the same encounter, so it is dropped even when the patient
+  is the one already in context. That same patient is no new read: the
+  Patient card is left as it is.
+- **A `Patient-open` naming no valid id is ignored.** One whose context names
+  no Patient within FHIR's id grammar says nothing the SPA could read, so the
+  context is left as it was rather than emptied on a malformed event; the
+  next valid event sets it right.
+- **A `Patient-close` always empties it, whatever id it names or none.** A
+  close means the clinician has no chart open for this tab to follow; matching
+  its id against the patient in context first would leave a patient shown
+  that the EHR no longer has open whenever the hub's id and ours disagree,
+  which is the worse mistake for a clinical display. The context stays, as one
+  naming nothing, so the tab is still the one an EHR launch began: the FHIRcast
+  card and its connection stay, and the next `Patient-open` brings a patient
+  back.
+- **An event never makes a context.** Only a tab already holding one is moved,
+  so an event that arrives as the session ends cannot leave a context behind
+  for the next.
+- **The context is kept across a lost connection.** Reconnecting,
+  disconnected, unavailable, blocked, and a reload all keep the EHR context as
+  last known. Clearing it would blank the Patient card on every network blip
+  and reload, and the EHR has not said the chart closed; the FHIRcast card's
+  status, anything but `connected`, is what tells the clinician the Patient
+  card may be out of date.
 
 ### Data classification (D28, revisited)
 
