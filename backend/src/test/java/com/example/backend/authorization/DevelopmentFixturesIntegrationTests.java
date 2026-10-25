@@ -66,10 +66,14 @@ import tools.jackson.databind.json.JsonMapper;
 @ActiveProfiles({"dev-fixtures", "local"})
 @TestPropertySource(properties = {
     "app.dev-fixtures.enabled=true",
+    "app.dev-fixtures.epic-clinician=" + DevelopmentFixturesIntegrationTests.EPIC_CLINICIAN,
     "app.dev-fixtures.password=" + DevelopmentFixturesIntegrationTests.FIXTURE_PASSWORD})
 class DevelopmentFixturesIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
+
+    /** The local Epic stand-in's clinician, a Practitioner id (compose.yaml, SEED_CLINICIAN_ID). */
+    static final String EPIC_CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
 
     private static final String MEMBER_PASSWORD = "group-permission-member-password";
 
@@ -139,6 +143,19 @@ class DevelopmentFixturesIntegrationTests {
         assertThat(permissionsOnMe(logIn("helpdesk", FIXTURE_PASSWORD)))
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
                         "ops:read", "patient:read", "user:read");
+    }
+
+    /**
+     * The Epic clinician the fixtures seed signs in on the fixture password, in no Group and so
+     * holding the baseline Permissions alone, and is not the Superuser.
+     */
+    @Test
+    void theEpicClinicianSignsInHoldingTheBaselinePermissionsAlone() throws Exception {
+        Cookie session = logIn(EPIC_CLINICIAN, FIXTURE_PASSWORD);
+
+        assertThat(permissionsOnMe(session)).containsExactly("patient:read");
+        assertThat(me(session).get("superuser").asBoolean()).isFalse();
+        assertThat(groups.findGroupsOfUser(userId(EPIC_CLINICIAN))).isEmpty();
     }
 
     /**

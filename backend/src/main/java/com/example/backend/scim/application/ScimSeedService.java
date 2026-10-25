@@ -176,11 +176,7 @@ public class ScimSeedService {
      */
     @Transactional
     public void seedDevFixtures(List<DevFixture> fixtures, String baselineMember, String password) {
-        if (password == null || password.isBlank()) {
-            throw new IllegalStateException(
-                    "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
-                            + " when the development fixtures are enabled");
-        }
+        requireFixturePassword(password);
         seedLock.acquire();
         Instant now = clock.instant();
         if (baselineMember != null) {
@@ -195,6 +191,35 @@ public class ScimSeedService {
                         List.of(ScimGroupMember.reference(member.id())),
                         now));
             }
+        }
+    }
+
+    /**
+     * The development fixture for an Epic EHR launch: one User in no Group, so it holds the
+     * baseline Permissions and nothing else, whose userName is a Practitioner id. Epic Login
+     * links a clinician to the User whose userName equals the Practitioner id character for
+     * character (ADR 0012 D3), which outside a developer's machine is a User only because
+     * SCIM provisioned it; under the {@code local} profile this seeds that User directly, so the
+     * local Epic stand-in's clinician signs in without a step by hand.
+     *
+     * <p>Created when absent and otherwise left alone, like the other fixtures, and not audited.
+     * Called only when {@code app.dev-fixtures.enabled} is set and an Epic clinician is named.
+     *
+     * @param userName the Practitioner id the User is linked by
+     * @param password the fixture password, as for {@link #seedDevFixtures}
+     */
+    @Transactional
+    public void seedEpicClinicianFixture(String userName, String password) {
+        requireFixturePassword(password);
+        seedLock.acquire();
+        findOrCreate(userName, password, clock.instant());
+    }
+
+    private static void requireFixturePassword(String password) {
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
+                            + " when the development fixtures are enabled");
         }
     }
 

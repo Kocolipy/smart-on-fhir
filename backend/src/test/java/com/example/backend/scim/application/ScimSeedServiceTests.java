@@ -721,6 +721,50 @@ class ScimSeedServiceTests {
         assertThat(groups.size()).isZero();
     }
 
+    // ---- the Epic clinician fixture ---------------------------------------------------------
+
+    /** A Medplum Practitioner id, the userName Epic Login links a clinician by. */
+    private static final String CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
+
+    /**
+     * A User under exactly the Practitioner id, in no Group: baseline access and nothing more,
+     * neither an administrator nor a member of a fixture Group.
+     */
+    @Test
+    void the_epic_clinician_fixture_is_a_user_in_no_group_under_the_given_user_name() {
+        seeding.seedEpicClinicianFixture(CLINICIAN, FIXTURE_PASSWORD);
+
+        ScimUser clinician = users.require(CLINICIAN);
+        assertThat(clinician.createdAt()).isEqualTo(ScimIdentities.NOW);
+        assertThat(seedLock.usersSeenAtEachAcquire).containsExactly(0L);
+        assertThat(clinician.profile().userName()).isEqualTo(CLINICIAN);
+        assertThat(clinician.isProtectedFromWrites()).isFalse();
+        assertThat(clinician.login().isPasswordChangeRequired()).isFalse();
+        assertThat(passwordEncoder.matches(FIXTURE_PASSWORD, clinician.login().passwordHash()))
+                .isTrue();
+        assertThat(groups.findGroupsOfUser(clinician.id())).isEmpty();
+    }
+
+    /** Created when absent and otherwise left alone, like every other fixture User. */
+    @Test
+    void the_epic_clinician_fixture_never_overwrites() {
+        ScimUser existing = users.given(ScimIdentities.user(CLINICIAN));
+
+        seeding.seedEpicClinicianFixture(CLINICIAN, "another-password");
+
+        assertThat(users.require(CLINICIAN).login().passwordHash())
+                .isEqualTo(existing.login().passwordHash());
+        assertThat(passwordEncoder.encodes).isZero();
+    }
+
+    @Test
+    void the_epic_clinician_fixture_is_refused_without_a_password() {
+        assertThatThrownBy(() -> seeding.seedEpicClinicianFixture(CLINICIAN, " "))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
+        assertThat(users.size()).isZero();
+    }
+
     // ---- the dormant fixture ----------------------------------------------------------------
 
     /**

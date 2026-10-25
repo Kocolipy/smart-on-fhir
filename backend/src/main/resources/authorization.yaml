@@ -28,6 +28,12 @@ app:
     # A User in no Group, so it holds only the baseline Permissions: the e2e
     # suite's `user` project and the non-administrative paths sign in as it.
     baseline-member: guest
+    # A User in no Group, so it too holds only the baseline Permissions, named for
+    # the local Epic stand-in's clinician: the userName is the clinician's
+    # Practitioner id, which Epic Login links by (docs/domain/epic-login.md).
+    # `make fhircast-up` sets it in .env from the stand-in's own seed, the one
+    # place the id is chosen. Unset or blank, none is seeded.
+    epic-clinician: ${APP_DEV_FIXTURES_EPIC_CLINICIAN:}
     # A User in no Group whose dormancy basis is put a day past the lockout
     # window at every startup, and whose password and lock are reset with it, so
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks

@@ -132,6 +132,60 @@ class ScimSeedConfigStartupTests {
                 .containsExactly(TestGroupPermissions.SUPERUSER_GROUP_ID);
     }
 
+    /** A Medplum Practitioner id, the userName Epic Login links a clinician by. */
+    private static final String CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
+
+    /** Fixtures on with an Epic clinician named: one User, in no Group, on the fixture password. */
+    @Test
+    void theEpicClinicianFixtureIsSeededInNoGroup() {
+        local.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.epic-clinician=" + CLINICIAN,
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        ScimUser clinician = users.require(CLINICIAN);
+        assertThat(clinician.login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(groups.findAllOrderedByNormalizedDisplayName())
+                .noneMatch(group -> group.hasMember(clinician.id()));
+    }
+
+    /** Unset, or blank as an unset environment variable binds, the fixtures seed no clinician. */
+    @Test
+    void withNoEpicClinicianNamedTheFixturesSeedNoSuchUser() {
+        local.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.epic-clinician=")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.size()).isEqualTo(1);
+    }
+
+    /** The fixtures off, the clinician is not seeded either: it is a fixture like the rest. */
+    @Test
+    void withTheFixturesOffTheEpicClinicianIsNotSeeded() {
+        contexts.withPropertyValues("app.dev-fixtures.epic-clinician=" + CLINICIAN)
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of(CLINICIAN))).isEmpty();
+    }
+
+    /** The existing refusal outside `local` covers the clinician: nothing is seeded. */
+    @Test
+    void theEpicClinicianFixtureIsRefusedOutsideTheLocalProfile() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.epic-clinician=" + CLINICIAN)
+                .run(refusesStartup("'local' profile is not active"));
+
+        assertThat(users.size()).isZero();
+    }
+
     /** Fixtures off: the Bootstrap Admin owes its first-login change, as in a deployment. */
     @Test
     void withTheFixturesOffTheBootstrapAdminOwesAPasswordChange() {
@@ -256,6 +310,26 @@ class ScimSeedConfigStartupTests {
         assertThat(groups.findById(group("a003")).orElseThrow()
                         .hasMember(users.require("auditor").id()))
                 .isTrue();
+    }
+
+    /**
+     * APP_DEV_FIXTURES_EPIC_CLINICIAN, which {@code make fhircast-up} writes to {@code .env},
+     * reaches the shipped document's {@code epic-clinician}.
+     */
+    @Test
+    void theShippedDocumentTakesTheEpicClinicianFromItsEnvironmentVariable() {
+        shipped("local").withPropertyValues("APP_DEV_FIXTURES_EPIC_CLINICIAN=" + CLINICIAN)
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of(CLINICIAN))).isPresent();
+    }
+
+    /** Unset, the shipped document seeds the Bootstrap Admin and the four fixture Users alone. */
+    @Test
+    void theShippedDocumentSeedsNoEpicClinicianByDefault() {
+        shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.size()).isEqualTo(5);
     }
 
     /** Any other profile refuses the shipped fixtures outright, rather than seeding them bare. */

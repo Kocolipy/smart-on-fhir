@@ -390,6 +390,7 @@
                         <excludedEnvironmentVariable>APP_SESSION_ABSOLUTE_LIFETIME</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_DEV_FIXTURES_ENABLED</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_DEV_FIXTURES_PASSWORD</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_DEV_FIXTURES_EPIC_CLINICIAN</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_AUDIT_POOL_SIZE</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_AUDIT_POOL_TIMEOUT</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_AUDIT_RETENTION_PERIOD</excludedEnvironmentVariable>
