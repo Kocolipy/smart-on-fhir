@@ -358,6 +358,41 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
   };
 }
 
+/**
+ * The release the backend answers an Epic session that kept this hub
+ * (`GET /api/auth/epic/fhircast`), for a page suite to answer it with.
+ */
+export const HUB_RELEASE = {
+  accessToken: `smart-${crypto.randomUUID()}`,
+  expiresAt: "2026-10-24T10:00:00Z",
+  hubTopic: "topic-1",
+  hubUrl: HUB_URL,
+  scope: ["fhircast/Patient-close.read", "fhircast/Patient-open.read", "openid"],
+};
+
+/**
+ * A FHIRcast STU3 event notification, as the hub sends one on the socket:
+ * `event` for Patient `patientId`, on `topic` — `topic-1` by default, the
+ * topic the backend releases to a page suite's session.
+ */
+export const patientNotification = (
+  event: string,
+  {
+    id = "event-1",
+    patientId = "patient-1",
+    timestamp = "2026-10-24T02:00:05Z",
+    topic = "topic-1",
+  } = {},
+) => ({
+  event: {
+    context: [{ key: "patient", resource: { id: patientId, resourceType: "Patient" } }],
+    "hub.event": event,
+    "hub.topic": topic,
+  },
+  id,
+  timestamp,
+});
+
 /** The hub with no backend page around it: the fake backend installed for its hook alone. */
 export function hubOnly(options: HubOptions = {}): FakeHub {
   fakeBackend();

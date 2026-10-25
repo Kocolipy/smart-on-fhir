@@ -193,8 +193,7 @@ change, when the backend side moves. What the SPA has to honour:
   password Login **clear** it. What is read back from storage is held to the
   grammar again. The EHR context is a subscribable store (`useEhrContext`), so
   Home, the Patient card and the FHIRcast card's gate re-render when it
-  changes, not only on load; nothing yet changes it after it is seeded but the
-  end of the session. Home's Patient card reads the patient in context through
+  changes, not only on load. Home's Patient card reads the patient in context through
   the patient read below, and shows "No patient in context" with none; the
   FHIRcast card shows whenever the key exists, the bare marker's included; the
   encounter is held but unused. The read is not bound to the EHR context:
@@ -228,6 +227,21 @@ change, when the backend side moves. What the SPA has to honour:
   the card's last event on return. The FHIRcast card is only a view of it.
   Only the end of the session stops it (`endFhircast`, next items), resetting
   it so the next session connects anew.
+- **The Patient card follows FHIRcast** (ADR 0016, "The events and the EHR
+  context"). Every event the connection hears moves the tab's EHR context,
+  on whichever signed-in page the tab is on (`followPatientEvent`, routed by
+  `use-session-fhircast.ts`, so `src/lib/` still imports nothing of
+  `src/auth/`): a `Patient-open` naming a FHIR id sets the patient and drops
+  the encounter; one naming none is ignored; a `Patient-close`, whatever it
+  names, empties the context but keeps its key, so the FHIRcast card and its
+  connection stay. An event never creates a context. A new patient in context
+  is a new `GET /api/patient/{id}`: the card shows "Loading the patient…" at
+  once, a `404` shows "No patient in context", any other failure "Couldn't load
+  patient" on the error line, and a late answer for an earlier patient never
+  lands; the same patient opened again reads nothing. The context is kept as
+  last known across a reload and while the connection is reconnecting,
+  disconnected, unavailable or blocked; the FHIRcast card's status says the
+  Patient card may be out of date.
 - **What the FHIRcast module keeps is in `sessionStorage`**, per tab, under
   `fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id` and
   `fhircast-private-jwk` (the exported ES384 private JWK). The SPA clears all four

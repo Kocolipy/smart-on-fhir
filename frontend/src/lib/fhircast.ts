@@ -934,6 +934,9 @@ let snapshot: FhircastSnapshot = NOT_STARTED;
 /** Whoever is watching what the connection shows. */
 const watching = watchers();
 
+/** Whoever is following the events the connection hears, each handed every one. */
+const following = watchers<PatientEvent>();
+
 /** `next` replaces what the connection shows, and every watcher hears of it. */
 function show(next: Partial<FhircastSnapshot>) {
   snapshot = { ...snapshot, ...next };
@@ -963,7 +966,9 @@ function begin(source: FhircastReleaseSource) {
         if (live()) show({ status });
       },
       onEvent: (last) => {
-        if (live()) show({ last });
+        if (!live()) return;
+        show({ last });
+        following.changed(last);
       },
     });
     if (outcome.kind === "connected") current.close = outcome.close;
@@ -1001,6 +1006,14 @@ export function fhircastSnapshot(): FhircastSnapshot {
 
 /** Calls `watcher` whenever what the connection shows changes; answers how to stop. */
 export const watchFhircast: (watcher: () => void) => () => void = watching.watch;
+
+/**
+ * Hands `follower` every event the session's connection hears from now on,
+ * as it is shown — none an attempt since replaced, or a session since ended,
+ * hears; answers how to stop.
+ */
+export const followFhircastEvents: (follower: (event: PatientEvent) => void) => () => void =
+  following.watch;
 
 /**
  * Ends the session's FHIRcast: stops the session's connection, so the next

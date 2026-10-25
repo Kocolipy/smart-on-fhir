@@ -64,6 +64,13 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * the card, so leaving Home and coming back neither reconnects nor loses the
  * last event, and one sent meanwhile shows on return; a reload, or a Retry,
  * starts with none.
+ *
+ * The same events move the tab's EHR context, which the Patient card beside
+ * it shows (`useSessionFhircast`); this card only shows them. Whenever its
+ * status is anything but connected — connecting, reconnecting, disconnected,
+ * unavailable, blocked, and after every reload until connected again — the
+ * EHR context is kept as last known, so that status line is what says the
+ * Patient card may be out of date.
  */
 export function FhircastCard() {
   const { last, status } = useSyncExternalStore(watchFhircast, fhircastSnapshot);

@@ -17,9 +17,14 @@
 //      volume and every run. Medplum takes an id a client chooses only when
 //      that is a UUID, so those are UUIDs. Every clinician signs in with the
 //      clinician's password.
-//   4. Tan Wei Ming, a Patient in that project carrying his Epic id, one of the
-//      backend's development fixtures: a launch names him by that id,
-//      which Medplum's token response then puts in `patient`.
+//   4. The backend's four development patient fixtures, each a Patient in that
+//      project carrying the Epic id its backend fixture is held under
+//      (seed-patients.mjs): Tan Wei Ming (`eq081-VQEgP8drUUqCWzHfw3`), Siti
+//      Nurhaliza binte Ahmad (`erXuFYUfucBZaryVksYEcMg3`), Kumaravel
+//      (`e0w0LEDCYtfckT6N.CkJKCw3`) and Marcus Anthony de Souza
+//      (`egqBHVfQlt4Bw3XGXoxVxHg3`). A launch names one by that id, which
+//      Medplum's token response then puts in `patient`, and a FHIRcast event
+//      names one by it too; either way the Patient card reads that fixture.
 //   5. This app's ClientApplication in that project: `private_key_jwt` against
 //      the backend's JWKS, PKCE required, its redirect and launch URIs.
 //   6. A SmartAppLaunch for Tan Wei Ming, the one `make fhircast-up` prints a
@@ -33,11 +38,13 @@
 //
 // It prints what a caller needs as KEY=value lines (scripts/lib.sh reads
 // them), and nothing secret. Every value below comes from the environment
-// backend/compose.yaml sets; none has a default.
+// backend/compose.yaml sets; none has a default. The Patients are no
+// setting: they are the backend's fixed fixtures, so seed-patients.mjs holds them.
 import { generateKeyPairSync } from "node:crypto";
 
 import { required } from "./env.mjs";
 import { medplumAdmin } from "./medplum.mjs";
+import { seedPatients } from "./seed-patients.mjs";
 
 const settings = {
   medplumUrl: required("SEED_MEDPLUM_URL"),
@@ -64,11 +71,6 @@ const settings = {
       }
       return { email, id };
     }),
-  patient: {
-    epicId: required("SEED_PATIENT_EPIC_ID"),
-    family: required("SEED_PATIENT_FAMILY"),
-    given: required("SEED_PATIENT_GIVEN").split(" "),
-  },
   // Not configuration: what marks the seed's launch among the others.
   launchTag: {
     system: "urn:smart-on-fhir:fhircast-up",
@@ -84,22 +86,9 @@ const settings = {
 
 const medplum = medplumAdmin(settings.medplumUrl, settings.admin);
 
-/** Every resource a search answers, across pages. */
-async function search(query) {
-  const found = [];
-  let next = `/fhir/R4/${query}`;
-  while (next) {
-    const bundle = await medplum.request(next);
-    found.push(...(bundle.entry ?? []).map(({ resource }) => resource));
-    const link = bundle.link?.find(({ relation }) => relation === "next")?.url;
-    next = link ? new URL(link).pathname + new URL(link).search : undefined;
-  }
-  return found;
-}
-
 /** Step 1: whether Medplum signs with one active RS256 key alone, made so if not. */
 async function ensureRs256SigningKey() {
-  const active = await search("JsonWebKey?active=true");
+  const active = await medplum.search("JsonWebKey?active=true");
   if (active.length === 1 && active[0].alg === "RS256") return false;
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const jwk = privateKey.export({ format: "jwk" });
@@ -118,7 +107,7 @@ async function ensureRs256SigningKey() {
 
 /** Step 2. */
 async function ensureProject() {
-  const [existing] = await search(
+  const [existing] = await medplum.search(
     `Project?name=${encodeURIComponent(settings.projectName)}`,
   );
   if (existing) return existing;
@@ -144,7 +133,7 @@ async function ensureClinician(
   { id, email, password, firstName, lastName },
 ) {
   const profile = { reference: `Practitioner/${id}` };
-  const [practitioner] = await search(`Practitioner?_id=${id}`);
+  const [practitioner] = await medplum.search(`Practitioner?_id=${id}`);
   if (!practitioner) {
     await medplum.request(`/fhir/R4/${profile.reference}`, {
       method: "PUT",
@@ -157,7 +146,7 @@ async function ensureClinician(
       },
     });
   }
-  const [membership] = await search(
+  const [membership] = await medplum.search(
     `ProjectMembership?profile=${profile.reference}&project=Project/${project.id}`,
   );
   if (membership) return;
@@ -188,37 +177,19 @@ async function ensureEpicLoginClinicians(project) {
   }
 }
 
-/** Step 4: created once in the project, and found by his Epic id after. */
-async function ensurePatient(project) {
-  const [existing] = await search(
-    `Patient?identifier=${encodeURIComponent(settings.patient.epicId)}&_project=${project.id}`,
-  );
-  if (existing) return existing;
-  return medplum.request("/fhir/R4/Patient", {
-    method: "POST",
-    body: {
-      resourceType: "Patient",
-      meta: { project: project.id },
-      identifier: [{ value: settings.patient.epicId }],
-      name: [
-        { family: settings.patient.family, given: settings.patient.given },
-      ],
-    },
-  });
-}
-
 /**
  * Step 6: the launch, found by its tag. One that names another Patient than
  * the current one, as after the Patient was deleted and made again, is pointed
- * at the current one rather than left stale.
+ * at the current one rather than left stale. `patient` is the one it names,
+ * by Medplum id and Epic id, as `seedPatients` answers it.
  */
 async function ensureLaunch(patient) {
   const wanted = {
     reference: `Patient/${patient.id}`,
-    identifier: { value: settings.patient.epicId },
+    identifier: { value: patient.epicId },
   };
   const tag = settings.launchTag;
-  const [existing, ...extras] = await search(
+  const [existing, ...extras] = await medplum.search(
     `SmartAppLaunch?_tag=${encodeURIComponent(`${tag.system}|${tag.code}`)}`,
   );
   // One launch by this tag, should an interrupted run ever have left two.
@@ -260,7 +231,7 @@ async function ensureClient(project) {
     launchUri: settings.client.launchUri,
     pkceOptional: false,
   };
-  const [existing, ...extras] = await search(
+  const [existing, ...extras] = await medplum.search(
     `ClientApplication?name=${encodeURIComponent(settings.client.name)}&_project=${project.id}`,
   );
   // One client by this name, should an interrupted run ever have left two.
@@ -285,9 +256,9 @@ const restartRequired = await ensureRs256SigningKey();
 const project = await ensureProject();
 await ensureClinician(project, settings.clinician);
 await ensureEpicLoginClinicians(project);
-const patient = await ensurePatient(project);
+const { launchPatient } = await seedPatients(medplum, project);
 const client = await ensureClient(project);
-const launch = await ensureLaunch(patient);
+const launch = await ensureLaunch(launchPatient);
 
 console.log(`MEDPLUM_RESTART_REQUIRED=${restartRequired}`);
 console.log(`MEDPLUM_CLIENT_ID=${client.id}`);

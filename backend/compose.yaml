@@ -278,18 +278,15 @@ services:
       SEED_CLINICIAN_PASSWORD: fhircast-stand-in-clinician
       SEED_CLINICIAN_FIRST_NAME: Local
       SEED_CLINICIAN_LAST_NAME: Clinician
-      # One clinician per Epic Login, FHIRcast card or FHIRcast logout E2E case
-      # that signs in at Medplum, as email=Practitioner id, with the password
-      # above. The ids are UUIDs, the only ids Medplum takes from a client;
-      # `make integration-test` hands this list to
-      # frontend/test/e2e/epic-launch.spec.ts, fhircast-card.spec.ts and
-      # fhircast-logout.spec.ts as E2E_EPIC_CLINICIANS.
-      SEED_EPIC_LOGIN_CLINICIANS: epic-helpdesk@example.com=5d5b1795-6573-4d8f-be48-800ce6154bc4,epic-flagged@example.com=6adfd95f-f494-466d-97f8-895e3183d8fe,epic-no-patient@example.com=4f7fb5fd-7b93-4cb3-9719-1a1aa4edee05,epic-unprovisioned@example.com=9359400f-b33d-4d34-93b9-49d588fb7857,fhircast-card@example.com=deb22ada-0dc3-4290-9974-db41652d266f,fhircast-events@example.com=68107579-b306-40f5-b730-660c27a1f979,fhircast-renewal@example.com=45888464-41bf-4f95-baa2-de6e21cd34b0,fhircast-reconnect@example.com=ce6f554e-68a9-4435-b1ac-808a5733a783,fhircast-navigation@example.com=8f60b5d0-5dc4-49dd-b121-a4a54d83a68f,fhircast-logout-unsubscribe@example.com=c6e838d2-45b3-48c0-bff2-a08641fe9aa0,fhircast-logout-revoke@example.com=66021041-71f1-49af-9bd1-8325332dde09,fhircast-logout-token@example.com=87280cd6-1374-4cb0-8716-324e710146d9
-      # Tan Wei Ming, one of the backend's development fixtures
-      # (DevPatientFixtures), by his Epic id.
-      SEED_PATIENT_EPIC_ID: eq081-VQEgP8drUUqCWzHfw3
-      SEED_PATIENT_FAMILY: Tan
-      SEED_PATIENT_GIVEN: Wei Ming
+      # One clinician per Epic Login, FHIRcast card, FHIRcast patient or
+      # FHIRcast logout E2E case that signs in at Medplum, as email=Practitioner
+      # id, with the password above. The ids are UUIDs, the only ids Medplum
+      # takes from a client; `make integration-test` hands this list to
+      # frontend/test/e2e/epic-launch.spec.ts, fhircast-card.spec.ts,
+      # fhircast-patient.spec.ts and fhircast-logout.spec.ts as
+      # E2E_EPIC_CLINICIANS. The Patients the seed makes are no setting: they
+      # are the backend's fixtures (./fhircast-shim/src/seed-patients.mjs).
+      SEED_EPIC_LOGIN_CLINICIANS: epic-helpdesk@example.com=5d5b1795-6573-4d8f-be48-800ce6154bc4,epic-flagged@example.com=6adfd95f-f494-466d-97f8-895e3183d8fe,epic-no-patient@example.com=4f7fb5fd-7b93-4cb3-9719-1a1aa4edee05,epic-unprovisioned@example.com=9359400f-b33d-4d34-93b9-49d588fb7857,fhircast-card@example.com=deb22ada-0dc3-4290-9974-db41652d266f,fhircast-events@example.com=68107579-b306-40f5-b730-660c27a1f979,fhircast-renewal@example.com=45888464-41bf-4f95-baa2-de6e21cd34b0,fhircast-reconnect@example.com=ce6f554e-68a9-4435-b1ac-808a5733a783,fhircast-navigation@example.com=8f60b5d0-5dc4-49dd-b121-a4a54d83a68f,fhircast-logout-unsubscribe@example.com=c6e838d2-45b3-48c0-bff2-a08641fe9aa0,fhircast-logout-revoke@example.com=66021041-71f1-49af-9bd1-8325332dde09,fhircast-logout-token@example.com=87280cd6-1374-4cb0-8716-324e710146d9,fhircast-open-unnamed@example.com=d35d3044-24a8-4ae7-b2c9-41e98ed74325,fhircast-open-another@example.com=991c0328-c68b-442b-930e-af56d5adfe2b,fhircast-open-elsewhere@example.com=1a5d4642-227e-4fde-8891-f273ce027ac6,fhircast-close@example.com=fe9483eb-154f-4245-82fc-58b8d8907ce1
       SEED_CLIENT_NAME: smart-on-fhir
       # Our JWKS as Medplum's container reaches the backend on the host, and
       # where the backend's callback and launch are: `make dev`'s by default,

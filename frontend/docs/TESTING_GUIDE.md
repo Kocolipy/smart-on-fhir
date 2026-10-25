@@ -202,7 +202,13 @@ would end the session they replay. The routing arch test reads their
   launch, showing a published `Patient-open` and then the `Patient-close` that
   replaces it, still showing an event published once the first Hub Token and
   lease have run out, reconnecting after the shim drops its socket, and absent
-  after a password Login) and `fhircast-logout.spec.ts` (after "Sign out", the
+  after a password Login), `fhircast-patient.spec.ts` (the Patient card
+  following the hub: a `Patient-open` showing a patient after a launch that
+  named none, replacing the launch's patient with another, published while on
+  another page and shown on Home on return, and kept across a reload; a
+  `Patient-close` emptying the card with the FHIRcast card still `Connected`,
+  staying empty across a reload until the next `Patient-open`) and
+  `fhircast-logout.spec.ts` (after "Sign out", the
   hub holding no subscription at the card's channel endpoint, the shim
   reporting the Hub Token revoked and the registration deleted, and a token
   request with the old registration refused), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
@@ -213,7 +219,10 @@ would end the session they replay. The routing arch test reads their
   provisions itself. `epic` depends on `fhircast` as well, so the two never run
   at once: its unavailable case pauses the shim `fhircast`'s specs reach.
   `fhircast.helpers.ts` holds what their specs share: Medplum's sign-in page, a
-  `SmartAppLaunch`, the clinicians and Tan Wei Ming the Medplum seed makes,
+  `SmartAppLaunch`, the clinicians the Medplum seed makes, the patients the
+  specs name of the four backend fixture patients it makes under their Epic ids
+  (Tan Wei Ming, whom the default launch names, and Siti Nurhaliza binte Ahmad;
+  Kumaravel and Marcus Anthony de Souza are seeded too),
   publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only `POST /dcr/test/drop`,
   and reading which hub tokens and leases its `GET /dcr/test/state` counts as

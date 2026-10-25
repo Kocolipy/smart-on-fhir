@@ -27,6 +27,7 @@ import {
   FHIRCAST_STORAGE_KEYS,
   fhircastSnapshot,
   type FhircastRelease,
+  followFhircastEvents,
   retryFhircast,
   startFhircast,
   watchFhircast,
@@ -1898,6 +1899,48 @@ describe("the session's FHIRcast connection", () => {
     hub.notify(PATIENT_OPEN);
 
     expect([heard > 0, watcher.mock.calls.length]).toEqual([true, heard]);
+  });
+
+  it("hands a follower each event the hub sends", async () => {
+    const hub = hubOnly();
+    const follower = vi.fn();
+    const stop = followFhircastEvents(follower);
+    startFhircast(releasing);
+    await connectedNow();
+
+    hub.notify(PATIENT_OPEN);
+    stop();
+
+    expect(follower.mock.calls).toEqual([
+      [{ event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
+    ]);
+  });
+
+  it("hands a follower nothing once it stops following", async () => {
+    const hub = hubOnly();
+    const follower = vi.fn();
+    followFhircastEvents(follower)();
+    startFhircast(releasing);
+    await connectedNow();
+
+    hub.notify(PATIENT_OPEN);
+
+    expect(follower).not.toHaveBeenCalled();
+  });
+
+  it("hands a follower no event the hub sends while the ended session's connection is torn down", async () => {
+    const never = new Promise<HubAnswer>(() => undefined);
+    const hub = hubOnly({ unsubscription: never });
+    const follower = vi.fn();
+    const stop = followFhircastEvents(follower);
+    startFhircast(releasing);
+    await connectedNow();
+    void endFhircast();
+
+    hub.notify(PATIENT_OPEN);
+    stop();
+
+    expect(follower).not.toHaveBeenCalled();
   });
 
   it("connects nothing on a retry before any start", async () => {

@@ -25,7 +25,7 @@ export interface LinkablePage {
  *
  * Every signed-in User lands here. The Patient card comes first: the patient of
  * the tab's EHR context (`ehr-context.ts`), which an EHR launch's Launch
- * context seeded, read with `patient:read`, a baseline Permission every active
+ * context seeded and the FHIRcast hub's events move, read with `patient:read`, a baseline Permission every active
  * User holds. With no patient in context — a password Login, or a launch that
  * named none — the card shows "No patient in context" and Home asks for
  * nothing. Beside it, whenever the tab holds an EHR context at all, the

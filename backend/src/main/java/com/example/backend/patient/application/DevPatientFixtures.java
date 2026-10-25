@@ -19,8 +19,10 @@ import java.util.List;
  * /docs/domain/patient.md). Every NRIC here is well-formed but carries a deliberately wrong check
  * letter, so it cannot be a real person's. Each is unique.
  *
- * <p>Nothing in the SPA names any of these ids: Home reads a patient only when a launch puts one in
- * context.
+ * <p>Nothing in the SPA names any of these ids: Home reads a patient only when a launch, or a
+ * FHIRcast {@code Patient-open}, puts one in context. The local Epic stand-in's Medplum seed
+ * ({@code fhircast-shim/src/seed-patients.mjs}) makes each under the same Epic id, so either can
+ * name any of them.
  */
 public final class DevPatientFixtures {
 

@@ -14,7 +14,7 @@ import { expect, type Page } from "@playwright/test";
  * Medplum project of whoever subscribes and publishes, and the shim subscribes
  * as the super admin, so a publisher must be the super admin too. The super
  * admin also creates the launches, and finds what the seed made: the
- * clinicians a spec signs in as, and Tan Wei Ming.
+ * clinicians a spec signs in as, and the backend's fixture patients.
  */
 
 /** Medplum's base URL, which the shim answers on; its FHIRcast hub is under it. */
@@ -123,10 +123,23 @@ export interface MedplumPatient {
   epicId: string;
 }
 
+/** A Patient the seed made, one of the backend's fixtures, found by its Epic id `epicId`. */
+async function seededPatient(epicId: string): Promise<MedplumPatient> {
+  const patient = await seeded(`Patient?identifier=${encodeURIComponent(epicId)}`);
+  return { id: String(patient.id), epicId };
+}
+
 /** Tan Wei Ming as the seed made him, found by his Epic id. */
-export async function tanWeiMing(): Promise<MedplumPatient> {
-  const patient = await seeded(`Patient?identifier=${TAN_WEI_MING}`);
-  return { id: String(patient.id), epicId: TAN_WEI_MING };
+export function tanWeiMing(): Promise<MedplumPatient> {
+  return seededPatient(TAN_WEI_MING);
+}
+
+/** Siti Nurhaliza binte Ahmad's Epic id, another of the development fixtures. */
+const SITI_NURHALIZA = "erXuFYUfucBZaryVksYEcMg3";
+
+/** Siti Nurhaliza binte Ahmad as the seed made her, found by her Epic id. */
+export function sitiNurhaliza(): Promise<MedplumPatient> {
+  return seededPatient(SITI_NURHALIZA);
 }
 
 /**
@@ -194,6 +207,12 @@ export async function signInAtMedplum(
   await page.getByLabel(/^Password/).fill(clinician.password);
   await page.getByRole("button", { name: "Sign In" }).click();
   await page.getByRole("button", { name: "Set Scope" }).click();
+}
+
+/** The topic the FHIRcast card subscribed on, as the backend releases it to the page's session. */
+export async function releasedTopic(page: Page): Promise<string> {
+  const release = await page.request.get("/api/auth/epic/fhircast");
+  return ((await release.json()) as { hubTopic: string }).hubTopic;
 }
 
 /** The two events the app subscribes to. */

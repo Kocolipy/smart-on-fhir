@@ -247,16 +247,32 @@ the address bar, and lets what passed seed the tab's **EHR context** — what th
 EHR currently has open for that tab, kept under one key of its
 `sessionStorage`:
 
-| Event                                                                               | The tab's EHR context |
-| ----------------------------------------------------------------------------------- | --------------------- |
-| An Epic landing, the bare `/#launch` included                                       | replaced              |
-| A reload                                                                            | kept                  |
-| Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared               |
-| A password Login                                                                    | cleared               |
+| Event                                                                                | The tab's EHR context          |
+| ------------------------------------------------------------------------------------ | ------------------------------ |
+| An Epic landing, the bare `/#launch` included                                        | replaced                       |
+| A FHIRcast `Patient-open` naming a valid id                                          | patient set, encounter dropped |
+| A FHIRcast `Patient-open` naming no valid id                                         | kept                           |
+| A FHIRcast `Patient-close`, whatever id it names or none                             | emptied, but kept              |
+| A reload; the FHIRcast connection reconnecting, disconnected, unavailable or blocked | kept                           |
+| Sign-out, session expiry, an Idle sign-out, a password change that ends the session  | cleared                        |
+| A password Login                                                                     | cleared                        |
 
-Nothing else changes it yet. Home reads it as it changes, not only on load: a
-tab holding an EHR context, even one naming nothing after the bare marker,
-shows the FHIRcast card, and a password session shows none.
+Home reads it as it changes, not only on load: a tab holding an EHR context,
+even one naming nothing after the bare marker or a `Patient-close`, shows the
+FHIRcast card, and a password session shows none.
+
+**The Patient card follows FHIRcast.** The FHIRcast hub's events move the EHR
+context on whichever signed-in page the tab is on, so the Patient card shows
+the chart the clinician has open in Epic (ADR 0016, "The events and the EHR
+context", has each rule's reason). A `Patient-open` for another patient shows
+"Loading the patient…" at once, never the patient before, then reads the new
+one; one for the patient already in context reads nothing again, though it
+still drops the encounter. A `Patient-close` shows "No patient in context",
+with the FHIRcast card still connected, and the next `Patient-open` brings a
+patient back. An event only ever moves a context the tab already holds. While
+the connection is anything but connected, and after a reload, the EHR context
+is kept as last known, and the FHIRcast card's status is what says the Patient
+card may be out of date.
 
 Home's Patient card reads `GET /api/patient/{patient}` for the patient in
 context, and shows "No patient in context" with none, or when that read is a

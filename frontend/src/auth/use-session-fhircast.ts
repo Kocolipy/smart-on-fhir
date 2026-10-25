@@ -11,14 +11,23 @@
  * whether a release came back matters. It still goes through
  * `useSessionRequest`, so a `401` ends the session in the one place it is
  * ended.
+ *
+ * It also routes the connection's events to the tab's EHR context
+ * (`followPatientEvent`), so a `Patient-open` or `Patient-close` moves the
+ * Patient card on whichever signed-in page the tab is on.
  */
 
 import { useCallback, useEffect } from "react";
 
-import { decodeFhircastRelease, startFhircast, type FhircastReleaseSource } from "@/lib/fhircast";
+import {
+  decodeFhircastRelease,
+  followFhircastEvents,
+  startFhircast,
+  type FhircastReleaseSource,
+} from "@/lib/fhircast";
 
 import { useAuthState } from "./auth-context-value";
-import { useEhrContext } from "./ehr-context";
+import { followPatientEvent, useEhrContext } from "./ehr-context";
 import { useSessionRequest } from "./use-session-request";
 
 const FHIRCAST_RELEASE_PATH = "/api/auth/epic/fhircast";
@@ -30,6 +39,8 @@ const FHIRCAST_RELEASE_PATH = "/api/auth/epic/fhircast";
  * across navigation and Home remounts: the start is idempotent, and only the
  * end of the session (`endFhircast`, from `session-transitions.ts`) stops it.
  * A Retry (`retryFhircast`) asks for the release through the same seam.
+ * While the layout is mounted, every event the connection hears moves the
+ * tab's EHR context.
  */
 export function useSessionFhircast(): void {
   const request = useSessionRequest();
@@ -43,4 +54,6 @@ export function useSessionFhircast(): void {
   useEffect(() => {
     if (signedIn && inEhrContext) startFhircast(release);
   }, [inEhrContext, release, signedIn]);
+
+  useEffect(() => followFhircastEvents(followPatientEvent), []);
 }

@@ -10,6 +10,7 @@ import {
   FHIR_BASE,
   hubState,
   publishPatientEvent,
+  releasedTopic,
   seededClinician,
   signInAtMedplum,
   tanWeiMing,
@@ -144,12 +145,6 @@ async function recordStatuses(page: Page): Promise<() => Promise<string[]>> {
     });
   });
   return () => page.evaluate(() => Reflect.get(window, "fhircastStatuses") as string[]);
-}
-
-/** The topic the card subscribed on, as the backend releases it to the page's session. */
-async function releasedTopic(page: Page): Promise<string> {
-  const release = await page.request.get("/api/auth/epic/fhircast");
-  return ((await release.json()) as { hubTopic: string }).hubTopic;
 }
 
 test("an event published once the first Hub Token and lease have expired still reaches the card", async ({

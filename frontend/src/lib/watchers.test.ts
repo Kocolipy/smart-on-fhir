@@ -25,6 +25,17 @@ describe("watchers", () => {
     expect(watcher).not.toHaveBeenCalled();
   });
 
+  it("hands every watcher what it was told changed", () => {
+    const set = watchers<string>();
+    const heard: string[] = [];
+    set.watch((news) => heard.push(`first:${news}`));
+    set.watch((news) => heard.push(`second:${news}`));
+
+    set.changed("Patient-open");
+
+    expect(heard).toEqual(["first:Patient-open", "second:Patient-open"]);
+  });
+
   it("keeps each set's watchers to itself", () => {
     const watcher = vi.fn();
     watchers().watch(watcher);
