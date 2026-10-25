@@ -9,13 +9,15 @@
  * outlives its token being forgotten, nor the other way round. Callers say
  * *which* transition happened; none of them reaches the token itself.
  *
- * Ending a session also forgets the tab's Launch context (`launch-context.ts`):
- * the patient an EHR launch put in context belongs to the session it signed
- * in, and is not shown to whoever signs in next. So does what the FHIRcast
- * module kept for that session — the SMART access token, the Hub Token, the
- * dynamic `client_id` and the private key (`@/lib/fhircast`, ADR 0016) — at
- * once; and the module then tears the session's FHIRcast connections down at
- * the hub, in the background, best-effort (`endFhircast`, ADR 0011).
+ * Ending a session also forgets the tab's EHR context (`ehr-context.ts`): the
+ * patient an EHR launch put in context belongs to the session it signed in,
+ * and is not shown to whoever signs in next. So does what the FHIRcast module
+ * kept for that session — the SMART access token, the Hub Token, the dynamic
+ * `client_id` and the private key (`@/lib/fhircast`, ADR 0016) — at once; and
+ * the module then stops the session's FHIRcast connection, so the next
+ * session's starts anew, and tears every connection the tab registered down at
+ * the hub, in the background, best-effort (`endFhircast`, ADR 0011). This is
+ * the one thing that stops the connection: leaving a page never does.
  *
  * Two transitions change the auth state without changing the session, and so
  * keep the token: a start-up check that did not answer (`checkFailed`), which
@@ -30,7 +32,7 @@ import { discardCsrfToken } from "@/lib/http";
 
 import type { AuthUser, SessionCheckFailure } from "./api";
 import type { Session } from "./auth-context-value";
-import { clearLaunchContext } from "./launch-context";
+import { clearEhrContext } from "./ehr-context";
 import type { SessionEndReason } from "./sign-in-reason";
 
 const CHECKING: Session = {
@@ -76,7 +78,7 @@ export function useSessionTransitions(): SessionTransitions {
 
   const end = useCallback((reason: SessionEndReason | null) => {
     discardCsrfToken();
-    clearLaunchContext();
+    clearEhrContext();
     clearFhircastStorage();
     // Not awaited: the session has ended already, and the hub, however it
     // answers, has no say in that.

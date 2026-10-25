@@ -24,10 +24,11 @@ under "Testing".
 
 Vitest with happy-dom and Testing Library; `test/setup.ts` pulls in
 `@testing-library/jest-dom` and clears `sessionStorage` after every test, since
-one window serves a whole file and the tab's Launch context lives there. It
+one window serves a whole file and the tab's EHR context lives there. It
 ends the FHIRcast module's connections first (`endFhircast`), for the same
-reason: otherwise a later test's end of the session would tear them down at
-that test's fake hub.
+reason: the session's connection is a module-level singleton, which a later
+test's start would otherwise take as already started, and a later test's end
+of the session would tear the connections down at that test's fake hub.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside
 `home.tsx` — and type-checked through `tsconfig.test.json`, which is the only

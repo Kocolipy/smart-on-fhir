@@ -60,10 +60,10 @@ Permissions, and the reasoning; this list holds the rules.
   control sends — to decide whether to offer it, and never calls `apiFetch`
   (`mb-transport-is-behind-the-session-seam`). There are two exceptions:
   `change-password.tsx`, whose marked `401` is about the current password and
-  must not end the session; and `fhircast-card.tsx`, which asks for the
-  FHIRcast release through `useFhircastRelease` (ADR 0016), because the
-  operation is self-service and `ReadDeclaration.permission` cannot express
-  "no Permission". No page has a control that writes `active` or Group
+  must not end the session; and `signed-in-shell.tsx`, which starts the
+  session's FHIRcast connection through `useSessionFhircast` (ADR 0016), whose
+  release request is self-service, so `ReadDeclaration.permission` cannot
+  express "no Permission"; the FHIRcast card only reads that connection. No page has a control that writes `active` or Group
   membership. A new signed-in page is one entry in `SIGNED_IN_PAGES`
   (`src/pages/signed-in-pages.tsx`).
 - **`src/components/`** — shared non-primitive components.

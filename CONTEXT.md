@@ -280,16 +280,27 @@ _Avoid_: sign-on, authenticate (as a noun for the operation), database login
 Epic opening this application in the clinician's system browser, which signs the
 clinician in through the Epic issuer instead of a password — the User whose
 `userName` is exactly the Practitioner ID Epic proved — and lands on Home with
-its Launch context. Recorded as login method `sso`.
+its Launch context, which seeds the tab's EHR context. Recorded as login method
+`sso`.
 _Avoid_: SSO, sign-on
 
 **Launch context**:
-The patient and encounter an EHR launch put in context, each a FHIR id, either
-possibly absent. Passed to the SPA in the landing's fragment and kept by the
-browser tab alone, never server-side: every EHR launch replaces it, a reload
-keeps it, and the session ending or a password Login clears it.
-_Avoid_: SMART context, patient context (for the pair), `launch` (Epic's opaque
-launch parameter, a different value)
+What an EHR launch's landing carried — the patient and encounter Epic's token
+response put in context, each a FHIR id, either possibly absent — which seeds
+the EHR context. Passed to the SPA in the landing's fragment, never kept
+server-side, and gone from the URL once read: what the tab then holds is the
+EHR context.
+_Avoid_: SMART context, patient context (for the pair), EHR context (for what
+the tab holds after the landing), `launch` (Epic's opaque launch parameter, a
+different value)
+
+**EHR context**:
+What the EHR currently has open for this browser tab: today a patient and an
+encounter, each a FHIR id, either possibly absent, with room for more members
+later. Kept by the tab alone, never server-side, and seeded by an EHR launch's
+Launch context.
+_Avoid_: Launch context (for what the tab holds after the landing), SMART
+context, patient context (for the pair), session context
 
 **Epic issuer**:
 The one Epic organisation a deployment trusts to sign clinicians in, named by its
@@ -316,8 +327,8 @@ Epic's local FHIRcast STU3 hub on the clinician's own workstation, which
 announces the chart the clinician opens and closes (`Patient-open`,
 `Patient-close`). An EHR launch's token response names it (`hub.url`) and the
 clinician's topic (`hub.topic`); the session keeps the pair only when the hub is
-on `127.0.0.1` and the topic is well formed, and the SPA connects to it from
-Home.
+on `127.0.0.1` and the topic is well formed, and the SPA connects to it for
+the whole session, on every signed-in page, while the tab holds an EHR context.
 _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 
 **Hub Token**:
@@ -331,9 +342,10 @@ _Avoid_: FHIRcast token, access token (for this one)
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
 `Patient-close` on the clinician's topic. Connected once the hub confirms it on
 the socket, made anew before its lease or its Hub Token runs out, and when the
-hub says its endpoint has gone; its socket closes with Home, and the
-subscription is cancelled at the hub (`hub.mode=unsubscribe`) when the session
-ends. Once connected, every Event Notification on the socket is acknowledged or
+hub says its endpoint has gone. It lasts the session, not Home: leaving Home and
+coming back neither closes its socket nor subscribes again, and the subscription
+is cancelled at the hub (`hub.mode=unsubscribe`) and its socket closed when the
+session ends. Once connected, every Event Notification on the socket is acknowledged or
 ignored.
 _Avoid_: listener, FHIRcast session
 
@@ -446,9 +458,9 @@ birth, never held.
 _Avoid_: patient record, demographics, subject (a Patient is no User)
 
 **Patient card**:
-Home's card showing the Launch context's patient — name, NRIC, gender, date of
-birth and age — or "No patient in context" when the Launch context names none or
-no Patient is held under its id. With no patient in context it reads nothing.
+Home's card showing the EHR context's patient — name, NRIC, gender, date of
+birth and age — or "No patient in context" when the tab holds no EHR context,
+its EHR context names no patient, or no Patient is held under its id. With no patient in context it reads nothing.
 
 ### Database
 

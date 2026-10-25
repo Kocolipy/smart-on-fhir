@@ -75,7 +75,10 @@ function PatientInContext({ clock, patientId }: { clock: Clock; patientId: strin
 
 /**
  * Home's Patient card: the patient in context, or "No patient in context",
- * asking nothing, when there is none.
+ * asking nothing, when there is none. The patient in context is the tab's EHR
+ * context's (`@/auth/ehr-context`), which Home reads through its subscribable
+ * store and hands down, so the card re-renders when it changes — a session
+ * ending clears it — not only on load.
  *
  * With a patient in context it reads `GET /api/patient/{patientId}` with
  * `patient:read`. A `404` is "No patient in context" too, which is not an

@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "@/App";
-import { adoptLaunchLanding } from "@/auth/launch-context";
+import { adoptLaunchLanding } from "@/auth/ehr-context";
 import "@/index.css";
 
 const container = document.getElementById("root");
@@ -12,7 +12,7 @@ if (!container) {
 }
 
 // Before the router reads the URL: an Epic landing's fragment becomes the
-// tab's Launch context and leaves the address bar.
+// Launch context seeding the tab's EHR context, and leaves the address bar.
 adoptLaunchLanding();
 
 createRoot(container).render(

@@ -259,11 +259,14 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   callback request's own identity (`EpicIdentity`, which the login filter saves
   nowhere), and leaves in the redirect. A refusal still lands at
   `/login?signin=…` with no fragment. The SPA reads the fragment on load, checks
-  the same grammar, strips it from the URL and keeps the Launch context in
-  `sessionStorage`, per tab; every Epic landing replaces it, a reload keeps it,
-  and sign-out, session expiry and a password Login clear it
-  (`frontend/docs/BACKEND_CONTRACT.md`). The Patient card reads its patient; the
-  encounter is held but unused.
+  the same grammar, strips it from the URL and lets the Launch context seed the
+  tab's **EHR context** (`/CONTEXT.md`), kept in `sessionStorage`, per tab;
+  every Epic landing replaces it, a reload keeps it, and sign-out, session
+  expiry and a password Login clear it (`frontend/docs/BACKEND_CONTRACT.md`).
+  The Patient card reads its patient; the encounter is held but unused. While
+  the tab holds an EHR context the session's FHIRcast connection runs, for the
+  whole session rather than while Home is mounted: ADR 0016, ["The
+  connection's lifetime"](0016-smart-access-token-released-to-the-spa-for-fhircast.md#the-connections-lifetime).
 
   Authorization is unchanged, deliberately: `patient:read` alone still lets a
   User read any id, and `GET /api/patient/{id}` is not bound to the Launch

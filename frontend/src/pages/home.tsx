@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import { landedFromEpic, launchContext } from "@/auth/launch-context";
+import { useEhrContext } from "@/auth/ehr-context";
 import { mayOpen, requirementOf } from "@/auth/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -24,28 +24,29 @@ export interface LinkablePage {
  * Home, the signed-in landing page at `/`.
  *
  * Every signed-in User lands here. The Patient card comes first: the patient of
- * the tab's Launch context (`launch-context.ts`), which an EHR launch put
- * there, read with `patient:read`, a baseline Permission every active User
- * holds. With no patient in context — a password Login, or a launch that named
- * none — the card shows "No patient in context" and Home asks for nothing. The
- * Launch context changes only on load and when the session ends, so it is read
- * as Home renders. Beside it, in a session an EHR launch began
- * (`landedFromEpic`), the FHIRcast card connects to Epic's local FHIRcast hub
- * (`fhircast-card.tsx`); a password session shows none. Beneath them the Pages
- * card links each page it is
- * handed (the other `SIGNED_IN_PAGES` entries, in registry order) that carries
- * a link label, exactly when that page's route guard would open it for this
- * session (`mayOpen`). It is handed them rather than importing the registry,
- * which imports Home.
+ * the tab's EHR context (`ehr-context.ts`), which an EHR launch's Launch
+ * context seeded, read with `patient:read`, a baseline Permission every active
+ * User holds. With no patient in context — a password Login, or a launch that
+ * named none — the card shows "No patient in context" and Home asks for
+ * nothing. Beside it, whenever the tab holds an EHR context at all, the
+ * FHIRcast card shows the session's FHIRcast connection (`fhircast-card.tsx`);
+ * a password session shows none. Home reads the EHR context through its
+ * subscribable store (`useEhrContext`), so both re-render when it changes, not
+ * only on load. Beneath them the Pages card links each page it is handed (the
+ * other `SIGNED_IN_PAGES` entries, in registry order) that carries a link
+ * label, exactly when that page's route guard would open it for this session
+ * (`mayOpen`). It is handed them rather than importing the registry, which
+ * imports Home.
  */
 export function Home({ pages }: { pages: readonly LinkablePage[] }) {
   const { user } = useAuth();
+  const context = useEhrContext();
 
   return (
     <div className="flex w-full flex-col gap-4">
       <div className="flex w-full flex-col gap-4 md:flex-row">
-        <PatientCard patientId={launchContext().patient} />
-        {landedFromEpic() && <FhircastCard />}
+        <PatientCard patientId={context?.patient} />
+        {context !== null && <FhircastCard />}
       </div>
       <Card className="w-full">
         <CardHeader>

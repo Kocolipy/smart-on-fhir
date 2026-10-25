@@ -10,8 +10,9 @@ so the browser can connect to Epic's local FHIRcast hub. The `id_token` and any
 refresh token stay server-side exactly as D29 keeps them. It is also the revisit
 D28 asks for once FHIR scopes are added, and the revisit of D29's at-rest and
 revocation positions. ADR 0011 records the deviations it accepts. Last revised
-2026-10-25: every end of the session tears the connection down at the hub.
-History is in git.
+2026-10-25: every end of the session tears the connection down at the hub, and
+the connection lasts the session rather than Home ("The connection's
+lifetime"). History is in git.
 
 ## Context
 
@@ -86,7 +87,8 @@ SMART access token, which D29 keeps server-side and never releases.
   port is open; the host is not.
 - **The SPA connects.** A hand-rolled FHIRcast module beside the HTTP transport
   (`frontend/src/lib/fhircast.ts`), the only place besides the transport allowed
-  to use `fetch` or `WebSocket`, runs on Home in an Epic session:
+  to use `fetch` or `WebSocket`, runs for the whole of an Epic session ("The
+  connection's lifetime", below):
   1. fetches the endpoint, through the session seam;
   2. reads the hub's `.well-known/fhircast-configuration` under `hub.url`
      (falling back to `.well-known/smart-configuration`) for
@@ -121,6 +123,38 @@ SMART access token, which D29 keeps server-side and never releases.
   which connects again from the release. The last event stays shown through
   renewal and `reconnecting`. The chain is not bound to the session's lifetime
   (ADR 0011).
+
+### The connection's lifetime
+
+Amended 2026-10-25 (#201). The connection lasts the Epic session, on every
+signed-in page, not only while Home is mounted.
+
+- **One connection per tab, outside React.** The FHIRcast module holds the
+  session's connection as a module-level singleton: what it shows (the card's
+  state and the last event) and how to close it. Its start is idempotent, so
+  a second start — a remount, a navigation, React's double effects in
+  development — changes nothing; its Retry closes the connection and connects
+  again from the release, with no last event. It is outside React because no
+  component lives as long as the session: Home unmounts whenever the clinician
+  opens another page, and a connection held in Home's state would register,
+  subscribe and reconnect again on every return, and lose every event sent
+  meanwhile.
+- **Who starts it.** The signed-in layout (`SignedInShell`), which every
+  signed-in page renders inside, starts it while the session is signed in and
+  the tab holds an **EHR context** (`/CONTEXT.md`) — the tab an EHR launch
+  began. The glue sits on the auth side (`useSessionFhircast`): it hands the
+  module a source that fetches the release through the session seam, so a
+  `401` ends the session as it does anywhere else. The module itself imports
+  nothing of the auth layer.
+- **The card is a view.** The FHIRcast card on Home reads the singleton and
+  starts nothing: its status line, Retry when `disconnected`, and the last
+  event, which so survives navigation.
+- **What stops it.** Only the end of the session — sign-out, expiry, an Idle
+  sign-out, a password change — through `endFhircast`, the teardown above:
+  the singleton is reset, so the next session's start connects anew, and every
+  connection the tab registered is unsubscribed, its Hub Token revoked, its
+  registration deleted and its socket closed, then the tab's storage cleared.
+  Leaving Home stops nothing.
 
 ### Data classification (D28, revisited)
 

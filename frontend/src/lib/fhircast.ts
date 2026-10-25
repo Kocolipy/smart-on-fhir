@@ -62,6 +62,7 @@
 
 import { DecodeError, jsonDecoder, readObject } from "./decode";
 import { isInstant } from "./time";
+import { watchers } from "./watchers";
 
 /** What the backend releases for FHIRcast: `GET /api/auth/epic/fhircast`. */
 export interface FhircastRelease {
@@ -899,13 +900,119 @@ export async function connectFhircast(
 }
 
 /**
- * Ends the session's FHIRcast: tears down every connection the tab
+ * Where the session's FHIRcast connection has got to: on its way
+ * (`connecting`), any {@link FhircastConnectionState}, or how connecting
+ * failed (`unavailable`, `blocked`; see {@link FhircastOutcome}).
+ */
+export type FhircastStatus = "connecting" | FhircastConnectionState | "unavailable" | "blocked";
+
+/**
+ * What the session's FHIRcast connection shows: its status, and the last
+ * event the hub sent it — `null` until one arrives, and again from each start.
+ */
+export interface FhircastSnapshot {
+  status: FhircastStatus;
+  last: PatientEvent | null;
+}
+
+/** Asks the backend for the release, through whatever seam the caller holds; `null` for none. */
+export type FhircastReleaseSource = () => Promise<FhircastRelease | null>;
+
+const NOT_STARTED: FhircastSnapshot = { last: null, status: "connecting" };
+
+/**
+ * The session's one FHIRcast connection, a module-level singleton rather than
+ * any component's state, so it lasts the session whichever page is shown:
+ * the attempt under way — where its release comes from, and how to close what
+ * it connected — or `null` before the first start and once the session's
+ * FHIRcast has ended ({@link endFhircast}).
+ */
+let attempt: { source: FhircastReleaseSource; close: () => void } | null = null;
+
+let snapshot: FhircastSnapshot = NOT_STARTED;
+
+/** Whoever is watching what the connection shows. */
+const watching = watchers();
+
+/** `next` replaces what the connection shows, and every watcher hears of it. */
+function show(next: Partial<FhircastSnapshot>) {
+  snapshot = { ...snapshot, ...next };
+  watching.changed();
+}
+
+/**
+ * One attempt from the start: the release from `source`, then
+ * {@link connectFhircast}, with no last event. Whatever it hears once a later
+ * attempt, or the end of the session, has replaced it is not shown, and a
+ * connection it opens then is closed at once.
+ */
+function begin(source: FhircastReleaseSource) {
+  const current = { close: () => undefined as void, source };
+  attempt = current;
+  const live = () => attempt === current;
+  show({ last: null, status: "connecting" });
+  void (async () => {
+    const released = await source();
+    if (!live()) return;
+    if (released === null) {
+      show({ status: "unavailable" });
+      return;
+    }
+    const outcome = await connectFhircast(released, {
+      onConnection: (status) => {
+        if (live()) show({ status });
+      },
+      onEvent: (last) => {
+        if (live()) show({ last });
+      },
+    });
+    if (outcome.kind === "connected") current.close = outcome.close;
+    if (!live()) {
+      current.close();
+      return;
+    }
+    show({ status: outcome.kind });
+  })();
+}
+
+/**
+ * Starts the session's FHIRcast connection, with the release from `source`.
+ * Idempotent: once started, a start changes nothing until the session's
+ * FHIRcast ends ({@link endFhircast}) — not a remount, not a navigation.
+ */
+export function startFhircast(source: FhircastReleaseSource): void {
+  if (attempt === null) begin(source);
+}
+
+/**
+ * Connects again from the start — a fresh release, a fresh registration — with
+ * no last event, closing the connection before. Nothing before the first start.
+ */
+export function retryFhircast(): void {
+  if (attempt === null) return;
+  attempt.close();
+  begin(attempt.source);
+}
+
+/** What the session's FHIRcast connection shows now: the same value until it changes. */
+export function fhircastSnapshot(): FhircastSnapshot {
+  return snapshot;
+}
+
+/** Calls `watcher` whenever what the connection shows changes; answers how to stop. */
+export const watchFhircast: (watcher: () => void) => () => void = watching.watch;
+
+/**
+ * Ends the session's FHIRcast: stops the session's connection, so the next
+ * session's start connects anew, and tears down every connection the tab
  * registered (see `Connection.tearDown`), side by side, then forgets
  * everything connecting kept ({@link clearFhircastStorage}). Never fails:
  * every step is best-effort and bounded, so it settles within a few seconds
  * however the hub behaves.
  */
 export async function endFhircast(): Promise<void> {
+  attempt = null;
+  show(NOT_STARTED);
   sessionGeneration = {};
   const ending = [...toTearDown];
   toTearDown.clear();

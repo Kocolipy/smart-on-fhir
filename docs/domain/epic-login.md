@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Epic Login
-description: Login by EHR launch — how an Epic clinician is matched to a User, every refusal, the Epic tokens' lifetime, the Launch context, MFA, and what is never recorded.
+description: Login by EHR launch — how an Epic clinician is matched to a User, every refusal, the Epic tokens' lifetime, the Launch context and the EHR context it seeds, the session-long FHIRcast connection, MFA, and what is never recorded.
 tags: [authentication, epic, smart-on-fhir, oidc]
 ---
 
@@ -133,7 +133,10 @@ refusal the endpoint makes is one `FHIRCAST_TOKEN_RELEASE` audit event against
 the caller, `SUCCESS` or `FAILURE` with `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
 `TOKEN_EXPIRED`; none carries the token.
 
-The token chain from there is the browser's, on Home: the hub's `.well-known`
+The token chain from there is the browser's, for the whole session: the
+signed-in layout starts the session's one FHIRcast connection while the tab
+holds an EHR context (below), on whichever signed-in page the tab is on. The
+hub's `.well-known`
 metadata names its registration and token endpoints, each held to `127.0.0.1`;
 the SPA registers a fresh ES384 key by dynamic client registration with the SMART
 access token as `Bearer`; it signs a five-minute `jwt-bearer` assertion with that
@@ -145,6 +148,13 @@ browser`, nothing more. The SMART access token, the Hub Token, the registered
 `client_id` and the private key live in the tab's `sessionStorage` and go when
 the session ends. ADR 0016 has the decision, and ADR 0011 the deviations it
 accepts.
+
+**The connection lasts the session, not Home** — the FHIRcast card on Home is
+only a view of the connection, which keeps running while the clinician is on
+any other signed-in page. Leaving Home and coming back neither registers,
+subscribes nor reconnects again: the card shows the same connection, still
+`Connected`, and an event the hub sent meanwhile as its last event. Only the
+end of the session stops it (ADR 0016, "The connection's lifetime").
 
 **Staying connected** — once connected, the card stays connected through the
 clinician's working session. Before the Hub Token or the subscription's lease
@@ -165,14 +175,13 @@ hub answers that the endpoint has gone (its `hub.mode` `denied`), or after a
 failed renewal, it subscribes anew instead, with a new Hub Token. The first
 retry whose socket the hub confirms brings the card back to `Connected`. When
 all five fail, the card shows `Disconnected` and a **Retry** button, which
-connects again from the start, from the release on. Leaving Home, including
-every end of the session, stops all of it. The chain's renewals are not bound
+connects again from the start, from the release on. Every end of the session
+stops all of it; leaving Home stops nothing. The chain's renewals are not bound
 to the session's lifetime: ADR 0011 records that deviation.
 
 **Tearing down** — every end of the session (sign-out, an Idle sign-out,
 expiry, a password change that ends it) tears down, at the hub, every
-connection the tab registered during it, Home's earlier visits and Retries
-included. Once the backend has ended the session, the SPA, in order:
+connection the tab registered during it, every Retry's included. Once the backend has ended the session, the SPA, in order:
 
 1. sends `hub.mode=unsubscribe` for the topic, naming the subscription's
    `hub.channel.endpoint`, with the Hub Token as `Bearer`;
@@ -217,9 +226,10 @@ them — is ignored and not acknowledged. A valid one is acknowledged on the sam
 socket with `{"id": <its id>, "status": "200"}`, then shown, replacing the event
 before it. A Patient id outside `[A-Za-z0-9\-.]{1,64}` is omitted while the
 event and its time still show. Every value is rendered as text, and nothing a
-notification carries is logged. The event is held in the card's memory alone:
-it stays shown through renewal and while `Reconnecting`, is not shown once
-`Disconnected`, and a reload, or a Retry, starts with none.
+notification carries is logged. The event is held in the tab's memory alone,
+with the connection rather than the card, so it survives leaving Home and
+coming back: it stays shown through renewal and while `Reconnecting`, is not
+shown once `Disconnected`, and a reload, or a Retry, starts with none.
 
 **The Launch context goes to the browser, never into the session** — the
 token response's `patient` and `encounter` are the **Launch context**. Each is
@@ -233,20 +243,26 @@ the session, Redis or the Epic tokens — and none of it is logged or audited. A
 fragment is never sent to a server, so no access log records it either.
 
 The SPA reads the fragment as it loads, checks the same grammar, strips it from
-the address bar, and keeps the Launch context in that tab's `sessionStorage`:
+the address bar, and lets what passed seed the tab's **EHR context** — what the
+EHR currently has open for that tab, kept under one key of its
+`sessionStorage`:
 
-| Event                                                                               | The tab's Launch context |
-| ----------------------------------------------------------------------------------- | ------------------------ |
-| An Epic landing, the bare `/#launch` included                                       | replaced                 |
-| A reload                                                                            | kept                     |
-| Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared                  |
-| A password Login                                                                    | cleared                  |
+| Event                                                                               | The tab's EHR context |
+| ----------------------------------------------------------------------------------- | --------------------- |
+| An Epic landing, the bare `/#launch` included                                       | replaced              |
+| A reload                                                                            | kept                  |
+| Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared               |
+| A password Login                                                                    | cleared               |
+
+Nothing else changes it yet. Home reads it as it changes, not only on load: a
+tab holding an EHR context, even one naming nothing after the bare marker,
+shows the FHIRcast card, and a password session shows none.
 
 Home's Patient card reads `GET /api/patient/{patient}` for the patient in
 context, and shows "No patient in context" with none, or when that read is a
 `404`. The encounter is held but not used yet. Authorization is unchanged, by
 decision: `patient:read` alone lets a User read any id, and the read is not
-bound to the Launch context, so editing the fragment changes only which patient
+bound to the EHR context, so editing the fragment changes only which patient
 that User views (ADR 0012, D8, D28).
 
 **Input bounds** — what the browser hands a Login is checked before it is held,
