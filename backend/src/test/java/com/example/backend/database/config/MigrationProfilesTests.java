@@ -55,11 +55,6 @@ class MigrationProfilesTests {
     }
 
     @Test
-    void theDevProfileDoesNotMigrate() {
-        assertThat(migratesUnder("dev")).isFalse();
-    }
-
-    @Test
     void anyOtherProfileDoesNotMigrate() {
         assertThat(migratesUnder("production")).isFalse();
     }
@@ -72,12 +67,6 @@ class MigrationProfilesTests {
     @Test
     void aLocalRunMigrates() {
         assertThat(migratesUnder("local")).isTrue();
-    }
-
-    /** The Epic E2E run's profiles: local for the schema, dev for the stand-in's http URLs. */
-    @Test
-    void aLocalRunInTheDevProfileMigrates() {
-        assertThat(migratesUnder("local", "dev")).isTrue();
     }
 
     @Test

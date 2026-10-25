@@ -71,7 +71,7 @@ import tools.jackson.databind.json.JsonMapper;
  * it.
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicTokensIntegrationTests {
 

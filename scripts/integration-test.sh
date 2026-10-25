@@ -57,11 +57,10 @@ fhircast_seed STACK_COMPOSE
 # discovers it at {issuer}/.well-known/openid-configuration.
 MEDPLUM_URL="$(compose_env STACK_COMPOSE fhircast-shim SHIM_PUBLIC_BASE_URL)"
 
-# Medplum's FHIR base and issuer are http, which only the dev profile accepts
-# (D21); the dev profile also accepts Medplum's relative `fhirUser`, and
-# changes nothing outside Epic Login. `local` keeps the local run's in-process
-# migrations, which every other profile turns off.
-export SPRING_PROFILES_ACTIVE=local,dev
+# Medplum's FHIR base and issuer are http, which only the `local` profile
+# accepts (D21); `local` also accepts Medplum's relative `fhirUser`, and keeps
+# the local run's in-process migrations, which every other profile turns off.
+export SPRING_PROFILES_ACTIVE=local
 export APP_EPIC_ENABLED=true
 export APP_EPIC_FHIR_BASE="${MEDPLUM_URL}fhir/R4"
 export APP_EPIC_OAUTH_ISSUER="${MEDPLUM_URL%/}"

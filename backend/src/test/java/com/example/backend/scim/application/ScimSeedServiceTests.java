@@ -473,27 +473,12 @@ class ScimSeedServiceTests {
                 .isEqualTo(UUID.fromString("00000000-0000-4000-8000-00000000a001"));
     }
 
-    @Test
-    void a_seeded_directory_has_its_admin_group() {
-        seeding.seed(RECOVERY);
-
-        assertThatCode(seeding::verifyAdminGroup).doesNotThrowAnyException();
-    }
-
-    /** Without the reserved Admin group nobody can be the Superuser, so startup refuses. */
-    @Test
-    void a_directory_without_its_admin_group_fails_the_check() {
-        assertThatThrownBy(seeding::verifyAdminGroup)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("The reserved Admin group does not exist");
-    }
-
     /**
      * An Admin group seeded earlier under another id keeps it — the id is never rewritten — and is
      * no less the Admin group: the marker, not the id, makes it one.
      */
     @Test
-    void an_admin_group_seeded_under_another_id_keeps_it_and_passes_the_check() {
+    void an_admin_group_seeded_under_another_id_keeps_it() {
         ScimUser bootstrapAdmin = users.createReserved(
                 ScimIdentities.user("admin"), ReservedResourceName.BOOTSTRAP_ADMIN);
         UUID earlier = groups.createReserved(
@@ -504,7 +489,6 @@ class ScimSeedServiceTests {
 
         assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow().id())
                 .isEqualTo(earlier);
-        assertThatCode(seeding::verifyAdminGroup).doesNotThrowAnyException();
     }
 
     // Stored Group Permissions

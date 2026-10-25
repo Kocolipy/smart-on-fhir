@@ -18,7 +18,7 @@
 //      that is a UUID, so those are UUIDs. Every clinician signs in with the
 //      clinician's password.
 //   4. Tan Wei Ming, a Patient in that project carrying his Epic id, one of the
-//      backend dev profile's patient fixtures: a launch names him by that id,
+//      backend's development fixtures: a launch names him by that id,
 //      which Medplum's token response then puts in `patient`.
 //   5. This app's ClientApplication in that project: `private_key_jwt` against
 //      the backend's JWKS, PKCE required, its redirect and launch URIs.

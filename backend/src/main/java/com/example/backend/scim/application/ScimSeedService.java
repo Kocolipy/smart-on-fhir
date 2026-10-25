@@ -339,18 +339,6 @@ public class ScimSeedService {
     }
 
     /**
-     * Refuses startup unless the reserved Admin group exists, the one Group whose direct members
-     * are the Superuser. Seeding creates it, so this fails only when something outside the
-     * application removed it.
-     */
-    @Transactional(readOnly = true)
-    public void verifyAdminGroup() {
-        if (groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).isEmpty()) {
-            throw new IllegalStateException("The reserved Admin group does not exist");
-        }
-    }
-
-    /**
      * Refuses startup when a stored Group Permission names a Permission the vocabulary does not
      * have, or one no Group may carry ({@link GroupPermissionValues}), naming every such row. A
      * Permission removed from code therefore needs a migration that deletes its rows.

@@ -15,7 +15,7 @@ import java.util.Optional;
  * organisation's server, a versioned reference or a query all name nobody here.
  *
  * <p>The one exception is the local stand-in's
- * ({@link EpicLoginSettings#relativeFhirUserAllowed()}, granted to the dev profile alone): the
+ * ({@link EpicLoginSettings#relativeFhirUserAllowed()}, granted to the {@code local} profile alone): the
  * local Epic stand-in, Medplum, issues the relative {@code Practitioner/{id}}, which no
  * configuration can make absolute, so there the relative form is accepted too, under the same
  * rules — the type exactly
@@ -38,7 +38,7 @@ public final class FhirUserReference {
      * is absent or has any other form.
      *
      * @param relativeAllowed whether the relative {@code Practitioner/{id}} is accepted as well,
-     *                        which is so in the dev profile only
+     *                        which is so in the {@code local} profile only
      */
     public static Optional<String> practitionerId(
             String fhirUser, URI fhirBase, boolean relativeAllowed) {

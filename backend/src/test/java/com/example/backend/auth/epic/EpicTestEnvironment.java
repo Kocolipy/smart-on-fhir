@@ -46,7 +46,7 @@ import org.springframework.web.context.WebApplicationContext;
  * {@code @BeforeEach}, and taken down after its {@code @AfterEach} — a suite's log capture closes
  * while the fake that answered it is still there.
  *
- * <p>Requires the {@code dev} profile, which lets the fake be plain {@code http} on the loopback
+ * <p>Requires the {@code local} profile, which lets the fake be plain {@code http} on the loopback
  * interface (D21).
  */
 final class EpicTestEnvironment implements BeforeEachCallback, AfterEachCallback {

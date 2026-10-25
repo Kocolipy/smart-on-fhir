@@ -160,10 +160,10 @@ class EpicLoginConfigTests {
                         + " is required when APP_EPIC_ENABLED is true");
     }
 
-    /** D21: outside the dev profile, an {@code http} URL is refused. */
+    /** D21: outside the {@code local} profile, an {@code http} URL is refused. */
     @ParameterizedTest
     @ValueSource(strings = {"APP_EPIC_FHIR_BASE", "APP_EPIC_OAUTH_ISSUER", "APP_EPIC_REDIRECT_URI"})
-    void outsideTheDevProfileAnHttpUrlFailsStartupNamingIt(String variable) {
+    void outsideTheLocalProfileAnHttpUrlFailsStartupNamingIt(String variable) {
         Map<String, Object> environment = validEnvironment();
         environment.put(variable, "http://fhir.example.org/path");
 
@@ -187,48 +187,48 @@ class EpicLoginConfigTests {
                         + " must be an absolute https URL");
     }
 
-    /** D21: the dev profile alone may use {@code http}, for the local Epic stand-in. */
+    /** D21: the {@code local} profile alone may use {@code http}, for the local Epic stand-in. */
     @Test
-    void theDevProfileMayUseHttpUrls() {
+    void theLocalProfileMayUseHttpUrls() {
         Map<String, Object> environment = validEnvironment();
         environment.put("APP_EPIC_FHIR_BASE", "http://localhost:8099/v/r4/fhir");
         environment.put("APP_EPIC_OAUTH_ISSUER", "http://localhost:8099/v/r4/fhir");
         environment.put("APP_EPIC_REDIRECT_URI", "http://localhost:8080/api/auth/epic/callback");
 
         withEnvironment(environment)
-                .withInitializer(context -> context.getEnvironment().setActiveProfiles("dev"))
+                .withInitializer(context -> context.getEnvironment().setActiveProfiles("local"))
                 .run(context -> assertThat(context).hasSingleBean(EpicLoginSettings.class));
     }
 
     /**
-     * The dev profile alone accepts the relative {@code fhirUser} the local Epic stand-in
-     * issues, decided where D21's {@code http} allowance is.
+     * The {@code local} profile alone accepts the relative {@code fhirUser} the local Epic
+     * stand-in issues, decided where D21's {@code http} allowance is.
      */
     @Test
-    void theDevProfileAllowsARelativeFhirUser() {
+    void theLocalProfileAllowsARelativeFhirUser() {
         withEnvironment(validEnvironment())
-                .withInitializer(context -> context.getEnvironment().setActiveProfiles("dev"))
+                .withInitializer(context -> context.getEnvironment().setActiveProfiles("local"))
                 .run(context -> assertThat(
                         context.getBean(EpicLoginSettings.class).relativeFhirUserAllowed())
                         .isTrue());
     }
 
     @Test
-    void outsideTheDevProfileARelativeFhirUserIsNotAllowed() {
+    void outsideTheLocalProfileARelativeFhirUserIsNotAllowed() {
         withEnvironment(validEnvironment())
                 .run(context -> assertThat(
                         context.getBean(EpicLoginSettings.class).relativeFhirUserAllowed())
                         .isFalse());
     }
 
-    /** Even in the dev profile, only {@code http} is added — no other scheme. */
+    /** Even in the {@code local} profile, only {@code http} is added — no other scheme. */
     @Test
-    void theDevProfileStillRefusesAnyOtherScheme() {
+    void theLocalProfileStillRefusesAnyOtherScheme() {
         Map<String, Object> environment = validEnvironment();
         environment.put("APP_EPIC_REDIRECT_URI", "ftp://localhost/callback");
 
         assertThat(startupFailure(withEnvironment(environment)
-                .withInitializer(context -> context.getEnvironment().setActiveProfiles("dev"))))
+                .withInitializer(context -> context.getEnvironment().setActiveProfiles("local"))))
                 .isEqualTo("Invalid Epic Login configuration: APP_EPIC_REDIRECT_URI"
                         + " must be an absolute https URL");
     }

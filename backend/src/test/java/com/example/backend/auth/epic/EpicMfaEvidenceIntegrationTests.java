@@ -23,7 +23,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
  * {@link EpicProtocolIntegrationTests}'.
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicMfaEvidenceIntegrationTests {
 

@@ -38,7 +38,7 @@ ADR 0012 lists the factors accepted.
 **No default credentials**: this repository is public, so no URL, client id or
 key has a fallback anywhere. With the switch on, startup fails fast when a
 required variable is missing or blank, when a URL is not an absolute `https`
-URL (only the `dev` profile may use `http`, for the local stand-in), when a key is
+URL (only the `local` profile may use `http`, for the local stand-in), when a key is
 not an EC P-384 private key in PKCS#8 PEM, when the next key and its `kid` are
 not set together, when the two `kid`s are equal, or when a timeout is not
 positive. An empty variable counts as unset. The error names the variable and
@@ -171,7 +171,7 @@ EHR; a clinician, `clinician@example.com`, as a Practitioner with a Medplum
 sign-in at the Practitioner id `SEED_CLINICIAN_ID` gives it, and one more for
 each Epic Login E2E case that signs in at Medplum, each at the Practitioner id
 `SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; Tan Wei Ming, one of
-the dev profile's patient fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
+the development fixtures, as a Patient carrying his Epic id `eq081-VQEgP8drUUqCWzHfw3`;
 a `SmartAppLaunch` for him (see "Launching from the stand-in");
 and this app's ClientApplication — `private_key_jwt` against our JWKS
 (`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
@@ -195,9 +195,9 @@ Server's and Redis's volumes are left as they are. Every sign-in is a
 development fixture in `compose.yaml`; the super admin is Medplum's own
 published default.
 
-Medplum is plain `http`, so the backend must run in the **`dev` profile**
-(beside `local`, which runs the migrations), the only one that accepts `http`
-Epic URLs (D21). That profile alone also accepts Medplum's relative `fhirUser`
+Medplum is plain `http`, so the backend must run in the **`local` profile**
+(which also runs the migrations), the only one that accepts `http` Epic URLs
+(D21). That profile alone also accepts Medplum's relative `fhirUser`
 (`Practitioner/{id}`); outside it, `fhirUser` must be the absolute
 `{APP_EPIC_FHIR_BASE}/Practitioner/{id}`. Never use either allowance anywhere
 but a developer machine.
@@ -212,7 +212,7 @@ to it, as `make infra-up` also needs. The block holds:
 
 | Variable                          | Value for the stand-in                                                 |
 | --------------------------------- | ---------------------------------------------------------------------- |
-| `SPRING_PROFILES_ACTIVE`          | `local,dev`                                                            |
+| `SPRING_PROFILES_ACTIVE`          | `local`                                                                |
 | `APP_EPIC_ENABLED`                | `true`                                                                 |
 | `APP_EPIC_FHIR_BASE`              | `http://127.0.0.1:8103/fhir/R4`                                        |
 | `APP_EPIC_OAUTH_ISSUER`           | `http://127.0.0.1:8103`, without the trailing slash                    |

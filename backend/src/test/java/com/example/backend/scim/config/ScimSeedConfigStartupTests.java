@@ -40,8 +40,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * The startup step that seeds the directory, then the development fixtures when enabled — their
- * Group Permissions after their Groups — then refuses a directory without its Admin group or with
- * a stored Group Permission no Group may carry.
+ * Group Permissions after their Groups — then refuses a stored Group Permission no Group may
+ * carry.
  *
  * <p>The runner is taken from a real context, with {@code app.dev-fixtures} bound as a deployment's
  * configuration is, and run as startup runs it; a runner that throws is a failed startup. The
@@ -299,13 +299,10 @@ class ScimSeedConfigStartupTests {
                 .isEqualTo(Map.of(group("a003"), auditorReads, group("a006"), helpdesk));
     }
 
-    /**
-     * The Epic e2e run's profiles, {@code local,dev} ({@code scripts/integration-test.sh}): the
-     * fixtures seed as a plain local run seeds them.
-     */
+    /** The {@code local} profile seeds the shipped fixture Users into their Groups. */
     @Test
-    void theLocalProfileBesideTheDevProfileSeedsTheFixtures() {
-        shipped("local,dev").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+    void theLocalProfileSeedsTheShippedFixturesIntoTheirGroups() {
+        shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(groups.findById(group("a003")).orElseThrow()
                         .hasMember(users.require("auditor").id()))
@@ -330,13 +327,6 @@ class ScimSeedConfigStartupTests {
         shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(users.size()).isEqualTo(5);
-    }
-
-    /** Any other profile refuses the shipped fixtures outright, rather than seeding them bare. */
-    @Test
-    void anotherProfileRefusesTheShippedFixtures() {
-        shipped("dev").run(refusesStartup("'local' profile is not active"));
-        assertThat(groups.findById(group("a003"))).isEmpty();
     }
 
     /** A context that failed to start, its root cause naming {@code fragment}. */
@@ -440,7 +430,7 @@ class ScimSeedConfigStartupTests {
     @Test
     void enabledFixturesUnderAnotherProfileFailStartup() {
         contexts.withPropertyValues(
-                        "spring.profiles.active=prod,dev,test",
+                        "spring.profiles.active=prod,test",
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password")
                 .run(refusesStartup("APP_DEV_FIXTURES_ENABLED"));

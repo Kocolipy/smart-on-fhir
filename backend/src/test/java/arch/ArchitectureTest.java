@@ -750,6 +750,9 @@ public class ArchitectureTest {
             Map.entry("authorization", Set.of()),
             // The shared base every module logs through, so it knows none of them.
             Map.entry("observability", Set.of()),
+            // The developer profile's name, read by the development-fixture guard (scim) and Epic
+            // Login's configuration (auth), so it knows neither of them.
+            Map.entry("profile", Set.of()),
             // The scheduled-job lock and run module are shared by the auth and audit jobs (ADR 0005),
             // so it knows neither of them. A job's one identity, ScheduledJob, carries the
             // Operation its records are classified as, so it depends on the logging base every
@@ -772,8 +775,11 @@ public class ArchitectureTest {
             // sendError adapter in its chain, and marks its advice as that namespace's. It
             // reaches database for TimedJdbc: the seed lock's row-lock wait is bounded as every
             // lock statement is (ADR 0013, "Bounded timeouts"), as the scheduled-job lock's is.
-            Map.entry("scim", Set.of("audit", "authorization", "database", "observability", "web")),
-            Map.entry("auth", Set.of("audit", "authorization", "observability", "scheduling", "scim", "web")),
+            Map.entry("scim", Set.of(
+                    "audit", "authorization", "database", "observability", "profile", "web")),
+            Map.entry("auth", Set.of(
+                    "audit", "authorization", "observability", "profile", "scheduling", "scim",
+                    "web")),
             // patient and lifecycle are leaves, which no entry names: removing one must not break
             // another module. patient may reach auth, and nothing else that holds state: not
             // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches

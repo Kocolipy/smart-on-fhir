@@ -53,9 +53,9 @@ So **removing a Permission from code needs a migration that deletes its rows**,
 in the same change. The table has no `CHECK` listing the names on purpose: the
 vocabulary is code's, and a second copy in SQL could silently disagree with it.
 
-Startup also requires that the reserved Admin group exists. Seeding creates it on
-a fresh database under the fixed id `00000000-0000-4000-8000-00000000a001`; an
-Admin group seeded earlier under another id keeps it.
+Startup seeds the reserved Admin group whenever it is missing, under the fixed id
+`00000000-0000-4000-8000-00000000a001`; an Admin group seeded earlier under
+another id keeps it.
 
 ## Development fixtures
 

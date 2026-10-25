@@ -12,18 +12,18 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Flow step 5: an {@code id_token}'s {@code fhirUser} names a Practitioner only in the one form
  * {@code {fhirBase}/Practitioner/{id}}, under the deployment's own FHIR base, with a non-blank
- * {@code id} and nothing after it. In the dev profile alone, the relative form
+ * {@code id} and nothing after it. In the {@code local} profile alone, the relative form
  * {@code Practitioner/{id}} the local Epic stand-in issues is accepted too, under the same rules.
  */
 class FhirUserReferenceTests {
 
     private static final URI FHIR_BASE = URI.create("https://fhir.example.org/api/FHIR/R4");
 
-    /** Outside the dev profile: the relative form is not allowed. */
+    /** Outside the {@code local} profile: the relative form is not allowed. */
     private static final boolean STRICT = false;
 
-    /** The dev profile: the relative form is allowed. */
-    private static final boolean DEV = true;
+    /** The {@code local} profile: the relative form is allowed. */
+    private static final boolean LOCAL = true;
 
     @Test
     void aPractitionerUnderTheConfiguredBaseYieldsItsId() {
@@ -44,9 +44,9 @@ class FhirUserReferenceTests {
         assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, STRICT)).isEmpty();
     }
 
-    /** The stand-in's relative form names nobody outside the dev profile. */
+    /** The stand-in's relative form names nobody outside the {@code local} profile. */
     @Test
-    void outsideTheDevProfileARelativeReferenceIsRejected() {
+    void outsideTheLocalProfileARelativeReferenceIsRejected() {
         assertThat(FhirUserReference.practitionerId("Practitioner/eABC", FHIR_BASE, STRICT))
                 .isEmpty();
     }
@@ -85,21 +85,21 @@ class FhirUserReferenceTests {
         assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, STRICT)).isEmpty();
     }
 
-    /** The dev profile's allowance for the local Epic stand-in, and nothing more. */
+    /** The {@code local} profile's allowance for the local Epic stand-in, and nothing more. */
     @Nested
-    class InTheDevProfile {
+    class InTheLocalProfile {
 
         @Test
         void aRelativePractitionerReferenceYieldsItsId() {
             assertThat(FhirUserReference.practitionerId(
-                    "Practitioner/smart-Practitioner-71482713", FHIR_BASE, DEV))
+                    "Practitioner/smart-Practitioner-71482713", FHIR_BASE, LOCAL))
                     .contains("smart-Practitioner-71482713");
         }
 
         @Test
         void aPractitionerUnderTheConfiguredBaseStillYieldsItsId() {
             assertThat(FhirUserReference.practitionerId(
-                    "https://fhir.example.org/api/FHIR/R4/Practitioner/eABC.123", FHIR_BASE, DEV))
+                    "https://fhir.example.org/api/FHIR/R4/Practitioner/eABC.123", FHIR_BASE, LOCAL))
                     .contains("eABC.123");
         }
 
@@ -111,19 +111,19 @@ class FhirUserReferenceTests {
             "R4/Practitioner/eABC",
             "/Practitioner/eABC"})
         void theWrongBaseIsStillRejected(String fhirUser) {
-            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, DEV)).isEmpty();
+            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, LOCAL)).isEmpty();
         }
 
         @ParameterizedTest
         @ValueSource(strings = {"Patient/eABC", "RelatedPerson/eABC", "practitioner/eABC"})
         void aRelativeReferenceToAnotherResourceTypeIsRejected(String fhirUser) {
-            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, DEV)).isEmpty();
+            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, LOCAL)).isEmpty();
         }
 
         @ParameterizedTest
         @ValueSource(strings = {"Practitioner/", "Practitioner/   ", "Practitioner"})
         void aRelativeReferenceWithABlankIdIsRejected(String fhirUser) {
-            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, DEV)).isEmpty();
+            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, LOCAL)).isEmpty();
         }
 
         @ParameterizedTest
@@ -133,13 +133,13 @@ class FhirUserReferenceTests {
             "Practitioner/eABC?x=1",
             "Practitioner/eABC#part"})
         void aRelativeReferenceWithTrailingSegmentsIsRejected(String fhirUser) {
-            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, DEV)).isEmpty();
+            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, LOCAL)).isEmpty();
         }
 
         @ParameterizedTest
         @NullAndEmptySource
         void anAbsentClaimIsStillRejected(String fhirUser) {
-            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, DEV)).isEmpty();
+            assertThat(FhirUserReference.practitionerId(fhirUser, FHIR_BASE, LOCAL)).isEmpty();
         }
     }
 }

@@ -172,7 +172,7 @@ of it is the Superuser. It carries no Group Permissions: its members' power is
 the Superuser's, expanded in code. Seeding creates it on a fresh database under
 the fixed id `00000000-0000-4000-8000-00000000a001`; an Admin group seeded
 earlier under another id keeps that id and is no less the Admin group. Startup
-requires that it exists. Over SCIM it cannot be renamed or deleted, and the
+seeds it again whenever it is missing. Over SCIM it cannot be renamed or deleted, and the
 Bootstrap Admin's membership of it cannot change; its other members can all be
 removed. That frozen membership, together with the Superuser's expansion, is
 what guarantees a User holding every delegatable Permission (see

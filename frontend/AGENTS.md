@@ -156,7 +156,7 @@ until its trigger narrows the scope, so none belongs in the baseline.
 integration-test` runs the FHIRcast DCR shim's unit tests
 (`backend/fhircast-shim`), packages the JAR with the SPA, starts SQL Server,
 Redis and the local Epic stand-in, Medplum and the DCR shim (compose profile
-`fhircast`), and seeds Medplum. It runs the JAR once in the `dev` profile, with
+`fhircast`), and seeds Medplum. It runs the JAR once in the `local` profile, with
 a freshly generated key and the `APP_EPIC_*` values in
 `backend/docs/configuration/epic-login.md`, "Local Epic stand-in". Then it runs
 `npm run test:e2e`. Three projects exist only in that run:

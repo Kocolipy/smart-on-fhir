@@ -76,7 +76,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * {@code /authorize} over HTTP. Every Login here holds Epic to having accepted our token request
  * unless the test is about Epic refusing it, so no outcome can pass on a refusal of ours.
  *
- * <p>The {@code dev} profile lets the fake be plain {@code http} on the loopback interface (D21);
+ * <p>The {@code local} profile lets the fake be plain {@code http} on the loopback interface (D21);
  * nothing else in this context depends on it.
  *
  * <p>Epic on a bad day is the same fake told to stall, answer {@code 5xx} or rotate its key
@@ -89,7 +89,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * succeeded.
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicLoginIntegrationTests {
 
@@ -242,11 +242,11 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * The dev profile alone also accepts the relative {@code Practitioner/{id}} the local Epic
-     * stand-in issues as {@code fhirUser}; this context runs in it.
+     * The {@code local} profile alone also accepts the relative {@code Practitioner/{id}} the
+     * local Epic stand-in issues as {@code fhirUser}; this context runs in it.
      */
     @Test
-    void inTheDevProfileARelativeFhirUserSignsThePractitionerIn() throws Exception {
+    void inTheLocalProfileARelativeFhirUserSignsThePractitionerIn() throws Exception {
         String practitioner = EPIC.practitioners().provision();
 
         Landing landing = EPIC.browser().completeAccepted(

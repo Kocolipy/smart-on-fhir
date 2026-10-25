@@ -43,7 +43,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * {@code @DynamicPropertySource} is what keeps it so ({@link EpicTestEnvironment}).
  */
 @SpringBootTest
-@ActiveProfiles("dev")
+@ActiveProfiles("local")
 @Import(ContainerTestConfiguration.class)
 class EpicDiscoveryIntegrationTests {
 
