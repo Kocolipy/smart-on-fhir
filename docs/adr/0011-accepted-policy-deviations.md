@@ -8,11 +8,8 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-26: the
-tab no longer stores the SMART access token, a reload resumes the FHIRcast connection
-from what the tab kept rather than registering at the hub again, and the residual risk
-of the "FHIRcast in the browser" entries changed with it. Revised 2026-10-25: the
-FHIRcast hub's revocation at the end of a session is best-effort. History is in git.
+as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-26.
+History is in git.
 
 ## Context
 

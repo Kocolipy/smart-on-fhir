@@ -4,17 +4,13 @@ Date: 2026-10-06
 
 ## Status
 
-Accepted, finalised 2026-10-08 and consolidated 2026-10-10. This ADR is the sole
-authority on Epic Login: the flow, every decision D1–D29, the accepted risk D13,
-the IM8 policy position and the App-Standards deviations. D29 (#24) supersedes D8
-for Epic's tokens, and #153 revised D8 in place: the Launch context is passed to
-the SPA, never kept server-side. **Amended at D29 by ADR 0016:** the SMART access
-token alone is released to the SPA, for Epic's local FHIRcast hub, and the
-FHIRcast hub the token response names is kept beside the tokens; ADR 0016 is the
-authority on both, and the D28 and D29 passages below defer to it. How a Login
-ends, for both methods, is ADR 0001's. ADR 0011 records the ac-2, ac-12 and as-8
-positions this changes. Last revised 2026-10-24: D29 amended by ADR 0016 for
-the SMART access token. History is in git.
+Accepted. This ADR is the sole authority on Epic Login: the flow, every decision
+D1–D29, the accepted risk D13, the IM8 policy position and the App-Standards
+deviations. Two things are other ADRs': ADR 0016 decides the SMART access
+token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
+tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
+ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-26. History
+is in git.
 
 ## Context
 
@@ -277,11 +273,8 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   which the same User could already read by id. Binding the read to the launch
   would mean keeping the context server-side, which this decision avoids.
 
-  The rest of the token response is discarded, the FHIRcast hub aside (ADR
-  0016). D8 first discarded Epic's tokens and the launch context too. D29
-  superseded that for the tokens: the access token, the refresh token and the
-  `id_token` are kept for the session; #153 revised it for the launch context,
-  as above.
+  The rest of the token response is discarded, Epic's tokens (D29) and the
+  FHIRcast hub (ADR 0016) aside.
 
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
@@ -400,15 +393,21 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   own request only (a `ScopedValue`), and is gone with it.
 - **D28: data classification is the data owner's.** Until the data owner
   classifies the application's data (an open item, below), Epic Login's controls
-  assume User PII and nothing clinical kept from what Epic sends. Rechecked in
-  #153, once a patient id began to travel to the browser: **the assumption still
-  holds server-side, and no longer holds for the browser.**
-  - _Server-side it holds._ D8 still keeps nothing clinical Epic sends: the
+  assume User PII and nothing clinical kept from what Epic sends. **The
+  assumption holds server-side; it does not hold for the browser, nor for the
+  access token.**
+  - _Server-side it holds._ D8 keeps nothing clinical Epic sends: the
     Launch context reaches no session, Redis key, Epic token set, log record or
     audit event (D22). The tokens D29 keeps are credentials, not clinical data,
-    and today's scope reads no FHIR resource. The FHIRcast scopes ADR 0016
-    adds make the access token a key to patient-context events, which ADR 0016
-    classifies Restricted, Sensitive High: that is this decision's revisit.
+    and today's scope reads no FHIR resource.
+  - _The access token is a credential to Restricted data._ With the FHIRcast
+    scopes (ADR 0016) a holder of the access token can register at the
+    clinician's hub and learn which patient the clinician opens and closes. The
+    `Patient-open` and `Patient-close` events carry the patient's identity in
+    clinical context, so **the patient-context event data is classified
+    Restricted, Sensitive High**, and the access token is handled as a
+    credential to it: released only to the session it was issued for, only over
+    ADR 0016's one audited, `no-store` endpoint, and never logged.
   - _In the browser it does not._ The patient id names the patient the clinician
     opened in Epic — clinical context — so it is handled as the Patient it names
     is (Restricted, `/docs/domain/patient.md`, "Data classification"). It is an
@@ -421,9 +420,10 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
     logout's `Clear-Site-Data` too. It reveals nothing the User could not
     already read: `patient:read` reads any id (D8).
 
-  A ticket that adds FHIR scopes makes the tokens a key to clinical data, and a
-  ticket that keeps the Launch context server-side makes it held clinical
-  context; either revisits this, as the data owner's classification will.
+  A ticket that adds FHIR resource scopes makes the tokens a key to clinical
+  data, and a ticket that keeps the Launch context server-side makes it held
+  clinical context; either revisits this. The data owner's classification
+  supersedes all of it when it lands.
 
 ### Audit
 
@@ -524,18 +524,15 @@ Micrometer, on the existing Prometheus registry:
   `APP_EPIC_CONNECT_TIMEOUT` and `APP_EPIC_READ_TIMEOUT`, 2 and 5 seconds by
   default. There is no circuit breaker: login volume is low and the edge
   throttle (D19) bounds the load. Its one interceptor, `EpicOutboundInterceptor`,
-  logs "Epic outbound call started" and "completed" at `INFO` with the call's
-  name (`app.epic.call`: `discovery`, `jwks` or `token`, named by the call site as
-  a request attribute), the method, `url.full` with no query, fragment or user
-  info, the status and `event.duration_ms`; a call that got no answer is
-  "Epic outbound call failed" at `ERROR`, `network`, with the failure's stack
-  under its type name alone. Bodies and headers are never read. It meters every
-  call on the `epic.outbound` timer and every call that got no answer or a `5xx`
-  on the `epic.outbound.errors` counter — a name of its own, as Prometheus allows
-  one type per metric name — both tagged `call`. It also writes the call's W3C
-  `traceparent`: the deployment installs no propagator, so an inbound
-  `traceparent` is ignored (ADR 0003), and the outbound header is set here
-  rather than by turning propagation on for every request.
+  logs each call by the name its call site gives it (`app.epic.call`:
+  `discovery`, `jwks` or `token`), reading neither body nor header (ADR 0003,
+  "Epic Login's outbound calls").
+  It meters every call on the `epic.outbound` timer and every call that got no
+  answer or a `5xx` on the `epic.outbound.errors` counter — a name of its own, as
+  Prometheus allows one type per metric name — both tagged `call`. It also
+  writes the call's W3C `traceparent`: the deployment installs no propagator, so
+  an inbound `traceparent` is ignored (ADR 0003), and the outbound header is set
+  here rather than by turning propagation on for every request.
 - **D26: retries.** The token call is never retried: the code is single-use and
   the clinician can relaunch, and neither the client nor the JDK resends a
   `POST`, a read timeout included. Discovery runs on first use and a successful
@@ -582,8 +579,7 @@ Micrometer, on the existing Prometheus registry:
 
 ### Epic's tokens (D29)
 
-**D29: Epic's tokens are kept for the session.** Recorded 2026-10-09 (#24), and
-supersedes D8 for the access token, the refresh token and the `id_token`. Backend
+**D29: Epic's tokens are kept for the session.** Backend
 features need to act at Epic on behalf of the signed-in clinician, so a successful
 Epic Login keeps Epic's tokens server-side, bound to the session it signs in, as
 the **Epic tokens** (`/CONTEXT.md`). The Launch context is not among them: it is
@@ -684,11 +680,12 @@ and no FHIR API is called yet.
   `/infra/docs/database-credentials.md`). Application-level encryption
   would need a key held in the same environment as the Redis credentials (D16's
   position for the signing key), and would protect only against a compromise of
-  Redis alone. ADR 0016 revisited this, together with revocation (D13), when it
-  added the FHIRcast scopes, and kept it an accepted risk: the token reads no FHIR
-  resource, and no refresh token exists. The ticket that adds a FHIR resource
-  scope or a refresh token revisits it again. The options then are envelope
-  encryption under a KMS key, or an encrypted replication group.
+  Redis alone. Adding the FHIRcast scopes (ADR 0016) left it an accepted risk:
+  the token reads no FHIR resource, no refresh token exists, and a token copied
+  out of Redis lets its holder register at the hub only from the clinician's own
+  workstation, since the hub listens on loopback alone. The ticket that adds a
+  FHIR resource scope or a refresh token revisits it. The options then are
+  envelope encryption under a KMS key, or an encrypted replication group.
 
 ### Accepted risk (D13)
 
@@ -701,13 +698,15 @@ and no FHIR API is called yet.
   are dropped from the store when the session ends, every way it ends, but
   nothing revokes them at Epic. The access token stays valid there until its
   `expires_in` runs out. A refresh token stays valid for its own, longer lifetime,
-  which makes it the more valuable of the two. Neither is logged, audited or sent
-  to the browser, so after the session ends only someone who had already copied
-  one out of the session store could present it. Today Epic issues no refresh
-  token, because the authorize request asks for neither `offline_access` nor
-  `online_access`. Revocation at session end belongs to the ticket that first asks
-  for one, once Epic's revocation support is confirmed (an open item,
-  below).
+  which makes it the more valuable of the two. Neither is logged or audited, and
+  only the access token reaches the browser, held in the tab's memory for as long
+  as registering at the FHIRcast hub takes (ADR 0016) — so after the session ends
+  only someone who had already copied one out could present it. Epic sets the
+  access token's lifetime (ADR 0011 records lifetimes over 30 minutes). Today
+  Epic issues no refresh token, because the authorize request asks for neither
+  `offline_access` nor `online_access`. Revocation at session end belongs to
+  the ticket that first asks for one, once Epic's revocation support is
+  confirmed (an open item, below).
 
 ### Policy position (IM8 spec-compliance, 2026-10-06)
 

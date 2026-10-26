@@ -4,11 +4,7 @@ Date: 2026-09-30
 
 ## Status
 
-Accepted. Consolidated 2026-10-19 from the original decision and its amendments:
-the audit retention job joined it (2026-10-02), the scheduled-job module took
-over registration (2026-10-04) and then the run's transaction (2026-10-13),
-retention moved to batches inside the lock (2026-10-14), and the lock grant was
-narrowed to `SELECT` (2026-10-16).
+Accepted. Last revised 2026-10-19. History is in git.
 
 ## Context
 
