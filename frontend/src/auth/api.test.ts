@@ -204,7 +204,7 @@ describe("the user decoder", () => {
     ).resolves.toMatchObject({ permissions: [...PERMISSIONS] });
   });
 
-  it("ignores a role field a body might still carry", async () => {
+  it("drops a field the decoder does not know", async () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
@@ -213,7 +213,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: [],
-        role: "ADMIN",
+        extra: "ignored",
         username: "ada",
       }),
     ).resolves.toStrictEqual({

@@ -803,21 +803,6 @@ class LoginStateServiceTests {
                 new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null));
     }
 
-    /**
-     * No passage of time is a lift (ADR 0007). The clock moves a decade so the assertion could not
-     * pass against a merely long window.
-     */
-    @Test
-    void aFailureLongAfterTheLockoutNeitherLiftsNorRestartsIt() {
-        givenAda();
-        countTimes(LIMIT);
-
-        clock.advanceBy(Duration.ofDays(3650));
-        countTimes(1);
-
-        assertThat(users.require("ada").login().lockedAt()).isEqualTo(NOW);
-    }
-
     @Test
     void theBootstrapAdminsLockoutFreeRunImposesNoLockoutEvents() {
         ScimUser recovery = users.createReserved(

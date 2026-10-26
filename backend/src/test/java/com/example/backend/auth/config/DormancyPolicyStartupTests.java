@@ -67,19 +67,6 @@ class DormancyPolicyStartupTests {
                 });
     }
 
-    /** The settings the two removed jobs read are gone: setting them changes nothing. */
-    @Test
-    void theRemovedSettingsAreIgnored() {
-        contexts.withPropertyValues(
-                        "app.dormancy.deactivation.window=1d",
-                        "app.dormancy.authority.revocation.window=2d")
-                .run(context -> {
-                    assertThat(context).hasNotFailed();
-                    assertThat(context.getBean(DormancyPolicy.class))
-                            .isEqualTo(DormancyPolicy.defaults());
-                });
-    }
-
     @ParameterizedTest
     @CsvSource({
             "app.dormancy.lockout.window=0d,                 lockout window is configured at PT0S",

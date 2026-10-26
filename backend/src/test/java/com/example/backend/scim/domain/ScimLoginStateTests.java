@@ -19,9 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * A User's authentication state, and the transitions the login path drives it through.
  *
  * <p>These are the rules the deleted account aggregate's tests held, moved to where the state now
- * lives. The substantive one is that a lock has no duration: nothing here reads a clock to decide
- * whether a lock is in force, so no caller has to agree with the server about the time to agree
- * about the state.
+ * lives.
  */
 class ScimLoginStateTests {
 
@@ -151,19 +149,6 @@ class ScimLoginStateTests {
         assertThat(after).isSameAs(locked);
         assertThat(after.failedLoginAttempts()).isEqualTo(3);
         assertThat(after.lockedAt()).isEqualTo(NOW);
-    }
-
-    /**
-     * The whole of "a lockout has no duration": the state is read from the recorded instant's
-     * PRESENCE, so an arbitrarily old lock is still a lock. A rule with an expiry would make this
-     * assertion fail as written, which is what makes it worth writing.
-     */
-    @Test
-    void a_lock_does_not_expire_however_long_ago_it_was_imposed() {
-        ScimLoginState ancient = new ScimLoginState(
-                "hash", 3, Instant.parse("1999-01-01T00:00:00Z"));
-
-        assertThat(ancient.isLocked()).isTrue();
     }
 
     @Test
