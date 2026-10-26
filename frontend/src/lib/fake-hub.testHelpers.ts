@@ -27,7 +27,7 @@ export const TOKEN_ENDPOINT = "http://127.0.0.1:8103/dcr/token";
 export const REVOCATION_ENDPOINT = "http://127.0.0.1:8103/dcr/revoke";
 
 /** The `n`th subscription's channel endpoint, from 1. */
-export const channelEndpoint = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
+const channelEndpoint = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
 
 export const CHANNEL_ENDPOINT = channelEndpoint(1);
 
@@ -208,17 +208,12 @@ async function answer(given: HubAnswer | Promise<HubAnswer> | undefined): Promis
   return toResponse(settled ?? json({ error: "not_found" }, 404));
 }
 
-/**
- * Installs the hub for the rest of the test, the fake backend's other-origin
- * hook with it. A page suite has already installed the backend (through
- * `renderAsSession`) or installs it after: either order works.
- */
-export function fakeHub(options: HubOptions = {}): FakeHub {
-  const sent: HubRequest[] = [];
-  const sockets: FakeSocket[] = [];
-  const fromPage: string[] = [];
+/** What the hub answers on each route, given which of the route's requests it is, from 1. */
+function routes(
+  options: HubOptions,
+): Record<string, (n: number) => HubAnswer | Promise<HubAnswer>> {
   const hubPath = pathOf(HUB_URL);
-  const answers: Record<string, (n: number) => HubAnswer | Promise<HubAnswer>> = {
+  return {
     [`GET ${hubPath}/.well-known/fhircast-configuration`]: () =>
       options.fhircastConfiguration ?? METADATA,
     [`GET ${hubPath}/.well-known/smart-configuration`]: () =>
@@ -232,14 +227,126 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
     [`POST ${pathOf(REVOCATION_ENDPOINT)}`]: () => options.revocation ?? json({}),
     [`DELETE ${pathOf(REGISTRATION_CLIENT_URI)}`]: () => options.deletion ?? { status: 204 },
   };
+}
 
-  /** A request's route: its method and path, an unsubscription apart from the subscriptions. */
-  const routeOf = ({ body, method, url }: HubRequest) => {
-    const route = `${method} ${pathOf(url)}`;
-    return new URLSearchParams(body).get("hub.mode") === "unsubscribe"
-      ? `${route} unsubscribe`
-      : route;
-  };
+/** A request's route: its method and path, an unsubscription apart from the subscriptions. */
+const routeOf = ({ body, method, url }: HubRequest) => {
+  const route = `${method} ${pathOf(url)}`;
+  return new URLSearchParams(body).get("hub.mode") === "unsubscribe"
+    ? `${route} unsubscribe`
+    : route;
+};
+
+/** One hub's socket side: its options, every socket the page opened, and everything the page sent on them. */
+interface SocketSide {
+  options: HubOptions;
+  sockets: FakeSocket[];
+  fromPage: string[];
+}
+
+class FakeSocket {
+  private readonly listeners = new Map<string, Listener[]>();
+
+  closed = false;
+
+  constructor(
+    readonly url: string,
+    private readonly side: SocketSide,
+  ) {
+    side.sockets.push(this);
+    const behaviour = inTurn(side.options.socket ?? "confirms", side.sockets.length);
+    const hold = inTurn(side.options.hold ?? null, side.sockets.length) ?? Promise.resolve();
+    // Once the page has listened, on no timer: a fake clock stays where a test put it.
+    void hold.then(() => this.behave(behaviour));
+  }
+
+  private behave(behaviour: SocketBehaviour) {
+    this.emit("open", {});
+    switch (behaviour) {
+      case "confirms":
+        this.emit("message", {
+          data: JSON.stringify({
+            "hub.mode": "subscribe",
+            "hub.topic": "topic-1",
+            ...(this.side.options.leaseSeconds === undefined
+              ? {}
+              : { "hub.lease_seconds": this.side.options.leaseSeconds }),
+          }),
+        });
+        return;
+      case "denies":
+        this.emit("message", {
+          data: JSON.stringify({ "hub.mode": "denied", "hub.reason": "invalid endpoint" }),
+        });
+        this.close();
+        return;
+      case "says-otherwise":
+        for (const data of OTHER_MESSAGES) this.emit("message", { data });
+        this.close();
+        return;
+      case "closes":
+        this.close();
+        return;
+      case "silent":
+        return;
+    }
+  }
+
+  addEventListener(type: string, listener: Listener) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  removeEventListener(type: string, listener: Listener) {
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) ?? []).filter((candidate) => candidate !== listener),
+    );
+  }
+
+  send(data: string) {
+    this.side.fromPage.push(data);
+  }
+
+  /** A message from the hub's side. */
+  deliver(data: string) {
+    this.emit("message", { data });
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.emit("close", {});
+    this.listeners.clear();
+  }
+
+  private emit(type: string, event: { data?: unknown }) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+}
+
+/** Stubs `navigator.permissions` to report the Local Network Access permission as `state`. */
+function stubLocalNetworkAccess(state: PermissionState) {
+  vi.stubGlobal("navigator", {
+    ...navigator,
+    permissions: {
+      query: ({ name }: { name: string }) =>
+        name === "local-network-access"
+          ? Promise.resolve({ state })
+          : Promise.reject(new TypeError(`${name} is not a permission name`)),
+    },
+  });
+}
+
+/**
+ * Installs the hub for the rest of the test, the fake backend's other-origin
+ * hook with it. A page suite has already installed the backend (through
+ * `renderAsSession`) or installs it after: either order works.
+ */
+export function fakeHub(options: HubOptions = {}): FakeHub {
+  const sent: HubRequest[] = [];
+  const side: SocketSide = { fromPage: [], options, sockets: [] };
+  const { fromPage, sockets } = side;
+  const answers = routes(options);
 
   serveOtherOrigin((url, init) => {
     const request = recorded(url, init);
@@ -249,93 +356,15 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
     return answer(answers[route]?.(n));
   });
 
-  class FakeSocket {
-    private readonly listeners = new Map<string, Listener[]>();
-
-    closed = false;
-
-    constructor(readonly url: string) {
-      sockets.push(this);
-      const behaviour = inTurn(options.socket ?? "confirms", sockets.length);
-      const hold = inTurn(options.hold ?? null, sockets.length) ?? Promise.resolve();
-      // Once the page has listened, on no timer: a fake clock stays where a test put it.
-      void hold.then(() => this.behave(behaviour));
-    }
-
-    private behave(behaviour: SocketBehaviour) {
-      this.emit("open", {});
-      switch (behaviour) {
-        case "confirms":
-          this.emit("message", {
-            data: JSON.stringify({
-              "hub.mode": "subscribe",
-              "hub.topic": "topic-1",
-              ...(options.leaseSeconds === undefined
-                ? {}
-                : { "hub.lease_seconds": options.leaseSeconds }),
-            }),
-          });
-          return;
-        case "denies":
-          this.emit("message", {
-            data: JSON.stringify({ "hub.mode": "denied", "hub.reason": "invalid endpoint" }),
-          });
-          this.close();
-          return;
-        case "says-otherwise":
-          for (const data of OTHER_MESSAGES) this.emit("message", { data });
-          this.close();
-          return;
-        case "closes":
-          this.close();
-          return;
-        case "silent":
-          return;
+  vi.stubGlobal(
+    "WebSocket",
+    class extends FakeSocket {
+      constructor(url: string) {
+        super(url, side);
       }
-    }
-
-    addEventListener(type: string, listener: Listener) {
-      this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
-    }
-
-    removeEventListener(type: string, listener: Listener) {
-      this.listeners.set(
-        type,
-        (this.listeners.get(type) ?? []).filter((candidate) => candidate !== listener),
-      );
-    }
-
-    send(data: string) {
-      fromPage.push(data);
-    }
-
-    /** A message from the hub's side. */
-    deliver(data: string) {
-      this.emit("message", { data });
-    }
-
-    close() {
-      if (this.closed) return;
-      this.closed = true;
-      this.emit("close", {});
-      this.listeners.clear();
-    }
-
-    private emit(type: string, event: { data?: unknown }) {
-      for (const listener of this.listeners.get(type) ?? []) listener(event);
-    }
-  }
-
-  vi.stubGlobal("WebSocket", FakeSocket);
-  vi.stubGlobal("navigator", {
-    ...navigator,
-    permissions: {
-      query: ({ name }: { name: string }) =>
-        name === "local-network-access"
-          ? Promise.resolve({ state: options.localNetworkAccess ?? "prompt" })
-          : Promise.reject(new TypeError(`${name} is not a permission name`)),
     },
-  });
+  );
+  stubLocalNetworkAccess(options.localNetworkAccess ?? "prompt");
 
   return {
     dropSockets: () => {
