@@ -759,19 +759,19 @@ class ScimQueryProtocolIntegrationTests {
     /**
      * Over-maximum count clamps to the configured maximum: with 201 matching Users a count of a
      * thousand returns 200 and reports 201. The 201 are this test's own and are removed after.
+     *
+     * <p>Seeded set-based, straight into the tables, rather than by 201 creates: the claim is the
+     * query's cap, which the create path has no part in, and a create per row is most of the
+     * class's runtime.
      */
     @Test
     void a_count_over_the_maximum_is_capped_at_the_maximum() throws Exception {
         List<UUID> mine = new ArrayList<>();
+        for (int i = 0; i < 201; i++) {
+            mine.add(UUID.randomUUID());
+        }
         try {
-            for (int i = 0; i < 201; i++) {
-                MvcResult result = mvc.perform(asWriter(post(USERS)).contentType(SCIM_JSON)
-                                .content("""
-                                        {"schemas":["%s"],"userName":"qp-bulk-%03d","externalId":"bulk"}"""
-                                        .formatted(USER_SCHEMA, i)))
-                        .andReturn();
-                mine.add(UUID.fromString(body(result).get("id").asText()));
-            }
+            seedBulkUsers(mine);
 
             JsonNode page = body(mvc.perform(asWriter(get(USERS)
                             .param("filter", "externalId eq \"bulk\"")
@@ -1317,6 +1317,29 @@ class ScimQueryProtocolIntegrationTests {
         for (UUID id : created) {
             ScimTestRows.delete(jdbc, id);
         }
+    }
+
+    /**
+     * Active Users at version 1 with these ids, each named {@code qp-bulk-<id>} and aliased
+     * {@code bulk} under this class's connector. Set-based, from one bound list of ids, so seeding
+     * costs three statements rather than a request per User.
+     */
+    private void seedBulkUsers(List<UUID> userIds) {
+        String list = String.join(",", userIds.stream().map(UUID::toString).toList());
+        jdbc.update("""
+                INSERT INTO scim_resources (id, resource_type, version, created_at, last_modified_at)
+                SELECT CAST(value AS UNIQUEIDENTIFIER), 'User', 1,
+                       SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
+                  FROM STRING_SPLIT(?, ',')""", list);
+        jdbc.update("""
+                INSERT INTO scim_users (resource_id, user_name, normalized_user_name, active)
+                SELECT CAST(value AS UNIQUEIDENTIFIER), CONCAT('qp-bulk-', value),
+                       CONCAT('qp-bulk-', value), 1
+                  FROM STRING_SPLIT(?, ',')""", list);
+        jdbc.update("""
+                INSERT INTO scim_external_ids (connector_id, resource_id, external_id)
+                SELECT ?, CAST(value AS UNIQUEIDENTIFIER), 'bulk'
+                  FROM STRING_SPLIT(?, ',')""", connectorId, list);
     }
 
     /** Creates a resource from {@code body} at {@code endpoint} and returns its id. */

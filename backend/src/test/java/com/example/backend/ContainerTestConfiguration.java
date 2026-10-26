@@ -40,6 +40,12 @@ import org.testcontainers.utility.DockerImageName;
  * set here because no migration can set them: {@code READ_COMMITTED_SNAPSHOT} cannot change inside
  * the transaction Flyway migrates in (ADR 0013, V6).
  *
+ * <p>One option differs from the deployment's, on purpose: {@code DELAYED_DURABILITY = FORCED}.
+ * A commit returns before its log records reach the disk, so a test that commits row by row — the
+ * retention tests insert thousands — is not bound by one log flush per commit on the container's
+ * disk. It changes only whether a commit survives the server's crash, which no test causes:
+ * locking, isolation, and what every other session sees are the same as the deployment's.
+ *
  * <p><strong>The deployment's three database logins, not the container's {@code sa}.</strong>
  * The service's main pool connects as the app login and its retention pool as the retention
  * login, and Flyway migrates as the owner login, which owns each context's database — the shape
@@ -229,7 +235,8 @@ public class ContainerTestConfiguration {
     }
 
     /**
-     * A new, empty database with the deployment's creation options, and the owner login a member
+     * A new, empty database with the deployment's creation options plus delayed durability (see
+     * the class comment), and the owner login a member
      * of its {@code db_owner} role under a database user of its own name, as a deployment's
      * bootstrap leaves one (infra's {@code db-bootstrap.sql}, and the local init), and its JDBC
      * URL — each context's, and a test's that migrates a database itself rather than through a
@@ -245,6 +252,7 @@ public class ContainerTestConfiguration {
             statement.execute("ALTER DATABASE " + name + " SET COMPATIBILITY_LEVEL = 160");
             statement.execute("ALTER DATABASE " + name + " SET READ_COMMITTED_SNAPSHOT ON");
             statement.execute("ALTER DATABASE " + name + " SET ALLOW_SNAPSHOT_ISOLATION ON");
+            statement.execute("ALTER DATABASE " + name + " SET DELAYED_DURABILITY = FORCED");
             statement.execute("USE " + name + "; CREATE USER " + OWNER_LOGIN + " FOR LOGIN "
                     + OWNER_LOGIN + " WITH DEFAULT_SCHEMA = dbo; ALTER ROLE db_owner ADD MEMBER "
                     + OWNER_LOGIN);
