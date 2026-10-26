@@ -209,7 +209,9 @@ public class LoginAttemptService {
      * rejected login is counted — the same failure run, the same threshold, the same lock and the
      * same session revocation on imposing it — so the change endpoint is not a second guessing
      * surface beside the login one. The Bootstrap Admin's run is counted and never locks, as on
-     * the login path.
+     * the login path. A User with no password is recorded but not counted, as on the login path:
+     * there is no password to guess, so a User who signs in only through Epic can never be locked
+     * out from here.
      *
      * <p>Recorded as a refused {@code PASSWORD_CHANGE} rather than a {@code LOGIN_FAILURE}: the
      * attempt was made from inside an authenticated session, and a reader separating the two needs
@@ -222,9 +224,11 @@ public class LoginAttemptService {
             return;
         }
         ScimUser user = found.get();
-        LoginStateChange counted = loginState.failureCounted(user);
+        Set<AuditLoginStateAttribute> moved = user.login().hasPassword()
+                ? loginState.failureCounted(user).moved()
+                : Set.of();
         audit.append(new Audited.PasswordChangeRefused(
-                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, counted.moved()));
+                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, moved));
     }
 
     /**

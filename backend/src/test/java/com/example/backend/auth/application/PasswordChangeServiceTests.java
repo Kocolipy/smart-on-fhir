@@ -302,9 +302,31 @@ class PasswordChangeServiceTests {
                 .isInstanceOf(CurrentPasswordRejectedException.class);
 
         assertThat(users.require("carol").login().hasPassword()).isFalse();
+        assertThat(users.require("carol").login().failedLoginAttempts())
+                .as("there is no password to guess, so the run does not grow")
+                .isZero();
         assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .containsExactly("BAD_CURRENT_PASSWORD");
+    }
+
+    /**
+     * As on the Login path: a User who signs in only through Epic cannot be locked out by
+     * submitting the change, however often.
+     */
+    @Test
+    void aUserWithNoCredentialIsNeverLockedOutByRepeatedChanges() {
+        ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
+        accountSessions.open(carol.id(), "epic-session");
+
+        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            assertThatThrownBy(() -> service.changePassword(carol.id(), "anything-at-all", NEXT))
+                    .isInstanceOf(CurrentPasswordRejectedException.class);
+        }
+        transaction.commit();
+
+        assertThat(users.require("carol").login().isLocked()).isFalse();
+        assertThat(accountSessions.sessionsOf(carol.id())).containsExactly("epic-session");
     }
 
     /**

@@ -49,7 +49,9 @@ directory.
 
 **Self-service password change** — `POST /api/auth/change-password`, for the User
 the session belongs to. A wrong current password lengthens the same failure run as
-a rejected Login, so it leads to the same lockout; a new password that breaks the
+a rejected Login, so it leads to the same lockout — except for a User with no
+password, whose change is refused and audited as a wrong current password but
+counts nothing, as its Login does; a new password that breaks the
 password policy or repeats a recent one is refused by naming the rule, never
 echoing either value. Success hashes the new password, clears the flag, advances
 the version, records a `PASSWORD_CHANGE` audit event with no password value, and

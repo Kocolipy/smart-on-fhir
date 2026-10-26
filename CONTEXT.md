@@ -372,7 +372,8 @@ _Avoid_: MFA method, authentication method, acr
 
 **Failure run**:
 The consecutive failures recorded against one User: rejected password Logins,
-and wrong current passwords on the self-service password change.
+and wrong current passwords on the self-service password change. A User with no
+password has none: there is no password to guess, so neither lengthens it.
 
 **Lockout**:
 The permanent state a User enters when its failure run reaches the limit or the

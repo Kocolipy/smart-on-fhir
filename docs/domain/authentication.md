@@ -59,7 +59,9 @@ decision's own transaction, so a success the trail cannot record is not a succes
 the User's own row as `failed_login_attempts`. A login the backend accepts ends
 the run and returns the count to zero; a login it rejects lengthens it, and so
 does a wrong current password on the self-service password change. An unknown
-username has no run, because nothing is recorded for a name that names no User.
+username has no run, because nothing is recorded for a name that names no User;
+nor does a User with no password, by either route, because there is no password
+to guess.
 Concurrent events on one User — failures, a Login, a password change, an Unlock,
 the dormancy lock — are serialized on the User's lock, each deciding from the run
 as the one before it left it, so none is lost and they end as some serial order of
