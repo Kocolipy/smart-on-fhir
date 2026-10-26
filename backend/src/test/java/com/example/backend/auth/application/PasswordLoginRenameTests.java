@@ -2,11 +2,13 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
@@ -35,7 +37,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * A password Login reads its User once, when it authenticates, and works from that User's stable
  * id afterwards: a directory rename landing between authentication and the recording of the
  * success changes nothing about whom the success, the One session per User sweep and the session
- * index belong to.
+ * index belong to — nor, for a Login refused on the standing found then, whom the refusal is
+ * recorded and counted against.
  *
  * <p>The rename is made by the authentication step itself, right after the real one has accepted
  * the credentials, which is the window a concurrent SCIM write would land in.
@@ -143,6 +146,51 @@ class PasswordLoginRenameTests {
     }
 
     /**
+     * A deactivation landing while the password is compared refuses the Login after
+     * authentication: the refusal belongs to the User authenticated, not to whoever holds its
+     * name by the time it is recorded.
+     */
+    @Test
+    void aRefusalOnStandingIsRecordedForTheAuthenticatedUserWhenAnotherUserTakesItsName() {
+        afterAuthentication = () -> {
+            deactivateAda();
+            renameAdaAndGiveHerNameToBob();
+        };
+
+        login.logIn("ada", PASSWORD, "ada-current");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId)
+                .containsExactly(ada);
+    }
+
+    @Test
+    void aRefusalOnStandingLeavesTheFailureRunOfTheUserWhoTookTheNameAlone() {
+        afterAuthentication = () -> {
+            deactivateAda();
+            renameAdaAndGiveHerNameToBob();
+        };
+
+        login.logIn("ada", PASSWORD, "ada-current");
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
+    }
+
+    @Test
+    void aRefusalOnStandingIsRecordedAsTheAuthenticatedUsersWhenItsNameDisappears() {
+        afterAuthentication = () -> {
+            deactivateAda();
+            users.rename(ada, "ada-renamed");
+        };
+
+        login.logIn("ada", PASSWORD, "ada-current");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(ada, AuditRefusalReason.ACCOUNT_DISABLED.name()));
+    }
+
+    /**
      * An authentication whose principal names its User only by {@code userName} gives the Login
      * nothing to work from but the name, which it refuses to look up again: the Login fails closed.
      */
@@ -168,6 +216,11 @@ class PasswordLoginRenameTests {
     private void renameAdaAndGiveHerNameToBob() {
         users.rename(ada, "ada-renamed");
         users.given(withPassword("ada", 2));
+    }
+
+    private void deactivateAda() {
+        ScimUser current = users.require("ada");
+        users.given(ScimIdentities.withActive(current, false, current.login()));
     }
 
     private ScimUser withPassword(String userName, int failedAttempts) {

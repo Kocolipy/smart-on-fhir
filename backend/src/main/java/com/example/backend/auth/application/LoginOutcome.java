@@ -58,22 +58,44 @@ public sealed interface LoginOutcome {
     /**
      * A password Login was refused for {@code reason}, as Spring Security reported it.
      *
-     * <p>Carries the submitted {@code username} because the refusal is counted against the User it
-     * names, and only {@link LoginOutcomeService} may look that User up. It is half a credential, and
-     * on a failed attempt very often a mistyped password, so {@link #toString()} leaves it out and
-     * no record names it.
+     * <p>A refusal the authentication made carries the submitted {@code username} because the
+     * refusal is counted against the User it names, and only {@link LoginOutcomeService} may look
+     * that User up. It is half a credential, and on a failed attempt very often a mistyped
+     * password, so {@link #toString()} leaves it out and no record names it.
      *
-     * @param reason the refusal as Spring Security reported it — never {@code UNKNOWN_ACCOUNT},
+     * <p>A refusal made after the authentication, on the standing found under the User's lock,
+     * carries the stable id of the User authenticated instead, and no name: a directory rename
+     * landing in between must not move it onto whichever User holds the name by then.
+     *
+     * @param username  the submitted name, for a refusal the authentication made; {@code null}
+     *     for one naming its User by {@code subjectId}
+     * @param subjectId the authenticated User's stable id, for a refusal made after the
+     *     authentication; {@code null} otherwise
+     * @param reason    the refusal as Spring Security reported it — never {@code UNKNOWN_ACCOUNT},
      *     which Spring Security hides behind a wrong password, and which recording the refusal
-     *     settles by looking the name up ({@link PasswordRefusalReason#reported})
+     *     settles by looking the User up ({@link PasswordRefusalReason#reported})
      */
-    record PasswordRefused(String username, PasswordRefusalReason reason) implements Refused {
+    record PasswordRefused(String username, UUID subjectId, PasswordRefusalReason reason)
+            implements Refused {
 
         public PasswordRefused {
             Objects.requireNonNull(reason, "a refusal has a reason");
             if (!reason.reported()) {
                 throw new IllegalArgumentException("not a password Login's refusal: " + reason);
             }
+            if (subjectId != null && username != null) {
+                throw new IllegalArgumentException("a refusal names its User by id or by name");
+            }
+        }
+
+        /** A refusal the authentication made of the submitted {@code username}. */
+        public PasswordRefused(String username, PasswordRefusalReason reason) {
+            this(username, null, reason);
+        }
+
+        /** A refusal made after the authentication, of the User it authenticated. */
+        public static PasswordRefused of(UUID subjectId, PasswordRefusalReason reason) {
+            return new PasswordRefused(null, Objects.requireNonNull(subjectId, "subjectId"), reason);
         }
 
         @Override

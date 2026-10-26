@@ -92,7 +92,26 @@ public class LoginAttemptService {
      */
     @Transactional
     public PasswordRefusalReason recordFailure(String username, PasswordRefusalReason reason) {
-        Optional<ScimUser> found = find(username);
+        return recordFailure(find(username), reason);
+    }
+
+    /**
+     * {@link #recordFailure(String, PasswordRefusalReason)} for a Login refused after its
+     * authentication, on the standing found under the User's lock: counted against the User the
+     * authentication resolved, by its stable id, never looked up again by name — a directory
+     * rename landing in between cannot move the failure, or a Lockout, onto whichever User holds
+     * the name by then. A User gone by then is recorded as an unknown name's refusal is.
+     *
+     * @param userId the stable id of the User the Login authenticated
+     */
+    @Transactional
+    public PasswordRefusalReason recordRefusalOnStanding(
+            UUID userId, PasswordRefusalReason reason) {
+        return recordFailure(users.findById(userId), reason);
+    }
+
+    private PasswordRefusalReason recordFailure(
+            Optional<ScimUser> found, PasswordRefusalReason reason) {
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
         Set<AuditLoginStateAttribute> moved = found
                 .filter(user -> user.login().hasPassword())

@@ -126,9 +126,10 @@ public class LoginService {
         if (refusedOnStanding.isPresent()) {
             // A Lockout or a deactivation committed while the password was being compared: the
             // refusal the authentication would have made a moment later, recorded as it would
-            // have been — through the failure path, which counts nothing against a locked User.
+            // have been — through the failure path, which counts nothing against a locked User —
+            // but against the stable id, as the success would have been.
             PasswordRefused refusal =
-                    new PasswordRefused(username, refusedOnStanding.get().passwordReason());
+                    PasswordRefused.of(userId, refusedOnStanding.get().passwordReason());
             outcomes.record(refusal, retainedSessionId);
             return new LoginDecision(refusal, Optional.empty());
         }

@@ -220,6 +220,26 @@ class LoginOutcomeServiceTests {
                 .hasMessage("not a password Login's refusal: UNKNOWN_ACCOUNT");
     }
 
+    /**
+     * A refusal names its User once: by the submitted name, or — refused after authentication —
+     * by the stable id alone, so the name a rename can move is never consulted beside it.
+     */
+    @Test
+    void aPasswordRefusalNamesItsUserByIdOrByNameButNotBoth() {
+        assertThatThrownBy(() -> new PasswordRefused(
+                        "ada", UUID.randomUUID(), PasswordRefusalReason.ACCOUNT_LOCKED))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("a refusal names its User by id or by name");
+    }
+
+    @Test
+    void aPasswordRefusalAfterAuthenticationNamesItsUserByIdAlone() {
+        UUID ada = UUID.randomUUID();
+
+        assertThat(PasswordRefused.of(ada, PasswordRefusalReason.ACCOUNT_DISABLED))
+                .isEqualTo(new PasswordRefused(null, ada, PasswordRefusalReason.ACCOUNT_DISABLED));
+    }
+
     /** A password Login carries no MFA factor; an Epic Login always does (D17). */
     @Test
     void onlyAnEpicLoginCarriesAnMfaFactor() {
