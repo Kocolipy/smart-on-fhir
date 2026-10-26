@@ -259,6 +259,20 @@ class PasswordChangeServiceTests {
                 .containsExactly("ACCOUNT_DISABLED");
     }
 
+    /** Locked and deactivated both: locked first, as a Login refuses the same User. */
+    @Test
+    void aUserBothLockedAndInactiveIsRefusedAsLocked() {
+        ScimUser bob = users.given(ScimIdentities.withActive(ScimIdentities.user("bob"), false,
+                new ScimLoginState("hash", MAX_ATTEMPTS, clock.instant())));
+
+        assertThatThrownBy(() -> service.changePassword(bob.id(), "anything-at-all", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .containsExactly("ACCOUNT_LOCKED");
+    }
+
     @Test
     void anUnknownUserIsRefused() {
         assertThatThrownBy(() -> service.changePassword(java.util.UUID.randomUUID(), CURRENT, NEXT))

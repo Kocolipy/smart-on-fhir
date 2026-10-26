@@ -15,6 +15,7 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,18 +135,18 @@ public class PasswordChangeService {
                 .log();
     }
 
-    /** Refuses an inactive or locked User before anything is compared. */
+    /**
+     * Refuses a locked or inactive User before anything is compared, on the standing the
+     * login-state module decides in its one order, so the change records the same reason a
+     * Login does for the same User.
+     */
     private void refuseStanding(ScimUser user) {
-        if (!user.profile().active()) {
-            audit.append(new Audited.PasswordChangeRefused(
-                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_DISABLED));
-            refused(AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
-            throw new CurrentPasswordRejectedException();
-        }
-        if (user.login().isLocked()) {
-            audit.append(new Audited.PasswordChangeRefused(
-                    user.id(), AuditPasswordChangeRefusal.ACCOUNT_LOCKED));
-            refused(AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
+        Optional<LoginStateService.StandingRefusal> standing =
+                LoginStateService.StandingRefusal.of(user.login(), user.profile().active());
+        if (standing.isPresent()) {
+            AuditPasswordChangeRefusal reason = standing.get().passwordChangeReason();
+            audit.append(new Audited.PasswordChangeRefused(user.id(), reason));
+            refused(reason);
             throw new CurrentPasswordRejectedException();
         }
     }

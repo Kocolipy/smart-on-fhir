@@ -133,9 +133,12 @@ authorization-request filter builds the request.
    `userName` equals the id exactly and records the success as password Login
    does, in one transaction, its `LOGIN_SUCCESS` carrying the MFA factor (D17).
    It refuses, in this order: no exact match (a case variant included) or the
-   Bootstrap Admin as `UNKNOWN_ACCOUNT`, a deactivated User as
-   `ACCOUNT_DISABLED`, and a User locked for any cause as `ACCOUNT_LOCKED`
-   (`EpicLoginFailureReason`).
+   Bootstrap Admin as `UNKNOWN_ACCOUNT`, a User locked for any cause as
+   `ACCOUNT_LOCKED`, and a deactivated User as `ACCOUNT_DISABLED`
+   (`EpicLoginFailureReason`). Lock and deactivation are decided once, under the
+   User's lock, by the login-state module, in the order password Login and the
+   password change use too, so a User both locked and deactivated is refused as
+   locked by every route.
 7. **Session.** `LoginCompletion` signs the session in through
    `SessionEstablishment`, exactly as for password Login (ADR 0001), with
    `session-start` under method `sso`. The success handler then keeps Epic's

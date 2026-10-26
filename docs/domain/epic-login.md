@@ -42,8 +42,8 @@ User provisioned as `eABC`.
 | --------------------------------------------------------------------- | ------------------ |
 | no User whose stored `userName` equals it exactly, a case variant too | `UNKNOWN_ACCOUNT`  |
 | the Bootstrap Admin                                                   | `UNKNOWN_ACCOUNT`  |
-| a deactivated User                                                    | `ACCOUNT_DISABLED` |
 | a locked User, whatever the cause: a failure run or dormancy          | `ACCOUNT_LOCKED`   |
+| a deactivated User                                                    | `ACCOUNT_DISABLED` |
 
 **The Bootstrap Admin is excluded**, recognised by its reservation marker and
 never by its name, so no rename moves the exclusion and no other User acquires

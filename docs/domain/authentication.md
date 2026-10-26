@@ -92,6 +92,9 @@ clock. A lock keeps the cause it was first imposed for.
   nothing: no cleared run, no `LOGIN_SUCCESS`, no session. It is answered and
   recorded as the refusal the check would have made a moment later —
   `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` — and the same holds for an Epic Login.
+  A User both locked and deactivated is refused as locked, by every Login and by
+  the self-service password change alike: the login-state module decides the
+  standing, in that one order (`LoginStateService.StandingRefusal`).
 - Imposing it **revokes the User's live sessions**, after the transaction
   commits, so a locked User stops acting immediately rather than when the session
   it already held expires.

@@ -158,6 +158,15 @@ class EpicLoginDecisionTests {
         assertThat(refusalOf("eDORMANT")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
     }
 
+    /** Locked and deactivated both: locked first, as a password Login refuses the same User. */
+    @Test
+    void aUserBothLockedAndDeactivatedIsRefusedAsALockedAccount() {
+        users.given(ScimIdentities.withActive(
+                ScimIdentities.user("eBOTH"), false, new ScimLoginState("hash", 5, NOW)));
+
+        assertThat(refusalOf("eBOTH")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
+    }
+
     // ---- a refusal is audited, and never lengthens a failure run (D12) ------------------------
 
     @Test
