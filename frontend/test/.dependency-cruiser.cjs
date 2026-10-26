@@ -172,6 +172,18 @@ module.exports = {
       },
       to: { dependencyTypes: ["npm-dev"] },
     },
+
+    {
+      name: "cq-no-test-code-in-prod",
+      comment:
+        "Production source must not import a test or a *.testHelpers.ts(x) module. tsconfig.json's exclude does not stop it — an excluded file a production file imports is compiled anyway — and cq-no-devdep-in-prod exempts the helpers, so a fake backend or hub reached this way would ship in the bundle unflagged.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: ["\\.(test|spec)\\.[tj]sx?$", "\\.testHelpers\\.[tj]sx?$"],
+      },
+      to: { path: "\\.(test|spec|testHelpers)\\.[tj]sx?$" },
+    },
   ],
 
   options: {
