@@ -201,8 +201,11 @@ would end the session they replay. The routing arch test reads their
   `fhircast-card.spec.ts` (Home's FHIRcast card reaching `Connected` after a
   launch, showing a published `Patient-open` and then the `Patient-close` that
   replaces it, still showing an event published once the first Hub Token and
-  lease have run out, reconnecting after the shim drops its socket, and absent
-  after a password Login), `fhircast-patient.spec.ts` (the Patient card
+  lease have run out, the hub holding only the new subscription after a
+  renewal, reconnecting after the shim drops its socket, a reload connecting
+  again without registering again, coming back to the tab once its stored Hub
+  Token has expired and reconnecting with a new one as the same client, and
+  absent after a password Login), `fhircast-patient.spec.ts` (the Patient card
   following the hub: a `Patient-open` showing a patient after a launch that
   named none, replacing the launch's patient with another, published while on
   another page and shown on Home on return, and kept across a reload; a
@@ -210,8 +213,10 @@ would end the session they replay. The routing arch test reads their
   staying empty across a reload until the next `Patient-open`) and
   `fhircast-logout.spec.ts` (after "Sign out", the
   hub holding no subscription at the card's channel endpoint, the shim
-  reporting the Hub Token revoked and the registration deleted, and a token
-  request with the old registration refused), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+  reporting the Hub Token revoked and the registration deleted, a token
+  request with the old registration refused, and after a reload no
+  subscription left at any endpoint the tab used and the stored key minting no
+  Hub Token), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
   against it. Each replays the Admin session only to issue a SCIM token; every

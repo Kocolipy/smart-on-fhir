@@ -12,12 +12,13 @@
  * Ending a session also forgets the tab's EHR context (`ehr-context.ts`): the
  * patient an EHR launch put in context belongs to the session it signed in,
  * and is not shown to whoever signs in next. So does what the FHIRcast module
- * kept for that session — the SMART access token, the Hub Token, the dynamic
- * `client_id` and the private key (`@/lib/fhircast`, ADR 0016) — at once; and
- * the module then stops the session's FHIRcast connection, so the next
- * session's starts anew, and tears every connection the tab registered down at
- * the hub, in the background, best-effort (`endFhircast`, ADR 0011). This is
- * the one thing that stops the connection: leaving a page never does.
+ * kept for that session — the Hub Registration, its private key and its one
+ * Hub Subscription (`@/lib/fhircast`, ADR 0016) — at once, by `endFhircast`;
+ * and the module then stops the session's FHIRcast connection, so the next
+ * session's starts anew, and tears down at the hub, in the background and
+ * best-effort, every connection the tab registered or resumed and what it
+ * kept, even from a page before a reload (ADR 0011). This is the one thing
+ * that stops the connection: leaving a page never does.
  *
  * Two transitions change the auth state without changing the session, and so
  * keep the token: a start-up check that did not answer (`checkFailed`), which
@@ -27,7 +28,7 @@
 
 import { useCallback, useState } from "react";
 
-import { clearFhircastStorage, endFhircast } from "@/lib/fhircast";
+import { endFhircast } from "@/lib/fhircast";
 import { discardCsrfToken } from "@/lib/http";
 
 import type { AuthUser, SessionCheckFailure } from "./api";
@@ -79,8 +80,9 @@ export function useSessionTransitions(): SessionTransitions {
   const end = useCallback((reason: SessionEndReason | null) => {
     discardCsrfToken();
     clearEhrContext();
-    clearFhircastStorage();
-    // Not awaited: the session has ended already, and the hub, however it
+    // Forgets what the FHIRcast module kept at once, having read it: the tab
+    // tears down even a registration a page before a reload left. Not
+    // awaited: the session has ended already, and the hub, however it
     // answers, has no say in that.
     void endFhircast();
     setSession({ checkFailure: null, signInReason: reason, status: "guest", user: null });

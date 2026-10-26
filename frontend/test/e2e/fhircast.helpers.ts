@@ -249,6 +249,44 @@ export async function publishPatientEvent(
   return id;
 }
 
+/**
+ * What the FHIRcast module keeps in a tab (`sessionStorage`'s
+ * `fhircast-connection`), as far as the specs read it: the registered
+ * `client_id`, the exported private JWK it signs with, and the one live Hub
+ * Subscription — `null` before the hub has confirmed one.
+ */
+export interface KeptConnection {
+  clientId: string;
+  privateJwk: JsonWebKey;
+  subscription: { endpoint: string; hubToken: string } | null;
+}
+
+/** What the FHIRcast module keeps in `page`'s tab, asserted kept. */
+export async function keptConnection(page: Page): Promise<KeptConnection> {
+  const kept = await page.evaluate(() => sessionStorage.getItem("fhircast-connection"));
+  expect(kept, "the tab keeps its FHIRcast connection").not.toBeNull();
+  const { clientId, signingJwk, subscription } = JSON.parse(kept ?? "{}") as {
+    clientId: string;
+    signingJwk: JsonWebKey;
+    subscription: { endpoint: string; hubToken: string } | null;
+  };
+  return { clientId, privateJwk: signingJwk, subscription };
+}
+
+/**
+ * Every registration `page`'s tab asks the hub for from now on, by URL: one
+ * per connection begun from scratch. The list fills as the tab sends them.
+ */
+export function recordRegistrations(page: Page): readonly string[] {
+  const registrations: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/dcr/register") {
+      registrations.push(request.url());
+    }
+  });
+  return registrations;
+}
+
 /** The id the shim knows a channel endpoint by: the last segment of its websocket URL. */
 export function channelEndpointId(endpoint: string): string {
   return new URL(endpoint).pathname.split("/").at(-1) ?? "";

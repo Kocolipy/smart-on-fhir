@@ -242,20 +242,47 @@ change, when the backend side moves. What the SPA has to honour:
   last known across a reload and while the connection is reconnecting,
   disconnected, unavailable or blocked; the FHIRcast card's status says the
   Patient card may be out of date.
-- **What the FHIRcast module keeps is in `sessionStorage`**, per tab, under
-  `fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id` and
-  `fhircast-private-jwk` (the exported ES384 private JWK). The SPA clears all four
-  wherever it clears the EHR context — every end of the session and a password
-  Login — and logout's `Clear-Site-Data` drops them too. An accepted deviation
-  (ADR 0011, "FHIRcast in the browser").
+- **What the FHIRcast module keeps is in `sessionStorage`**, per tab, as one
+  JSON entry under `fhircast-connection`: the Hub Registration and its one live
+  Hub Subscription. That is the hub URL and topic, the exported ES384 private
+  JWK and its `kid`, the `client_id`, the token and revocation endpoints, the
+  `registration_client_uri` and `registration_access_token` when the hub
+  answered them, and the subscription's channel endpoint, Hub Token and the
+  instant each of the two runs out. Never the SMART access token. The SPA
+  clears it, and the keys an earlier version kept apiece
+  (`fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id`,
+  `fhircast-private-jwk`), wherever it clears the EHR context — every end of
+  the session and a password Login — and logout's `Clear-Site-Data` drops them
+  too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
+- **A reload resumes the FHIRcast connection** (ADR 0016, "A reload, and one
+  live subscription"). On load the signed-in layout still fetches the release.
+  The module then decodes what the tab kept: anything malformed or partial is
+  taken for none and cleared, and every URL in it is held to `127.0.0.1` again.
+  - Kept for another hub URL or topic than the release's: torn down,
+    best-effort, forgotten, and the tab connects from scratch.
+  - The Hub Token and lease both unexpired: the stored channel endpoint is
+    reopened, with no request to the hub, and renewal is due by the stored
+    expiries.
+  - Either run out, or the hub denies the endpoint: a new Hub Token is minted
+    with the stored key and `client_id`, and the tab subscribes again.
+  - The token endpoint refusing the stored client: the registration is
+    deleted, best-effort, and the tab registers anew with the release's SMART
+    access token.
+
+  A Retry resumes the same way. Whenever the connection moves to a new
+  subscription, it unsubscribes the old endpoint with the old Hub Token, then
+  revokes that token, once the new socket is confirmed; each step is bounded to
+  3 seconds and never stops the connection.
+
 - **Logout's FHIRcast cleanup is the SPA's, after the backend's logout** — the
   backend never reaches the loopback hub, and its logout revokes nothing there.
   Once a logout answers signed out (and on every other end of the session),
   the FHIRcast module (`endFhircast`) unsubscribes from the topic, revokes the
-  Hub Token by RFC 7009, deletes its dynamic registration by RFC 7592, closes
-  the socket and clears the four keys, in that order, for every connection the
-  tab registered; the keys are cleared once already, the moment the session
-  ends, as the steps run from what the module holds in memory. Revocation and deletion run only when the hub advertises them,
+  Hub Token by RFC 7009, deletes its dynamic registration by RFC 7592 and
+  closes the socket, in that order, for every connection the tab registered or
+  resumed and for what the tab kept, even when this page load never resumed it.
+  What the tab kept is read and cleared the moment the session ends, and the
+  steps run from that and from what the module holds in memory. Revocation and deletion run only when the hub advertises them,
   each step is bounded to 3 seconds, and none is awaited by the logout: a hub
   that fails or hangs never keeps the session on screen. None of the steps uses
   the SMART access token or the CSRF token. A logout that may have left the

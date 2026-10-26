@@ -35,8 +35,36 @@
  * socket — or subscribing anew once the hub denies that endpoint, or after a
  * failed renewal — until one connects or the retries run out.
  *
- * When the session ends, {@link endFhircast} tears down every connection the
- * tab registered, in order:
+ * One Hub Subscription is live at a time. Whenever the connection moves to a
+ * new one — a renewal, or any subscribing anew — it cancels the one before
+ * once the new socket is confirmed: that endpoint unsubscribed with its own
+ * Hub Token, then that token revoked. Both steps are best-effort and bounded,
+ * as tearing down's are, and never hold the connection up.
+ *
+ * What it obtains is kept in the tab's `sessionStorage`, one entry under
+ * {@link FHIRCAST_STORAGE_KEYS} — an accepted deviation (ADR 0011): the hub
+ * URL and topic, the private JWK and its `kid`, the `client_id`, the token and
+ * revocation endpoints, the `registration_client_uri` and
+ * `registration_access_token` when the hub answered them, and the one live
+ * subscription — its channel endpoint, its Hub Token and when each runs out.
+ * Never the SMART access token: only registering takes it, and registering
+ * anew fetches a new release. A reload resumes what is kept rather than
+ * registering again, the release still fetched first; what is kept is
+ * decoded, never trusted — anything malformed or partial is taken for none,
+ * and cleared, and every URL is held to `127.0.0.1` again:
+ *
+ * - kept for another hub URL or topic than the release's: torn down and
+ *   forgotten, and the tab connects from scratch;
+ * - the Hub Token and lease both unexpired: the channel endpoint reopened,
+ *   with no request to the hub, renewal due by the stored expiries;
+ * - either run out, or the hub denies the endpoint: steps 3 to 5 with the
+ *   stored key and `client_id`;
+ * - the token endpoint refusing the stored client: the registration deleted,
+ *   best-effort, then the tab connects from scratch.
+ *
+ * When the session ends, {@link endFhircast} forgets what the tab kept at
+ * once, then tears down every connection the tab registered or resumed, and
+ * what it kept even when this page load never resumed it, in order:
  *
  * 1. `hub.mode=unsubscribe` for the topic, at the subscription's channel
  *    endpoint, the Hub Token as `Bearer`;
@@ -45,8 +73,7 @@
  *    with its key;
  * 3. the registration deleted by RFC 7592 at the `registration_client_uri`
  *    the registration answered, its `registration_access_token` as `Bearer`;
- * 4. the socket closed;
- * 5. every key under {@link FHIRCAST_STORAGE_KEYS} removed.
+ * 4. the socket closed.
  *
  * Steps 2 and 3 are skipped for a hub that names no such endpoint on
  * `127.0.0.1`, and a step with nothing to act on is skipped too. Every request
@@ -55,9 +82,6 @@
  *
  * It answers one generic outcome and nothing else: no hub's or Epic's
  * `error_description`, and no response body, is ever handed back or logged.
- * What it obtains is kept in the tab's `sessionStorage` under
- * {@link FHIRCAST_STORAGE_KEYS} — an accepted deviation (ADR 0011) — and
- * cleared with {@link clearFhircastStorage} when the session ends.
  */
 
 import { DecodeError, jsonDecoder, readObject } from "./decode";
@@ -109,16 +133,25 @@ const PATIENT_ID = /^[A-Za-z0-9\-.]{1,64}$/;
 const ACKNOWLEDGED = "200";
 
 /**
- * Where the tab keeps what connecting obtained. `smartAccess` holds the SMART
- * access token, named short of `…AccessToken` so the credential rule
- * (`fe-hardcoded-credential`) does not take a storage key for a token.
+ * Where the tab keeps what connecting obtained: one JSON entry, `connection`,
+ * describing the Hub Registration and its one live Hub Subscription (see
+ * {@link persist}). Read back on load, decoded rather than trusted.
  */
 export const FHIRCAST_STORAGE_KEYS = {
-  clientId: "fhircast-client-id",
-  hubToken: "fhircast-hub-token",
-  signingJwk: "fhircast-private-jwk",
-  smartAccess: "fhircast-smart-access-token",
+  connection: "fhircast-connection",
 } as const;
+
+/**
+ * What an earlier version of this module kept, each under a key of its own —
+ * the SMART access token among them. Never read; forgotten with the rest, so a
+ * tab that loaded that version keeps none of it past its session.
+ */
+const RETIRED_STORAGE_KEYS = [
+  "fhircast-client-id",
+  "fhircast-hub-token",
+  "fhircast-private-jwk",
+  "fhircast-smart-access-token",
+];
 
 /** The release as the backend answers it, every member required. */
 export const decodeFhircastRelease = jsonDecoder((body: unknown): FhircastRelease => {
@@ -137,7 +170,9 @@ export const decodeFhircastRelease = jsonDecoder((body: unknown): FhircastReleas
 
 /** Forgets everything connecting kept: the session it belonged to has ended. */
 export function clearFhircastStorage(): void {
-  for (const key of Object.values(FHIRCAST_STORAGE_KEYS)) window.sessionStorage.removeItem(key);
+  for (const key of [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_STORAGE_KEYS]) {
+    window.sessionStorage.removeItem(key);
+  }
 }
 
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -168,11 +203,9 @@ const SOONEST_RENEWAL_MS = 5_000;
 /**
  * When to renew what lasts `seconds`, in milliseconds from when it was
  * granted: at 80% of its lifetime or 60 s before it ends, whichever is sooner
- * — though never sooner than {@link SOONEST_RENEWAL_MS}. Never, for a lifetime
- * the hub did not say.
+ * — though never sooner than {@link SOONEST_RENEWAL_MS}.
  */
-function renewalDelay(seconds: number | null): number {
-  if (seconds === null) return Infinity;
+function renewalDelay(seconds: number): number {
   return Math.max(1000 * Math.min(seconds * 0.8, seconds - 60), SOONEST_RENEWAL_MS);
 }
 
@@ -193,10 +226,27 @@ const FORM = "application/x-www-form-urlencoded";
  * It carries no message: nothing about a failure is ever shown or logged.
  */
 class HubFailure extends Error {
-  constructor(readonly unreachable: boolean) {
+  /** `unreachable`: the browser never reached the hub; `status`: what it answered, when it answered unexpectedly. */
+  constructor(
+    readonly unreachable: boolean,
+    readonly status = 0,
+  ) {
     super();
   }
 }
+
+/**
+ * The token endpoint refused the client itself — RFC 6749 §5.2's `400` or
+ * `401` — as a hub does a registration it no longer holds.
+ */
+class ClientRefused extends HubFailure {
+  constructor() {
+    super(false);
+  }
+}
+
+/** The statuses RFC 6749 §5.2 refuses a token request with. */
+const TOKEN_REFUSALS = [400, 401];
 
 /** Whether `url` is a URL of one of `schemes` on `127.0.0.1`, with no credentials in it. */
 function onLoopback(url: string, schemes: readonly string[]): boolean {
@@ -218,7 +268,7 @@ async function hubJson(url: string, init: RequestInit, expected: number): Promis
   } catch {
     throw new HubFailure(true);
   }
-  if (answer.status !== expected) throw new HubFailure(false);
+  if (answer.status !== expected) throw new HubFailure(false, answer.status);
   try {
     return (await answer.json()) as unknown;
   } catch {
@@ -291,10 +341,14 @@ const base64Url = (bytes: Uint8Array): string =>
 const encodeJson = (value: unknown): string =>
   base64Url(new TextEncoder().encode(JSON.stringify(value)));
 
-/** The key pair this tab registers with the hub, and the `kid` it is registered under. */
+/**
+ * The private key this tab signs its assertions with, the `kid` its public
+ * half is registered under, and the key exported, as the tab keeps it.
+ */
 interface SigningKey {
   keyId: string;
-  keys: CryptoKeyPair;
+  privateKey: CryptoKey;
+  jwk: JsonWebKey;
 }
 
 /**
@@ -319,13 +373,14 @@ function managementOf(registered: unknown): RegistrationManagement | null {
   return uri !== null && typeof token === "string" && token !== "" ? { token, uri } : null;
 }
 
-/** Step 2: a fresh key pair, its public half registered; the dynamic `client_id`. */
+/** Step 2: a fresh key pair's public half registered, under `keyId`; the dynamic `client_id`. */
 async function register(
   endpoint: string,
   smartAccessToken: string,
-  { keyId, keys }: SigningKey,
+  keyId: string,
+  publicKey: CryptoKey,
 ): Promise<Registration> {
-  const { crv, kty, x, y } = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  const { crv, kty, x, y } = await crypto.subtle.exportKey("jwk", publicKey);
   const registered = await hubJson(
     endpoint,
     {
@@ -347,7 +402,7 @@ async function register(
 async function assertion(
   clientId: string,
   tokenEndpoint: string,
-  { keyId, keys }: SigningKey,
+  { keyId, privateKey }: SigningKey,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const signed = `${encodeJson({ alg: "ES384", kid: keyId, typ: "JWT" })}.${encodeJson({
@@ -360,7 +415,7 @@ async function assertion(
   })}`;
   const signature = await crypto.subtle.sign(
     { hash: "SHA-384", name: "ECDSA" },
-    keys.privateKey,
+    privateKey,
     new TextEncoder().encode(signed),
   );
   return `${signed}.${base64Url(new Uint8Array(signature))}`;
@@ -380,33 +435,53 @@ function secondsIn(value: unknown): number | null {
   return typeof value === "number" && value > 0 ? value : null;
 }
 
-/** Step 3: the Hub Token, by the `jwt-bearer` grant. */
+/**
+ * Step 3: the Hub Token, by the `jwt-bearer` grant; a {@link ClientRefused}
+ * when the token endpoint refuses the client.
+ */
 async function hubToken(tokenEndpoint: string, signedAssertion: string): Promise<HubToken> {
-  const granted = await hubJson(
-    tokenEndpoint,
-    {
-      body: new URLSearchParams({ assertion: signedAssertion, grant_type: JWT_BEARER }).toString(),
-      headers: { "Content-Type": FORM },
-      method: "POST",
-    },
-    200,
-  );
+  let granted: unknown;
+  try {
+    granted = await hubJson(
+      tokenEndpoint,
+      {
+        body: new URLSearchParams({
+          assertion: signedAssertion,
+          grant_type: JWT_BEARER,
+        }).toString(),
+        headers: { "Content-Type": FORM },
+        method: "POST",
+      },
+      200,
+    );
+  } catch (failure) {
+    if (failure instanceof HubFailure && TOKEN_REFUSALS.includes(failure.status)) {
+      throw new ClientRefused();
+    }
+    throw failure;
+  }
   return {
     lifetime: secondsIn(memberOf(granted, "expires_in")),
     token: member(granted, "access_token"),
   };
 }
 
+/** The hub a connection belongs to, and the topic it subscribes on there. */
+interface Hub {
+  hubUrl: string;
+  hubTopic: string;
+}
+
 /** Step 4: the subscription; the channel endpoint the hub answers, held to loopback. */
-async function subscribe(release: FhircastRelease, token: string): Promise<string> {
+async function subscribe(hub: Hub, token: string): Promise<string> {
   const subscribed = await hubJson(
-    release.hubUrl,
+    hub.hubUrl,
     {
       body: new URLSearchParams({
         "hub.channel.type": "websocket",
         "hub.events": "Patient-open,Patient-close",
         "hub.mode": "subscribe",
-        "hub.topic": release.hubTopic,
+        "hub.topic": hub.hubTopic,
       }).toString(),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": FORM },
       method: "POST",
@@ -445,13 +520,13 @@ async function bestEffort(
 }
 
 /** Tearing down, step 1: the subscription at `endpoint` cancelled, the Hub Token as `Bearer`. */
-function unsubscribe(release: FhircastRelease, endpoint: string, token: string): Promise<void> {
-  return bestEffort(release.hubUrl, () => ({
+function unsubscribe(hub: Hub, endpoint: string, token: string): Promise<void> {
+  return bestEffort(hub.hubUrl, () => ({
     body: new URLSearchParams({
       "hub.channel.endpoint": endpoint,
       "hub.channel.type": "websocket",
       "hub.mode": "unsubscribe",
-      "hub.topic": release.hubTopic,
+      "hub.topic": hub.hubTopic,
     }).toString(),
     headers: { Authorization: `Bearer ${token}`, "Content-Type": FORM },
     method: "POST",
@@ -464,12 +539,12 @@ function unsubscribe(release: FhircastRelease, endpoint: string, token: string):
  */
 function revoke(
   revocation: string,
-  { clientId, endpoints, signing }: Registered,
+  { clientId, signing, tokenEndpoint }: Client,
   token: string,
 ): Promise<void> {
   return bestEffort(revocation, async () => ({
     body: new URLSearchParams({
-      client_assertion: await assertion(clientId, endpoints.token, signing),
+      client_assertion: await assertion(clientId, tokenEndpoint, signing),
       client_assertion_type: CLIENT_ASSERTION,
       client_id: clientId,
       token,
@@ -623,29 +698,261 @@ function open(
   });
 }
 
-/** Everything connecting obtained that staying connected needs again. */
-interface Registered extends Registration {
-  release: FhircastRelease;
-  endpoints: HubEndpoints;
+/**
+ * A Hub Registration, as the tab holds it: the hub and topic it belongs to,
+ * the dynamic `client_id` and the key it signs as, the token and revocation
+ * endpoints it was registered beside, and how to delete it, if the hub said.
+ */
+interface Client extends Registration {
+  hub: Hub;
   signing: SigningKey;
-  handlers: Required<FhircastHandlers>;
+  tokenEndpoint: string;
+  /** RFC 7009's, which tearing down revokes Hub Tokens at: `null` when the hub names none. */
+  revocation: string | null;
 }
+
+/**
+ * A Hub Token the tab was granted, and the channel endpoint subscribed with
+ * it: `null` until the hub answered one.
+ */
+interface Granted {
+  endpoint: string | null;
+  hubToken: string;
+}
+
+/**
+ * A Hub Subscription the hub confirmed a socket on: its channel endpoint, the
+ * Hub Token it was made with, and when each of the two runs out, on
+ * `Date.now()`'s clock — `null` for a lifetime the hub did not say.
+ */
+interface Subscription extends Granted {
+  endpoint: string;
+  hubTokenExpiresAt: number | null;
+  leaseExpiresAt: number | null;
+}
+
+/** What the tab keeps: a Hub Registration, and its one live Hub Subscription, if any. */
+interface Stored {
+  client: Client;
+  subscription: Subscription | null;
+}
+
+/**
+ * Keeps `stored` as the tab's one entry, {@link FHIRCAST_STORAGE_KEYS}'s
+ * `connection`: everything resuming it after a reload takes, and everything
+ * tearing it down does. Never the SMART access token: only registering takes
+ * that, and registering anew fetches a new release.
+ */
+function persist({ client, subscription }: Stored) {
+  window.sessionStorage.setItem(
+    FHIRCAST_STORAGE_KEYS.connection,
+    JSON.stringify({
+      clientId: client.clientId,
+      hubTopic: client.hub.hubTopic,
+      hubUrl: client.hub.hubUrl,
+      keyId: client.signing.keyId,
+      registration: client.management,
+      revocationEndpoint: client.revocation,
+      signingJwk: client.signing.jwk,
+      subscription,
+      tokenEndpoint: client.tokenEndpoint,
+    }),
+  );
+}
+
+/**
+ * What the tab kept does not decode. It carries no message: {@link readStored}
+ * takes anything malformed for nothing kept, and reads no reason why.
+ */
+class Unreadable extends Error {}
+
+/** `url`, read from what the tab kept, held to `schemes` on `127.0.0.1` again. */
+function storedUrl(url: string, schemes: readonly string[]): string {
+  if (!onLoopback(url, schemes)) throw new Unreadable();
+  return url;
+}
+
+/** The instant `value` holds under `key`: a number, or `null` for none; anything else, or nothing, is refused. */
+function storedInstant(value: unknown, key: string): number | null {
+  const instant = memberOf(value, key);
+  if (instant === null || typeof instant === "number") return instant;
+  throw new Unreadable();
+}
+
+/**
+ * What the tab kept, decoded rather than trusted: `null` for nothing kept, and
+ * for anything malformed or partial — each member present, each URL on
+ * `127.0.0.1` again, and the key one WebCrypto takes for ES384.
+ */
+async function readStored(): Promise<Stored | null> {
+  const kept = window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.connection);
+  try {
+    // Nothing kept reads as JSON `null`, which no stored state decodes from.
+    const body: unknown = JSON.parse(kept ?? "null");
+    const stored = readObject(body, "stored");
+    const key = stored.object("signingJwk");
+    const jwk: JsonWebKey = {
+      crv: key.string("crv"),
+      d: key.string("d"),
+      kty: key.string("kty"),
+      x: key.string("x"),
+      y: key.string("y"),
+    };
+    const revocation = stored.nullableString("revocationEndpoint");
+    const registration = memberOf(body, "registration");
+    const subscription = memberOf(body, "subscription");
+    const management = registration === null ? null : stored.object("registration");
+    const held = subscription === null ? null : stored.object("subscription");
+    return {
+      client: {
+        clientId: stored.string("clientId"),
+        hub: {
+          hubTopic: stored.string("hubTopic"),
+          hubUrl: storedUrl(stored.string("hubUrl"), HTTP_SCHEMES),
+        },
+        management:
+          management === null
+            ? null
+            : {
+                token: management.string("token"),
+                uri: storedUrl(management.string("uri"), HTTP_SCHEMES),
+              },
+        revocation: revocation === null ? null : storedUrl(revocation, HTTP_SCHEMES),
+        signing: {
+          jwk,
+          keyId: stored.string("keyId"),
+          privateKey: await crypto.subtle.importKey("jwk", jwk, ES384, false, ["sign"]),
+        },
+        tokenEndpoint: storedUrl(stored.string("tokenEndpoint"), HTTP_SCHEMES),
+      },
+      subscription:
+        held === null
+          ? null
+          : {
+              endpoint: storedUrl(held.string("endpoint"), WS_SCHEMES),
+              hubToken: held.string("hubToken"),
+              hubTokenExpiresAt: storedInstant(subscription, "hubTokenExpiresAt"),
+              leaseExpiresAt: storedInstant(subscription, "leaseExpiresAt"),
+            },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** When what lasts `seconds` from now runs out: `null` for a lifetime the hub did not say. */
+function expiryOf(seconds: number | null): number | null {
+  return seconds === null ? null : Date.now() + seconds * 1000;
+}
+
+/** When to renew what runs out at `expiresAt`, by {@link renewalDelay} from now: never, for no expiry. */
+function renewsAt(expiresAt: number | null): number {
+  if (expiresAt === null) return Infinity;
+  return Date.now() + renewalDelay((expiresAt - Date.now()) / 1000);
+}
+
+/** Whether what runs out at `expiresAt` has yet to. */
+function unexpired(expiresAt: number | null): boolean {
+  return expiresAt === null || expiresAt > Date.now();
+}
+
+/**
+ * What tearing a Hub Registration down takes: the registration, every
+ * subscription and Hub Token of it still standing, and how to close its
+ * sockets once it is gone.
+ */
+interface Teardown {
+  client: Client;
+  granted: readonly Granted[];
+  close: () => void;
+}
+
+/**
+ * One Hub Subscription and its Hub Token cancelled, best-effort and in order:
+ * the subscription at its endpoint, when it has one, then the token revoked,
+ * when the hub names a revocation endpoint — each unless `kept`, the one
+ * staying live, shares it.
+ */
+async function cancel(
+  client: Client,
+  { endpoint, hubToken }: Granted,
+  kept: Granted | null = null,
+): Promise<void> {
+  if (endpoint !== null && (kept === null || endpoint !== kept.endpoint)) {
+    await unsubscribe(client.hub, endpoint, hubToken);
+  }
+  if (client.revocation !== null && (kept === null || hubToken !== kept.hubToken)) {
+    await revoke(client.revocation, client, hubToken);
+  }
+}
+
+/**
+ * Tears each registration `teardowns` name down, side by side: every
+ * subscription and Hub Token it holds cancelled, each once however many
+ * teardowns name it, then the registration deleted when the hub said how, and
+ * only then its sockets closed. Deleting comes last because a hub refuses the
+ * Hub Tokens of a registration it no longer holds.
+ */
+async function tearDown(teardowns: readonly Teardown[]): Promise<void> {
+  const byClient = new Map<string, Teardown>();
+  for (const teardown of teardowns) {
+    const same = byClient.get(teardown.client.clientId);
+    byClient.set(
+      teardown.client.clientId,
+      same === undefined
+        ? teardown
+        : {
+            client: same.client,
+            close: () => {
+              same.close();
+              teardown.close();
+            },
+            granted: [...same.granted, ...teardown.granted],
+          },
+    );
+  }
+  await Promise.all(
+    [...byClient.values()].map(async ({ client, close, granted }) => {
+      const distinct = new Map(granted.map((each) => [`${each.endpoint} ${each.hubToken}`, each]));
+      for (const each of distinct.values()) await cancel(client, each);
+      if (client.management !== null) await deleteRegistration(client.management);
+      close();
+    }),
+  );
+}
+
+/** What tearing down what the tab kept takes: its subscription, if any; no socket. */
+function teardownOf({ client, subscription }: Stored): Teardown {
+  return {
+    client,
+    close: () => undefined,
+    granted: subscription === null ? [] : [subscription],
+  };
+}
+
+/**
+ * The connection the tab keeps: the one whose registration and subscription
+ * {@link persist} writes. A connection a later one has replaced keeps nothing.
+ */
+let keeper: Connection | null = null;
 
 /**
  * The connection once the key is registered: steps 3 to 5, then renewal
  * before the Hub Token or the lease runs out, and reconnecting when a socket
  * drops or a renewal fails. A socket that drops while a renewal is under way
- * is left to the renewal.
+ * is left to the renewal. One Hub Subscription is live at a time: once a new
+ * one's socket is confirmed, the one before is cancelled.
  */
 class Connection {
   private channel: Channel | null = null;
   /**
-   * The endpoint the socket was last opened at: set with the first socket,
-   * before any retry; `null` until then.
+   * The subscription a socket was last confirmed on, which a retry reopens
+   * and the tab keeps: the stored one, for a connection resumed; otherwise
+   * `null` until the first is confirmed.
    */
-  private endpoint: string | null = null;
-  /** The Hub Token the hub last granted: `null` until it grants one. */
-  private hubToken: string | null = null;
+  private current: Subscription | null;
+  /** The Hub Token the hub last granted, and its endpoint once subscribed: `null` until it grants one. */
+  private latest: Granted | null = null;
   /** When the Hub Token, and the lease, are due for renewal, on `Date.now()`'s clock. */
   private tokenRenewsAt = Infinity;
   private leaseRenewsAt = Infinity;
@@ -654,8 +961,16 @@ class Connection {
   private closed = false;
   /** Whether a retry subscribes anew, rather than reopening the endpoint. */
   private resubscribing = false;
+  /** The subscriptions moved off, being cancelled in turn: tearing down waits for them. */
+  private retiring: Promise<void> = Promise.resolve();
 
-  constructor(private readonly registered: Registered) {}
+  constructor(
+    readonly client: Client,
+    private readonly handlers: Required<FhircastHandlers>,
+    resumed: Subscription | null = null,
+  ) {
+    this.current = resumed;
+  }
 
   /**
    * Steps 3 to 5: a Hub Token from a fresh assertion, a new subscription, and
@@ -663,12 +978,31 @@ class Connection {
    * hub refused a step. Once closed, it keeps nothing it is granted.
    */
   async subscribe(): Promise<boolean> {
-    const { clientId, endpoints, signing } = this.registered;
+    const { clientId, signing, tokenEndpoint } = this.client;
     const granted = await hubToken(
-      endpoints.token,
-      await assertion(clientId, endpoints.token, signing),
+      tokenEndpoint,
+      await assertion(clientId, tokenEndpoint, signing),
     );
     return !this.closed && (await this.subscribeWith(granted));
+  }
+
+  /**
+   * Resumes the stored subscription after a reload: reopens its endpoint while
+   * its Hub Token and lease both last, renewal due by their stored expiries;
+   * subscribes anew once either has run out, or the hub denies the endpoint or
+   * the socket fails. Whether a socket was confirmed.
+   */
+  async resume(): Promise<boolean> {
+    const stored = this.current;
+    if (
+      stored !== null &&
+      unexpired(stored.hubTokenExpiresAt) &&
+      unexpired(stored.leaseExpiresAt)
+    ) {
+      this.tokenRenewsAt = renewsAt(stored.hubTokenExpiresAt);
+      if ((await this.reopen(stored, () => stored.leaseExpiresAt)) === true) return true;
+    }
+    return this.subscribe();
   }
 
   /** Stops everything: no renewal, no retry, and the socket closed. */
@@ -679,59 +1013,94 @@ class Connection {
   }
 
   /**
-   * Stops everything, as {@link close} does, and tears the connection down at
-   * the hub, each step best-effort and in order: the subscription cancelled,
-   * the Hub Token revoked when the hub names a revocation endpoint, the
-   * registration deleted when the hub said how, and only then the socket
-   * closed. A step with nothing to act on — no subscription, no Hub Token —
-   * is skipped. The socket is the teardown's from the start: a `close` asked
-   * for meanwhile leaves it open, and one the hub causes is not reconnected.
+   * Stops everything, as {@link close} does, and answers what tearing the
+   * connection down takes, once the subscriptions it moved off are cancelled:
+   * the subscription last confirmed and the Hub Token last granted, each with
+   * its endpoint, and how to close the socket. The socket is the teardown's
+   * from the start: a `close` asked for meanwhile leaves it open, and one the
+   * hub causes is not reconnected.
    */
-  async tearDown(): Promise<void> {
+  async teardown(): Promise<Teardown> {
     const channel = this.channel;
     this.channel = null;
     this.close();
-    const { endpoints, management, release } = this.registered;
-    const { endpoint, hubToken } = this;
-    if (hubToken !== null) {
-      if (endpoint !== null) await unsubscribe(release, endpoint, hubToken);
-      if (endpoints.revocation !== null) {
-        await revoke(endpoints.revocation, this.registered, hubToken);
-      }
-    }
-    if (management !== null) await deleteRegistration(management);
-    channel?.close();
+    await this.retiring;
+    const { current, latest } = this;
+    return {
+      client: this.client,
+      close: () => channel?.close(),
+      granted: [...(current === null ? [] : [current]), ...(latest === null ? [] : [latest])],
+    };
   }
 
-  /** Steps 4 and 5 with the Hub Token `granted`, which the tab keeps and renewal is then due by. */
+  /** Steps 4 and 5 with the Hub Token `granted`, which renewal is then due by. */
   private async subscribeWith(granted: HubToken): Promise<boolean> {
-    this.tokenRenewsAt = Date.now() + renewalDelay(granted.lifetime);
-    this.hubToken = granted.token;
-    window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.hubToken, granted.token);
-    return (await this.reopen(await subscribe(this.registered.release, granted.token))) === true;
+    const hubTokenExpiresAt = expiryOf(granted.lifetime);
+    this.tokenRenewsAt = renewsAt(hubTokenExpiresAt);
+    this.latest = { endpoint: null, hubToken: granted.token };
+    const endpoint = await subscribe(this.client.hub, granted.token);
+    this.latest = { endpoint, hubToken: granted.token };
+    const opened = await this.reopen(
+      { endpoint, hubToken: granted.token, hubTokenExpiresAt },
+      expiryOf,
+    );
+    return opened === true;
   }
 
   /**
-   * Opens `endpoint`: `true` once the hub confirms the socket, which then
-   * replaces the one before, or is closed again when the connection was
-   * closed meanwhile; otherwise `denied` or `failed`, as {@link open} answered.
+   * Opens `subscription`'s endpoint: `true` once the hub confirms the socket,
+   * which then replaces the one before, or is closed again when the
+   * connection was closed meanwhile; otherwise `denied` or `failed`, as
+   * {@link open} answered. The lease runs out when `leaseExpiry` says, given
+   * the lease the confirmation grants: {@link expiryOf} it, or a resumed
+   * subscription's stored expiry.
    */
-  private async reopen(endpoint: string): Promise<true | Exclude<Opened, Channel>> {
-    const { handlers, release } = this.registered;
-    const opened = await open(endpoint, release.hubTopic, handlers.onEvent, () => this.dropped());
+  private async reopen(
+    subscription: Omit<Subscription, "leaseExpiresAt">,
+    leaseExpiry: (granted: number | null) => number | null,
+  ): Promise<true | Exclude<Opened, Channel>> {
+    const opened = await open(
+      subscription.endpoint,
+      this.client.hub.hubTopic,
+      this.handlers.onEvent,
+      () => this.dropped(),
+    );
     if (typeof opened === "string") return opened;
     if (this.closed) opened.close();
-    else this.adopt(opened, endpoint);
+    else {
+      this.adopt(opened, {
+        ...subscription,
+        leaseExpiresAt: leaseExpiry(opened.lease),
+      });
+    }
     return true;
   }
 
-  /** `opened`, at `endpoint`, as the socket: the one before closed, and renewal due by its lease too. */
-  private adopt(opened: Channel, endpoint: string) {
+  /**
+   * `opened`, on `subscription`, as the socket: the one before closed, renewal
+   * due by its lease too, and the subscription kept. A subscription it moves
+   * off is cancelled.
+   */
+  private adopt(opened: Channel, subscription: Subscription) {
+    const before = this.current;
     this.channel?.close();
     this.channel = opened;
-    this.endpoint = endpoint;
-    this.leaseRenewsAt = Date.now() + renewalDelay(opened.lease);
+    this.current = subscription;
+    this.leaseRenewsAt = renewsAt(subscription.leaseExpiresAt);
     this.schedule();
+    if (keeper === this) persist({ client: this.client, subscription });
+    if (before !== null) this.retire(before, subscription);
+  }
+
+  /**
+   * Once on `after`, cancels `before` ({@link cancel}), best-effort and after
+   * any cancelled already, sparing what `after` shares with it. Never awaited
+   * by the connection: a hub failing or silent at either step leaves it as it
+   * is.
+   */
+  private retire(before: Subscription, after: Subscription) {
+    const { client } = this;
+    this.retiring = this.retiring.then(() => cancel(client, before, after));
   }
 
   /** Sets the renewal timer for whichever of the Hub Token and the lease is due first. */
@@ -769,7 +1138,7 @@ class Connection {
 
   /** Retry `attempt`, from 0, after its backoff; once the retries run out, disconnected. */
   private reconnect(attempt: number) {
-    const { onConnection } = this.registered.handlers;
+    const { onConnection } = this.handlers;
     if (attempt === 0) onConnection("reconnecting");
     if (attempt === RECONNECT_ATTEMPTS) {
       onConnection("disconnected");
@@ -787,7 +1156,7 @@ class Connection {
     }
     if (this.closed) return;
     if (this.channel === null) this.reconnect(attempt + 1);
-    else this.registered.handlers.onConnection("connected");
+    else this.handlers.onConnection("connected");
   }
 
   /**
@@ -795,8 +1164,8 @@ class Connection {
    * failed renewal, until a new subscription's socket is confirmed.
    */
   private async restore() {
-    const reopening = this.resubscribing ? null : this.endpoint;
-    if (reopening !== null && (await this.reopen(reopening)) !== "denied") return;
+    const reopening = this.resubscribing ? null : this.current;
+    if (reopening !== null && (await this.reopen(reopening, expiryOf)) !== "denied") return;
     this.resubscribing = true;
     this.resubscribing = !(await this.subscribe());
   }
@@ -834,9 +1203,9 @@ export interface FhircastHandlers {
 }
 
 /**
- * Every connection this tab registered at a hub since its session's FHIRcast
- * last ended — closed ones too, since their registrations still stand — for
- * {@link endFhircast} to tear down.
+ * Every connection this tab registered or resumed at a hub since its
+ * session's FHIRcast last ended — closed ones too, since their registrations
+ * still stand — for {@link endFhircast} to tear down.
  */
 const toTearDown = new Set<Connection>();
 
@@ -847,55 +1216,149 @@ const toTearDown = new Set<Connection>();
  */
 let sessionGeneration: object = {};
 
+const CONNECTION_UNAVAILABLE: FhircastOutcome = { kind: "unavailable" };
+
+/** `connection`'s outcome: connected, staying so until closed, once a socket was confirmed. */
+const outcomeOf = (connection: Connection, confirmed: boolean): FhircastOutcome =>
+  confirmed ? { close: () => connection.close(), kind: "connected" } : CONNECTION_UNAVAILABLE;
+
 /**
- * Connects to the hub `release` names, running every step in order; any
- * failure along the way is one generic outcome. Once registered, the
- * connection is torn down when the session's FHIRcast ends, whatever its
- * outcome — at once, and `unavailable`, when it ended while registering.
+ * Resumes the Hub Registration the tab kept, as {@link Connection.resume}
+ * does; `refused` when the hub refuses its client at the token endpoint,
+ * the registration then deleted, best-effort, and forgotten.
+ */
+async function resume(
+  stored: Stored,
+  handlers: Required<FhircastHandlers>,
+): Promise<FhircastOutcome | "refused"> {
+  const connection = new Connection(stored.client, handlers, stored.subscription);
+  toTearDown.add(connection);
+  keeper = connection;
+  try {
+    return outcomeOf(connection, await connection.resume());
+  } catch (failure) {
+    if (!(failure instanceof ClientRefused)) throw failure;
+    connection.close();
+    if (toTearDown.delete(connection)) {
+      clearFhircastStorage();
+      if (stored.client.management !== null) await deleteRegistration(stored.client.management);
+    }
+    return "refused";
+  }
+}
+
+/**
+ * Connects from scratch: discovery, a fresh key registered with the release's
+ * SMART access token, then steps 3 to 5. Torn down at once, and `unavailable`,
+ * when the session's FHIRcast ended while registering.
+ */
+async function connectAnew(
+  release: FhircastRelease,
+  handlers: Required<FhircastHandlers>,
+  begun: object,
+): Promise<FhircastOutcome> {
+  const endpoints = await discover(release.hubUrl);
+  const keyId = crypto.randomUUID();
+  const keys = await crypto.subtle.generateKey(ES384, true, ["sign", "verify"]);
+  const registration = await register(
+    endpoints.registration,
+    release.accessToken,
+    keyId,
+    keys.publicKey,
+  );
+  const client: Client = {
+    ...registration,
+    hub: { hubTopic: release.hubTopic, hubUrl: release.hubUrl },
+    revocation: endpoints.revocation,
+    signing: {
+      jwk: await crypto.subtle.exportKey("jwk", keys.privateKey),
+      keyId,
+      privateKey: keys.privateKey,
+    },
+    tokenEndpoint: endpoints.token,
+  };
+  const connection = new Connection(client, handlers);
+  if (sessionGeneration !== begun) {
+    await tearDown([await connection.teardown()]);
+    return CONNECTION_UNAVAILABLE;
+  }
+  toTearDown.add(connection);
+  keeper = connection;
+  persist({ client, subscription: null });
+  return outcomeOf(connection, await connection.subscribe());
+}
+
+/** Whether `stored` belongs to the hub and topic `release` names. */
+const sameHub = ({ client: { hub } }: Stored, release: FhircastRelease): boolean =>
+  hub.hubUrl === release.hubUrl && hub.hubTopic === release.hubTopic;
+
+/**
+ * What the tab kept, made use of: resumed ({@link resume}) when it belongs to
+ * `release`'s hub and topic; otherwise forgotten, and torn down when there is
+ * any. `null` once nothing was resumed — for none kept, one for another hub
+ * or topic, or a client the hub refuses — so that the tab connects anew.
+ */
+async function resumeKept(
+  stored: Stored | null,
+  release: FhircastRelease,
+  handlers: Required<FhircastHandlers>,
+): Promise<FhircastOutcome | null> {
+  if (stored !== null && sameHub(stored, release)) {
+    const resumed = await resume(stored, handlers);
+    return resumed === "refused" ? null : resumed;
+  }
+  clearFhircastStorage();
+  if (stored !== null) await tearDown([teardownOf(stored)]);
+  return null;
+}
+
+/**
+ * Connects to `release`'s hub, as {@link connectFhircast} does, for the
+ * session's FHIRcast generation `begun`: `unavailable` once that has ended.
+ */
+async function connectFor(
+  release: FhircastRelease,
+  handlers: Required<FhircastHandlers>,
+  begun: object,
+): Promise<FhircastOutcome> {
+  const stored = await readStored();
+  if (sessionGeneration !== begun) return CONNECTION_UNAVAILABLE;
+  const resumed = await resumeKept(stored, release, handlers);
+  if (resumed !== null) return resumed;
+  if (sessionGeneration !== begun) return CONNECTION_UNAVAILABLE;
+  return connectAnew(release, handlers, begun);
+}
+
+/** The one generic outcome a failure to connect is: `blocked` when the browser kept the tab off the hub. */
+async function failedOutcome(failure: unknown): Promise<FhircastOutcome> {
+  if (failure instanceof HubFailure && failure.unreachable && (await blockedByBrowser())) {
+    return { kind: "blocked" };
+  }
+  return CONNECTION_UNAVAILABLE;
+}
+
+/**
+ * Connects to the hub `release` names; any failure along the way is one
+ * generic outcome. The Hub Registration the tab kept, for the same hub and
+ * topic, is resumed ({@link resume}); one for another is torn down and
+ * forgotten; and with none to resume, or a client the hub refuses, it
+ * connects from scratch ({@link connectAnew}). Once registered or resumed,
+ * the connection is torn down when the session's FHIRcast ends, whatever its
+ * outcome.
  */
 export async function connectFhircast(
   release: FhircastRelease,
   options: FhircastHandlers = {},
 ): Promise<FhircastOutcome> {
-  if (!onLoopback(release.hubUrl, HTTP_SCHEMES)) return { kind: "unavailable" };
-  const begun = sessionGeneration;
-  const storage = window.sessionStorage;
-  storage.setItem(FHIRCAST_STORAGE_KEYS.smartAccess, release.accessToken);
+  if (!onLoopback(release.hubUrl, HTTP_SCHEMES)) return CONNECTION_UNAVAILABLE;
+  const handlers: Required<FhircastHandlers> = {
+    onConnection: options.onConnection ?? (() => undefined),
+    onEvent: options.onEvent ?? (() => undefined),
+  };
   try {
-    const endpoints = await discover(release.hubUrl);
-    const signing: SigningKey = {
-      keyId: crypto.randomUUID(),
-      keys: await crypto.subtle.generateKey(ES384, true, ["sign", "verify"]),
-    };
-    storage.setItem(
-      FHIRCAST_STORAGE_KEYS.signingJwk,
-      JSON.stringify(await crypto.subtle.exportKey("jwk", signing.keys.privateKey)),
-    );
-    const registration = await register(endpoints.registration, release.accessToken, signing);
-    storage.setItem(FHIRCAST_STORAGE_KEYS.clientId, registration.clientId);
-    const connection = new Connection({
-      ...registration,
-      endpoints,
-      handlers: {
-        onConnection: options.onConnection ?? (() => undefined),
-        onEvent: options.onEvent ?? (() => undefined),
-      },
-      release,
-      signing,
-    });
-    if (sessionGeneration !== begun) {
-      await connection.tearDown();
-      clearFhircastStorage();
-      return { kind: "unavailable" };
-    }
-    toTearDown.add(connection);
-    if (!(await connection.subscribe())) return { kind: "unavailable" };
-    return { close: () => connection.close(), kind: "connected" };
+    return await connectFor(release, handlers, sessionGeneration);
   } catch (failure) {
-    if (failure instanceof HubFailure && failure.unreachable && (await blockedByBrowser())) {
-      return { kind: "blocked" };
-    }
-    return { kind: "unavailable" };
+    return failedOutcome(failure);
   }
 }
 
@@ -990,8 +1453,9 @@ export function startFhircast(source: FhircastReleaseSource): void {
 }
 
 /**
- * Connects again from the start — a fresh release, a fresh registration — with
- * no last event, closing the connection before. Nothing before the first start.
+ * Connects again from the start — a fresh release, then the Hub Registration
+ * the tab kept resumed, or a fresh one — with no last event, closing the
+ * connection before. Nothing before the first start.
  */
 export function retryFhircast(): void {
   if (attempt === null) return;
@@ -1017,18 +1481,24 @@ export const followFhircastEvents: (follower: (event: PatientEvent) => void) => 
 
 /**
  * Ends the session's FHIRcast: stops the session's connection, so the next
- * session's start connects anew, and tears down every connection the tab
- * registered (see `Connection.tearDown`), side by side, then forgets
- * everything connecting kept ({@link clearFhircastStorage}). Never fails:
- * every step is best-effort and bounded, so it settles within a few seconds
- * however the hub behaves.
+ * session's start connects anew, and forgets everything connecting kept at
+ * once ({@link clearFhircastStorage}). Then it tears down, side by side, every
+ * connection the tab registered or resumed in this page load, and what the
+ * tab kept — a registration a page before a reload left, even one this page
+ * never resumed (see {@link tearDown}). Never fails: every step is
+ * best-effort and bounded, so it settles within a few seconds however the hub
+ * behaves.
  */
 export async function endFhircast(): Promise<void> {
   attempt = null;
   show(NOT_STARTED);
   sessionGeneration = {};
+  keeper = null;
+  const kept = readStored();
+  clearFhircastStorage();
   const ending = [...toTearDown];
   toTearDown.clear();
-  await Promise.all(ending.map((connection) => connection.tearDown()));
-  clearFhircastStorage();
+  const stored = await kept;
+  const teardowns = await Promise.all(ending.map((connection) => connection.teardown()));
+  await tearDown(stored === null ? teardowns : [...teardowns, teardownOf(stored)]);
 }

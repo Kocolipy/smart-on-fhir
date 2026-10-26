@@ -334,7 +334,8 @@ _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 **Hub Registration**:
 The SPA's dynamic client at the FHIRcast Hub (RFC 7591): an ES384 key of the
 tab's own, registered with the SMART access token, and the `client_id` the hub
-answers. Every Hub Token is minted with an assertion signed by its key, and it
+answers. Every Hub Token is minted with an assertion signed by its key. A
+reload resumes it from what the tab kept rather than registering again, and it
 is deleted at the hub (RFC 7592), best-effort, when the session ends.
 _Avoid_: FHIRcast client, DCR client, app registration
 
@@ -349,10 +350,13 @@ _Avoid_: FHIRcast token, access token (for this one)
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
 `Patient-close` on the clinician's topic. Connected once the hub confirms it on
 the socket, made anew before its lease or its Hub Token runs out, and when the
-hub says its endpoint has gone. It lasts the session, not Home: leaving Home and
-coming back neither closes its socket nor subscribes again, and the subscription
-is cancelled at the hub (`hub.mode=unsubscribe`) and its socket closed when the
-session ends. Once connected, every Event Notification on the socket is acknowledged or
+hub says its endpoint has gone. It lasts the session and a reload, not Home:
+leaving Home and coming back neither closes its socket nor subscribes again,
+and a reload reopens its socket while its Hub Token and lease last. One is live
+at a time: moving to a new one cancels the one before at the hub
+(`hub.mode=unsubscribe`, then its Hub Token revoked) once the new socket is
+confirmed. It is cancelled at the hub and its socket closed when the session
+ends. Once connected, every Event Notification on the socket is acknowledged or
 ignored.
 _Avoid_: listener, FHIRcast session
 
