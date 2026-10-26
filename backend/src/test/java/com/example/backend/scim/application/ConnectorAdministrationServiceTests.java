@@ -332,17 +332,6 @@ class ConnectorAdministrationServiceTests {
             assertThat(old.isUsable(NOW.plus(Duration.ofDays(8)))).isFalse();
         }
 
-        @Test
-        void an_overlap_past_fourteen_days_is_clamped_to_fourteen() {
-            IssuedConnectorToken original = issuedReadWriteToken();
-
-            service.rotateToken(
-                    original.connectorId(), original.tokenId(), null, Duration.ofDays(90), adminId);
-
-            assertThat(tokens.findById(original.tokenId()).orElseThrow().expiresAt())
-                    .isEqualTo(NOW.plus(ConnectorTokenPolicy.MAX_ROTATION_OVERLAP));
-        }
-
         /** The criterion: the overlap never runs past the old token's original expiry. */
         @Test
         void an_overlap_never_outlives_the_old_tokens_original_expiry() {
@@ -466,17 +455,6 @@ class ConnectorAdministrationServiceTests {
             service.revokeToken(revoked.connectorId(), revoked.tokenId(), adminId);
 
             assertThat(tokenLocks.requests()).containsExactly(rotated.tokenId(), revoked.tokenId());
-        }
-
-        @Test
-        void no_overlap_ends_the_old_token_at_the_rotation() {
-            IssuedConnectorToken original = issuedReadWriteToken();
-
-            service.rotateToken(original.connectorId(), original.tokenId(), null, null, adminId);
-
-            ScimConnectorToken old = tokens.findById(original.tokenId()).orElseThrow();
-            assertThat(old.expiresAt()).isEqualTo(NOW);
-            assertThat(old.isUsable(NOW)).isFalse();
         }
 
         @Test

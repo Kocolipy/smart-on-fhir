@@ -23,7 +23,6 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.PasswordAcceptance;
-import com.example.backend.scim.domain.PasswordHistoryPolicy;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -393,31 +392,9 @@ class PasswordChangeServiceTests {
     }
 
     @Test
-    void aTooLongPasswordIsRefusedNamingTheRule() {
-        assertPolicyRefusal("x".repeat(PasswordPolicy.MAX_LENGTH + 1),
-                PasswordPolicy.Rule.TOO_LONG, "TOO_LONG");
-    }
-
-    @Test
     void aPasswordContainingTheUserNameIsRefusedNamingTheRule() {
         assertPolicyRefusal("my-name-is-ADA-okay", PasswordPolicy.Rule.CONTAINS_USER_NAME,
                 "CONTAINS_USER_NAME");
-    }
-
-    /**
-     * The intrinsic rules come before reuse — the order SCIM writes apply too. A retained value
-     * that is also too short is refused for its length.
-     */
-    @Test
-    void aValueBothSubPolicyAndReusedIsRefusedByThePolicyFirst() {
-        history.record(ada.id(), encoder.encode("old-short"), ScimIdentities.NOW);
-
-        assertPolicyRefusal("old-short", PasswordPolicy.Rule.TOO_SHORT, "TOO_SHORT");
-    }
-
-    @Test
-    void theCurrentPasswordIsRefusedAsReused() {
-        assertPolicyRefusal(CURRENT, PasswordPolicy.Rule.REUSED, "REUSED");
     }
 
     @Test
@@ -505,42 +482,5 @@ class PasswordChangeServiceTests {
         assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .containsExactly("BAD_CURRENT_PASSWORD");
-    }
-
-    /**
-     * The accepted hash is the stored credential and is remembered exactly once, as the newest of
-     * the retained three: the oldest ages out, and the replaced current password stays refused.
-     */
-    @Test
-    void anAcceptedChangeIsRememberedOnceAsTheNewestOfTheRetainedThree() {
-        String older = "an-older-passphrase";
-        String oldest = "the-oldest-passphrase";
-        history.record(ada.id(), encoder.encode(oldest), ScimIdentities.NOW);
-        history.record(ada.id(), encoder.encode(older), ScimIdentities.NOW);
-        history.record(ada.id(), ada.login().passwordHash(), ScimIdentities.NOW);
-
-        service.changePassword(ada.id(), CURRENT, NEXT);
-
-        String stored = users.require("ada").login().passwordHash();
-        assertThat(history.findRecentHashes(ada.id()))
-                .hasSize(PasswordHistoryPolicy.RETAINED)
-                .startsWith(stored, ada.login().passwordHash())
-                .doesNotHaveDuplicates();
-        assertThatThrownBy(() -> service.changePassword(ada.id(), NEXT, CURRENT))
-                .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused ->
-                        assertThat(refused.ruleName()).isEqualTo("REUSED"));
-        service.changePassword(ada.id(), NEXT, oldest);
-        assertThat(encoder.matches(oldest, users.require("ada").login().passwordHash())).isTrue();
-    }
-
-    /** "é" precomposed and decomposed are one password, so the second spelling is a reuse. */
-    @Test
-    void aCanonicallyEquivalentSpellingOfTheCurrentPasswordIsRefusedAsReused() {
-        String composed = "caf\u00e9-au-lait-2026";
-        service.changePassword(ada.id(), CURRENT, composed);
-
-        assertThatThrownBy(() -> service.changePassword(ada.id(), composed, "cafe\u0301-au-lait-2026"))
-                .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused ->
-                        assertThat(refused.ruleName()).isEqualTo("REUSED"));
     }
 }

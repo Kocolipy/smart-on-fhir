@@ -1,7 +1,6 @@
 package com.example.backend.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
@@ -17,7 +16,6 @@ import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
 import com.example.backend.scheduling.RecordingTransactionManager;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
-import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
@@ -39,9 +37,10 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The dormancy job's change counters, read from a registry: registered at zero when the job is
- * scheduled, and moved by what each run changed — so an unexpected mass lockout or revocation is
- * a spike on a series that already existed. Its cron and startup record are
+ * The dormancy job's change counters, read from a registry: described for the scrape, and moved
+ * by what each run changed — so an unexpected mass lockout or revocation is a spike on a series
+ * that already existed. How a declared counter is registered, and why a skipped or failed run
+ * counts nothing, are {@code ScheduledJobRegistrationTests}'; its cron and startup record are
  * {@code ScheduledJobScheduleTests}'.
  */
 class DormancyScheduleConfigTests {
@@ -90,13 +89,6 @@ class DormancyScheduleConfigTests {
         return crons.getFirst().getRunnable();
     }
 
-    @Test
-    void theCountersExistAtZeroBeforeAnyRun() {
-        assertThat(locked()).isZero();
-        assertThat(membershipsRevoked()).isZero();
-        assertThat(registry.find("app.job.runs").tag("job", "dormancy").counters()).hasSize(2);
-    }
-
     /** The two counters carry their meaning into the scrape, as the alert docs rely on. */
     @Test
     void theCountersAreDescribed() {
@@ -105,64 +97,6 @@ class DormancyScheduleConfigTests {
         assertThat(registry.find("app.dormancy.users.memberships.revoked").counter().getId()
                         .getDescription())
                 .isEqualTo("Users whose Group memberships the dormancy job removed");
-    }
-
-    @Test
-    void eachRunAddsTheUsersItLockedAndTheUsersWhoseRolesItRevoked() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        users.given(ScimIdentities.user("bob"));
-        groups.createReserved(
-                ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
-                        List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW),
-                ReservedResourceName.ADMIN_GROUP);
-        clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
-
-        scheduled.run();
-
-        assertThat(locked()).isEqualTo(2);
-        assertThat(membershipsRevoked()).isEqualTo(1);
-
-        scheduled.run();
-
-        assertThat(locked()).as("nothing more to lock").isEqualTo(2);
-        assertThat(membershipsRevoked()).isEqualTo(1);
-    }
-
-    /** A skipped run changed nothing and counts nothing. */
-    @Test
-    void aSkippedRunCountsNothing() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        givenAdmins(ada);
-        clock.advanceBy(DormancyPolicy.DEFAULT_MEMBERSHIP_REVOCATION_WINDOW.plusDays(1));
-        lock.holdElsewhere(ScheduledJob.DORMANCY);
-
-        scheduled.run();
-
-        assertThat(locked()).isZero();
-        assertThat(membershipsRevoked()).isZero();
-    }
-
-    /** A failed run — its transaction rolled back after a User was locked — counts nothing. */
-    @Test
-    void aFailedRunCountsNothing() {
-        users.given(ScimIdentities.user("ada"));
-        clock.advanceBy(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
-        Runnable failing = scheduled(new SessionRevocationService(
-                new InMemoryAccountSessions(),
-                work -> {
-                    throw new IllegalStateException("revocation could not be scheduled");
-                },
-                audit,
-                new RecordingOperationalAlerts()));
-
-        assertThatThrownBy(failing::run).isInstanceOf(IllegalStateException.class);
-
-        assertThat(users.require("ada").login().isLocked())
-                .as("the run got as far as locking").isTrue();
-        assertThat(locked()).isZero();
-        assertThat(membershipsRevoked()).isZero();
-        assertThat(registry.find("app.job.runs").tag("job", "dormancy").tag("outcome", "failure")
-                .counter().count()).isEqualTo(1);
     }
 
     /**
@@ -188,6 +122,11 @@ class DormancyScheduleConfigTests {
             assertThat(locked()).isEqualTo(end.at("/dormancy/locked_count").asDouble());
             assertThat(membershipsRevoked()).isEqualTo(end.at("/dormancy/memberships_revoked_count").asDouble());
         }
+
+        scheduled.run();
+
+        assertThat(locked()).as("a run with nothing more to lock adds nothing").isEqualTo(2);
+        assertThat(membershipsRevoked()).isEqualTo(1);
     }
 
     private void givenAdmins(ScimUser member) {

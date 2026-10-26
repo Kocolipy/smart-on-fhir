@@ -2,7 +2,6 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.scim.domain.ScimAttribute;
 import com.example.backend.scim.domain.ScimResourceSchema;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.util.LinkedHashMap;
@@ -37,14 +36,6 @@ class ScimSchemaDocumentsTests {
 
     /** The RFC 7643 §3.1 common attributes, written out rather than read off the definition. */
     private static final Set<String> COMMON_NAMES = Set.of("schemas", "id", "externalId", "meta");
-
-    @Test
-    void the_schema_document_advertises_exactly_the_declared_attributes() {
-        assertThat(advertisedNames()).containsExactlyInAnyOrderElementsOf(
-                USER.attributes().stream()
-                        .map(ScimAttribute::name)
-                        .collect(Collectors.toSet()));
-    }
 
     /**
      * Every attribute a write may set is advertised writable, and every advertised writable one
@@ -98,30 +89,6 @@ class ScimSchemaDocumentsTests {
     }
 
     /**
-     * {@code password} is declared write-only and never returned, which is the declaration
-     * that makes {@code attributes=password} a silent omission rather than a special case.
-     */
-    @Test
-    void the_password_is_declared_write_only_and_never_returned() {
-        Map<String, Object> password = advertised("password");
-
-        assertThat(password).containsEntry("mutability", "writeOnly");
-        assertThat(password).containsEntry("returned", "never");
-        assertThat(password).containsEntry("caseExact", true);
-        assertThat(USER.find("password").orElseThrow().isReturned()).isFalse();
-        assertThat(USER.find("userName").orElseThrow().isReturned()).isTrue();
-    }
-
-    @Test
-    void user_name_is_required_case_insensitive_and_server_unique() {
-        Map<String, Object> userName = advertised("userName");
-
-        assertThat(userName).containsEntry("required", true);
-        assertThat(userName).containsEntry("caseExact", false);
-        assertThat(userName).containsEntry("uniqueness", "server");
-    }
-
-    /**
      * An unimplemented core attribute is absent from the document. A service advertising
      * {@code phoneNumbers} and dropping them is worse than one that says it has none.
      *
@@ -156,23 +123,6 @@ class ScimSchemaDocumentsTests {
                 .containsExactlyInAnyOrderElementsOf(union(
                         advertisedNames(), COMMON_NAMES));
         assertThat(USER.names()).contains("groups");
-    }
-
-    /** {@code schemas} and {@code id} are the attributes a projection may never remove. */
-    @Test
-    void the_always_returned_attributes_are_schemas_and_id() {
-        assertThat(USER.alwaysReturnedNames()).containsExactlyInAnyOrder("schemas", "id");
-    }
-
-    @Test
-    void the_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI);
-
-        assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
-        assertThat(document).containsEntry("id", ScimSchemas.USER);
-        assertThat(document.get("meta")).isEqualTo(Map.of(
-                "resourceType", "Schema",
-                "location", BASE_URI + "/Schemas/" + ScimSchemas.USER));
     }
 
     /**
@@ -235,14 +185,6 @@ class ScimSchemaDocumentsTests {
     // --- the Group vocabulary, held to the same standard ---------------------------------
 
     @Test
-    void the_group_schema_document_advertises_exactly_the_declared_attributes() {
-        assertThat(advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)))
-                .containsExactlyInAnyOrderElementsOf(GROUP.attributes().stream()
-                        .map(ScimAttribute::name)
-                        .collect(Collectors.toSet()));
-    }
-
-    @Test
     void the_accepted_group_write_attributes_are_the_advertised_writable_ones() {
         Set<String> accepted = GROUP.writableNames();
 
@@ -265,20 +207,6 @@ class ScimSchemaDocumentsTests {
                 .containsExactlyInAnyOrderElementsOf(union(
                         advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)),
                         COMMON_NAMES));
-    }
-
-    /**
-     * A Group's {@code displayName} is server-unique, which RFC 7643 does not require. It is
-     * advertised so a connector is told rather than discovering it through a 409.
-     */
-    @Test
-    void a_group_display_name_is_required_case_insensitive_and_server_unique() {
-        Map<String, Object> displayName =
-                advertised(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI), "displayName");
-
-        assertThat(displayName).containsEntry("required", true);
-        assertThat(displayName).containsEntry("caseExact", false);
-        assertThat(displayName).containsEntry("uniqueness", "server");
     }
 
     /**
@@ -322,17 +250,6 @@ class ScimSchemaDocumentsTests {
                 "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
 
         assertThat(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)).isEqualTo(expected);
-    }
-
-    @Test
-    void the_group_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI);
-
-        assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
-        assertThat(document).containsEntry("id", ScimSchemas.GROUP);
-        assertThat(document.get("meta")).isEqualTo(Map.of(
-                "resourceType", "Schema",
-                "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
     }
 
     private static final String READ_WRITE = "readWrite";

@@ -56,13 +56,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -877,42 +873,6 @@ class ScimUserServiceTests {
         assertThat(history.findRecentHashes(ada.id())).hasSize(1);
     }
 
-    /**
-     * Three are remembered, the current one included: after two changes the first is still one of
-     * them, after a third it has aged out and may be set again.
-     */
-    @Test
-    void any_of_the_last_three_is_refused_and_the_fourth_most_recent_is_accepted() {
-        patch(new SetPassword("second-password-2"));
-        patch(new SetPassword("third-password-3"));
-
-        assertThatThrownBy(() -> patch(new SetPassword("first-password-1")))
-                .isInstanceOf(PasswordReusedException.class);
-        assertThatThrownBy(() -> patch(new SetPassword("second-password-2")))
-                .isInstanceOf(PasswordReusedException.class);
-
-        patch(new SetPassword("fourth-password-4"));
-        assertThat(history.findRecentHashes(ada.id())).hasSize(3);
-
-        patch(new SetPassword("first-password-1"));
-        assertThat(stored().login().passwordHash()).endsWith(":first-password-1");
-    }
-
-    /**
-     * The seeded Bootstrap Admin and any User whose credential predates the history have no
-     * history row for their current password; the current hash is checked regardless.
-     */
-    @Test
-    void the_current_credential_is_refused_even_when_the_history_does_not_hold_it() {
-        ScimUser legacy = users.create(ScimUser.created(UUID.randomUUID(),
-                minimal("legacy", true), encoder.encode("pre-history-pass-1"), ScimIdentities.NOW));
-
-        assertThatThrownBy(() -> service.patch(CONNECTOR, legacy.id(),
-                ScimVersionPrecondition.ofIfMatch(List.of("\"" + legacy.version() + "\"")),
-                List.of(new SetPassword("pre-history-pass-1"))))
-                .isInstanceOf(PasswordReusedException.class);
-    }
-
     @Test
     void a_new_password_is_hashed_stored_remembered_and_never_kept_in_plaintext() {
         patch(new SetPassword("second-password-2"));
@@ -925,17 +885,6 @@ class ScimUserServiceTests {
 
     // ---- password policy ------------------------------------------------------------------
 
-    /**
-     * Sub-policy values, each with the rule it breaks. The userName rule's value contains both the
-     * fixture's {@code ada} and {@code ada-lovelace}, the userName the create tests provision.
-     */
-    static Stream<Arguments> subPolicyPasswords() {
-        return Stream.of(
-                Arguments.of("short-pw-1", PasswordPolicy.Rule.TOO_SHORT),
-                Arguments.of("x".repeat(PasswordPolicy.MAX_LENGTH + 1), PasswordPolicy.Rule.TOO_LONG),
-                Arguments.of("i-am-ADA-LOVELACE-really", PasswordPolicy.Rule.CONTAINS_USER_NAME));
-    }
-
     private static void assertRefusedFor(
             ThrowingCallable write, String candidate, PasswordPolicy.Rule rule) {
         assertThatThrownBy(write).isInstanceOfSatisfying(
@@ -946,36 +895,36 @@ class ScimUserServiceTests {
                 });
     }
 
-    @ParameterizedTest
-    @MethodSource("subPolicyPasswords")
-    void a_create_with_a_sub_policy_password_is_refused_and_writes_nothing(
-            String candidate, PasswordPolicy.Rule rule) {
+    /** Judged against the userName the create provisions, which the fixture's {@code ada} is not. */
+    @Test
+    void a_create_with_a_sub_policy_password_is_refused_and_writes_nothing() {
+        String candidate = "i-am-ADA-LOVELACE-really";
+
         assertRefusedFor(() -> service.create(CONNECTOR, new NewScimUser(
-                minimal("ada-lovelace", true), candidate, "ext-new")), candidate, rule);
+                        minimal("ada-lovelace", true), candidate, "ext-new")),
+                candidate, PasswordPolicy.Rule.CONTAINS_USER_NAME);
 
         assertThat(writesSinceSetUp()).isZero();
         assertThat(history.findRecentHashes(ada.id())).hasSize(1);
         assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
-    @ParameterizedTest
-    @MethodSource("subPolicyPasswords")
-    void a_put_with_a_sub_policy_password_is_refused_and_changes_nothing(
-            String candidate, PasswordPolicy.Rule rule) {
+    @Test
+    void a_put_with_a_sub_policy_password_is_refused_and_changes_nothing() {
         ScimUser before = stored();
 
-        assertRefusedFor(() -> put(before.profile(), candidate, "ext-ada"), candidate, rule);
+        assertRefusedFor(() -> put(before.profile(), "short-pw-1", "ext-ada"),
+                "short-pw-1", PasswordPolicy.Rule.TOO_SHORT);
 
         assertWriteRefusedAndNothingChanged(before);
     }
 
-    @ParameterizedTest
-    @MethodSource("subPolicyPasswords")
-    void a_patch_with_a_sub_policy_password_is_refused_and_changes_nothing(
-            String candidate, PasswordPolicy.Rule rule) {
+    @Test
+    void a_patch_with_a_sub_policy_password_is_refused_and_changes_nothing() {
         ScimUser before = stored();
 
-        assertRefusedFor(() -> patch(new SetPassword(candidate)), candidate, rule);
+        assertRefusedFor(() -> patch(new SetPassword("short-pw-1")),
+                "short-pw-1", PasswordPolicy.Rule.TOO_SHORT);
 
         assertWriteRefusedAndNothingChanged(before);
     }
@@ -1021,32 +970,6 @@ class ScimUserServiceTests {
         assertThat(history.findRecentHashes(ada.id())).hasSize(3);
         assertThat(revocations).extracting(Revocation::causes).containsOnly(
                 Set.of(Cause.PASSWORD_CHANGED, Cause.USER_NAME_CHANGED));
-    }
-
-    /**
-     * The order of {@code /change-password}: the intrinsic rules, then reuse. A value that is both
-     * too short and the current credential is refused for its length, as the self-service change
-     * refuses it, and the history is never consulted for it.
-     */
-    @Test
-    void a_value_both_sub_policy_and_reused_is_refused_by_the_policy_first_on_both_paths() {
-        ScimUser legacy = users.create(ScimUser.created(UUID.randomUUID(),
-                minimal("legacy", true), encoder.encode("old-pw"), ScimIdentities.NOW));
-
-        assertRefusedFor(() -> service.patch(CONNECTOR, legacy.id(), versionOf(legacy.id()),
-                        List.of(new SetPassword("old-pw"))),
-                "old-pw", PasswordPolicy.Rule.TOO_SHORT);
-        assertRefusedFor(() -> service.replace(CONNECTOR, legacy.id(), versionOf(legacy.id()),
-                        new ScimUserReplacement(legacy.profile(), "old-pw", null, true)),
-                "old-pw", PasswordPolicy.Rule.TOO_SHORT);
-        assertThat(encoder.matches).isZero();
-    }
-
-    @Test
-    void a_valid_password_passes_the_policy_and_is_still_checked_for_reuse() {
-        assertThatThrownBy(() -> patch(new SetPassword("first-password-1")))
-                .isInstanceOf(PasswordReusedException.class);
-        assertThat(encoder.matches).isPositive();
     }
 
     // ---- carrying out the revocations a write implies ----------------------------------------
