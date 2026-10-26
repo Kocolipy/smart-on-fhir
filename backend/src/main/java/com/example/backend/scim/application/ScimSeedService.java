@@ -205,14 +205,18 @@ public class ScimSeedService {
      * <p>Created when absent and otherwise left alone, like the other fixtures, and not audited.
      * Called only when {@code app.dev-fixtures.enabled} is set and an Epic clinician is named.
      *
-     * @param userName the Practitioner id the User is linked by
-     * @param password the fixture password, as for {@link #seedDevFixtures}
+     * @param userName    the Practitioner id the User is linked by
+     * @param displayName the User's displayName; {@code null} or blank for its userName, as every
+     *                    other fixture User has
+     * @param password    the fixture password, as for {@link #seedDevFixtures}
      */
     @Transactional
-    public void seedEpicClinicianFixture(String userName, String password) {
+    public void seedEpicClinicianFixture(String userName, String displayName, String password) {
         requireFixturePassword(password);
         seedLock.acquire();
-        findOrCreate(userName, password, clock.instant());
+        findOrCreate(userName,
+                displayName == null || displayName.isBlank() ? userName : displayName,
+                password, clock.instant());
     }
 
     private static void requireFixturePassword(String password) {
@@ -354,9 +358,15 @@ public class ScimSeedService {
      * is fatal here.
      */
     private ScimUser findOrCreate(String userName, String password, Instant now) {
+        return findOrCreate(userName, userName, password, now);
+    }
+
+    /** As {@link #findOrCreate(String, String, Instant)}, created with {@code displayName}. */
+    private ScimUser findOrCreate(
+            String userName, String displayName, String password, Instant now) {
         return users.findByNormalizedUserName(NormalizedUserName.of(userName))
                 .orElseGet(() -> users.create(
-                        newUser(new SeededIdentity(userName, password), now)));
+                        newUser(new SeededIdentity(userName, password), displayName, now)));
     }
 
     /**
@@ -381,7 +391,7 @@ public class ScimSeedService {
      */
     private ScimUser seedBootstrapAdmin(
             SeededIdentity recovery, boolean passwordChangeRequired, Instant now) {
-        ScimUser seeded = newUser(recovery, now);
+        ScimUser seeded = newUser(recovery, recovery.userName(), now);
         LoginStateChange imposed = loginStates.created(seeded.login().passwordHash(), now);
         // Built whole rather than by copying the new User's fields: it is a new User — version 1,
         // created and last modified now — whose credential is marked for replacement by the
@@ -445,13 +455,13 @@ public class ScimSeedService {
         audit.append(new Audited.ReservedMembershipRestored(adminGroup.id(), bootstrapAdmin.id()));
     }
 
-    private ScimUser newUser(SeededIdentity identity, Instant now) {
+    private ScimUser newUser(SeededIdentity identity, String displayName, Instant now) {
         return ScimUser.created(
                 UUID.randomUUID(),
                 new ScimUserProfile(
                         identity.userName(),
                         null,
-                        identity.userName(),
+                        displayName,
                         null,
                         null,
                         null,

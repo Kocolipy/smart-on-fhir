@@ -96,8 +96,8 @@ public class ScimSeedConfig {
                                         fixture.group(), fixture.permissions()))
                                 .toList());
                 if (devFixtures.epicClinician() != null && !devFixtures.epicClinician().isBlank()) {
-                    seeding.seedEpicClinicianFixture(
-                            devFixtures.epicClinician(), devFixtures.password());
+                    seeding.seedEpicClinicianFixture(devFixtures.epicClinician(),
+                            devFixtures.epicClinicianDisplayName(), devFixtures.password());
                 }
                 if (devFixtures.dormantMember() != null) {
                     // A day past the revocation window, so the startup dormancy run locks it

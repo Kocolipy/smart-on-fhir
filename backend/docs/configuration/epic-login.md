@@ -230,18 +230,19 @@ but a developer machine.
 container starts, if `backend/.env` does not exist: copy `backend/.env.example`
 to it, as `make infra-up` also needs. The block holds:
 
-| Variable                          | Value for the stand-in                                                 |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `SPRING_PROFILES_ACTIVE`          | `local`                                                                |
-| `APP_EPIC_ENABLED`                | `true`                                                                 |
-| `APP_EPIC_FHIR_BASE`              | `http://127.0.0.1:8103/fhir/R4`                                        |
-| `APP_EPIC_OAUTH_ISSUER`           | `http://127.0.0.1:8103`, without the trailing slash                    |
-| `APP_EPIC_CLIENT_ID`              | the ClientApplication's id, from the seed                              |
-| `APP_EPIC_REDIRECT_URI`           | `http://localhost:5173/api/auth/epic/callback`                         |
-| `APP_EPIC_CLIENT_KEY`             | an EC P-384 key, generated on the first run and never again            |
-| `APP_EPIC_CLIENT_KEY_ID`          | a `kid` made with it, `local-` and a timestamp                         |
-| `APP_DEV_FIXTURES_ENABLED`        | `true`                                                                 |
-| `APP_DEV_FIXTURES_EPIC_CLINICIAN` | the clinician's Practitioner id, `SEED_CLINICIAN_ID` in `compose.yaml` |
+| Variable                                       | Value for the stand-in                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `SPRING_PROFILES_ACTIVE`                       | `local`                                                                              |
+| `APP_EPIC_ENABLED`                             | `true`                                                                               |
+| `APP_EPIC_FHIR_BASE`                           | `http://127.0.0.1:8103/fhir/R4`                                                      |
+| `APP_EPIC_OAUTH_ISSUER`                        | `http://127.0.0.1:8103`, without the trailing slash                                  |
+| `APP_EPIC_CLIENT_ID`                           | the ClientApplication's id, from the seed                                            |
+| `APP_EPIC_REDIRECT_URI`                        | `http://localhost:5173/api/auth/epic/callback`                                       |
+| `APP_EPIC_CLIENT_KEY`                          | an EC P-384 key, generated on the first run and never again                          |
+| `APP_EPIC_CLIENT_KEY_ID`                       | a `kid` made with it, `local-` and a timestamp                                       |
+| `APP_DEV_FIXTURES_ENABLED`                     | `true`                                                                               |
+| `APP_DEV_FIXTURES_EPIC_CLINICIAN`              | the clinician's Practitioner id, `SEED_CLINICIAN_ID` in `compose.yaml`               |
+| `APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME` | `Dr.` and the clinician's `SEED_CLINICIAN_FIRST_NAME` and `SEED_CLINICIAN_LAST_NAME` |
 
 Every value but the key is rewritten on each run from `compose.yaml` and the
 seed, so the block follows them. The key stays while the block holds one, so a
@@ -295,7 +296,10 @@ shim and reads `Connected`. What the seed and the dev fixtures did for it:
   Medplum volume removed takes the launch with it, and the next run prints a new URL.
 - **The clinician's User** is the dev fixtures' `epic-clinician` (below), which
   `APP_DEV_FIXTURES_EPIC_CLINICIAN` sets from the block: a User whose `userName`
-  is the Practitioner id, in no Group, holding the baseline Permissions alone
+  is the Practitioner id and whose `displayName` is the Practitioner's name with
+  its salutation, `Dr. Local Clinician`
+  (`APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME`), in no Group, holding the
+  baseline Permissions alone
   (which include `patient:read`, enough for Home and the Patient card). It is no
   administrator, and a member of none of the fixture Groups. Its password is the
   fixtures' (`APP_DEV_FIXTURES_PASSWORD`), which an Epic Login never presents;
@@ -306,7 +310,8 @@ shim and reads `Connected`. What the seed and the dev fixtures did for it:
 rules every development fixture does: nothing is seeded unless the fixtures are
 enabled (`APP_DEV_FIXTURES_ENABLED`), startup fails outside the `local` profile
 when they are, and with the variable unset or blank no such User is seeded. The
-User is created when absent and never overwritten. Its `userName` must equal the
+User is created when absent and never overwritten, so a `displayName` set after
+it exists reaches it only once the User is deleted. Its `userName` must equal the
 Practitioner id character for character, because that is how Epic Login links a
 clinician (`docs/domain/epic-login.md`, "Linking by `userName`"); `compose.yaml`
 is the one place the id is chosen, which is why the backend takes it from `.env`

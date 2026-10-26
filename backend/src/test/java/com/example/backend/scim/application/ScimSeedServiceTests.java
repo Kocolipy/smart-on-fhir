@@ -34,6 +34,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -710,18 +713,22 @@ class ScimSeedServiceTests {
     /** A Medplum Practitioner id, the userName Epic Login links a clinician by. */
     private static final String CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
 
+    /** The clinician's displayName, as {@code make fhircast-up} builds it. */
+    private static final String CLINICIAN_DISPLAY_NAME = "Dr. Local Clinician";
+
     /**
      * A User under exactly the Practitioner id, in no Group: baseline access and nothing more,
      * neither an administrator nor a member of a fixture Group.
      */
     @Test
     void the_epic_clinician_fixture_is_a_user_in_no_group_under_the_given_user_name() {
-        seeding.seedEpicClinicianFixture(CLINICIAN, FIXTURE_PASSWORD);
+        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, FIXTURE_PASSWORD);
 
         ScimUser clinician = users.require(CLINICIAN);
         assertThat(clinician.createdAt()).isEqualTo(ScimIdentities.NOW);
         assertThat(seedLock.usersSeenAtEachAcquire).containsExactly(0L);
         assertThat(clinician.profile().userName()).isEqualTo(CLINICIAN);
+        assertThat(clinician.profile().displayName()).isEqualTo(CLINICIAN_DISPLAY_NAME);
         assertThat(clinician.isProtectedFromWrites()).isFalse();
         assertThat(clinician.login().isPasswordChangeRequired()).isFalse();
         assertThat(passwordEncoder.matches(FIXTURE_PASSWORD, clinician.login().passwordHash()))
@@ -729,21 +736,34 @@ class ScimSeedServiceTests {
         assertThat(groups.findGroupsOfUser(clinician.id())).isEmpty();
     }
 
+    /** With no displayName given, its displayName is its userName, as every other fixture's is. */
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = " ")
+    void the_epic_clinician_fixture_without_a_display_name_is_shown_by_its_user_name(
+            String displayName) {
+        seeding.seedEpicClinicianFixture(CLINICIAN, displayName, FIXTURE_PASSWORD);
+
+        assertThat(users.require(CLINICIAN).profile().displayName()).isEqualTo(CLINICIAN);
+    }
+
     /** Created when absent and otherwise left alone, like every other fixture User. */
     @Test
     void the_epic_clinician_fixture_never_overwrites() {
         ScimUser existing = users.given(ScimIdentities.user(CLINICIAN));
 
-        seeding.seedEpicClinicianFixture(CLINICIAN, "another-password");
+        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, "another-password");
 
         assertThat(users.require(CLINICIAN).login().passwordHash())
                 .isEqualTo(existing.login().passwordHash());
+        assertThat(users.require(CLINICIAN).profile().displayName())
+                .isEqualTo(existing.profile().displayName());
         assertThat(passwordEncoder.encodes).isZero();
     }
 
     @Test
     void the_epic_clinician_fixture_is_refused_without_a_password() {
-        assertThatThrownBy(() -> seeding.seedEpicClinicianFixture(CLINICIAN, " "))
+        assertThatThrownBy(() -> seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, " "))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
         assertThat(users.size()).isZero();

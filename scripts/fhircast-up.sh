@@ -37,12 +37,13 @@ fhir_base="${base_url}fhir/R4"
 clinician_id="$(compose_env compose medplum-init SEED_CLINICIAN_ID)"
 clinician_email="$(compose_env compose medplum-init SEED_CLINICIAN_EMAIL)"
 clinician_password="$(compose_env compose medplum-init SEED_CLINICIAN_PASSWORD)"
+clinician_display_name="Dr. $(compose_env compose medplum-init SEED_CLINICIAN_FIRST_NAME) $(compose_env compose medplum-init SEED_CLINICIAN_LAST_NAME)"
 launch_uri="$(compose_env compose medplum-init SEED_CLIENT_LAUNCH_URI)"
 launch_url="${launch_uri}?iss=${fhir_base}&launch=${FHIRCAST_LAUNCH_ID}"
 
 # The fixtures' clinician User is named by the Practitioner id, which compose.yaml
-# alone chooses (SEED_CLINICIAN_ID): the backend takes it from here rather than
-# from a copy of its own.
+# alone chooses (SEED_CLINICIAN_ID), and shown by the Practitioner's name with its
+# salutation: the backend takes both from here rather than from a copy of its own.
 log "keeping the managed block in backend/.env"
 written="$(node "$BACKEND_DIR/fhircast-shim/src/write-env-block.mjs" "$env_file" \
   "SPRING_PROFILES_ACTIVE=local" \
@@ -52,7 +53,8 @@ written="$(node "$BACKEND_DIR/fhircast-shim/src/write-env-block.mjs" "$env_file"
   "APP_EPIC_CLIENT_ID=$FHIRCAST_CLIENT_ID" \
   "APP_EPIC_REDIRECT_URI=$(compose_env compose medplum-init SEED_CLIENT_REDIRECT_URIS | cut -d, -f1)" \
   "APP_DEV_FIXTURES_ENABLED=true" \
-  "APP_DEV_FIXTURES_EPIC_CLINICIAN=$clinician_id")" ||
+  "APP_DEV_FIXTURES_EPIC_CLINICIAN=$clinician_id" \
+  "APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME=$clinician_display_name")" ||
   die "could not write the managed block to backend/.env — see above."
 block_changed="$(sed -n 's/^ENV_BLOCK_CHANGED=//p' <<<"$written")"
 key_generated="$(sed -n 's/^ENV_BLOCK_KEY_GENERATED=//p' <<<"$written")"
