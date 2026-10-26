@@ -37,7 +37,11 @@ presents no password of this service's, so the imposed credential the flag marks
 is not what it used, and it receives the authorities the User would hold with the
 flag clear (ADR 0008). A User who only ever signs in
 through Epic therefore never has to replace the imposed password; that password
-still buys only a confined session.
+still buys only a confined session. Whether a Login is confined is read from the
+flag as stored when the Login is decided under the User's lock — the same reading
+that decides whether the Login moves the dormancy basis — so a change required
+while the password was being compared confines the session it issues, and the
+session and the basis can never disagree about it.
 
 **Only an Unlock requires a change administratively** — an Unlock of a locked
 User is the one administrative action that sets the change-required flag, so the

@@ -44,6 +44,17 @@ tells whether an account exists. A locked or deactivated User is refused only
 after its submitted password has been compared, exactly as a wrong password is,
 so its refusal takes no less work than any other.
 
+**A Login's refusal belongs to the User its one read found** — the authentication
+reads the User by name once, and every refusal of that Login, whether the
+authentication made it (wrong password, locked, deactivated, no password) or the
+decision under the User's lock did, is counted and audited against that User by
+stable id, or against nobody (`UNKNOWN_ACCOUNT`) when the read found no User. The
+submitted name is never looked up again, so a directory rename landing during the
+password comparison — one User renamed away, another given its old name — cannot
+move the failure, a Lockout it imposes, its session revocation or the
+`LOGIN_FAILURE`'s subject onto the other User. Naming the User costs no lookup
+and no comparison: the authentication records it as it reads.
+
 **An accepted Login is a success only once its session is signed in** — by
 either login method, the operational log's "Login accepted" and the `login`
 success count are written after the session is established, and name it by its
@@ -61,7 +72,9 @@ the run and returns the count to zero; a login it rejects lengthens it, and so
 does a wrong current password on the self-service password change. An unknown
 username has no run, because nothing is recorded for a name that names no User;
 nor does a User with no password, by either route, because there is no password
-to guess.
+to guess. Both exemptions — no password, and the Bootstrap Admin's below — are the
+login-state module's, decided on the state it reads under the User's lock
+(`LoginStateService.failureCounted`), never by a caller on the copy it read before.
 Concurrent events on one User — failures, a Login, a password change, an Unlock,
 the dormancy lock — are serialized on the User's lock, each deciding from the run
 as the one before it left it, so none is lost and they end as some serial order of
@@ -97,6 +110,20 @@ clock. A lock keeps the cause it was first imposed for.
   A User both locked and deactivated is refused as locked, by every Login and by
   the self-service password change alike: the login-state module decides the
   standing, in that one order (`LoginStateService.StandingRefusal`).
+- A password replaced during the comparison refuses the Login too. The same
+  decision under the lock confirms that the stored credential is still the one
+  the authentication compared the password against — a salted hash differs on
+  every write, so a password set again to the same value counts as replaced. If a
+  connector, an Admin or the User's own change elsewhere replaced it, the
+  submitted password is by then simply wrong: the Login is refused as
+  `BAD_CREDENTIALS`, audited as a `LOGIN_FAILURE` naming the User, and counted on
+  the failure run exactly as a rejected password is, a Lockout included at the
+  limit. Nothing of the success is written — no cleared run, no moved dormancy
+  basis, no `LOGIN_SUCCESS`, no other session revoked, no session issued — so the
+  replacement's own revocation of the User's sessions is never undone by a Login
+  that was in flight. The standing is decided first: a User locked as well is
+  refused as locked. An Epic Login presents no password of this service's, so it
+  is never refused by this check.
 - Imposing it **revokes the User's live sessions**, after the transaction
   commits, so a locked User stops acting immediately rather than when the session
   it already held expires.

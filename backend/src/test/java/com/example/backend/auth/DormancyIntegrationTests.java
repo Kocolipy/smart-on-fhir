@@ -207,7 +207,7 @@ class DormancyIntegrationTests {
                         .containsEntry("outcome", "SUCCESS")
                         .containsEntry("actor_id", null));
         assertThat(logins.logIn("dormancy-lockout", PASSWORD).outcome())
-                .isEqualTo(new PasswordRefused("dormancy-lockout", PasswordRefusalReason.ACCOUNT_LOCKED));
+                .isEqualTo(new PasswordRefused(ada, PasswordRefusalReason.ACCOUNT_LOCKED));
     }
 
     @Test

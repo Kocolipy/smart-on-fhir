@@ -62,59 +62,40 @@ public class LoginAttemptService {
     }
 
     /**
-     * Counts a rejected attempt against {@code username}, locking the identity once the policy's
-     * limit is reached — and never locking the Bootstrap Admin, whose failures are counted and
-     * audited like anyone's but cannot close the deployment's last way in.
+     * Counts a refused password Login against the User the authentication's one read resolved,
+     * and records its {@code LOGIN_FAILURE} — whether the authentication refused it or the login
+     * decision under the User's lock did. What the attempt does to the failure run is the
+     * login-state module's ({@link LoginStateService#failureCounted}): the run lengthens, a Lockout
+     * is imposed at the policy's limit — never on the Bootstrap Admin, recognised by its
+     * reservation marker — and a User already locked, or with no password to guess, is counted
+     * nothing.
      *
-     * <p>The exemption is read off the User's own reservation marker rather than by comparing its
-     * name to a configured string. That is the substantive change from the account aggregate's
-     * version of this method: the identity that must never lock is recognised by what it IS, so a
-     * rename cannot move the exemption and a second identity cannot acquire it by taking the
-     * configured name.
+     * <p>The User is named by its stable id, never looked up again by the submitted name: a
+     * directory rename landing after the authentication's read cannot move the failure, a Lockout
+     * or its revocation onto whichever User holds the name by then.
      *
-     * <p>An unknown username is ignored rather than recorded. Nothing is created for it, so a caller
-     * cannot learn from timing or from stored state whether the name exists. It still produces a
+     * <p>A name the read found no User for is recorded rather than counted. Nothing is created for
+     * it, so a caller cannot learn from stored state whether the name exists. It still produces a
      * {@code LOGIN_FAILURE} event — with no subject, because there is no identity to name and the
      * submitted username is the one thing that must not be recorded in its place. An administrator
      * reading a run of subject-less failures is seeing attempts against names that do not exist,
-     * which is exactly the distinction worth having.
-     *
-     * <p>A User with no password is recorded but not counted: there is no password to guess, so
-     * attempts against it lengthen no failure run, and can never lock out a User who signs in only
-     * through Epic.
+     * which is exactly the distinction worth having. A User gone by the time this runs is recorded
+     * the same way.
      *
      * <p>Every append on this path is fail-open: the caller is already receiving a bare {@code 401}
      * and a trail that cannot be written must not change that answer. See {@link AuditTrail}.
      *
+     * @param userId the stable id of the User the authentication's read resolved, or {@code null}
+     *     when it found none
      * @return the reason the {@code LOGIN_FAILURE} was recorded under: {@code reason} as
-     *     {@link PasswordRefusalReason#settled} settles it — {@code UNKNOWN_ACCOUNT} when the
-     *     name matched no User
+     *     {@link PasswordRefusalReason#settled} settles it — {@code UNKNOWN_ACCOUNT} when no User
+     *     was resolved, or none has that id any longer
      */
     @Transactional
-    public PasswordRefusalReason recordFailure(String username, PasswordRefusalReason reason) {
-        return recordFailure(find(username), reason);
-    }
-
-    /**
-     * {@link #recordFailure(String, PasswordRefusalReason)} for a Login refused after its
-     * authentication, on the standing found under the User's lock: counted against the User the
-     * authentication resolved, by its stable id, never looked up again by name — a directory
-     * rename landing in between cannot move the failure, or a Lockout, onto whichever User holds
-     * the name by then. A User gone by then is recorded as an unknown name's refusal is.
-     *
-     * @param userId the stable id of the User the Login authenticated
-     */
-    @Transactional
-    public PasswordRefusalReason recordRefusalOnStanding(
-            UUID userId, PasswordRefusalReason reason) {
-        return recordFailure(users.findById(userId), reason);
-    }
-
-    private PasswordRefusalReason recordFailure(
-            Optional<ScimUser> found, PasswordRefusalReason reason) {
+    public PasswordRefusalReason recordFailure(UUID userId, PasswordRefusalReason reason) {
+        Optional<ScimUser> found = Optional.ofNullable(userId).flatMap(users::findById);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
         Set<AuditLoginStateAttribute> moved = found
-                .filter(user -> user.login().hasPassword())
                 .map(loginState::failureCounted)
                 .map(LoginStateChange::moved)
                 .orElse(Set.of());
@@ -144,22 +125,27 @@ public class LoginAttemptService {
      * silently skipped.
      *
      * <p>The authentication refused a locked or deactivated User on a read taken before the
-     * User's lock, so a Lockout or a deactivation committed while the password was being compared
-     * reaches here. The login-state module re-reads the standing under the lock and refuses such a
-     * Login ({@link LoginStateService#credentialVerified}); then nothing at all is written here —
-     * no cleared run, no {@code LOGIN_SUCCESS}, no sweep — and the refusal is handed back for the
-     * caller to record as the refusal the authentication would have made a moment later.
+     * User's lock, and compared the password against the credential that read found, so a
+     * Lockout, a deactivation or a replaced password committed while the password was being
+     * compared reaches here. The login-state module decides the Login once more under the lock
+     * ({@link LoginStateService#credentialVerified}) and refuses such a Login; then nothing at all
+     * is written here — no cleared run, no {@code LOGIN_SUCCESS}, no sweep — and the refusal is
+     * handed back for the caller to record: as the refusal the authentication would have made a
+     * moment later, or, for a replaced credential, as the wrong password it now is.
      *
      * @param userId            the stable id of the User the Login authenticated
+     * @param credential        the stored credential the authentication compared the password
+     *     against, which the module confirms is still the stored one
      * @param retainedSessionId the id the caller's own session is stored under, which the login
      *     continues in and so is the one session kept; {@code null} when the caller holds none
-     * @return the standing the Login was refused on, or empty when it was accepted and recorded
+     * @return the decision: why the Login was refused, or that it was accepted and recorded, and
+     *     whether its session is confined
      * @throws IllegalStateException if no User has {@code userId}
      */
     @Transactional
-    public Optional<LoginStateService.StandingRefusal> recordPasswordSuccess(
-            UUID userId, String retainedSessionId) {
-        return recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.PASSWORD,
+    public LoginStateService.Verification recordPasswordSuccess(UUID userId,
+            LoginStateService.VerifiedCredential credential, String retainedSessionId) {
+        return recordSuccess(userId, retainedSessionId, credential,
                 user -> audit.append(new Audited.LoginSuccess(
                         user.id(), AuditLoginMethod.PASSWORD)));
     }
@@ -169,49 +155,52 @@ public class LoginAttemptService {
      * run cleared, dormancy basis moved, {@code LOGIN_SUCCESS} fail-closed, other sessions revoked
      * after commit — and differing in the method its {@code LOGIN_SUCCESS} names (D15), the MFA
      * factor it carries (D17), and in moving the dormancy basis even while the User's
-     * change-required flag is set. An Epic Login is never confined by the flag
-     * ({@link LoginIdentityService#loadEpicLinkedUser}), so it is real use of the account. The flag
-     * itself is left set: only a successful password change clears it. Refused on the standing
-     * found under the User's lock exactly as a password Login's success is.
+     * change-required flag is set. An Epic Login is never confined by the flag, so it is real use
+     * of the account. The flag itself is left set: only a successful password change clears it.
+     * Refused on the standing found under the User's lock exactly as a password Login's success
+     * is; it presented no credential of ours, so none can have been replaced.
      *
      * @param mfaFactor the MFA factor the Epic Login was made with
-     * @return the standing the Login was refused on, or empty when it was accepted and recorded
+     * @return the decision: the standing the Login was refused on, or that it was accepted and
+     *     recorded, never confined
      */
     @Transactional
-    public Optional<LoginStateService.StandingRefusal> recordEpicSuccess(
+    public LoginStateService.Verification recordEpicSuccess(
             UUID userId, String retainedSessionId, AuditMfaFactor mfaFactor) {
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
-        return recordSuccess(userId, retainedSessionId, LoginStateService.LoginKind.EPIC,
+        return recordSuccess(userId, retainedSessionId, LoginStateService.VerifiedCredential.epic(),
                 user -> audit.append(new Audited.LoginSuccess(
                         user.id(), AuditLoginMethod.SSO, mfaFactor)));
     }
 
     /**
-     * @param kind the kind of Login, which {@link LoginStateService} reads to decide whether it is
-     *     confined and so whether it moves the dormancy basis
+     * @param credential what the authentication verified, which {@link LoginStateService} confirms
+     *     under the lock and asks whether the Login is confined, and so whether it moves the
+     *     dormancy basis
      */
-    private Optional<LoginStateService.StandingRefusal> recordSuccess(UUID userId,
-            String retainedSessionId, LoginStateService.LoginKind kind,
+    private LoginStateService.Verification recordSuccess(UUID userId, String retainedSessionId,
+            LoginStateService.VerifiedCredential credential,
             Consumer<ScimUser> recordLoginSuccess) {
         ScimUser user = users.findById(userId).orElseThrow(() ->
                 new IllegalStateException("the authenticated User no longer exists"));
-        LoginStateService.Verification verified = loginState.credentialVerified(user, kind);
-        if (verified.refused()) {
-            return Optional.of(verified.refusal());
+        LoginStateService.Verification verification =
+                loginState.credentialVerified(user, credential);
+        if (verification.refused()) {
+            return verification;
         }
         recordLoginSuccess.accept(user);
         sessions.revokeOtherSessionsAfterCommit(user.id(), retainedSessionId);
-        return Optional.empty();
+        return verification;
     }
 
     /**
      * Counts a self-service password change whose current password did not verify, exactly as a
      * rejected login is counted — the same failure run, the same threshold, the same lock and the
      * same session revocation on imposing it — so the change endpoint is not a second guessing
-     * surface beside the login one. The Bootstrap Admin's run is counted and never locks, as on
-     * the login path. A User with no password is recorded but not counted, as on the login path:
-     * there is no password to guess, so a User who signs in only through Epic can never be locked
-     * out from here.
+     * surface beside the login one. The login-state module decides the run as it does on the
+     * login path ({@link LoginStateService#failureCounted}): the Bootstrap Admin's is counted and
+     * never locks, and a User with no password is recorded but counted nothing, so a User who signs
+     * in only through Epic can never be locked out from here.
      *
      * <p>Recorded as a refused {@code PASSWORD_CHANGE} rather than a {@code LOGIN_FAILURE}: the
      * attempt was made from inside an authenticated session, and a reader separating the two needs
@@ -224,24 +213,8 @@ public class LoginAttemptService {
             return;
         }
         ScimUser user = found.get();
-        Set<AuditLoginStateAttribute> moved = user.login().hasPassword()
-                ? loginState.failureCounted(user).moved()
-                : Set.of();
+        Set<AuditLoginStateAttribute> moved = loginState.failureCounted(user).moved();
         audit.append(new Audited.PasswordChangeRefused(
                 user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, moved));
-    }
-
-    /**
-     * The identity behind a submitted name, looked up on the normalized form uniqueness is decided
-     * on.
-     *
-     * <p>A name that can name no User — a blank one, which reaches here only if the web adapter's
-     * validation was bypassed, or one with whitespace at an edge — is nobody rather than an error,
-     * decided by the same rule the authentication's own lookup used
-     * ({@link LoginIdentityService#lookupKeyOf}) and before any lookup. So a failure for
-     * {@code ada } is never counted against {@code ada}, even on an engine that would match them.
-     */
-    private Optional<ScimUser> find(String username) {
-        return LoginIdentityService.lookupKeyOf(username).flatMap(users::findByNormalizedUserName);
     }
 }

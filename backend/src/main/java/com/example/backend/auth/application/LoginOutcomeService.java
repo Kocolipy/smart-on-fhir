@@ -42,9 +42,9 @@ import org.springframework.stereotype.Service;
  *       refused" with the field and rule of a refused input — but never the reason, which is
  *       the audit trail's alone (Logging §2.2; ADR 0012, "the account reasons are audit-only");
  *       and {@code login} {@code outcome=refused} with the reason. A password Login's refusal
- *       is counted toward the failure run of the User it named — by name, or by stable id for
- *       one refused after authentication — and its {@code LOGIN_FAILURE} names that User, or
- *       nobody, as {@code UNKNOWN_ACCOUNT}, when it matched none. An
+ *       is counted toward the failure run of the User the authentication's one read resolved,
+ *       by stable id, and its {@code LOGIN_FAILURE} names that User, or nobody, as
+ *       {@code UNKNOWN_ACCOUNT}, when the read found none. An
  *       Epic Login's names the refused User, if the login decision found one, and counts toward
  *       no failure run (D12). A refusal that was an Epic call answering with something unusable
  *       is also that call's {@code ERROR}, followed up: a key or a registration is likely wrong.
@@ -114,9 +114,8 @@ public class LoginOutcomeService {
     }
 
     private void passwordRefused(PasswordRefused refused, String sessionHash) {
-        PasswordRefusalReason recorded = refused.subjectId() != null
-                ? attempts.recordRefusalOnStanding(refused.subjectId(), refused.reason())
-                : attempts.recordFailure(refused.username(), refused.reason());
+        PasswordRefusalReason recorded =
+                attempts.recordFailure(refused.subjectId(), refused.reason());
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             refusedWarning(Operation.LOGIN, refused, sessionHash).log();
         }

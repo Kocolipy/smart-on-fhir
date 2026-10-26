@@ -1,8 +1,10 @@
 package com.example.backend.auth.application;
 
+import java.util.Collection;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 
@@ -25,6 +27,13 @@ public final class LoginPrincipal extends User {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * What a principal issued with no credential is constructed with, before it is erased:
+     * Spring Security's {@code User} refuses a {@code null}. Not a credential: nothing compares
+     * against it.
+     */
+    private static final String NO_CREDENTIAL = "";
+
     private final UUID userId;
 
     LoginPrincipal(UUID userId, UserDetails details) {
@@ -32,6 +41,26 @@ public final class LoginPrincipal extends User {
                 details.isAccountNonExpired(), details.isCredentialsNonExpired(),
                 details.isAccountNonLocked(), details.getAuthorities());
         this.userId = Objects.requireNonNull(userId, "an authenticated User has a stable id");
+    }
+
+    /**
+     * The User {@code userId}, named {@code username}, holding {@code authorities} and no
+     * credential: a principal issued from an authentication rather than read from the directory,
+     * so it carries no password, and its account standing is the accepted Login's.
+     */
+    private LoginPrincipal(
+            UUID userId, String username, Collection<? extends GrantedAuthority> authorities) {
+        super(username, NO_CREDENTIAL, authorities);
+        this.userId = Objects.requireNonNull(userId, "an authenticated User has a stable id");
+        eraseCredentials();
+    }
+
+    /**
+     * This principal holding {@code authorities} in place of its own, and no credential: the
+     * same User, by the same stable id and {@code userName}.
+     */
+    LoginPrincipal holding(Collection<? extends GrantedAuthority> authorities) {
+        return new LoginPrincipal(userId, getUsername(), authorities);
     }
 
     /** The authenticated User's stable id: its SCIM resource id. */

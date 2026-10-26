@@ -16,7 +16,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.FactorGrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -84,16 +87,17 @@ public class LoginIdentityService implements UserDetailsService {
     /**
      * The only authority a password Login by a User with a pending required password change
      * receives: it may read its own requirement, submit the change and log out, and nothing else.
-     * An Epic Login is not confined by the flag ({@link #loadEpicLinkedUser}). Deliberately not a role and
-     * not combined with {@code ROLE_USER} or any Permission — a flagged Superuser holds no
+     * An Epic Login is not confined by the flag ({@link #loadEpicLinkedUser}). Deliberately not a
+     * role and not combined with {@code ROLE_USER} or any Permission — a flagged Superuser holds no
      * administrative authority until the credential is replaced, and the filter chain, which grants
      * every other application endpoint to {@code ROLE_USER} or a Permission only, refuses it
      * everywhere else.
      *
-     * <p>Decided here, at authentication, rather than per request: the flag is not enumerable before
-     * login (the User authenticates normally), and a session carries the authority it was issued
-     * with, so clearing the flag takes effect at the next login — which the change forces, by
-     * revoking every session.
+     * <p>Decided at login, on the state the login-state module reads under the User's lock
+     * ({@link #issued}), rather than per request: the flag is not enumerable before login (the User
+     * authenticates normally), and a session carries the authority it was issued with, so
+     * clearing the flag takes effect at the next login — which the change forces, by revoking
+     * every session.
      */
     public static final String PASSWORD_CHANGE_REQUIRED_AUTHORITY = "PASSWORD_CHANGE_REQUIRED";
 
@@ -128,7 +132,10 @@ public class LoginIdentityService implements UserDetailsService {
      * is submitted: it is reported as no User at all. {@code DaoAuthenticationProvider} then
      * refuses it as it refuses an unknown name, never by authenticating, after one comparison
      * against its own dummy hash, so the refusal costs what a wrong password's does; and it hides
-     * the refusal behind a wrong password, as which the Login records it, naming the User.
+     * the refusal behind a wrong password, as which the Login records it, naming the User — the
+     * report ({@link NoPasswordLoginException}) carries the User's stable id, which
+     * {@link PasswordLoginProvider} hands the Login, so the refusal is recorded against the User
+     * this read found without the name being looked up again.
      *
      * <p>The lookup is by the NORMALIZED userName, which is what uniqueness is decided on, so a
      * correct password is not refused because of how the name was typed. The returned
@@ -138,10 +145,35 @@ public class LoginIdentityService implements UserDetailsService {
     @Override
     public LoginPrincipal loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
-                .filter(found -> found.login().hasPassword())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return userDetailsOf(
-                user, user.login().passwordHash(), LoginStateService.LoginKind.PASSWORD);
+        if (!user.login().hasPassword()) {
+            throw new NoPasswordLoginException(user.id());
+        }
+        return userDetailsOf(user, user.login().passwordHash());
+    }
+
+    /**
+     * The report of a User found with no password: to Spring Security, no User at all — the same
+     * {@link UsernameNotFoundException}, with the same message, an unknown name gets — carrying the
+     * stable id of the User found, so the refusal is recorded against it
+     * ({@link PasswordLoginProvider}). The id is not a secret, and the exception goes no further
+     * than the login decision.
+     */
+    static final class NoPasswordLoginException extends UsernameNotFoundException {
+
+        private static final long serialVersionUID = 1L;
+
+        private final UUID userId;
+
+        NoPasswordLoginException(UUID userId) {
+            super("User not found");
+            this.userId = userId;
+        }
+
+        /** The stable id of the User found, which has no password. */
+        UUID userId() {
+            return userId;
+        }
     }
 
     /**
@@ -168,34 +200,54 @@ public class LoginIdentityService implements UserDetailsService {
         return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
                 .filter(user -> user.profile().userName().equals(practitionerId))
                 .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
-                .map(user -> userDetailsOf(user, NO_PASSWORD, LoginStateService.LoginKind.EPIC));
+                .map(user -> userDetailsOf(user, NO_PASSWORD));
     }
 
     /**
      * The User as a {@link LoginPrincipal}: Spring Security's view of it, carrying the stable id
-     * the rest of the Login works from, so nothing after authentication reads the User by name.
+     * the rest of the Login works from, so nothing after authentication reads the User by name,
+     * and the authorities its Groups confer.
      *
-     * <p>Whether the session is confined is the login-state module's rule
-     * ({@link LoginStateService#confines}), the same answer that decides whether the Login moves
-     * the dormancy basis, so the two halves of a Login cannot disagree about it. Asking it writes
-     * nothing.
+     * <p>Not whether the session is confined: that is decided once, under the User's lock, on the
+     * state the login-state module reads there ({@link LoginStateService#credentialVerified}),
+     * and applied by {@link #issued} — not from this read, which a change required while the
+     * password was compared would leave behind.
      */
-    private LoginPrincipal userDetailsOf(
-            ScimUser user, String password, LoginStateService.LoginKind kind) {
-        User.UserBuilder builder = User.withUsername(user.profile().userName())
-                .password(password);
-        if (LoginStateService.confines(kind, user.login())) {
-            builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
-        } else {
-            builder.authorities(authoritiesOf(user));
-        }
-        return new LoginPrincipal(user.id(), builder
+    private LoginPrincipal userDetailsOf(ScimUser user, String password) {
+        return new LoginPrincipal(user.id(), User.withUsername(user.profile().userName())
+                .password(password)
+                .authorities(authoritiesOf(user))
                 .accountLocked(user.login().isLocked())
                 // `active` is what the administrative listing reports, so authentication has to
                 // honour it: an inactive User that could still log in would make the listing a
                 // lie.
                 .disabled(!user.profile().active())
                 .build());
+    }
+
+    /**
+     * The authentication an accepted Login's session is issued with: {@code authenticated} as it
+     * stands, or — when the login decision under the User's lock found the Login confined
+     * ({@link LoginStateService.Verification#confined}) — narrowed to
+     * {@link #PASSWORD_CHANGE_REQUIRED_AUTHORITY} alone, principal and token alike. Only the
+     * authentication factor Spring Security recorded beside the authorities
+     * ({@link FactorGrantedAuthority}) is kept, since it says how the User authenticated, not what
+     * it may do. Confinement is therefore the very answer that left the dormancy basis unmoved.
+     *
+     * @param authenticated the authentication the Login's credential was verified with, whose
+     *     principal is a {@link LoginPrincipal} with its credential already erased
+     */
+    Authentication issued(Authentication authenticated, boolean confined) {
+        if (!confined) {
+            return authenticated;
+        }
+        LoginPrincipal narrowed = ((LoginPrincipal) authenticated.getPrincipal()).holding(
+                List.of(new SimpleGrantedAuthority(PASSWORD_CHANGE_REQUIRED_AUTHORITY)));
+        List<GrantedAuthority> authorities = new ArrayList<>(narrowed.getAuthorities());
+        authenticated.getAuthorities().stream()
+                .filter(FactorGrantedAuthority.class::isInstance)
+                .forEach(authorities::add);
+        return UsernamePasswordAuthenticationToken.authenticated(narrowed, null, authorities);
     }
 
     /**
@@ -272,10 +324,11 @@ public class LoginIdentityService implements UserDetailsService {
      * either, since the directory refuses such a {@code userName}; and on an engine that ignores
      * trailing spaces ({@link EdgeWhitespace} says which and why) {@code alice } would find
      * {@code alice}, sign in as her and lengthen her failure run. Refused here, it is an unknown
-     * account on every engine. The password Login's lookup and its failure counting both take their key from
-     * this one rule, so the two cannot disagree about who an attempt was against.
+     * account on every engine. The password Login's one lookup takes its key from this rule, and
+     * its failure is counted against the User that lookup found, so the two cannot disagree
+     * about who an attempt was against.
      */
-    static Optional<NormalizedUserName> lookupKeyOf(String username) {
+    private static Optional<NormalizedUserName> lookupKeyOf(String username) {
         if (username == null || username.isBlank() || EdgeWhitespace.borders(username)) {
             return Optional.empty();
         }
