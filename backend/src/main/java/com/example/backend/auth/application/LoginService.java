@@ -64,12 +64,20 @@ public class LoginService {
      *
      * <p>Spring Security's check of a locked or deactivated account reads the User before the
      * login-state lock, and the password comparison after it takes long enough for another
-     * attempt's Lockout, or a connector's deactivation, to commit in between. The success is
-     * therefore decided once more on the standing read under the lock
-     * ({@link LoginAttemptService#recordPasswordSuccess}); a Login refused there ends as the
-     * refusal the check would have made a moment later — {@code ACCOUNT_LOCKED} or
-     * {@code ACCOUNT_DISABLED}, recorded and counted exactly as that refusal is — so it never
-     * lifts the Lockout it lost the race to (ADR 0007).
+     * attempt's Lockout, a connector's deactivation, or a replacement of the very password being
+     * compared, to commit in between. The success is therefore decided once more on the state
+     * read under the lock ({@link LoginAttemptService#recordPasswordSuccess}); a Login refused
+     * there ends as the refusal the check would have made a moment later — {@code ACCOUNT_LOCKED}
+     * or {@code ACCOUNT_DISABLED}, recorded and counted exactly as that refusal is — so it never
+     * lifts the Lockout it lost the race to (ADR 0007), or, for a replaced password, as the wrong
+     * password it is by then: {@code BAD_CREDENTIALS}, counted on the failure run. Whether the
+     * session it issues is confined is read from that same decision, never from the read before
+     * the lock.
+     *
+     * <p>Every refusal is counted and audited against the User the authentication's one read
+     * resolved, by stable id — the authentication tells this which, as it reads
+     * ({@link PasswordLoginAttempt}) — or against nobody when that read found no User; the
+     * submitted name is never looked up again.
      *
      * <p>A refusal is recorded here, through {@link LoginOutcomeService}, the one module that
      * records how a Login ended by either method, so no caller can refuse a Login without the
@@ -105,13 +113,16 @@ public class LoginService {
      *     it holds none
      */
     public LoginDecision logIn(String username, String password, String retainedSessionId) {
+        PasswordLoginAttempt attempt = new PasswordLoginAttempt(username, password);
         Authentication authentication;
         try {
-            authentication = authenticationManager.authenticate(
-                    UsernamePasswordAuthenticationToken.unauthenticated(username, password));
+            authentication = authenticationManager.authenticate(attempt);
         } catch (AuthenticationException refused) {
-            PasswordRefused refusal =
-                    new PasswordRefused(username, PasswordRefusalReason.reportedFor(refused));
+            // Against the User the authentication's one read resolved, by stable id, or nobody:
+            // the submitted name is never looked up again, so a rename landing since the read
+            // cannot move the refusal, or the Lockout it may impose, onto another User.
+            PasswordRefused refusal = new PasswordRefused(
+                    attempt.resolvedUserId(), PasswordRefusalReason.reportedFor(refused));
             outcomes.record(refusal, retainedSessionId);
             return new LoginDecision(refusal, Optional.empty());
         }
@@ -121,19 +132,21 @@ public class LoginService {
         // move to another User in between. Outside the catch above on purpose: a failure
         // recording the success is not a refusal, and must not be reported to the caller as one.
         UUID userId = LoginPrincipal.userIdOf(authentication);
-        Optional<LoginStateService.StandingRefusal> refusedOnStanding =
-                attempts.recordPasswordSuccess(userId, retainedSessionId);
-        if (refusedOnStanding.isPresent()) {
-            // A Lockout or a deactivation committed while the password was being compared: the
-            // refusal the authentication would have made a moment later, recorded as it would
-            // have been — through the failure path, which counts nothing against a locked User —
-            // but against the stable id, as the success would have been.
-            PasswordRefused refusal =
-                    PasswordRefused.of(userId, refusedOnStanding.get().passwordReason());
+        LoginStateService.Verification verification = attempts.recordPasswordSuccess(
+                userId, attempt.verifiedCredential(), retainedSessionId);
+        if (verification.refused()) {
+            // A Lockout or a deactivation committed while the password was being compared — the
+            // refusal the authentication would have made a moment later — or a password replaced
+            // meanwhile, which makes the submitted one wrong: recorded as that refusal is,
+            // through the failure path, which counts nothing against a locked User and counts a
+            // wrong password, against the stable id, as the success would have been.
+            PasswordRefused refusal = new PasswordRefused(userId, verification.passwordRefusal());
             outcomes.record(refusal, retainedSessionId);
             return new LoginDecision(refusal, Optional.empty());
         }
-        return LoginDecision.signedIn(accepted(authentication, SignedIn.password(userId)));
+        return LoginDecision.signedIn(accepted(
+                identities.issued(authentication, verification.confined()),
+                SignedIn.password(userId)));
     }
 
     /**
@@ -192,16 +205,17 @@ public class LoginService {
                         user, null, user.getAuthorities());
         // As ProviderManager does for a password Login: the session never carries the hash.
         authentication.eraseCredentials();
-        Optional<LoginStateService.StandingRefusal> refusedOnStanding =
+        LoginStateService.Verification verification =
                 attempts.recordEpicSuccess(user.userId(), retainedSessionId, mfaFactor);
-        if (refusedOnStanding.isPresent()) {
+        if (verification.refused()) {
             // Locked or deactivated, decided once, under the User's lock and in the module's one
             // order: the read above is not checked first, so the two cannot disagree.
-            return refused(EpicRefused.account(user.userId(), refusedOnStanding.get().epicReason()),
+            return refused(EpicRefused.account(user.userId(), verification.refusal().epicReason()),
                     retainedSessionId);
         }
-        return LoginDecision.signedIn(
-                accepted(authentication, SignedIn.epic(user.userId(), mfaFactor)));
+        return LoginDecision.signedIn(accepted(
+                identities.issued(authentication, verification.confined()),
+                SignedIn.epic(user.userId(), mfaFactor)));
     }
 
     private LoginDecision refused(EpicRefused refusal, String retainedSessionId) {

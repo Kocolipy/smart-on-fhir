@@ -15,6 +15,7 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,7 +23,10 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.FactorGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
@@ -420,14 +424,14 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * A User with a required password change authenticates normally — the refusal is at
-     * authorization, so the state is not enumerable before login — but receives the confined
-     * authority ONLY: no {@code ROLE_USER}, no Permission, and in the Admin group not the
-     * Superuser either, whatever its Groups carry.
+     * A session the login decision found confined receives the confined authority ONLY: no
+     * {@code ROLE_USER}, no Permission, and in the Admin group not the Superuser either, whatever
+     * its Groups carry. Whether it is confined is the decision's, under the User's lock
+     * ({@code PasswordLoginUnderLockTests}); this is what the session is issued with once it is.
      */
     @ParameterizedTest(name = "a member of {0}")
     @ValueSource(strings = {"the Admin group", "a Group carrying Permissions"})
-    void aUserRequiredToChangeItsPasswordReceivesOnlyTheConfinedAuthority(String group) {
+    void aConfinedSessionReceivesOnlyTheConfinedAuthority(String group) {
         ScimUser grace = users.given(ScimIdentities.userWithLoginState(
                 "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
         if (group.equals("the Admin group")) {
@@ -437,13 +441,80 @@ class LoginIdentityServiceTests {
                     List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
         }
 
-        UserDetails details = mapped.loadUserByUsername("grace");
-
-        assertThat(authoritiesOf(details))
+        assertThat(mapped.issued(authenticated(mapped.loadUserByUsername("grace")), true)
+                        .getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
-        assertThat(details.isEnabled()).isTrue();
-        assertThat(details.isAccountNonLocked()).isTrue();
-        assertThat(details.getPassword()).isEqualTo("hash");
+    }
+
+    /** The confined session's principal holds what its token does, and nothing of the read's. */
+    @Test
+    void aConfinedSessionsPrincipalHoldsOnlyTheConfinedAuthority() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        givenAdminGroup(grace);
+
+        assertThat(authoritiesOf((UserDetails) mapped.issued(
+                        authenticated(mapped.loadUserByUsername("grace")), true).getPrincipal()))
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+    }
+
+    /** The confined session's principal still names its User by the stable id the read found. */
+    @Test
+    void aConfinedSessionsPrincipalCarriesTheUsersStableId() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+
+        assertThat(((LoginPrincipal) mapped.issued(
+                        authenticated(mapped.loadUserByUsername("grace")), true).getPrincipal())
+                .userId())
+                .isEqualTo(grace.id());
+    }
+
+    /** The confined session carries no credential, as an unconfined one does not. */
+    @Test
+    void aConfinedSessionCarriesNoCredential() {
+        users.given(ScimIdentities.user("grace"));
+
+        Authentication issued =
+                mapped.issued(authenticated(mapped.loadUserByUsername("grace")), true);
+
+        assertThat(List.of(Optional.ofNullable(issued.getCredentials()),
+                        Optional.ofNullable(((UserDetails) issued.getPrincipal()).getPassword())))
+                .containsOnly(Optional.empty());
+    }
+
+    /**
+     * The authentication factor Spring Security records beside the authorities says how the User
+     * authenticated, not what it may do, so a confined session keeps it.
+     */
+    @Test
+    void aConfinedSessionKeepsTheAuthenticationFactor() {
+        users.given(ScimIdentities.user("grace"));
+        LoginPrincipal read = mapped.loadUserByUsername("grace");
+        List<GrantedAuthority> withFactor = new ArrayList<>(read.getAuthorities());
+        withFactor.add(
+                FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
+
+        assertThat(mapped.issued(UsernamePasswordAuthenticationToken.authenticated(
+                        read, null, withFactor), true).getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactlyInAnyOrder(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY,
+                        FactorGrantedAuthority.PASSWORD_AUTHORITY);
+    }
+
+    /** An unconfined session is issued with the authentication exactly as it was verified. */
+    @Test
+    void anUnconfinedSessionIsIssuedAsAuthenticated() {
+        users.given(ScimIdentities.user("grace"));
+        Authentication verified = authenticated(mapped.loadUserByUsername("grace"));
+
+        assertThat(mapped.issued(verified, false)).isSameAs(verified);
+    }
+
+    /** As the provider authenticates {@code read}: its authorities, its credential erased. */
+    private static Authentication authenticated(LoginPrincipal read) {
+        read.eraseCredentials();
+        return UsernamePasswordAuthenticationToken.authenticated(
+                read, null, read.getAuthorities());
     }
 
     private static final UUID HELPDESK = UUID.fromString(

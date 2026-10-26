@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.scim.ScimIdentities;
@@ -174,7 +175,8 @@ class LoginStateSerializationIntegrationTests {
     void aSuccessRacingTheFailureThatLocksNeverLiftsTheLockout() throws Exception {
         ScimUser user = userWithFailures("serialized-success", threshold - 1);
         List<Callable<?>> both = new ArrayList<>(failedLogins(user, 1));
-        both.add(() -> attempts.recordPasswordSuccess(user.id(), null));
+        both.add(() -> attempts.recordPasswordSuccess(user.id(),
+                LoginStateService.VerifiedCredential.passwordHash(user.login().passwordHash()), null));
 
         race(user.id(), both, true);
 
@@ -194,7 +196,7 @@ class LoginStateSerializationIntegrationTests {
         List<Callable<?>> logins = new ArrayList<>();
         for (int login = 0; login < count; login++) {
             logins.add(() -> attempts.recordFailure(
-                    user.profile().userName(), PasswordRefusalReason.BAD_CREDENTIALS));
+                    user.id(), PasswordRefusalReason.BAD_CREDENTIALS));
         }
         return logins;
     }
@@ -268,8 +270,7 @@ class LoginStateSerializationIntegrationTests {
                         userName + "-" + UUID.randomUUID().toString().substring(0, 8))));
         created.add(stored.id());
         for (int failure = 0; failure < failures; failure++) {
-            attempts.recordFailure(
-                    stored.profile().userName(), PasswordRefusalReason.BAD_CREDENTIALS);
+            attempts.recordFailure(stored.id(), PasswordRefusalReason.BAD_CREDENTIALS);
         }
         return users.findById(stored.id()).orElseThrow();
     }

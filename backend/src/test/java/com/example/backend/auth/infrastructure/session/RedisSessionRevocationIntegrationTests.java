@@ -106,8 +106,7 @@ class RedisSessionRevocationIntegrationTests {
         Session session = openSessionFor(created.id());
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            attempts.recordFailure(
-                    created.profile().userName(), PasswordRefusalReason.BAD_CREDENTIALS);
+            attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
         }
 
         assertThat(require(created.profile().userName()).login().isLocked()).isTrue();

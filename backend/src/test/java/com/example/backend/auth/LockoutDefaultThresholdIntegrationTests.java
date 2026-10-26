@@ -67,15 +67,16 @@ class LockoutDefaultThresholdIntegrationTests {
         assertThat(deployedDefaultMaxAttempts()).isEqualTo(DEFAULT_THRESHOLD);
         assertThat(maxAttempts).isEqualTo(DEFAULT_THRESHOLD);
 
-        String userName = create("lockout-default-threshold").profile().userName();
+        ScimUser created = create("lockout-default-threshold");
+        String userName = created.profile().userName();
 
-        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
-        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 2nd consecutive failure")
                 .isFalse();
 
-        attempts.recordFailure(userName, PasswordRefusalReason.BAD_CREDENTIALS);
+        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 3rd consecutive failure")
                 .isTrue();

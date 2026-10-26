@@ -3,6 +3,7 @@ package com.example.backend.auth.config;
 import static com.example.backend.web.ReadRequests.read;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.auth.application.PasswordLoginProvider;
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.auth.epic.EpicLogin;
 import com.example.backend.authorization.domain.Permission;
@@ -24,7 +25,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -134,8 +134,9 @@ public class SecurityConfig {
     }
 
     /**
-     * Password Login's authentication: one {@link DaoAuthenticationProvider} over the
-     * {@code UserDetailsService}, {@code LoginIdentityService}.
+     * Password Login's authentication: one {@link PasswordLoginProvider} — Spring Security's
+     * {@code DaoAuthenticationProvider}, which also tells the Login which User its one read found
+     * — over the {@code UserDetailsService}, {@code LoginIdentityService}.
      *
      * <p>A locked or deactivated User is refused by the provider's pre-authentication checks,
      * which run before the password is compared. With
@@ -151,7 +152,7 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(
             UserDetailsService userDetailsService,
             PasswordEncoder passwordEncoder) {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+        PasswordLoginProvider provider = new PasswordLoginProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
         provider.setAlwaysPerformAdditionalChecksOnUser(true);
         return new ProviderManager(provider);

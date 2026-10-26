@@ -18,6 +18,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 
@@ -35,11 +36,13 @@ import org.springframework.stereotype.Service;
  *       password: the run lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a
  *       Lockout for failures as of now. A User already locked is left as it is, whatever its lock
  *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
- *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}).
+ *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}). A
+ *       User with no password has no run, so nothing is counted against it.
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
  *       moves unless the Login builds a Confined session (ADR 0008). A User found
  *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
- *       Login never lifts a Lockout (ADR 0007).
+ *       Login never lifts a Lockout (ADR 0007). So is a password Login whose verified credential
+ *       is no longer the stored one, as a wrong password, for its caller to count.
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
@@ -68,9 +71,11 @@ import org.springframework.stereotype.Service;
  *
  * <h2>Confinement</h2>
  *
- * <p>Whether a Login builds a Confined session is decided here ({@link #confines}), and both of its
- * consequences read that one answer: the dormancy basis this module moves, and the authorities
- * {@link LoginIdentityService} issues. A password Login by a User whose flag is set is confined; an
+ * <p>Whether a Login builds a Confined session is decided here
+ * ({@link VerifiedCredential#confines}), once, on the state read under the User's lock, and both
+ * of its consequences read that one answer: the dormancy basis this module moves, and the
+ * authorities {@link LoginIdentityService} issues the session with
+ * ({@link Verification#confined}). A password Login by a User whose flag is set is confined; an
  * Epic Login never is, because it presented no password of ours (D20), so it moves the basis while
  * the flag stays set — only a successful password change clears it.
  *
@@ -151,12 +156,78 @@ import org.springframework.stereotype.Service;
 @Service
 public class LoginStateService implements ScimUserLoginState {
 
-    /** The kind of Login that verified a credential, which decides whether it is confined. */
-    public enum LoginKind {
-        /** A password Login: the change-required flag marks the very credential it presented. */
-        PASSWORD,
-        /** An Epic Login: it presented no password of ours, so the flag does not confine it. */
-        EPIC
+    /**
+     * The credential an accepted authentication verified, which the Login is decided on under the
+     * User's lock: a password Login stands only while the credential it compared against is still
+     * the one stored; an Epic Login presented no password of ours (D20), so nothing it verified
+     * can have been replaced.
+     */
+    public sealed interface VerifiedCredential {
+
+        /**
+         * Whether a Login that verified this credential, by a User in {@code state}, builds a
+         * Confined session: one that may only change the password or log out.
+         */
+        boolean confines(ScimLoginState state);
+
+        /** Whether {@code state}, read under the User's lock, still holds this credential. */
+        boolean storedIn(ScimLoginState state);
+
+        /**
+         * The stored credential {@code passwordHash} a password Login's password was compared
+         * against and matched. A salted hash differs on every write, so a credential replaced
+         * since the comparison — even by the same password — is told apart from it.
+         */
+        static VerifiedCredential passwordHash(String passwordHash) {
+            return new VerifiedPassword(passwordHash);
+        }
+
+        /** An Epic Login's: Epic checked the credential, not us. */
+        static VerifiedCredential epic() {
+            return new VerifiedByEpic();
+        }
+    }
+
+    /**
+     * A password Login's verified credential. Held only for the decision, never in the session,
+     * and never printed.
+     */
+    private record VerifiedPassword(String passwordHash) implements VerifiedCredential {
+
+        private VerifiedPassword {
+            Objects.requireNonNull(passwordHash, "a password Login verified a stored credential");
+        }
+
+        /** The change-required flag marks the very credential the Login presented. */
+        @Override
+        public boolean confines(ScimLoginState state) {
+            return state.isPasswordChangeRequired();
+        }
+
+        @Override
+        public boolean storedIn(ScimLoginState state) {
+            return passwordHash.equals(state.passwordHash());
+        }
+
+        @Override
+        public String toString() {
+            return "VerifiedPassword[redacted]";
+        }
+    }
+
+    /** An Epic Login's verified credential: none of ours, so none that can have been replaced. */
+    private record VerifiedByEpic() implements VerifiedCredential {
+
+        /** It presented no password of ours, so the flag does not confine it. */
+        @Override
+        public boolean confines(ScimLoginState state) {
+            return false;
+        }
+
+        @Override
+        public boolean storedIn(ScimLoginState state) {
+            return true;
+        }
     }
 
     /**
@@ -216,17 +287,50 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * What a verified credential came to: the login state it changed, or, when the User's standing
-     * under its lock refused the Login, the refusal and a change that moved nothing.
+     * What a verified credential came to, decided once on the state read under the User's lock:
+     * the login state it changed and whether the session it issues is confined, or, when that
+     * state refused the Login, why, and a change that moved nothing.
      *
-     * @param change  what the Login moved; nothing when it was refused
-     * @param refusal the standing the Login was refused on, or {@code null} when it was accepted
+     * @param change              what the Login moved; nothing when it was refused
+     * @param refusal             the standing the Login was refused on, or {@code null}
+     * @param credentialReplaced  whether the stored credential was no longer the one the
+     *     authentication verified, which refuses a password Login as a wrong password
+     * @param confined            whether the accepted Login builds a Confined session — the answer
+     *     that also left the dormancy basis where it was; {@code false} for a refused one
      */
-    public record Verification(LoginStateChange change, StandingRefusal refusal) {
+    public record Verification(LoginStateChange change, StandingRefusal refusal,
+            boolean credentialReplaced, boolean confined) {
 
-        /** Whether the standing refused the Login. */
+        public Verification {
+            Objects.requireNonNull(change, "a verification hands back what it moved");
+            if (refusal != null && credentialReplaced) {
+                throw new IllegalArgumentException("a Login is refused for one reason");
+            }
+            if (confined && (refusal != null || credentialReplaced)) {
+                throw new IllegalArgumentException("only an accepted Login issues a session");
+            }
+        }
+
+        /** Whether the state under the lock refused the Login. */
         public boolean refused() {
-            return refusal != null;
+            return refusal != null || credentialReplaced;
+        }
+
+        /**
+         * The reason a refused password Login is reported and recorded as: its standing's, or
+         * {@code BAD_CREDENTIALS} for a credential replaced since it was compared — at the moment
+         * of the decision the submitted password is simply wrong.
+         *
+         * @throws IllegalStateException if the Login was accepted
+         */
+        public PasswordRefusalReason passwordRefusal() {
+            if (refusal != null) {
+                return refusal.passwordReason();
+            }
+            if (credentialReplaced) {
+                return PasswordRefusalReason.BAD_CREDENTIALS;
+            }
+            throw new IllegalStateException("an accepted Login was refused for nothing");
         }
     }
 
@@ -257,21 +361,22 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * Whether a Login of this kind, by a User in this state, builds a Confined session: one that
-     * may only change the password or log out.
-     */
-    public static boolean confines(LoginKind kind, ScimLoginState state) {
-        return kind == LoginKind.PASSWORD && state.isPasswordChangeRequired();
-    }
-
-    /**
      * A refused password Login or password-change attempt against {@code user}: counts it, and on a
      * newly imposed Lockout audits it and revokes every Session of the User after the commit.
      * Counted on the run stored under the User's lock, so a parallel failure is never lost and
      * only the one that reaches the limit imposes the Lockout.
+     *
+     * <p>A User with no password has no failure run: there is no password to guess, so an attempt
+     * against it lengthens nothing and can never lock out a User who signs in only through Epic.
+     * Decided here, on the state read under the lock, beside the Bootstrap Admin's exemption, so
+     * no caller decides it on the copy it read before — a password removed in between counts
+     * nothing, and nothing is written.
      */
     public LoginStateChange failureCounted(ScimUser user) {
         ScimLoginState before = stateUnderLock(user);
+        if (!before.hasPassword()) {
+            return LoginStateChange.none(before);
+        }
         ScimLoginState after = user.isExemptFromLockout()
                 ? before.withFailureCounted()
                 : before.withFailureRecorded(policy, clock.instant());
@@ -298,20 +403,36 @@ public class LoginStateService implements ScimUserLoginState {
      * refuse — lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written
      * and the caller is told why, locked first, as the authentication checks it. A lock never
      * reaches {@link ScimLoginState#withFailureRunCleared} by this route.
+     *
+     * <p>Unless, too, the stored credential is no longer the one the authentication verified: a
+     * password replaced while the old one was being compared — by a connector, an Admin, or the
+     * User's own change elsewhere — would otherwise sign in, after the replacement had revoked the
+     * User's sessions, a Login made with a password that no longer opens the account. It is
+     * refused as a wrong password, which at the moment of the decision it is, and nothing is
+     * written; the caller counts it as one ({@link Verification#passwordRefusal}). An Epic Login
+     * verified no credential of ours, so none it verified can have been replaced.
+     *
+     * <p>Whether the accepted Login is confined is decided here too, from the same state, and
+     * handed back ({@link Verification#confined}) for the session's authorities, so the dormancy
+     * basis and the session the Login issues read one answer and cannot disagree.
      */
-    public Verification credentialVerified(ScimUser user, LoginKind kind) {
+    public Verification credentialVerified(ScimUser user, VerifiedCredential credential) {
         ScimLoginState before = stateUnderLock(user);
         Optional<StandingRefusal> refused =
                 StandingRefusal.of(before, loginStates.isActive(user.id()));
         if (refused.isPresent()) {
-            return new Verification(LoginStateChange.none(before), refused.get());
+            return new Verification(LoginStateChange.none(before), refused.get(), false, false);
         }
+        if (!credential.storedIn(before)) {
+            return new Verification(LoginStateChange.none(before), null, true, false);
+        }
+        boolean confined = credential.confines(before);
         ScimLoginState after = before.withFailureRunCleared();
-        if (!confines(kind, before)) {
+        if (!confined) {
             after = after.withDormancyBasisReset(clock.instant());
         }
         loginStates.writeChange(user.id(), before, after);
-        return new Verification(LoginStateChange.between(before, after), null);
+        return new Verification(LoginStateChange.between(before, after), null, false, confined);
     }
 
     /**

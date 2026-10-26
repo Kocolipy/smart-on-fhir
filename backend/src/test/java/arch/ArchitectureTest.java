@@ -377,9 +377,6 @@ public class ArchitectureTest {
             // and the person signing in, whose attempt this is, tries again.
             Map.entry("com.example.backend.auth.application.LoginAttemptService#recordFailure",
                     "a refused Login's login-state event, not a SCIM or administrative write"),
-            Map.entry("com.example.backend.auth.application.LoginAttemptService"
-                            + "#recordRefusalOnStanding",
-                    "a refused Login's login-state event, not a SCIM or administrative write"),
             Map.entry("com.example.backend.auth.application.LoginAttemptService#recordPasswordSuccess",
                     "an accepted Login's login-state event, not a SCIM or administrative write"),
             Map.entry("com.example.backend.auth.application.LoginAttemptService#recordEpicSuccess",

@@ -98,6 +98,20 @@ class EpicLoginDecisionTests {
                 .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
     }
 
+    /**
+     * An Epic Login is never confined (ADR 0008): it presented no password of ours, so a User
+     * whose change is required is issued the authorities it holds with the flag clear.
+     */
+    @Test
+    void anAcceptedEpicLoginOfAUserOwingAPasswordChangeIsIssuedAnUnconfinedSession() {
+        users.given(ScimIdentities.userWithLoginState(
+                "eFLAGGED", new ScimLoginState("hash", 0, null, null, NOW)));
+
+        assertThat(attested("eFLAGGED").authentication().getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+    }
+
     /** As for a password Login, the session's authentication never carries the stored hash. */
     @Test
     void anAcceptedEpicLoginCarriesNoPasswordHash() {

@@ -38,10 +38,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * id afterwards: a directory rename landing between authentication and the recording of the
  * success changes nothing about whom the success, the One session per User sweep and the session
  * index belong to — nor, for a Login refused on the standing found then, whom the refusal is
- * recorded and counted against.
+ * recorded and counted against. A Login the authentication itself refused is counted and audited
+ * against the User its read found too, never against whoever holds the name by the time the
+ * refusal is recorded.
  *
- * <p>The rename is made by the authentication step itself, right after the real one has accepted
- * the credentials, which is the window a concurrent SCIM write would land in.
+ * <p>For an accepted Login the rename is made by the authentication step itself, right after the
+ * real one has accepted the credentials; for a refused one, by the in-memory store right after
+ * the authentication's lookup by name ({@link InMemoryScimUserRepository#afterNextNameLookup}),
+ * before the comparison. Both are the window a concurrent SCIM write would land in.
  */
 class PasswordLoginRenameTests {
 
@@ -190,6 +194,146 @@ class PasswordLoginRenameTests {
                 .containsExactly(tuple(ada, AuditRefusalReason.ACCOUNT_DISABLED.name()));
     }
 
+    // ---- a refusal the authentication made, with a rename landing after its one read --------
+
+    /**
+     * A wrong password is counted against the User the authentication read, not whoever holds the
+     * name by the time the refusal is recorded: the rename lands right after the lookup by name,
+     * before the comparison, the window a concurrent SCIM write would land in.
+     */
+    @Test
+    void aWrongPasswordIsAuditedAgainstTheUserTheAuthenticationReadWhenAnotherTakesItsName() {
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", "wrong-password", "ada-current");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(ada, AuditRefusalReason.BAD_CREDENTIALS.name()));
+    }
+
+    /** The caller is handed the refusal it was recorded as: of the User the read found. */
+    @Test
+    void aWrongPasswordIsRefusedNamingTheUserTheAuthenticationReadWhenAnotherTakesItsName() {
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        assertThat(login.logIn("ada", "wrong-password", "ada-current").outcome())
+                .isEqualTo(new LoginOutcome.PasswordRefused(
+                        ada, PasswordRefusalReason.BAD_CREDENTIALS));
+    }
+
+    @Test
+    void aWrongPasswordLengthensTheRunOfTheUserTheAuthenticationReadWhenAnotherTakesItsName() {
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", "wrong-password", "ada-current");
+
+        assertThat(users.require("ada-renamed").login().failedLoginAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void aWrongPasswordLeavesTheRunOfTheUserWhoTookTheNameAlone() {
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", "wrong-password", "ada-current");
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
+    }
+
+    /**
+     * A wrong password reaching the limit locks the User the authentication read, never the User
+     * who took its name.
+     */
+    @Test
+    void aLockoutImposedByAWrongPasswordFallsOnTheUserTheAuthenticationRead() {
+        users.given(new ScimUser(ada, ScimIdentities.profile("ada", true),
+                new ScimLoginState(hash, 4, null, null), null, ScimUser.INITIAL_VERSION,
+                ScimIdentities.NOW, ScimIdentities.NOW));
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", "wrong-password", "ada-current");
+        transaction.commit();
+
+        assertThat(List.of(users.require("ada-renamed").login().isLocked(),
+                        users.require("ada").login().isLocked()))
+                .containsExactly(true, false);
+    }
+
+    @Test
+    void aLockedUsersRefusalIsAuditedAgainstTheUserTheAuthenticationReadWhenAnotherTakesItsName() {
+        lockAda();
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", PASSWORD, "ada-current");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(ada, AuditRefusalReason.ACCOUNT_LOCKED.name()));
+    }
+
+    @Test
+    void aLockedUsersRefusalLeavesTheRunOfTheUserWhoTookTheNameAlone() {
+        lockAda();
+        users.afterNextNameLookup(this::renameAdaAndGiveHerNameToBob);
+
+        login.logIn("ada", PASSWORD, "ada-current");
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
+    }
+
+    /**
+     * A User with no password is reported to Spring Security as no User at all (it has no
+     * password Login), yet its refusal still names it, by the stable id the one read found.
+     */
+    @Test
+    void aPasswordlessUsersRefusalIsAuditedAgainstTheUserTheAuthenticationReadWhenAnotherTakesItsName() {
+        UUID nopass = users.given(ScimIdentities.credentiallessUser("nopass")).id();
+        users.afterNextNameLookup(() -> {
+            users.rename(nopass, "nopass-renamed");
+            users.given(withPassword("nopass", 2));
+        });
+
+        login.logIn("nopass", PASSWORD, "nopass-current");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(nopass, AuditRefusalReason.BAD_CREDENTIALS.name()));
+    }
+
+    @Test
+    void aPasswordlessUsersRefusalLeavesTheRunOfTheUserWhoTookTheNameAlone() {
+        UUID nopass = users.given(ScimIdentities.credentiallessUser("nopass")).id();
+        users.afterNextNameLookup(() -> {
+            users.rename(nopass, "nopass-renamed");
+            users.given(withPassword("nopass", 2));
+        });
+
+        login.logIn("nopass", PASSWORD, "nopass-current");
+
+        assertThat(users.require("nopass").login().failedLoginAttempts()).isEqualTo(2);
+    }
+
+    /** A name the authentication found no User for is refused against nobody, whoever takes it. */
+    @Test
+    void anUnknownNameIsAuditedAgainstNobodyWhenAUserTakesTheNameAfterTheRead() {
+        users.afterNextNameLookup(() -> users.given(withPassword("grace", 2)));
+
+        login.logIn("grace", PASSWORD, null);
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(null, AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
+    }
+
+    @Test
+    void anUnknownNameLeavesTheRunOfAUserWhoTakesTheNameAfterTheReadAlone() {
+        users.afterNextNameLookup(() -> users.given(withPassword("grace", 2)));
+
+        login.logIn("grace", PASSWORD, null);
+
+        assertThat(users.require("grace").login().failedLoginAttempts()).isEqualTo(2);
+    }
+
     /**
      * An authentication whose principal names its User only by {@code userName} gives the Login
      * nothing to work from but the name, which it refuses to look up again: the Login fails closed.
@@ -212,10 +356,45 @@ class PasswordLoginRenameTests {
         assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
     }
 
+    /**
+     * An authentication that names its User by stable id but compared no stored credential — one
+     * that did not come from the password provider — gives the decision under the lock nothing to
+     * confirm, so the Login fails closed rather than skip the check.
+     */
+    @Test
+    void anAuthenticationThatComparedNoStoredCredentialFailsTheLoginClosed() {
+        substitute = authenticatedWithoutComparing();
+
+        assertThatIllegalStateException().isThrownBy(() -> login.logIn("ada", PASSWORD, null));
+    }
+
+    @Test
+    void anAuthenticationThatComparedNoStoredCredentialRecordsNoSuccess() {
+        substitute = authenticatedWithoutComparing();
+
+        assertThatIllegalStateException().isThrownBy(() -> login.logIn("ada", PASSWORD, null));
+
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
+    }
+
+    /** Ada's principal as the directory reports it, authenticated with no password compared. */
+    private Authentication authenticatedWithoutComparing() {
+        LoginPrincipal principal = new LoginIdentityService(
+                users, groups, TestGroupPermissions.superuserOnly()).loadUserByUsername("ada");
+        return UsernamePasswordAuthenticationToken.authenticated(
+                principal, null, principal.getAuthorities());
+    }
+
     /** Ada leaves the name, and Bob — carrying a failure run of two — is provisioned under it. */
     private void renameAdaAndGiveHerNameToBob() {
         users.rename(ada, "ada-renamed");
         users.given(withPassword("ada", 2));
+    }
+
+    private void lockAda() {
+        users.given(new ScimUser(ada, ScimIdentities.profile("ada", true),
+                new ScimLoginState(hash, 5, NOW), null, ScimUser.INITIAL_VERSION,
+                ScimIdentities.NOW, ScimIdentities.NOW));
     }
 
     private void deactivateAda() {

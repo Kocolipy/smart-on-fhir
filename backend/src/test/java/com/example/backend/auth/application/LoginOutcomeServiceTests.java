@@ -134,7 +134,7 @@ class LoginOutcomeServiceTests {
     void aPasswordRefusalIsAuditedWithItsReasonAndSubjectAndCountsTowardTheFailureRun() {
         UUID ada = users.given(ScimIdentities.user("ada")).id();
 
-        outcomes.record(new PasswordRefused("ada", PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
+        outcomes.record(new PasswordRefused(ada, PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, ada, "BAD_CREDENTIALS"));
@@ -152,10 +152,10 @@ class LoginOutcomeServiceTests {
             names = {"BAD_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "OTHER"})
     void aPasswordRefusalIsOneGenericWarnWithNoReasonNoUserAndTheSessionsHash(
             PasswordRefusalReason reason) {
-        users.given(ScimIdentities.user("lovelace"));
+        UUID lovelace = users.given(ScimIdentities.user("lovelace")).id();
         List<ILoggingEvent> records;
         try (LogContext.Scope colleague = LogContext.userId(UUID.randomUUID())) {
-            records = recording(new PasswordRefused("lovelace", reason), SESSION);
+            records = recording(new PasswordRefused(lovelace, reason), SESSION);
         }
 
         assertThat(records).singleElement().satisfies(record -> {
@@ -176,17 +176,20 @@ class LoginOutcomeServiceTests {
     @EnumSource(value = PasswordRefusalReason.class,
             names = {"BAD_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_DISABLED", "OTHER"})
     void aPasswordRefusalIsCountedUnderItsReason(PasswordRefusalReason reason) {
-        users.given(ScimIdentities.user("ada"));
+        UUID ada = users.given(ScimIdentities.user("ada")).id();
 
-        outcomes.record(new PasswordRefused("ada", reason), SESSION);
+        outcomes.record(new PasswordRefused(ada, reason), SESSION);
 
         assertThat(counts.moved()).containsExactly("password:refused:" + reason.name());
     }
 
-    /** A name that matches no User is recorded, and counted, as the unknown account it is. */
+    /**
+     * A refusal whose authentication resolved no User is recorded, and counted, as the unknown
+     * account it is.
+     */
     @Test
     void aPasswordRefusalOfAnUnknownNameIsAuditedAndCountedAsAnUnknownAccount() {
-        outcomes.record(new PasswordRefused("nobody", PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
+        outcomes.record(new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT"));
@@ -196,16 +199,9 @@ class LoginOutcomeServiceTests {
     @Test
     void aPasswordRefusalWithNoSessionCarriesNoSessionHash() {
         List<ILoggingEvent> records = recording(
-                new PasswordRefused("nobody", PasswordRefusalReason.BAD_CREDENTIALS), null);
+                new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS), null);
 
         assertThat(CapturedLog.fields(records.getFirst())).doesNotContainKey(LogEvent.SESSION_HASH);
-    }
-
-    /** The submitted name is half a credential: an outcome printed anywhere still omits it. */
-    @Test
-    void aPasswordRefusalNeverPrintsTheSubmittedName() {
-        assertThat(new PasswordRefused("ada-typed-her-password", PasswordRefusalReason.BAD_CREDENTIALS))
-                .hasToString("PasswordRefused[reason=BAD_CREDENTIALS]");
     }
 
     /**
@@ -215,29 +211,10 @@ class LoginOutcomeServiceTests {
      */
     @Test
     void aPasswordRefusalHasOnlyAReasonSpringSecurityReports() {
-        assertThatThrownBy(() -> new PasswordRefused("ada", PasswordRefusalReason.UNKNOWN_ACCOUNT))
+        assertThatThrownBy(() -> new PasswordRefused(
+                        UUID.randomUUID(), PasswordRefusalReason.UNKNOWN_ACCOUNT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("not a password Login's refusal: UNKNOWN_ACCOUNT");
-    }
-
-    /**
-     * A refusal names its User once: by the submitted name, or — refused after authentication —
-     * by the stable id alone, so the name a rename can move is never consulted beside it.
-     */
-    @Test
-    void aPasswordRefusalNamesItsUserByIdOrByNameButNotBoth() {
-        assertThatThrownBy(() -> new PasswordRefused(
-                        "ada", UUID.randomUUID(), PasswordRefusalReason.ACCOUNT_LOCKED))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("a refusal names its User by id or by name");
-    }
-
-    @Test
-    void aPasswordRefusalAfterAuthenticationNamesItsUserByIdAlone() {
-        UUID ada = UUID.randomUUID();
-
-        assertThat(PasswordRefused.of(ada, PasswordRefusalReason.ACCOUNT_DISABLED))
-                .isEqualTo(new PasswordRefused(null, ada, PasswordRefusalReason.ACCOUNT_DISABLED));
     }
 
     /** A password Login carries no MFA factor; an Epic Login always does (D17). */
@@ -439,7 +416,7 @@ class LoginOutcomeServiceTests {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new SignedIn(UUID.randomUUID(), null, null))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new PasswordRefused("ada", null))
+        assertThatThrownBy(() -> new PasswordRefused(UUID.randomUUID(), null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("a refusal has a reason");
         assertThatThrownBy(() -> EpicRefused.because(null))

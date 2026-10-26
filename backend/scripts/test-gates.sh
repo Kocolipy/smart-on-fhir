@@ -64,7 +64,9 @@ FAST_GATE=(
   com/example/backend/auth/application/LoginStateServiceTests
   com/example/backend/auth/application/PasswordChangeServiceTests
   com/example/backend/auth/application/PasswordLoginEdgeWhitespaceTests
+  com/example/backend/auth/application/PasswordLoginProviderTests
   com/example/backend/auth/application/PasswordLoginRenameTests
+  com/example/backend/auth/application/PasswordLoginUnderLockTests
   com/example/backend/auth/application/PasswordRefusalReasonTests
   com/example/backend/auth/application/RefusalTimingEquivalenceTests
   com/example/backend/auth/application/SelfReadServiceTests
