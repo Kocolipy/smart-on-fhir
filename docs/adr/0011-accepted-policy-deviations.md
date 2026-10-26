@@ -8,7 +8,10 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-25: the
+as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-26: the
+tab no longer stores the SMART access token, a reload resumes the FHIRcast connection
+from what the tab kept rather than registering at the hub again, and the residual risk
+of the "FHIRcast in the browser" entries changed with it. Revised 2026-10-25: the
 FHIRcast hub's revocation at the end of a session is best-effort. History is in git.
 
 ## Context
@@ -49,20 +52,31 @@ the clinician's loopback interface, which the server cannot reach. That puts the
 SMART access token and the hub credentials in the browser. Each deviation below
 follows from that; ADR 0016 has the design.
 
-- **Tokens and the exported private key in `sessionStorage`, visible to JS (IM8
-  as-8, ck-4; SSO token-storage rule).** The SMART access token, the Hub Token,
-  the dynamic `client_id` and the exported private JWK the Hub Token is signed
-  with are kept in the tab's `sessionStorage`.
-  - _Rationale:_ the browser makes every hub call, and a non-extractable
-    in-memory `CryptoKey` would be lost on every reload, re-registering at the
-    hub each time. `sessionStorage` is per tab, never sent to a server, and gone
-    with the tab. Every end of the session clears it, and so does a password
-    Login in the tab.
-  - _Residual risk:_ any script running in the SPA's origin can read all four.
+- **Hub credentials and the exported private key in `sessionStorage`, visible to
+  JS (IM8 as-8, ck-4; SSO token-storage rule).** The tab's `sessionStorage`
+  keeps the exported private JWK the Hub Token is signed with and its `kid`;
+  the dynamic `client_id`; the `registration_access_token` and
+  `registration_client_uri`, when the hub answered them; the Hub Token and its
+  expiry; and the Hub Subscription's channel endpoint and the expiry of its
+  lease. It also keeps the hub URL and topic all of it belongs to. The SMART
+  access token is not kept. Only registering needs it, and a fresh
+  registration fetches a new release from the backend anyway.
+  - _Rationale:_ the browser makes every hub call, and what it holds only in
+    memory is lost on every reload. A reload resumes what the tab kept: it
+    reopens the stored channel endpoint with the stored Hub Token, or mints a
+    new Hub Token with the stored key and `client_id`, rather than registering
+    at the hub again. The registration access token lets the end of the session
+    delete the registration even after a reload. `sessionStorage` is per tab,
+    never sent to a server, and gone with the tab. What is kept is decoded on
+    every read, and every URL in it is held to `127.0.0.1` again. Every end of
+    the session clears it, and so does a password Login in the tab.
+  - _Residual risk:_ any script running in the SPA's origin can read all of it.
     The CSP (`script-src 'self'`, no inline script, no third-party origin) is
-    what keeps that origin the application's own. A stolen SMART access token can
-    register at the hub, and read Epic's FHIRcast events, only from the
-    clinician's own workstation, until Epic's expiry.
+    what keeps that origin the application's own. The stolen key and
+    `client_id` mint Hub Tokens, and the stolen registration access token can
+    delete the registration, only from the clinician's own workstation, where
+    the hub listens on loopback. A tab Chrome duplicates copies all of it, and
+    both tabs then share one registration until the session ends.
 - **The loopback CSP: any port, any scheme (IM8 as-9).** `connect-src` admits
   `http`, `https`, `ws` and `wss` on `127.0.0.1:*`.
   - _Rationale:_ Epic chooses the local hub's port and scheme, and the SPA
@@ -109,9 +123,10 @@ follows from that; ADR 0016 has the design.
   an Idle sign-out, expiry, a password change that ends it — tears down what
   the tab holds at the hub, in order: it unsubscribes from the topic, revokes
   the Hub Token (RFC 7009), deletes its dynamic registration (RFC 7592), closes
-  the socket and clears `sessionStorage` — which it has cleared once already,
-  the moment the session ended, since the steps run from what the module
-  holds in memory. Revocation runs only when the hub's
+  the socket and clears `sessionStorage`. It reads what the tab kept and clears
+  it the moment the session ends, then runs the steps from what it read and from
+  what the module holds in memory, so a registration a page before a reload
+  left is torn down even when this page never resumed it. Revocation runs only when the hub's
   metadata names a `revocation_endpoint`, and deletion only when the
   registration's answer names a `registration_client_uri` and a
   `registration_access_token`, as RFC 7592 has a hub advertise it; each is held
@@ -129,11 +144,11 @@ follows from that; ADR 0016 has the design.
     Hub Token, the revocation an assertion signed with the registered key, the
     deletion the registration access token.
   - _Residual risk:_ where the hub supports no RFC 7009 or RFC 7592, does not
-    answer in time, or is never reached — the tab closed or reloaded before the
-    session ended, which loses the registration access token kept in memory —
-    the Hub Token lives until it expires and the registration until the hub
-    drops it, and registrations can pile up at the hub, one per Home visit or
-    Retry. A connection still connecting or renewing when the session ends
+    answer in time, or is never reached — the tab closed before the session
+    ended — the Hub Token lives until it expires and the registration until
+    the hub drops it. A reload loses nothing to tear down: it resumes the
+    registration the tab kept, and a tab holds one registration and one live
+    subscription at a time. A connection still connecting or renewing when the session ends
     finishes that step unwatched, and a Hub Token or subscription it obtains
     then is left to the hub's expiry. Only from the clinician's own
     workstation, where the hub listens on loopback.

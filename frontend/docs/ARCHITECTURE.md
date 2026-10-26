@@ -85,9 +85,9 @@ straight into `lib/http`) but may never point back up.
   changes; `followPatientEvent()` moves it as the FHIRcast hub's
   `Patient-open` / `Patient-close` say (ADR 0016, "The events and the EHR
   context"); and `clearEhrContext()` forgets it, on every session end and a
-  password Login, beside `clearFhircastStorage()`
-  (`docs/BACKEND_CONTRACT.md`); every session end also starts `endFhircast()`,
-  unawaited.
+  password Login. A password Login also calls `clearFhircastStorage()`, and
+  every session end starts `endFhircast()`, unawaited, which reads what the
+  FHIRcast module kept and clears it at once (`docs/BACKEND_CONTRACT.md`).
 - `auth-context.tsx` — the `AuthProvider`: checks the session on mount and on
   `retrySessionCheck` (`ok` signs in, `401` ends, anything else is
   `checkFailed`) and maps each session event onto a transition with its sign-in
@@ -262,10 +262,14 @@ On a connected socket it holds every message to the FHIRcast STU3 notification
 shape, the subscribed events and the session's topic, acknowledges a valid one
 on the socket, and hands the caller only a `PatientEvent`: the event, its
 `timestamp` and a grammar-checked Patient id. Nothing of a message is logged.
-It keeps every connection it registered in a session, and `endFhircast()`, which
-the session transitions start on every end of the session, tears each down at
-the hub — the unsubscription, RFC 7009 revocation, RFC 7592 deletion, then the
-socket — best-effort, each step bounded, before clearing what the tab kept.
+It keeps the tab's Hub Registration and its one live Hub Subscription in
+`sessionStorage`, so a reload resumes them rather than registering again, and
+cancels each subscription it moves off once the new one's socket is confirmed.
+`endFhircast()`, which the session transitions start on every end of the
+session, clears what the tab kept at once, then tears down at the hub every
+connection it registered or resumed and what the tab kept — the
+unsubscription, RFC 7009 revocation, RFC 7592 deletion, then the socket —
+best-effort, each step bounded.
 It holds the session's one connection as a module-level singleton
 (`startFhircast`, idempotent; `retryFhircast`; `fhircastSnapshot` and
 `watchFhircast` for the card), which `endFhircast()` resets: no component
