@@ -331,6 +331,13 @@ on `127.0.0.1` and the topic is well formed, and the SPA connects to it for
 the whole session, on every signed-in page, while the tab holds an EHR context.
 _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 
+**Hub Registration**:
+The SPA's dynamic client at the FHIRcast Hub (RFC 7591): an ES384 key of the
+tab's own, registered with the SMART access token, and the `client_id` the hub
+answers. Every Hub Token is minted with an assertion signed by its key, and it
+is deleted at the hub (RFC 7592), best-effort, when the session ends.
+_Avoid_: FHIRcast client, DCR client, app registration
+
 **Hub Token**:
 The bearer token the FHIRcast Hub issues the SPA by the `jwt-bearer` grant,
 after the SPA registered a key of its own with the SMART access token. It
