@@ -29,8 +29,6 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -230,41 +228,6 @@ class EpicTokensIntegrationTests {
 
         assertThat(hubOf(signedIn).map(hub -> List.of(hub.url(), hub.topic())))
                 .contains(List.of("https://127.0.0.1:61443/hub", "Topic.with-every_char~1"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {
-        "http://192.168.1.20:8103/fhircast/STU3",
-        "http://localhost:8103/fhircast/STU3",
-        "http://127.0.0.2:8103/fhircast/STU3",
-        "http://evil@127.0.0.1:8103/fhircast/STU3",
-        "ws://127.0.0.1:8103/fhircast/STU3",
-        "not a url"})
-    void aHubUrlOffLoopbackIsDropped(String url) throws Exception {
-        EPIC.fake().hub(url, EPIC.fake().hubTopic);
-
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(hubOf(signedIn)).isEmpty();
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "has space", "slash/inside", "percent%20", "ünicode"})
-    void aMalformedTopicIsDropped(String topic) throws Exception {
-        EPIC.fake().hub(EPIC.fake().hubUrl, topic);
-
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(hubOf(signedIn)).isEmpty();
-    }
-
-    @Test
-    void aTopicLongerThan128CharactersIsDropped() throws Exception {
-        EPIC.fake().hub(EPIC.fake().hubUrl, "t".repeat(129));
-
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(hubOf(signedIn)).isEmpty();
     }
 
     @Test

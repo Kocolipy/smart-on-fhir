@@ -330,15 +330,12 @@ describe("parseAuditFilters", () => {
     return parsed.ok ? AUDIT_EVENTS.path(parsed.query) : parsed.message;
   };
 
-  it("parses empty filters to page zero, carrying only page and size", () => {
-    expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
-  });
-
-  it("parses empty filters to exactly the unfiltered query", () => {
+  it("parses empty filters to exactly the unfiltered query, carrying only page and size", () => {
     expect(parseAuditFilters(EMPTY_AUDIT_FILTERS)).toEqual({
       ok: true,
       query: UNFILTERED_AUDIT_QUERY,
     });
+    expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
   });
 
   it("parses a fully specified filter set to a query that starts on page zero", () => {

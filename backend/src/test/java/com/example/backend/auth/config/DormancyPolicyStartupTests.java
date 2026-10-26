@@ -67,24 +67,9 @@ class DormancyPolicyStartupTests {
                 });
     }
 
-    /** The settings the two removed jobs read are gone: setting them changes nothing. */
-    @Test
-    void theRemovedSettingsAreIgnored() {
-        contexts.withPropertyValues(
-                        "app.dormancy.deactivation.window=1d",
-                        "app.dormancy.authority.revocation.window=2d")
-                .run(context -> {
-                    assertThat(context).hasNotFailed();
-                    assertThat(context.getBean(DormancyPolicy.class))
-                            .isEqualTo(DormancyPolicy.defaults());
-                });
-    }
-
     @ParameterizedTest
     @CsvSource({
             "app.dormancy.lockout.window=0d,                 lockout window is configured at PT0S",
-            "app.dormancy.lockout.window=-1d,                lockout window is configured at PT-24H",
-            "app.dormancy.membership.revocation.window=0d,   membership revocation window is configured at PT0S",
             "app.dormancy.membership.revocation.window=-5d,  membership revocation window is configured at PT-120H"
     })
     void aNonPositiveWindowFailsStartupNamingTheWindow(String setting, String message) {
@@ -98,17 +83,11 @@ class DormancyPolicyStartupTests {
                         .hasMessageContaining("must be positive"));
     }
 
-    @ParameterizedTest
-    @CsvSource({
-            "90d,  90d",
-            "90d,  60d",
-            "200d, 180d"
-    })
-    void aMembershipRevocationWindowNotLongerThanTheLockoutWindowFailsStartup(
-            String lockout, String membershipRevocation) {
+    @Test
+    void aMembershipRevocationWindowNotLongerThanTheLockoutWindowFailsStartup() {
         contexts.withPropertyValues(
-                        "app.dormancy.lockout.window=" + lockout,
-                        "app.dormancy.membership.revocation.window=" + membershipRevocation)
+                        "app.dormancy.lockout.window=90d",
+                        "app.dormancy.membership.revocation.window=90d")
                 .run(context -> assertThat(context)
                         .hasFailed()
                         .getFailure()

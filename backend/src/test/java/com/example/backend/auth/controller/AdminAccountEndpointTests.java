@@ -1,11 +1,8 @@
 package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,7 +18,6 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
-import java.util.List;
 import java.util.UUID;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,9 +47,9 @@ import tools.jackson.databind.json.JsonMapper;
  * created.
  *
  * <p>{@code AdminAccountControllerTests} covers what the controller returns and
- * {@code SecurityConfigTests} covers which paths the chain guards. What neither
- * can see is the two composed — a response that is correct but reachable by the
- * wrong caller, or authorized but carrying the wrong JSON.
+ * {@code AuthorizationContractTests} covers who may reach each operation. What
+ * neither can see is the two composed — a response that is authorized but
+ * carrying the wrong JSON.
  *
  * <p>The whole web application context is wired in rather than a standalone
  * controller precisely so the wire format is the deployed one: a hand-built
@@ -199,44 +195,6 @@ class AdminAccountEndpointTests {
                         "id", "displayName", "memberCount", "adminGroup", "permissions"));
     }
 
-    @Test
-    void anAuthenticatedNonAdministratorIsForbidden() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-        mvc.perform(get("/api/admin/groups").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void anUnauthenticatedCallerIsUnauthorized() throws Exception {
-        mvc.perform(get("/api/admin/accounts"))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/admin/groups"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * The control endpoints are unsafe methods, so the CSRF contract applies to
-     * them as it does to login. Without the header the chain answers 403 before
-     * authorization is considered — the same status a wrong role earns, for an
-     * entirely different reason, which is why the role tests below carry a valid
-     * one.
-     */
-    @Test
-    void aControlRequestWithoutACsrfTokenIsRefusedBeforeAuthorization() throws Exception {
-        mvc.perform(post("/api/admin/accounts/{id}/unlock", require("test-user").id())
-                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void anAuthenticatedNonAdministratorCannotUnlock() throws Exception {
-        UUID id = require("test-user").id();
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
-                        .session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-    }
-
     /**
      * An administrator's session that names no acting User by stable id is answered as an
      * anonymous request is: without that id the self-target rule cannot be decided.
@@ -283,61 +241,6 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The read-only criterion, enforced by the backend and not only by which controls the page
-     * renders: every write an administrator could aim at a User or a Group through the
-     * administration namespace is refused {@code 403} — none is a declared operation, and the
-     * application chain denies whatever it does not declare — and the directory reads back
-     * exactly as it was.
-     *
-     * <p>Each request carries a valid CSRF header and a session holding every Permission, so the
-     * refusal is the deny-by-default rule's and not the CSRF filter's or a missing Permission's.
-     */
-    @Test
-    void everyWriteToADirectoryOwnedResourceIsRefused() throws Exception {
-        ScimUser user = require("test-user");
-        String adminGroupId = adminGroupId();
-        String listingBefore = listing("/api/admin/accounts");
-        String groupsBefore = listing("/api/admin/groups");
-        String body = "{\"userName\":\"renamed\",\"active\":false,\"displayName\":\"renamed\","
-                + "\"groups\":[],\"members\":[]}";
-
-        List<MockHttpServletRequestBuilder> writes = List.of(
-                post("/api/admin/accounts"),
-                put("/api/admin/accounts"),
-                patch("/api/admin/accounts"),
-                delete("/api/admin/accounts"),
-                put("/api/admin/accounts/{id}", user.id()),
-                patch("/api/admin/accounts/{id}", user.id()),
-                delete("/api/admin/accounts/{id}", user.id()),
-                post("/api/admin/accounts/{id}", user.id()),
-                put("/api/admin/accounts/{id}/groups", user.id()),
-                post("/api/admin/accounts/{id}/groups", user.id()),
-                post("/api/admin/groups"),
-                put("/api/admin/groups"),
-                patch("/api/admin/groups"),
-                delete("/api/admin/groups"),
-                put("/api/admin/groups/{id}", adminGroupId),
-                patch("/api/admin/groups/{id}", adminGroupId),
-                delete("/api/admin/groups/{id}", adminGroupId),
-                post("/api/admin/groups/{id}/members", adminGroupId));
-
-        for (MockHttpServletRequestBuilder write : writes) {
-            int status = mvc.perform(withCsrf(write)
-                            .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(body))
-                    .andReturn().getResponse().getStatus();
-            assertThat(status)
-                    .as("%s", write.buildRequest(context.getServletContext()).getRequestURI())
-                    .isEqualTo(403);
-        }
-
-        assertThat(listing("/api/admin/accounts")).isEqualTo(listingBefore);
-        assertThat(listing("/api/admin/groups")).isEqualTo(groupsBefore);
-        assertThat(require("test-user").version()).isEqualTo(user.version());
-    }
-
-    /**
      * An Unlock has no effect on an account serving no lockout: it is refused {@code 409} with the
      * application API's generic error document, and the account reads back as it was.
      */
@@ -354,33 +257,9 @@ class AdminAccountEndpointTests {
         assertThat(require("test-user").login()).isEqualTo(before.login());
     }
 
-    /**
-     * No administrator may Unlock their own account, addressed by id, whatever Permissions it
-     * holds: the principal is the seeded Bootstrap Admin's own name and the target is its id.
-     */
-    @Test
-    void anAdministratorCannotUnlockTheirOwnAccount() throws Exception {
-        UUID self = require("test-admin").id();
-
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", self))
-                        .session(authenticatedSession("test-admin", TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isForbidden());
-    }
-
-    private String listing(String path) throws Exception {
-        return mvc.perform(get(path).session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-    }
-
     private String adminGroupName() {
         return groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
                 .orElseThrow().displayName();
-    }
-
-    private String adminGroupId() {
-        return groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
-                .orElseThrow().id().toString();
     }
 
     private ScimUser require(String userName) {

@@ -67,12 +67,6 @@ class LoginLockoutTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    /**
-     * Ten years: past any window a deployment could plausibly set, so the advance tells
-     * "permanent" from "long".
-     */
-    private static final Duration A_LONG_TIME = Duration.ofDays(3650);
-
     private static final String CORRECT_PASSWORD = "correct-password";
 
     private static final String BOOTSTRAP_ADMIN = "recovery-admin";
@@ -326,27 +320,12 @@ class LoginLockoutTests {
     }
 
     /**
-     * The criterion the whole change exists for: no clock advance is a lift, so the correct
-     * password is still refused a decade later.
-     */
-    @Test
-    void theCorrectPasswordIsStillRefusedHoweverLongTheLockoutHasStood() {
-        lockTheIdentity();
-
-        clock.advanceBy(A_LONG_TIME);
-
-        assertThat(submit(CORRECT_PASSWORD).reason()).isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
-        assertThat(users.require("ada").login().isLocked()).isTrue();
-    }
-
-    /**
      * Unlock is the whole mechanism: the password was never changed, so an accepted login
      * afterward proves the lock and only the lock was what refused it.
      */
     @Test
     void anAdministratorsUnlockIsTheOnlyThingThatLetsTheIdentityBackIn() {
         lockTheIdentity();
-        clock.advanceBy(A_LONG_TIME);
 
         administration.unlock(users.require("ada").id(), users.require(BOOTSTRAP_ADMIN).id());
 

@@ -10,7 +10,6 @@ import com.example.backend.auth.epic.EpicBrowser.Hop;
 import com.example.backend.auth.epic.EpicMeters.Ending;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
@@ -101,16 +100,6 @@ class EpicDiscoveryIntegrationTests {
         authorize();
 
         assertThat(unavailableFailures()).isEqualTo(before + 1);
-    }
-
-    @Test
-    void aDiscoveryFailureIsCountedUnderOutcomeUnavailable() throws Exception {
-        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
-        double before = unavailables();
-
-        authorize();
-
-        assertThat(unavailables()).isEqualTo(before + 1);
     }
 
     /**
@@ -235,11 +224,5 @@ class EpicDiscoveryIntegrationTests {
                 SELECT count(*) FROM audit_events
                 WHERE operation = 'LOGIN_FAILURE' AND error_code = 'EPIC_UNAVAILABLE'
                 AND login_method = 'sso' AND subject_id IS NULL""", Integer.class);
-    }
-
-    private double unavailables() {
-        Counter counter = meters.find("login").tag("method", "sso").tag("outcome", "unavailable")
-                .tag("reason", "EPIC_UNAVAILABLE").counter();
-        return counter == null ? 0 : counter.count();
     }
 }

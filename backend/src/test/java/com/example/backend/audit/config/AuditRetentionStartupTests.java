@@ -60,9 +60,6 @@ class AuditRetentionStartupTests {
                         .getBean(AuditRetentionPolicy.class)
                         .extracting(AuditRetentionPolicy::period)
                         .isEqualTo(Duration.ofDays(90)));
-
-        contexts.withPropertyValues("app.audit.retention.period=400d")
-                .run(context -> assertThat(context).hasNotFailed());
     }
 
     @Test

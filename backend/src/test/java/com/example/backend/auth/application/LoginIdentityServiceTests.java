@@ -100,19 +100,6 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * And keeps reporting it locked however long it has stood. There is no clock in this
-     * decision at all — a lock is the recorded instant being present — so a lock imposed in
-     * the distant past reads exactly the same as one imposed a moment ago.
-     */
-    @Test
-    void keepsReportingALockedIdentityAsLockedHoweverOldTheLockIs() {
-        users.given(ScimIdentities.userWithLoginState(
-                "ada", new ScimLoginState("hash", 3, Instant.parse("1999-01-01T00:00:00Z"))));
-
-        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
-    }
-
-    /**
      * The listing reports {@code active}, so authentication has to act on it — otherwise
      * the field is decoration and a deactivated identity still logs in. Like a lockout, no
      * passage of time lifts this.

@@ -255,25 +255,6 @@ class IdentityAdministrationServiceTests {
     }
 
     /**
-     * The listing reports the lock and no expiry, because there is none: the state does not
-     * change with the clock, so a reader has nothing to compare and no reason to wait.
-     */
-    @Test
-    void reportsALockoutAsInForceHoweverLongItHasStood() {
-        givenLocked("ada");
-
-        assertThat(service.listIdentities()).first()
-                .extracting(IdentitySummary::locked)
-                .isEqualTo(true);
-
-        clock.advanceBy(A_LONG_TIME);
-
-        assertThat(service.listIdentities()).first()
-                .extracting(IdentitySummary::locked)
-                .isEqualTo(true);
-    }
-
-    /**
      * {@code admin} is derived from Group membership rather than read from a column, so the
      * listing reports the same fact the login path derives and there is no column the two
      * could disagree about.
@@ -434,21 +415,6 @@ class IdentityAdministrationServiceTests {
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
-    }
-
-    /**
-     * Time is not a lift, so an identity locked long ago is still locked and the unlock is
-     * what clears it — both the recorded instant and the run behind it.
-     */
-    @Test
-    void unlockingClearsALockoutHoweverLongItHasStood() {
-        givenLocked("bob");
-        clock.advanceBy(A_LONG_TIME);
-
-        service.unlock(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(users.require("bob").login().lockedAt()).isNull();
-        assertThat(users.require("bob").login().failedLoginAttempts()).isZero();
     }
 
     // Unknown identities

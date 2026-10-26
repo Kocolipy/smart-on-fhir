@@ -693,22 +693,6 @@ class AuditTrailServiceTests {
         assertThat(event.changedPaths()).isEmpty();
     }
 
-    /**
-     * The deletion's append is fail-closed, so a deletion the trail cannot record rolls
-     * back; its refusal's append is fail-open, as every refused write's is.
-     */
-    @Test
-    void aUserDeletionFailsClosedAndItsRefusalFailsOpen() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        assertThatThrownBy(() -> trail.append(new Audited.ScimUserDeleted(ACTOR, SUBJECT)))
-                .isInstanceOf(IllegalStateException.class);
-        trail.append(new Audited.ScimUserDeleteRejected(
-                ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY));
-
-        assertThat(alerts.raised).containsExactly(AuditOperation.SCIM_USER_DELETE);
-    }
-
     @Test
     void aGroupReplacementThatMovedNothingRecordsNoChangedPath() {
         trail.append(new Audited.ScimGroupReplaced(ACTOR, GROUP, Set.of()));
@@ -805,16 +789,6 @@ class AuditTrailServiceTests {
         assertThat(event.filterShape()).isNull();
     }
 
-    /** A refusal the trail cannot record is still the caller's 403: fail-open, with an alert. */
-    @Test
-    void anAuthorizationRefusalFailsOpenWithAnAlert() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        trail.append(new Audited.AccessDenied(ACTOR, new AuditRequest("GET", "/api/admin/accounts", null)));
-
-        assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
-    }
-
     /** On the SCIM chain the refused caller is a connector, named as actor, subject and resource. */
     @Test
     void aScimAuthorizationRefusalNamesTheConnectorTheOperationAndTheGenericReason() {
@@ -837,16 +811,6 @@ class AuditTrailServiceTests {
         assertThat(event.id()).isNotNull();
         assertThat(event.permissions()).as("never the missing Permission").isEmpty();
         assertThat(event.changedPaths()).isEmpty();
-    }
-
-    @Test
-    void aScimAuthorizationRefusalFailsOpenWithAnAlert() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        trail.append(new Audited.ConnectorAccessDenied(
-                GROUP, new AuditRequest("GET", "/scim/v2/Users", null)));
-
-        assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
     }
 
     /** Issue and rotation name the Permissions granted, sorted by their wire spelling. */
@@ -975,20 +939,6 @@ class AuditTrailServiceTests {
             assertThat(refused.changedPaths()).isEmpty();
             assertThat(refused.permissions()).isEmpty();
         });
-    }
-
-    /** The refusal is already the caller's 409: fail-open, with an alert, like every refusal. */
-    @Test
-    void aRefusedRotationFailsOpenAndAGrantFailsClosed() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        trail.append(new Audited.ConnectorTokenNotRotatable(
-                ACTOR, GROUP, ISSUED, AuditAdministrativeRefusal.TOKEN_REVOKED));
-        assertThatThrownBy(() -> trail.append(new Audited.ConnectorTokenIssued(
-                ACTOR, GROUP, ISSUED, Set.of(Permission.USER_READ))))
-                .isInstanceOf(IllegalStateException.class);
-
-        assertThat(alerts.raised).containsExactly(AuditOperation.CONNECTOR_TOKEN_ROTATE);
     }
 
     // Every recorder, field by field: an append removed or a field built wrong fails here
@@ -1195,19 +1145,6 @@ class AuditTrailServiceTests {
                 .containsExactly(List.of(), List.of(), List.of(), null);
     }
 
-    /** Both dormancy events are fail-closed: the job's change rolls back with a lost append. */
-    @Test
-    void theDormancyEventsAreFailClosed() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        assertThatThrownBy(() -> trail.append(new Audited.DormancyLockout(SUBJECT, Set.of(
-                AuditLoginStateAttribute.LOCKED_AT, AuditLoginStateAttribute.LOCK_CAUSE))))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.append(new Audited.DormancyMembershipRevocation(
-                        SUBJECT, List.of(GROUP), new AuditPermissionChange(Set.of(), Set.of(), false))))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
     @Test
     void passwordEventsNameTheCredentialPathsOrTheRefusal() {
         trail.append(new Audited.PasswordChanged(SUBJECT, FULL_UNLOCK));
@@ -1400,7 +1337,8 @@ class AuditTrailServiceTests {
      * Every kind of event, against the same forced failure, behaves as ADR 0004 decides — so the
      * difference between the two cannot be an accident of which exception was thrown, and a kind
      * added without a decision in {@link #ADR_0004} fails here rather than shipping with whichever
-     * semantics its declaration happened to give it.
+     * semantics its declaration happened to give it. A fail-open kind's alert names the operation
+     * of the row the append would have written.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("everyKindOfEvent")
@@ -1423,6 +1361,13 @@ class AuditTrailServiceTests {
                         kind.getSimpleName(), thrown, alerts.raised)
                 .isNotNull()
                 .isEqualTo(ADR_0004.get(kind));
+
+        if (observed == Semantics.FAIL_OPEN) {
+            events.failWith(null);
+            trail.append(event);
+            assertThat(alerts.raised).as("%s's alert", kind.getSimpleName())
+                    .containsExactly(events.only().operation());
+        }
     }
 
     /**
@@ -1472,29 +1417,6 @@ class AuditTrailServiceTests {
         }
         throw new AssertionError("no sample for " + kind.getSimpleName() + "." + component.getName()
                 + " of type " + type.getName());
-    }
-
-    /** A fail-open append's alert names the operation the unrecorded event would have said. */
-    @Test
-    void aFailOpenAppendRaisesAnAlertAndDoesNotPropagate() {
-        events.failWith(new IllegalStateException("insert refused"));
-
-        trail.append(new Audited.LoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS,
-                AuditLoginMethod.PASSWORD, RUN));
-        trail.append(new Audited.LockoutSet(SUBJECT, RUN_AND_LOCK));
-        trail.append(new Audited.ScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
-        trail.append(new Audited.UnlockRefused(
-                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET));
-        trail.append(new Audited.ScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS));
-        trail.append(new Audited.ScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY));
-
-        assertThat(alerts.raised).containsExactly(
-                AuditOperation.LOGIN_FAILURE,
-                AuditOperation.LOCKOUT_SET,
-                AuditOperation.SCIM_USER_CREATE,
-                AuditOperation.LOCKOUT_LIFT,
-                AuditOperation.SCIM_GROUP_CREATE,
-                AuditOperation.SCIM_GROUP_REPLACE);
     }
 
     @Test

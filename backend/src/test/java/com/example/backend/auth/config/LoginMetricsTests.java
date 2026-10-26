@@ -4,18 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditRefusalReason;
-import com.example.backend.auth.application.PasswordRefusalReason;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * {@link LoginMetrics}, the adapter the alert rules read: one {@code login} counter for both login
@@ -28,39 +27,29 @@ class LoginMetricsTests {
 
     private final LoginMetrics metrics = new LoginMetrics(registry);
 
-    /** An alert on a count's increase sees the first event only if the series was there at 0. */
+    /**
+     * An alert on a count's increase sees the first event only if the series was there at 0. The
+     * series are spelled out as the alert rules spell them, and are exactly these: each method's
+     * own outcomes and reasons, so a reason added to either closed set fails here until it is.
+     */
     @Test
-    void everyPasswordSeriesExistsAtZeroFromTheStart() {
-        assertThat(ending("password", "success", "none").count()).isZero();
-        for (String reason : List.of("BAD_CREDENTIALS", "UNKNOWN_ACCOUNT", "ACCOUNT_LOCKED",
-                "ACCOUNT_DISABLED", "OTHER")) {
-            assertThat(ending("password", "refused", reason).count()).as(reason).isZero();
-        }
-    }
-
-    /** A reason added to the closed set has its series from the start, with no second edit. */
-    @ParameterizedTest(name = "{0}")
-    @EnumSource(PasswordRefusalReason.class)
-    void everyPasswordRefusalReasonHasItsSeriesAtZeroFromTheStart(PasswordRefusalReason reason) {
-        assertThat(ending("password", "refused", reason.name()).count()).isZero();
-    }
-
-    @Test
-    void everyEpicSeriesExistsAtZeroFromTheStart() {
-        assertThat(ending("sso", "success", "none").count()).isZero();
-        assertThat(ending("sso", "unavailable", "EPIC_UNAVAILABLE").count()).isZero();
-        for (String reason : List.of("INVALID_LAUNCH", "ISS_MISMATCH", "INVALID_STATE",
+    void exactlyTheseSeriesExistAtZeroFromTheStart() {
+        List<String> password = List.of("BAD_CREDENTIALS", "UNKNOWN_ACCOUNT", "ACCOUNT_LOCKED",
+                "ACCOUNT_DISABLED", "OTHER");
+        List<String> epic = List.of("INVALID_LAUNCH", "ISS_MISMATCH", "INVALID_STATE",
                 "INVALID_CODE", "IDP_ERROR", "TOKEN_EXCHANGE_FAILED", "INVALID_SIGNATURE",
                 "INVALID_CLAIMS", "INVALID_FHIR_USER", "UNKNOWN_ACCOUNT", "ACCOUNT_DISABLED",
-                "ACCOUNT_LOCKED")) {
-            assertThat(ending("sso", "refused", reason).count()).as(reason).isZero();
-        }
-    }
+                "ACCOUNT_LOCKED");
+        List<String> expected = new ArrayList<>(List.of(
+                "password,success,none", "sso,success,none", "sso,unavailable,EPIC_UNAVAILABLE"));
+        password.forEach(reason -> expected.add("password,refused," + reason));
+        epic.forEach(reason -> expected.add("sso,refused," + reason));
 
-    /** Exactly the series above, and no other: each method's own outcomes and reasons. */
-    @Test
-    void noOtherSeriesIsRegistered() {
-        assertThat(registry.find("login").counters()).hasSize(2 + 5 + 12 + 1);
+        assertThat(registry.find("login").counters())
+                .extracting(counter -> counter.getId().getTag("method") + ","
+                        + counter.getId().getTag("outcome") + "," + counter.getId().getTag("reason"))
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(totalEndings()).isZero();
     }
 
     /** Prometheus requires every series of one metric name to carry the same tag keys. */

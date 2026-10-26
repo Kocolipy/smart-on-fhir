@@ -45,9 +45,6 @@ class LoginAttemptServiceTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    /** Far past any window the former expiring lockout could have had. */
-    private static final Duration A_LONG_TIME = Duration.ofDays(3650);
-
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
@@ -627,7 +624,6 @@ class LoginAttemptServiceTests {
     @Test
     void noLoginAttemptEverRecordsALockoutLift() {
         failTimes(3);
-        clock.advanceBy(A_LONG_TIME);
 
         attempts.recordFailure("ada", PasswordRefusalReason.ACCOUNT_LOCKED);
         attempts.recordPasswordSuccess(idOf("ada"), null);

@@ -40,6 +40,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -591,10 +593,16 @@ class EpicLoginIntegrationTests {
 
     // ---- Epic unavailable (D23, D24, D26) ------------------------------------------------------
 
-    @Test
-    void aTokenEndpoint5xxLandsAtTheUnavailableNotice() throws Exception {
+    /**
+     * A token call or a JWKS fetch that times out or answers {@code 5xx} is Epic unavailable. The
+     * fake's new key is not in the kept JWKS, so the id_token sends us to fetch it.
+     */
+    @ParameterizedTest(name = "a {0} {1}")
+    @CsvSource({"TOKEN, SERVER_ERROR", "TOKEN, STALL", "JWKS, SERVER_ERROR", "JWKS, STALL"})
+    void aFailedCallLandsAtTheUnavailableNotice(FakeEpic.Endpoint endpoint, FakeEpic.Failure failure)
+            throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
+        EPIC.fake().failing(endpoint, failure);
 
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
@@ -602,59 +610,16 @@ class EpicLoginIntegrationTests {
                 .isEqualTo("/login?signin=unavailable");
     }
 
-    @Test
-    void aTokenEndpointTimeoutLandsAtTheUnavailableNotice() throws Exception {
+    /** D26: the code is single-use, so a token call that failed is not sent again. */
+    @ParameterizedTest
+    @EnumSource(value = FakeEpic.Failure.class, names = {"STALL", "SERVER_ERROR"})
+    void aFailedTokenCallMakesExactlyOneTokenRequest(FakeEpic.Failure failure) throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
-
-        Landing landing = EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=unavailable");
-    }
-
-    /** D26: the code is single-use, so a token call that timed out is not sent again. */
-    @Test
-    void aTokenEndpointTimeoutMakesExactlyOneTokenRequest() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, failure);
 
         EPIC.signInFromEpic(practitioner, null);
 
         assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
-    }
-
-    @Test
-    void aTokenEndpoint5xxMakesExactlyOneTokenRequest() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.SERVER_ERROR);
-
-        EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(EPIC.fake().requests(FakeEpic.Endpoint.TOKEN)).isEqualTo(1);
-    }
-
-    /** The fake's new key is not in the kept JWKS, so the id_token sends us to fetch it. */
-    @Test
-    void aJwks5xxLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.SERVER_ERROR);
-
-        Landing landing = EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=unavailable");
-    }
-
-    @Test
-    void aJwksTimeoutLandsAtTheUnavailableNotice() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.JWKS, FakeEpic.Failure.STALL);
-
-        Landing landing = EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=unavailable");
     }
 
     /** A fetch that failed is Epic unavailable, not a reason to try again within the Login. */

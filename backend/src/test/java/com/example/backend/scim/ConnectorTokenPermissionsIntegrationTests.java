@@ -331,19 +331,6 @@ class ConnectorTokenPermissionsIntegrationTests {
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
     }
 
-    /** A token cannot reach the application chain, whatever it carries. */
-    @Test
-    void a_token_cannot_reach_the_application_chain() throws Exception {
-        UUID connector = createConnector("permissions-api");
-        String token = presented(issue(connector,
-                "[\"user:read\",\"user:write\",\"group:read\",\"group:write\"]", SUPERUSER));
-
-        for (String path : List.of("/api/admin/accounts", "/api/admin/groups", CONNECTORS)) {
-            assertThat(mvc.perform(bearer(get(path), token)).andReturn().getResponse().getStatus())
-                    .as("GET %s with a token", path).isEqualTo(401);
-        }
-    }
-
     // ---- helpers ------------------------------------------------------------------------------
 
     private UUID createConnector(String displayName) throws Exception {

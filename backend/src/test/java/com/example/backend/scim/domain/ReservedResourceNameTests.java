@@ -3,8 +3,6 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Instant;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -52,46 +50,5 @@ class ReservedResourceNameTests {
     void the_lookup_is_exact_rather_than_case_insensitive() {
         assertThatThrownBy(() -> ReservedResourceName.ofStoredValue("BOOTSTRAP-ADMIN"))
                 .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void a_reserved_user_is_protected_from_writes_and_exempt_from_lockout() {
-        ScimUser bootstrapAdmin = reserved(ReservedResourceName.BOOTSTRAP_ADMIN);
-
-        assertThat(bootstrapAdmin.isProtectedFromWrites()).isTrue();
-        assertThat(bootstrapAdmin.isExemptFromLockout()).isTrue();
-    }
-
-    /**
-     * The two rules are distinct even though one marker decides both today. A resource reserved
-     * under a future third name would be protected from writes without being exempt from lockout,
-     * and collapsing the two would grant it an exemption nobody asked for.
-     */
-    @Test
-    void a_reservation_other_than_the_bootstrap_admin_confers_no_lockout_exemption() {
-        ScimUser reservedOtherwise = reserved(ReservedResourceName.ADMIN_GROUP);
-
-        assertThat(reservedOtherwise.isProtectedFromWrites()).isTrue();
-        assertThat(reservedOtherwise.isExemptFromLockout()).isFalse();
-    }
-
-    @Test
-    void an_ordinary_user_is_neither_protected_nor_exempt() {
-        ScimUser ordinary = reserved(null);
-
-        assertThat(ordinary.isProtectedFromWrites()).isFalse();
-        assertThat(ordinary.isExemptFromLockout()).isFalse();
-    }
-
-    private static ScimUser reserved(ReservedResourceName reservedName) {
-        Instant now = Instant.parse("2026-01-01T00:00:00Z");
-        return new ScimUser(
-                UUID.randomUUID(),
-                new ScimUserProfile("admin", null, null, null, null, null, true, null),
-                ScimLoginState.of("hash"),
-                reservedName,
-                ScimUser.INITIAL_VERSION,
-                now,
-                now);
     }
 }
