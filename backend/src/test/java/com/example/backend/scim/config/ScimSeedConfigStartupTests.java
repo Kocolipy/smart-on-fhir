@@ -321,6 +321,21 @@ class ScimSeedConfigStartupTests {
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of(CLINICIAN))).isPresent();
     }
 
+    /**
+     * APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME, which {@code make fhircast-up} writes beside
+     * it, reaches the shipped document's {@code epic-clinician-display-name}.
+     */
+    @Test
+    void theShippedDocumentTakesTheEpicClinicianDisplayNameFromItsEnvironmentVariable() {
+        shipped("local").withPropertyValues("APP_DEV_FIXTURES_EPIC_CLINICIAN=" + CLINICIAN,
+                        "APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME=Dr. Local Clinician")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of(CLINICIAN)).orElseThrow()
+                        .profile().displayName())
+                .isEqualTo("Dr. Local Clinician");
+    }
+
     /** Unset, the shipped document seeds the Bootstrap Admin and the four fixture Users alone. */
     @Test
     void theShippedDocumentSeedsNoEpicClinicianByDefault() {

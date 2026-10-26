@@ -27,6 +27,7 @@ const VALUES = {
   APP_EPIC_REDIRECT_URI: "http://localhost:5173/api/auth/epic/callback",
   APP_DEV_FIXTURES_ENABLED: "true",
   APP_DEV_FIXTURES_EPIC_CLINICIAN: "af74a102-ebaf-46ef-b445-4f72157c473f",
+  APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME: "Dr. Local Clinician",
 };
 
 /** A key as generateClientKey hands it over: one line, its breaks a literal backslash-n. */
@@ -82,6 +83,7 @@ describe("manageEnvBlock", () => {
       "APP_EPIC_CLIENT_KEY_ID",
       "APP_DEV_FIXTURES_ENABLED",
       "APP_DEV_FIXTURES_EPIC_CLINICIAN",
+      "APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME",
     ]);
   });
 

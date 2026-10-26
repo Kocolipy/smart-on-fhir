@@ -34,6 +34,10 @@ app:
     # `make fhircast-up` sets it in .env from the stand-in's own seed, the one
     # place the id is chosen. Unset or blank, none is seeded.
     epic-clinician: ${APP_DEV_FIXTURES_EPIC_CLINICIAN:}
+    # That User's displayName, salutation included ("Dr. Local Clinician"), which
+    # `make fhircast-up` sets from the clinician's Practitioner name. Unset or
+    # blank, the displayName is the userName, as every other fixture User's is.
+    epic-clinician-display-name: ${APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME:}
     # A User in no Group whose dormancy basis is put a day past the lockout
     # window at every startup, and whose password and lock are reset with it, so
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks
@@ -73,7 +77,16 @@ app:
     group-permissions:
       - group: 00000000-0000-4000-8000-00000000a003
         # Auditors: read everything an administrator reads, and change nothing.
-        permissions: [user:read, group:read, ops:read, connector:read, audit:read]
+        permissions:
+          [user:read, group:read, ops:read, connector:read, audit:read]
       - group: 00000000-0000-4000-8000-00000000a006
         # Helpdesk: the Auditors' reads plus the helpdesk power, Unlock.
-        permissions: [user:read, group:read, ops:read, connector:read, audit:read, account:unlock]
+        permissions:
+          [
+            user:read,
+            group:read,
+            ops:read,
+            connector:read,
+            audit:read,
+            account:unlock,
+          ]
