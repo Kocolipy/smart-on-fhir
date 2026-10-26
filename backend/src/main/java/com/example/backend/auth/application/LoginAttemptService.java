@@ -79,6 +79,10 @@ public class LoginAttemptService {
      * reading a run of subject-less failures is seeing attempts against names that do not exist,
      * which is exactly the distinction worth having.
      *
+     * <p>A User with no password is recorded but not counted: there is no password to guess, so
+     * attempts against it lengthen no failure run, and can never lock out a User who signs in only
+     * through Epic.
+     *
      * <p>Every append on this path is fail-open: the caller is already receiving a bare {@code 401}
      * and a trail that cannot be written must not change that answer. See {@link AuditTrail}.
      *
@@ -91,6 +95,7 @@ public class LoginAttemptService {
         Optional<ScimUser> found = find(username);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
         Set<AuditLoginStateAttribute> moved = found
+                .filter(user -> user.login().hasPassword())
                 .map(loginState::failureCounted)
                 .map(LoginStateChange::moved)
                 .orElse(Set.of());

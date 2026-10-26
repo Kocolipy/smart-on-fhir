@@ -24,6 +24,14 @@ driven by Spring Security's authentication events is
 username with [edge whitespace](./directory.md) names no User and is refused as an
 unknown one before any lookup, so its failure lengthens no failure run.
 
+**A User with no password has no password Login** — whatever is submitted, a
+credentialless User (one provisioned without a password, as a clinician who signs
+in only through Epic is) is refused as an unknown name is, never by comparing
+against a stand-in hash, and at the same cost: one Argon2id verification against
+Spring Security's own dummy hash. Its refusal is audited as `BAD_CREDENTIALS`,
+naming the User, and lengthens no failure run — there is no password to guess,
+so a run of attempts never locks out a User who signs in only through Epic.
+
 **A refused Login ends the browser's session** — a refused password Login ends
 whatever session the browser held, whoever it belonged to, before its bare `401`,
 as a refused EHR launch does: a shared browser is never left signed in as the
@@ -84,6 +92,9 @@ clock. A lock keeps the cause it was first imposed for.
   nothing: no cleared run, no `LOGIN_SUCCESS`, no session. It is answered and
   recorded as the refusal the check would have made a moment later —
   `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` — and the same holds for an Epic Login.
+  A User both locked and deactivated is refused as locked, by every Login and by
+  the self-service password change alike: the login-state module decides the
+  standing, in that one order (`LoginStateService.StandingRefusal`).
 - Imposing it **revokes the User's live sessions**, after the transaction
   commits, so a locked User stops acting immediately rather than when the session
   it already held expires.

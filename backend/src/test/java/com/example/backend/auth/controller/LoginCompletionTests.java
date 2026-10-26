@@ -101,7 +101,7 @@ class LoginCompletionTests {
                 ScimIdentities.profile("ada", true), passwordEncoder.encode(PASSWORD),
                 ScimIdentities.NOW)).id();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 accountSessions,
                 new PendingCommit(),

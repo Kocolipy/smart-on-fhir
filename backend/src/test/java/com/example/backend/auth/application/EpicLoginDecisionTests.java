@@ -65,7 +65,7 @@ class EpicLoginDecisionTests {
         SecurityConfig config = new SecurityConfig();
         PasswordEncoder passwordEncoder = config.passwordEncoder();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(),
                 new PendingCommit(),
@@ -156,6 +156,15 @@ class EpicLoginDecisionTests {
                 new ScimLoginState("hash", 0, NOW, LockCause.DORMANCY, null, null)));
 
         assertThat(refusalOf("eDORMANT")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
+    }
+
+    /** Locked and deactivated both: locked first, as a password Login refuses the same User. */
+    @Test
+    void aUserBothLockedAndDeactivatedIsRefusedAsALockedAccount() {
+        users.given(ScimIdentities.withActive(
+                ScimIdentities.user("eBOTH"), false, new ScimLoginState("hash", 5, NOW)));
+
+        assertThat(refusalOf("eBOTH")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
     }
 
     // ---- a refusal is audited, and never lengthens a failure run (D12) ------------------------

@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
@@ -17,6 +18,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 /**
@@ -162,21 +164,44 @@ public class LoginStateService implements ScimUserLoginState {
      * what the authentication's own check, made on a read taken before the lock, refuses — so a
      * Lockout or a deactivation committed while the password was being compared still refuses it.
      *
-     * <p>Each standing carries the refusal reason both login routes report it as, so a standing
-     * added here cannot be reported by one route and missed by the other.
+     * <p>Each standing carries the refusal reason both login routes and the self-service password
+     * change report it as, so a standing added here cannot be reported by one and missed by
+     * another; and {@link #of} is the one order they are decided in.
      */
     public enum StandingRefusal {
         /** A Lockout stands, of either cause. */
-        LOCKED(PasswordRefusalReason.ACCOUNT_LOCKED, EpicLoginFailureReason.ACCOUNT_LOCKED),
+        LOCKED(PasswordRefusalReason.ACCOUNT_LOCKED, EpicLoginFailureReason.ACCOUNT_LOCKED,
+                AuditPasswordChangeRefusal.ACCOUNT_LOCKED),
         /** The User is no longer active, or no longer there. */
-        DEACTIVATED(PasswordRefusalReason.ACCOUNT_DISABLED, EpicLoginFailureReason.ACCOUNT_DISABLED);
+        DEACTIVATED(PasswordRefusalReason.ACCOUNT_DISABLED, EpicLoginFailureReason.ACCOUNT_DISABLED,
+                AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
 
         private final PasswordRefusalReason passwordReason;
         private final EpicLoginFailureReason epicReason;
+        private final AuditPasswordChangeRefusal passwordChangeReason;
 
-        StandingRefusal(PasswordRefusalReason passwordReason, EpicLoginFailureReason epicReason) {
+        StandingRefusal(PasswordRefusalReason passwordReason, EpicLoginFailureReason epicReason,
+                AuditPasswordChangeRefusal passwordChangeReason) {
             this.passwordReason = passwordReason;
             this.epicReason = epicReason;
+            this.passwordChangeReason = passwordChangeReason;
+        }
+
+        /**
+         * The standing that refuses a User in {@code state}, active or not: locked first, as the
+         * authentication checks it, so a User both locked and deactivated is refused as locked by
+         * every route. Empty when it refuses nothing.
+         */
+        public static Optional<StandingRefusal> of(ScimLoginState state, boolean active) {
+            if (state.isLocked()) {
+                return Optional.of(LOCKED);
+            }
+            return active ? Optional.empty() : Optional.of(DEACTIVATED);
+        }
+
+        /** The reason a self-service password change refused on this standing is recorded as. */
+        public AuditPasswordChangeRefusal passwordChangeReason() {
+            return passwordChangeReason;
         }
 
         /** The reason a password Login refused on this standing is reported and recorded as. */
@@ -276,11 +301,10 @@ public class LoginStateService implements ScimUserLoginState {
      */
     public Verification credentialVerified(ScimUser user, LoginKind kind) {
         ScimLoginState before = stateUnderLock(user);
-        if (before.isLocked()) {
-            return new Verification(LoginStateChange.none(before), StandingRefusal.LOCKED);
-        }
-        if (!loginStates.isActive(user.id())) {
-            return new Verification(LoginStateChange.none(before), StandingRefusal.DEACTIVATED);
+        Optional<StandingRefusal> refused =
+                StandingRefusal.of(before, loginStates.isActive(user.id()));
+        if (refused.isPresent()) {
+            return new Verification(LoginStateChange.none(before), refused.get());
         }
         ScimLoginState after = before.withFailureRunCleared();
         if (!confines(kind, before)) {

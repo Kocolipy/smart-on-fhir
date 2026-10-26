@@ -85,7 +85,7 @@ class RefusalTimingEquivalenceTests {
                 passwordEncoder.encode("correct-password"),
                 ScimIdentities.NOW));
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
         RecordingAuditTrail audit = new RecordingAuditTrail();
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(),
@@ -182,11 +182,10 @@ class RefusalTimingEquivalenceTests {
     /**
      * Not just "one call each" but against a dummy hash of the ticket's required shape:
      * every category compares against an {@code {argon2id}}-prefixed hash, so none of them
-     * can be picked out by running a cheaper or differently-shaped comparison. The three
-     * dummy hashes are not required to be byte-identical — the unknown-userName path is
-     * {@code DaoAuthenticationProvider}'s own cached comparand, encoded once from a
-     * different fixed passphrase than the credentialless path's — only that each is a real
-     * Argon2id verification at the same parameters.
+     * can be picked out by running a cheaper or differently-shaped comparison. A credentialless
+     * identity is refused as an unknown name is, so both compare against
+     * {@code DaoAuthenticationProvider}'s own cached comparand: a real Argon2id verification at
+     * the same parameters as a stored hash.
      */
     @Test
     void allThreeCategoriesCompareAgainstAnArgon2idHash() {
@@ -208,25 +207,27 @@ class RefusalTimingEquivalenceTests {
     }
 
     /**
-     * The verification a credentialless identity pays is the same work every time, and the
-     * marker behind it is encoded once — Argon2id is deliberately expensive, so recomputing
-     * it per attempt would hand an unauthenticated caller a way to spend this service's CPU
+     * The verification a credentialless identity pays is the same work every time, and nothing
+     * is encoded for it per attempt — Argon2id is deliberately expensive, so encoding a dummy
+     * hash per attempt would hand an unauthenticated caller a way to spend this service's CPU
      * at will.
      *
      * <p>Both halves are asserted from the ENCODER's counters, because that is the only
-     * place the difference shows: three attempts cost three verifications and exactly one
-     * encode of the marker.
+     * place the difference shows: after the first refusal, which may prepare the provider's
+     * dummy hash, three attempts cost three verifications and no encode.
      */
     @Test
-    void repeatedCredentiallessRefusalsEncodeTheMarkerOnceAndVerifyEveryTime() {
+    void repeatedCredentiallessRefusalsEncodeNothingAndVerifyEveryTime() {
+        refuse("nopass", "first");
         passwordEncoder.matchCalls.set(0);
+        int encodedBefore = passwordEncoder.totalEncodes();
 
         refuse("nopass", "one");
         refuse("nopass", "two");
         refuse("nopass", "three");
 
         assertThat(passwordEncoder.matchCalls).hasValue(3);
-        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
+        assertThat(passwordEncoder.totalEncodes()).isEqualTo(encodedBefore);
     }
 
     /** Submits a Login expected to be refused, returning the reason Spring Security refused it for. */
@@ -267,13 +268,13 @@ class RefusalTimingEquivalenceTests {
         }
 
         /**
-         * How many times this raw value was encoded. Counting rather than comparing the
-         * result, because the encoder is deterministic in what it accepts: only the call
-         * count distinguishes a cached marker from one recomputed on every call.
+         * How many encodes there have been, of any value. Counting rather than comparing
+         * results, because the encoder is deterministic in what it accepts: only the call
+         * count distinguishes a cached dummy hash from one recomputed on every call.
          */
-        int encodeCountOf(String rawPassword) {
+        int totalEncodes() {
             synchronized (encodeCounts) {
-                return encodeCounts.getOrDefault(rawPassword, 0);
+                return encodeCounts.values().stream().mapToInt(Integer::intValue).sum();
             }
         }
     }

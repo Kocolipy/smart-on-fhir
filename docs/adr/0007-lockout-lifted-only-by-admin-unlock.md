@@ -65,7 +65,10 @@ standard's soft-delete and tombstone requirements.
   it, the right password included, with the same bare `401`. A wrong password, an
   unknown name, a credentialless User, a locked User and a deactivated User each
   cost exactly one Argon2id verification; `RefusalTimingEquivalenceTests` counts
-  them. The refusal's audit reason is `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED`,
+  them. A credentialless User has no password Login: it is refused as an unknown
+  name is, against Spring Security's own dummy hash rather than a stand-in hash a
+  submitted string could match, audited as `BAD_CREDENTIALS` naming it, and
+  counted toward no failure run, having no password to guess. The refusal's audit reason is `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED`,
   whatever the password.
 - **A Login racing a Lockout does not lift it.** Spring Security's account check
   reads the User without the login-state lock, before the Argon2id comparison, so

@@ -60,7 +60,7 @@ class PasswordLoginEdgeWhitespaceTests {
                 passwordEncoder.encode(CORRECT_PASSWORD), ScimIdentities.NOW));
 
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(), new PendingCommit(), audit,
                 new RecordingOperationalAlerts());

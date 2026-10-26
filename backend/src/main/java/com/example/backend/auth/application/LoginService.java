@@ -142,9 +142,10 @@ public class LoginService {
      *
      * <p>The User is the one whose stored {@code userName} equals the Practitioner ID exactly
      * ({@link LoginIdentityService#loadEpicLinkedUser}), and it is refused if there is none, or
-     * it is deactivated or locked — Lockout and deactivation apply to Epic Login exactly as to
-     * password Login (D12), and are checked again under the User's lock as the success is
-     * recorded, so one committed after the User was read refuses the Login too. Otherwise its
+     * it is locked or deactivated — Lockout and deactivation apply to Epic Login exactly as to
+     * password Login (D12), and are checked once, under the User's lock as the success is
+     * recorded, in the login-state module's order (locked first), so one committed after the User
+     * was read refuses the Login too. Otherwise its
      * authorities are those password Login gives the same User, and the success is recorded
      * exactly as password Login's is, under method {@code sso}: failure run cleared, dormancy
      * basis moved, {@code LOGIN_SUCCESS} fail-closed, and every other session of the User revoked
@@ -185,12 +186,6 @@ public class LoginService {
         }
         // Read once; from here on the User is its stable id, as a password Login's is.
         LoginPrincipal user = linked.get();
-        if (!user.isEnabled() || !user.isAccountNonLocked()) {
-            return refused(EpicRefused.account(user.userId(),
-                    user.isEnabled()
-                            ? EpicLoginFailureReason.ACCOUNT_LOCKED
-                            : EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
-        }
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
                         user, null, user.getAuthorities());
@@ -199,7 +194,8 @@ public class LoginService {
         Optional<LoginStateService.StandingRefusal> refusedOnStanding =
                 attempts.recordEpicSuccess(user.userId(), retainedSessionId, mfaFactor);
         if (refusedOnStanding.isPresent()) {
-            // Locked or deactivated since the read above, as a password Login's success can be.
+            // Locked or deactivated, decided once, under the User's lock and in the module's one
+            // order: the read above is not checked first, so the two cannot disagree.
             return refused(EpicRefused.account(user.userId(), refusedOnStanding.get().epicReason()),
                     retainedSessionId);
         }
