@@ -8,6 +8,7 @@ import {
   firstHubModeAt,
   hubState,
   hubTokenRequestStatus,
+  keptConnection,
   seededClinician,
   signInAtMedplum,
   tanWeiMing,
@@ -27,7 +28,9 @@ import {
  * at Medplum's hub, revoke the Hub Token at the shim (RFC 7009) and delete
  * the registration there (RFC 7592). Each case reads the hub's side: Medplum's
  * answer to a socket at the card's channel endpoint, and the shim's test-only
- * state and token endpoint.
+ * state and token endpoint. One case reloads the tab before signing out: the
+ * teardown then works from what the tab kept, not from what the page before
+ * held in memory.
  *
  * In the `fhircast` project. Each case signs in a clinician the seed made for
  * it alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`), so the Users it
@@ -50,11 +53,11 @@ interface HeldAtSignOut {
 /** The FHIRcast card's status line. */
 const fhircastStatus = (page: Page) => page.getByRole("status", { name: "FHIRcast" });
 
-/** What the FHIRcast module keeps under `key` in the page's sessionStorage. */
-async function kept(page: Page, key: string): Promise<string> {
-  const value = await page.evaluate((name) => sessionStorage.getItem(name), key);
-  expect(value, `the tab keeps ${key}`).not.toBeNull();
-  return value ?? "";
+/** What the tab keeps of its connection, its Hub Subscription asserted confirmed. */
+async function held(page: Page, channelEndpoint: string): Promise<HeldAtSignOut> {
+  const { clientId, privateJwk, subscription } = await keptConnection(page);
+  expect(subscription?.endpoint, "the tab keeps the subscription it opened").toBe(channelEndpoint);
+  return { channelEndpoint, clientId, hubToken: subscription?.hubToken ?? "", privateJwk };
 }
 
 /**
@@ -89,18 +92,13 @@ async function signedOutOfAConnectedCard(
     await expect(cardTitled(page, "FHIRcast")).toBeVisible();
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     expect(channelEndpoints, "the card has opened one socket to the hub").toHaveLength(1);
-    const held: HeldAtSignOut = {
-      channelEndpoint: channelEndpoints[0],
-      clientId: await kept(page, "fhircast-client-id"),
-      hubToken: await kept(page, "fhircast-hub-token"),
-      privateJwk: JSON.parse(await kept(page, "fhircast-private-jwk")) as JsonWebKey,
-    };
-    await beforeSignOut(held);
+    const heldAtSignOut = await held(page, channelEndpoints[0]);
+    await beforeSignOut(heldAtSignOut);
 
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login/);
 
-    await afterSignOut(held);
+    await afterSignOut(heldAtSignOut);
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
@@ -159,4 +157,44 @@ test("after logout a token request with the old registration is refused", async 
       await expect.poll(() => hubTokenRequestStatus(clientId, privateJwk)).toBe(400);
     },
   );
+});
+
+test("after a reload, logout leaves no subscription at any endpoint the tab used, and the key mints no Hub Token", async ({
+  browser,
+}) => {
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-logout-reload@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinician = await freshBrowser(browser);
+  try {
+    const page = await clinician.newPage();
+    const channelEndpoints = new Set<string>();
+    page.on("websocket", (socket) => {
+      if (new URL(socket.url()).pathname.startsWith("/ws/fhircast/")) {
+        channelEndpoints.add(socket.url());
+      }
+    });
+    const launch = new URLSearchParams({
+      iss: FHIR_BASE,
+      launch: await createLaunch(await tanWeiMing()),
+    });
+    await page.goto(`/api/auth/epic/launch?${launch.toString()}`);
+    await signInAtMedplum(page, signIn);
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const { clientId, privateJwk } = await keptConnection(page);
+
+    await page.reload();
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login/);
+
+    expect(channelEndpoints.size, "the tab opened a socket to the hub").toBeGreaterThan(0);
+    for (const endpoint of channelEndpoints) {
+      await expect.poll(() => firstHubModeAt(endpoint)).toBe("denied");
+    }
+    await expect.poll(() => hubTokenRequestStatus(clientId, privateJwk)).toBe(400);
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
 });

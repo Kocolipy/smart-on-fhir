@@ -637,7 +637,7 @@ describe("AuthProvider and what the FHIRcast module kept", () => {
 
     await mounted(SIGNED_IN);
 
-    expect(stillKept()).toHaveLength(4);
+    expect(stillKept()).toEqual(Object.values(FHIRCAST_STORAGE_KEYS));
   });
 });
 
@@ -672,6 +672,24 @@ describe("AuthProvider and the FHIRcast connection", () => {
     await settle(session, (auth) => auth.logout());
 
     await waitFor(() => expect(since()).toEqual(TORN_DOWN));
+  });
+
+  it("tears down at the hub, on sign-out, what the page before a reload kept", async () => {
+    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
+    const hub = fakeHub();
+    // The page before the reload: the FHIRcast module as it loaded then,
+    // which kept its connection in the tab and went, tearing nothing down.
+    vi.resetModules();
+    const before = await import("@/lib/fhircast");
+    const outcome = await before.connectFhircast(RELEASE);
+    if (outcome.kind === "connected") outcome.close();
+    const sent = requestsSince(hub);
+
+    await settle(session, (auth) => auth.logout());
+
+    await waitFor(() =>
+      expect(sent().map(({ method, url }) => `${method} ${url}`)).toEqual(TORN_DOWN),
+    );
   });
 
   it("tears it down at the hub when the session expires", async () => {

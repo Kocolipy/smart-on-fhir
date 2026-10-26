@@ -227,7 +227,7 @@ describe("the FHIRcast card", () => {
       expect(shownOnRetry).toBe("Connecting");
     });
 
-    it("connects again from the start when the clinician retries", async () => {
+    it("connects again when the clinician retries, resuming the tab's one registration", async () => {
       const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
       act(() => hub.dropSockets());
       await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
@@ -238,7 +238,7 @@ describe("the FHIRcast card", () => {
       await waitFor(() =>
         expect([status().textContent, hub.requestsTo(REGISTRATION_ENDPOINT).length]).toEqual([
           "Connected",
-          2,
+          1,
         ]),
       );
     });

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
@@ -11,11 +11,13 @@ import {
   hubOnly,
   type HubRequest,
   type HubOptions,
+  patientNotification,
   REGISTRATION_ACCESS_TOKEN,
   REGISTRATION_CLIENT_URI,
   REGISTRATION_ENDPOINT,
   requestsSince,
   REVOCATION_ENDPOINT,
+  type SocketBehaviour,
   TOKEN_ENDPOINT,
 } from "./fake-hub.testHelpers";
 import { fakeBackend } from "./fake-backend.testHelpers";
@@ -88,6 +90,28 @@ const RELEASE: FhircastRelease = {
 };
 
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+
+/** What the FHIRcast module keeps in the tab, parsed: `null` for nothing. */
+const keptState = (): Record<string, unknown> | null =>
+  JSON.parse(window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.connection) ?? "null") as Record<
+    string,
+    unknown
+  > | null;
+
+/** The keys an earlier version of the module kept its connection under, one each. */
+const RETIRED_KEYS = [
+  "fhircast-client-id",
+  "fhircast-hub-token",
+  "fhircast-private-jwk",
+  "fhircast-smart-access-token",
+];
+
+/** Each `hub.mode` request `hub` was sent at the hub URL in `mode`, in order. */
+const modeAt = (hub: FakeHub, mode: "subscribe" | "unsubscribe") =>
+  hub.requestsTo(HUB_URL).filter(({ body }) => new URLSearchParams(body).get("hub.mode") === mode);
+
+/** Each subscription `hub` was asked for, in order. */
+const subscriptionsAt = (hub: FakeHub) => modeAt(hub, "subscribe");
 
 const decodeSegment = (segment: string): Record<string, unknown> =>
   JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
@@ -404,6 +428,8 @@ describe("connectFhircast", () => {
       const hub = hubOnly();
 
       await connectFhircast(RELEASE);
+      // Forgotten, so the second connects from scratch rather than resuming the first.
+      clearFhircastStorage();
       await connectFhircast(RELEASE);
 
       const jtis = hub
@@ -800,6 +826,7 @@ describe("connectFhircast", () => {
 
     it.each<[string, HubOptions]>([
       ["refuses the registration", { registration: { body: {}, status: 401 } }],
+      ["refuses the Hub Token", { token: { body: { error: "invalid_client" }, status: 401 } }],
       ["answers metadata that is no JSON", { fhircastConfiguration: { status: 200, text: "x" } }],
       ["names a member it should not", { fhircastConfiguration: { body: {}, status: 200 } }],
       [
@@ -855,537 +882,881 @@ describe("connectFhircast", () => {
   });
 
   describe("what the tab keeps", () => {
-    it("keeps the SMART access token, the Hub Token, the client_id and the private JWK in sessionStorage", async () => {
+    it("never keeps the SMART access token", async () => {
       hubOnly();
 
       await connectFhircast(RELEASE);
 
-      const privateKey = JSON.parse(
-        window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.signingJwk) ?? "{}",
-      ) as JsonWebKey;
-      expect([
-        window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.smartAccess),
-        window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.hubToken),
-        window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.clientId),
-        [privateKey.kty, privateKey.crv, typeof privateKey.d],
-      ]).toEqual([SMART_ACCESS_TOKEN, HUB_TOKEN, CLIENT_ID, ["EC", "P-384", "string"]]);
+      expect(
+        Object.keys(window.sessionStorage).filter((key) =>
+          window.sessionStorage.getItem(key)?.includes(SMART_ACCESS_TOKEN),
+        ),
+      ).toEqual([]);
     });
 
-    it("forgets all four when cleared", async () => {
+    describe("on the clock", () => {
+      const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(CONNECTED_AT);
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("keeps the registration, and the subscription with when its Hub Token and lease run out", async () => {
+        hubOnly({ leaseSeconds: 600 });
+
+        await connectFhircast(RELEASE);
+
+        expect(keptState()).toMatchObject({
+          clientId: CLIENT_ID,
+          hubTopic: "topic-1",
+          hubUrl: HUB_URL,
+          registration: { token: REGISTRATION_ACCESS_TOKEN, uri: REGISTRATION_CLIENT_URI },
+          revocationEndpoint: REVOCATION_ENDPOINT,
+          subscription: {
+            endpoint: CHANNEL_ENDPOINT,
+            hubToken: HUB_TOKEN,
+            hubTokenExpiresAt: CONNECTED_AT + 3_600_000,
+            leaseExpiresAt: CONNECTED_AT + 600_000,
+          },
+          tokenEndpoint: TOKEN_ENDPOINT,
+        });
+      });
+
+      it("keeps no expiry the hub did not state", async () => {
+        hubOnly({ token: { body: { access_token: HUB_TOKEN }, status: 200 } });
+
+        await connectFhircast(RELEASE);
+
+        expect(keptState()).toMatchObject({
+          subscription: { hubTokenExpiresAt: null, leaseExpiresAt: null },
+        });
+      });
+    });
+
+    it("keeps the private key it registered, under the kid it registered", async () => {
+      const hub = hubOnly();
+
+      await connectFhircast(RELEASE);
+
+      const registered = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
+        jwks: { keys: { kid: string; x: string }[] };
+      };
+      const { keyId, signingJwk } = keptState() as {
+        keyId: string;
+        signingJwk: JsonWebKey;
+      };
+      expect([keyId, signingJwk.kty, signingJwk.crv, signingJwk.x, typeof signingJwk.d]).toEqual([
+        registered.jwks.keys[0].kid,
+        "EC",
+        "P-384",
+        registered.jwks.keys[0].x,
+        "string",
+      ]);
+    });
+
+    it("keeps the registration before the hub grants a Hub Token, with no subscription", async () => {
+      hubOnly({ token: { status: 400 } });
+
+      await connectFhircast(RELEASE);
+
+      expect(keptState()).toMatchObject({ clientId: CLIENT_ID, subscription: null });
+    });
+
+    it("keeps no registration the hub named no way to delete", async () => {
+      hubOnly({ registration: { body: { client_id: CLIENT_ID }, status: 201 } });
+
+      await connectFhircast(RELEASE);
+
+      expect(keptState()).toMatchObject({ registration: null });
+    });
+
+    it("forgets it when cleared, and what an earlier version kept under keys of its own", async () => {
       hubOnly();
       await connectFhircast(RELEASE);
+      for (const key of RETIRED_KEYS) window.sessionStorage.setItem(key, "kept");
 
       clearFhircastStorage();
 
       expect(
-        Object.values(FHIRCAST_STORAGE_KEYS).map((key) => window.sessionStorage.getItem(key)),
-      ).toEqual([null, null, null, null]);
+        [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_KEYS].map((key) =>
+          window.sessionStorage.getItem(key),
+        ),
+      ).toEqual([null, null, null, null, null]);
+    });
+  });
+});
+
+describe("connectFhircast, staying connected", () => {
+  /**
+   * When the fake clock starts: a whole second, so that a time read within
+   * the second it takes to connect falls in that same second.
+   */
+  const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(CONNECTED_AT);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Connected to a hub answering `options`, on the fake clock, with what it reports recorded. */
+  async function connectedOnTheClock(options: HubOptions = {}) {
+    const hub = hubOnly(options);
+    const reported = vi.fn();
+    const events = vi.fn();
+    const connecting = connectFhircast(RELEASE, { onConnection: reported, onEvent: events });
+    await eventually(() => expect(hub.sockets()).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(0);
+    const outcome = await connecting;
+    expect(outcome.kind).toBe("connected");
+    return { events, hub, outcome, reported };
+  }
+
+  /** A Patient-open on the session's topic, and the event it is handed on as. */
+  const OPEN = {
+    event: {
+      context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
+      "hub.event": "Patient-open",
+      "hub.topic": "topic-1",
+    },
+    id: "event-1",
+    timestamp: "2026-10-24T02:00:05Z",
+  };
+  const HANDED_OPEN = {
+    event: "Patient-open",
+    patientId: "patient-1",
+    timestamp: "2026-10-24T02:00:05Z",
+  };
+
+  /** A hub answer held back until the test gives it: what a step under way waits on. */
+  function held() {
+    let give: (answer: HubAnswer) => void = () => undefined;
+    const answer = new Promise<HubAnswer>((resolve) => (give = resolve));
+    return { answer, give: (given: HubAnswer) => give(given) };
+  }
+
+  /** A token answer: a Hub Token lasting `seconds`. */
+  const lasting = (seconds: number): HubAnswer => ({
+    body: { access_token: `hub-${seconds}`, expires_in: seconds, token_type: "Bearer" },
+    status: 200,
+  });
+
+  describe("renewal", () => {
+    it.each<[string, HubOptions, number]>([
+      ["80% into an hour's Hub Token", { token: lasting(3600) }, 2_880_000],
+      ["60 s before a 200 s Hub Token expires", { token: lasting(200) }, 140_000],
+      ["80% into an hour's lease", { leaseSeconds: 3600, token: lasting(7200) }, 2_880_000],
+      ["60 s before a 200 s lease expires", { leaseSeconds: 200, token: lasting(3600) }, 140_000],
+      ["60 s before a 100 s Hub Token expires", { token: lasting(100) }, 40_000],
+      ["60 s before a 100 s lease expires", { leaseSeconds: 100, token: lasting(3600) }, 40_000],
+      [
+        "5 s into a Hub Token of a minute, which has no time 60 s before it ends",
+        { token: lasting(60) },
+        5_000,
+      ],
+      [
+        "5 s into a lease of a minute, which has no time 60 s before it ends",
+        { leaseSeconds: 60, token: lasting(3600) },
+        5_000,
+      ],
+    ])("starts %s, and not before", async (_name, options, at) => {
+      const { hub } = await connectedOnTheClock(options);
+      const minted = () => hub.requestsTo(TOKEN_ENDPOINT).length;
+
+      await vi.advanceTimersByTimeAsync(at - 1);
+      expect(minted()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await eventually(() => expect([minted(), hub.sockets().length]).toEqual([2, 2]));
+
+      // Renewal signs its assertion the moment it starts.
+      const { iat } = assertionOf(hub.requestsTo(TOKEN_ENDPOINT)[1].body).claims;
+      expect(iat).toBe((CONNECTED_AT + at) / 1000);
+    });
+
+    it.each<[string, unknown]>([
+      ["names none", undefined],
+      ["is zero", 0],
+      ["is negative", -200],
+      ["is no number", "200"],
+    ])("never starts by a Hub Token lifetime that %s", async (_name, lifetime) => {
+      const { hub } = await connectedOnTheClock({
+        token: { body: { access_token: HUB_TOKEN, expires_in: lifetime }, status: 200 },
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000_000_000);
+
+      await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
+    });
+
+    it("never starts by a lease that is no number", async () => {
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: "200" as unknown as number,
+        token: { body: { access_token: HUB_TOKEN }, status: 200 },
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000_000_000);
+
+      await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
+    });
+
+    it("waits out a lifetime longer than a browser timer holds", async () => {
+      const { hub } = await connectedOnTheClock({ token: lasting(10_000_000) });
+
+      await vi.advanceTimersByTimeAsync(2_147_483_646);
+
+      await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
+    });
+
+    /** Moves the clock `ms` on, then lets the hub confirm the socket the page has opened by then. */
+    async function renewedAfter(ms: number, hub: FakeHub, sockets: number) {
+      await vi.advanceTimersByTimeAsync(ms);
+      await eventually(() => expect(hub.sockets()).toHaveLength(sockets));
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    it("mints every renewal's Hub Token with an assertion of a jti of its own", async () => {
+      const { hub } = await connectedOnTheClock({ token: lasting(200) });
+
+      await renewedAfter(140_000, hub, 2);
+      await renewedAfter(140_000, hub, 3);
+
+      const jtis = hub
+        .requestsTo(TOKEN_ENDPOINT)
+        .map((request) => assertionOf(request.body).claims.jti);
+      expect(new Set(jtis).size).toBe(3);
+    });
+
+    it("signs a renewal's fresh five-minute assertion with the key and client it registered", async () => {
+      const { hub } = await connectedOnTheClock({ token: lasting(200) });
+
+      await renewedAfter(140_000, hub, 2);
+
+      const { claims, header } = assertionOf(hub.requestsTo(TOKEN_ENDPOINT)[1].body);
+      const registered = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
+        jwks: { keys: { kid: string }[] };
+      };
+      expect([
+        header.kid,
+        claims.iss,
+        (claims.exp as number) - (claims.iat as number),
+        hub.requestsTo(REGISTRATION_ENDPOINT).length,
+      ]).toEqual([registered.jwks.keys[0].kid, CLIENT_ID, 300, 1]);
+    });
+
+    it("subscribes again with the renewed Hub Token", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+
+      await renewedAfter(140_000, hub, 2);
+
+      expect(subscriptionsAt(hub).map(({ authorization }) => authorization)).toEqual([
+        `Bearer ${HUB_TOKEN}`,
+        `Bearer ${HUB_TOKEN}-2`,
+      ]);
+    });
+
+    it("moves onto the renewed subscription's socket, closing the one before", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+
+      await renewedAfter(140_000, hub, 2);
+
+      expect([hub.sockets(), hub.openSockets()]).toEqual([
+        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
+        1,
+      ]);
+    });
+
+    it("keeps the renewed subscription in sessionStorage, and only that", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+
+      await renewedAfter(140_000, hub, 2);
+
+      expect(keptState()?.subscription).toEqual({
+        endpoint: CHANNEL_ENDPOINT.replace(/1$/, "2"),
+        hubToken: `${HUB_TOKEN}-2`,
+        hubTokenExpiresAt: CONNECTED_AT + 140_000 + 3_600_000,
+        leaseExpiresAt: CONNECTED_AT + 140_000 + 200_000,
+      });
+    });
+
+    it("renews unseen, reporting nothing", async () => {
+      const { hub, reported } = await connectedOnTheClock({ leaseSeconds: 200 });
+
+      await renewedAfter(140_000, hub, 2);
+
+      expect(reported.mock.calls).toEqual([]);
+    });
+
+    it("hands on events from the renewed socket", async () => {
+      const { events, hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+      await renewedAfter(140_000, hub, 2);
+
+      hub.notify(OPEN);
+
+      expect(events.mock.calls).toEqual([[HANDED_OPEN]]);
+    });
+
+    it("reconnects a renewed connection the hub then drops", async () => {
+      const { hub, reported } = await connectedOnTheClock({ leaseSeconds: 200 });
+      await renewedAfter(140_000, hub, 2);
+
+      hub.dropSockets();
+
+      expect(reported.mock.calls).toEqual([["reconnecting"]]);
+    });
+
+    it("leaves a socket the hub drops mid-renewal to the renewal", async () => {
+      const renewal = held();
+      const { hub, reported } = await connectedOnTheClock({
+        token: [lasting(200), renewal.answer],
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
+
+      hub.dropSockets();
+      renewal.give(lasting(200));
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect([reported.mock.calls, hub.openSockets()]).toEqual([[], 1]);
+    });
+
+    it.each<[string, HubOptions]>([
+      ["the hub refuses its Hub Token", { token: [lasting(200), { status: 400 }] }],
+      ["its socket closes unconfirmed", { socket: ["confirms", "closes"], token: lasting(200) }],
+    ])("falls back to reconnecting when %s", async (_name, options) => {
+      const { hub, reported } = await connectedOnTheClock(options);
+
+      await vi.advanceTimersByTimeAsync(140_000);
+
+      await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
+      expect(hub.openSockets()).toBe(0);
+    });
+
+    it("retries a failed renewal by subscribing anew", async () => {
+      const { hub, reported } = await connectedOnTheClock({
+        token: [lasting(200), { status: 400 }, lasting(200)],
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
+
+      await renewedAfter(1_000, hub, 2);
+
+      expect([reported.mock.calls, hub.sockets()]).toEqual([
+        [["reconnecting"], ["connected"]],
+        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
+      ]);
+    });
+
+    it("renews no more once closed", async () => {
+      const { hub, outcome } = await connectedOnTheClock({ token: lasting(200) });
+
+      if (outcome.kind === "connected") outcome.close();
+      await vi.advanceTimersByTimeAsync(7_200_000);
+
+      expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
+    });
+
+    it("keeps nothing a renewal under way is granted once closed", async () => {
+      const renewal = held();
+      const { hub, outcome } = await connectedOnTheClock({
+        token: [lasting(200), renewal.answer],
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
+
+      if (outcome.kind === "connected") outcome.close();
+      renewal.give({
+        body: { access_token: `${HUB_TOKEN}-renewed`, expires_in: 200 },
+        status: 200,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect([
+        (keptState()?.subscription as { hubToken: string }).hubToken,
+        hub.requestsTo(HUB_URL).length,
+      ]).toEqual(["hub-200", 1]);
     });
   });
 
-  describe("staying connected", () => {
-    /**
-     * When the fake clock starts: a whole second, so that a time read within
-     * the second it takes to connect falls in that same second.
-     */
-    const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+  describe("reconnecting", () => {
+    /** Connected, then dropped by the hub. */
+    async function dropped(options: HubOptions = {}) {
+      const connected = await connectedOnTheClock(options);
+      connected.hub.dropSockets();
+      return connected;
+    }
 
-    beforeEach(() => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-      vi.setSystemTime(CONNECTED_AT);
+    it("reopens the endpoint a second after the hub drops the socket, and not before", async () => {
+      const { hub } = await dropped();
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(hub.sockets()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(hub.sockets()).toEqual([CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]);
     });
 
-    afterEach(() => {
-      vi.useRealTimers();
+    it("reports connected once the reopened socket is confirmed", async () => {
+      const { reported } = await dropped();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
     });
 
-    /** Connected to a hub answering `options`, on the fake clock, with what it reports recorded. */
-    async function connectedOnTheClock(options: HubOptions = {}) {
-      const hub = hubOnly(options);
-      const reported = vi.fn();
-      const events = vi.fn();
-      const connecting = connectFhircast(RELEASE, { onConnection: reported, onEvent: events });
-      await eventually(() => expect(hub.sockets()).toHaveLength(1));
+    it("hands on events from the reopened socket", async () => {
+      const { events, hub } = await dropped();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      hub.notify(OPEN);
+
+      expect(events.mock.calls).toEqual([[HANDED_OPEN]]);
+    });
+
+    it("spaces its retries by a backoff that doubles", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "closes"] });
+      const opened: number[] = [];
+
+      for (const backoff of [1_000, 2_000, 4_000, 8_000, 16_000]) {
+        await vi.advanceTimersByTimeAsync(backoff - 1);
+        opened.push(hub.sockets().length - 1);
+        await vi.advanceTimersByTimeAsync(1);
+        opened.push(hub.sockets().length - 1);
+      }
+
+      expect(opened).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5]);
+    });
+
+    it("gives up after five retries, reporting disconnected", async () => {
+      const { hub, reported } = await dropped({ socket: ["confirms", "closes"] });
+
+      await vi.advanceTimersByTimeAsync(7_200_000);
+
+      expect([hub.sockets().length - 1, reported.mock.calls]).toEqual([
+        5,
+        [["reconnecting"], ["disconnected"]],
+      ]);
+    });
+
+    it("counts its retries afresh once a retry has connected", async () => {
+      const { hub, reported } = await dropped({
+        socket: ["confirms", "closes", "confirms", "closes"],
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      hub.dropSockets();
+      await vi.advanceTimersByTimeAsync(7_200_000);
+
+      expect([hub.sockets().length, reported.mock.calls]).toEqual([
+        8,
+        [["reconnecting"], ["connected"], ["reconnecting"], ["disconnected"]],
+      ]);
+    });
+
+    it("subscribes anew when the hub says the endpoint is gone", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(3));
       await vi.advanceTimersByTimeAsync(0);
-      const outcome = await connecting;
-      expect(outcome.kind).toBe("connected");
-      return { events, hub, outcome, reported };
-    }
 
-    /** A Patient-open on the session's topic, and the event it is handed on as. */
-    const OPEN = {
-      event: {
-        context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
-        "hub.event": "Patient-open",
-        "hub.topic": "topic-1",
-      },
-      id: "event-1",
-      timestamp: "2026-10-24T02:00:05Z",
-    };
-    const HANDED_OPEN = {
-      event: "Patient-open",
-      patientId: "patient-1",
-      timestamp: "2026-10-24T02:00:05Z",
-    };
-
-    /** A hub answer held back until the test gives it: what a step under way waits on. */
-    function held() {
-      let give: (answer: HubAnswer) => void = () => undefined;
-      const answer = new Promise<HubAnswer>((resolve) => (give = resolve));
-      return { answer, give: (given: HubAnswer) => give(given) };
-    }
-
-    /** A token answer: a Hub Token lasting `seconds`. */
-    const lasting = (seconds: number): HubAnswer => ({
-      body: { access_token: `hub-${seconds}`, expires_in: seconds, token_type: "Bearer" },
-      status: 200,
+      expect([hub.sockets(), hub.openSockets()]).toEqual([
+        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
+        1,
+      ]);
     });
 
-    describe("renewal", () => {
-      it.each<[string, HubOptions, number]>([
-        ["80% into an hour's Hub Token", { token: lasting(3600) }, 2_880_000],
-        ["60 s before a 200 s Hub Token expires", { token: lasting(200) }, 140_000],
-        ["80% into an hour's lease", { leaseSeconds: 3600, token: lasting(7200) }, 2_880_000],
-        ["60 s before a 200 s lease expires", { leaseSeconds: 200, token: lasting(3600) }, 140_000],
-        ["60 s before a 100 s Hub Token expires", { token: lasting(100) }, 40_000],
-        ["60 s before a 100 s lease expires", { leaseSeconds: 100, token: lasting(3600) }, 40_000],
-        [
-          "5 s into a Hub Token of a minute, which has no time 60 s before it ends",
-          { token: lasting(60) },
-          5_000,
-        ],
-        [
-          "5 s into a lease of a minute, which has no time 60 s before it ends",
-          { leaseSeconds: 60, token: lasting(3600) },
-          5_000,
-        ],
-      ])("starts %s, and not before", async (_name, options, at) => {
-        const { hub } = await connectedOnTheClock(options);
-        const minted = () => hub.requestsTo(TOKEN_ENDPOINT).length;
+    it("subscribes anew with a fresh Hub Token", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
 
-        await vi.advanceTimersByTimeAsync(at - 1);
-        expect(minted()).toBe(1);
-        await vi.advanceTimersByTimeAsync(1);
-        await eventually(() => expect([minted(), hub.sockets().length]).toEqual([2, 2]));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(2));
 
-        // Renewal signs its assertion the moment it starts.
-        const { iat } = assertionOf(hub.requestsTo(TOKEN_ENDPOINT)[1].body).claims;
-        expect(iat).toBe((CONNECTED_AT + at) / 1000);
-      });
+      await eventually(() => expect(hub.sockets()).toHaveLength(3));
 
-      it.each<[string, unknown]>([
-        ["names none", undefined],
-        ["is zero", 0],
-        ["is negative", -200],
-        ["is no number", "200"],
-      ])("never starts by a Hub Token lifetime that %s", async (_name, lifetime) => {
-        const { hub } = await connectedOnTheClock({
-          token: { body: { access_token: HUB_TOKEN, expires_in: lifetime }, status: 200 },
-        });
-
-        await vi.advanceTimersByTimeAsync(3_000_000_000);
-
-        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
-      });
-
-      it("never starts by a lease that is no number", async () => {
-        const { hub } = await connectedOnTheClock({
-          leaseSeconds: "200" as unknown as number,
-          token: { body: { access_token: HUB_TOKEN }, status: 200 },
-        });
-
-        await vi.advanceTimersByTimeAsync(3_000_000_000);
-
-        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
-      });
-
-      it("waits out a lifetime longer than a browser timer holds", async () => {
-        const { hub } = await connectedOnTheClock({ token: lasting(10_000_000) });
-
-        await vi.advanceTimersByTimeAsync(2_147_483_646);
-
-        await throughout(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1));
-      });
-
-      /** Moves the clock `ms` on, then lets the hub confirm the socket the page has opened by then. */
-      async function renewedAfter(ms: number, hub: FakeHub, sockets: number) {
-        await vi.advanceTimersByTimeAsync(ms);
-        await eventually(() => expect(hub.sockets()).toHaveLength(sockets));
-        await vi.advanceTimersByTimeAsync(0);
-      }
-
-      it("mints every renewal's Hub Token with an assertion of a jti of its own", async () => {
-        const { hub } = await connectedOnTheClock({ token: lasting(200) });
-
-        await renewedAfter(140_000, hub, 2);
-        await renewedAfter(140_000, hub, 3);
-
-        const jtis = hub
-          .requestsTo(TOKEN_ENDPOINT)
-          .map((request) => assertionOf(request.body).claims.jti);
-        expect(new Set(jtis).size).toBe(3);
-      });
-
-      it("signs a renewal's fresh five-minute assertion with the key and client it registered", async () => {
-        const { hub } = await connectedOnTheClock({ token: lasting(200) });
-
-        await renewedAfter(140_000, hub, 2);
-
-        const { claims, header } = assertionOf(hub.requestsTo(TOKEN_ENDPOINT)[1].body);
-        const registered = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
-          jwks: { keys: { kid: string }[] };
-        };
-        expect([
-          header.kid,
-          claims.iss,
-          (claims.exp as number) - (claims.iat as number),
-          hub.requestsTo(REGISTRATION_ENDPOINT).length,
-        ]).toEqual([registered.jwks.keys[0].kid, CLIENT_ID, 300, 1]);
-      });
-
-      it("subscribes again with the renewed Hub Token", async () => {
-        const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
-
-        await renewedAfter(140_000, hub, 2);
-
-        expect(hub.requestsTo(HUB_URL).map(({ authorization }) => authorization)).toEqual([
-          `Bearer ${HUB_TOKEN}`,
-          `Bearer ${HUB_TOKEN}-2`,
-        ]);
-      });
-
-      it("moves onto the renewed subscription's socket, closing the one before", async () => {
-        const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
-
-        await renewedAfter(140_000, hub, 2);
-
-        expect([hub.sockets(), hub.openSockets()]).toEqual([
-          [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
-          1,
-        ]);
-      });
-
-      it("keeps the renewed Hub Token in sessionStorage", async () => {
-        const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
-
-        await renewedAfter(140_000, hub, 2);
-
-        expect(window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.hubToken)).toBe(
-          `${HUB_TOKEN}-2`,
-        );
-      });
-
-      it("renews unseen, reporting nothing", async () => {
-        const { hub, reported } = await connectedOnTheClock({ leaseSeconds: 200 });
-
-        await renewedAfter(140_000, hub, 2);
-
-        expect(reported.mock.calls).toEqual([]);
-      });
-
-      it("hands on events from the renewed socket", async () => {
-        const { events, hub } = await connectedOnTheClock({ leaseSeconds: 200 });
-        await renewedAfter(140_000, hub, 2);
-
-        hub.notify(OPEN);
-
-        expect(events.mock.calls).toEqual([[HANDED_OPEN]]);
-      });
-
-      it("reconnects a renewed connection the hub then drops", async () => {
-        const { hub, reported } = await connectedOnTheClock({ leaseSeconds: 200 });
-        await renewedAfter(140_000, hub, 2);
-
-        hub.dropSockets();
-
-        expect(reported.mock.calls).toEqual([["reconnecting"]]);
-      });
-
-      it("leaves a socket the hub drops mid-renewal to the renewal", async () => {
-        const renewal = held();
-        const { hub, reported } = await connectedOnTheClock({
-          token: [lasting(200), renewal.answer],
-        });
-        await vi.advanceTimersByTimeAsync(140_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
-
-        hub.dropSockets();
-        renewal.give(lasting(200));
-        await eventually(() => expect(hub.sockets()).toHaveLength(2));
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect([reported.mock.calls, hub.openSockets()]).toEqual([[], 1]);
-      });
-
-      it.each<[string, HubOptions]>([
-        ["the hub refuses its Hub Token", { token: [lasting(200), { status: 400 }] }],
-        ["its socket closes unconfirmed", { socket: ["confirms", "closes"], token: lasting(200) }],
-      ])("falls back to reconnecting when %s", async (_name, options) => {
-        const { hub, reported } = await connectedOnTheClock(options);
-
-        await vi.advanceTimersByTimeAsync(140_000);
-
-        await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
-        expect(hub.openSockets()).toBe(0);
-      });
-
-      it("retries a failed renewal by subscribing anew", async () => {
-        const { hub, reported } = await connectedOnTheClock({
-          token: [lasting(200), { status: 400 }, lasting(200)],
-        });
-        await vi.advanceTimersByTimeAsync(140_000);
-        await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
-
-        await renewedAfter(1_000, hub, 2);
-
-        expect([reported.mock.calls, hub.sockets()]).toEqual([
-          [["reconnecting"], ["connected"]],
-          [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
-        ]);
-      });
-
-      it("renews no more once closed", async () => {
-        const { hub, outcome } = await connectedOnTheClock({ token: lasting(200) });
-
-        if (outcome.kind === "connected") outcome.close();
-        await vi.advanceTimersByTimeAsync(7_200_000);
-
-        expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
-      });
-
-      it("keeps nothing a renewal under way is granted once closed", async () => {
-        const renewal = held();
-        const { hub, outcome } = await connectedOnTheClock({
-          token: [lasting(200), renewal.answer],
-        });
-        await vi.advanceTimersByTimeAsync(140_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
-
-        if (outcome.kind === "connected") outcome.close();
-        renewal.give({
-          body: { access_token: `${HUB_TOKEN}-renewed`, expires_in: 200 },
-          status: 200,
-        });
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect([
-          window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.hubToken),
-          hub.requestsTo(HUB_URL).length,
-        ]).toEqual(["hub-200", 1]);
-      });
+      expect(subscriptionsAt(hub)[1].authorization).toBe(`Bearer ${HUB_TOKEN}-2`);
     });
 
-    describe("reconnecting", () => {
-      /** Connected, then dropped by the hub. */
-      async function dropped(options: HubOptions = {}) {
-        const connected = await connectedOnTheClock(options);
-        connected.hub.dropSockets();
-        return connected;
-      }
+    it("reports connected once the new subscription's socket is confirmed", async () => {
+      const { hub, reported } = await dropped({ socket: ["confirms", "denies", "confirms"] });
 
-      it("reopens the endpoint a second after the hub drops the socket, and not before", async () => {
-        const { hub } = await dropped();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(3));
+      await vi.advanceTimersByTimeAsync(0);
 
-        await vi.advanceTimersByTimeAsync(999);
-        expect(hub.sockets()).toHaveLength(1);
-        await vi.advanceTimersByTimeAsync(1);
+      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+    });
 
-        expect(hub.sockets()).toEqual([CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]);
+    it("takes the next retry when subscribing anew fails", async () => {
+      const { hub, reported } = await dropped({
+        socket: ["confirms", "denies"],
+        token: [lasting(3600), { status: 400 }],
       });
 
-      it("reports connected once the reopened socket is confirmed", async () => {
-        const { reported } = await dropped();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(2_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(3));
 
-        await vi.advanceTimersByTimeAsync(1_000);
+      expect([hub.sockets().length, reported.mock.calls]).toEqual([2, [["reconnecting"]]]);
+    });
 
-        expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+    it("retries no more once closed", async () => {
+      const { hub, outcome } = await dropped();
+
+      if (outcome.kind === "connected") outcome.close();
+      await vi.advanceTimersByTimeAsync(7_200_000);
+
+      expect(hub.sockets()).toHaveLength(1);
+    });
+
+    it("closes a socket its retry opens once closed", async () => {
+      let confirm = () => undefined as void;
+      const { hub, outcome, reported } = await dropped({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
       });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(hub.sockets()).toHaveLength(2);
 
-      it("hands on events from the reopened socket", async () => {
-        const { events, hub } = await dropped();
-        await vi.advanceTimersByTimeAsync(1_000);
+      if (outcome.kind === "connected") outcome.close();
+      confirm();
+      await vi.advanceTimersByTimeAsync(7_200_000);
 
-        hub.notify(OPEN);
+      expect([hub.openSockets(), hub.sockets().length, reported.mock.calls]).toEqual([
+        0,
+        2,
+        [["reconnecting"]],
+      ]);
+    });
 
-        expect(events.mock.calls).toEqual([[HANDED_OPEN]]);
+    it("takes nothing but the hub's denial for the endpoint gone", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "says-otherwise"] });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await throughout(() =>
+        expect([hub.sockets().length, hub.requestsTo(HUB_URL).length]).toEqual([2, 1]),
+      );
+    });
+
+    it("reopens the new subscription's endpoint when that socket drops in turn", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(3));
+      await vi.advanceTimersByTimeAsync(0);
+
+      hub.dropSockets();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(hub.sockets().slice(2)).toEqual([
+        CHANNEL_ENDPOINT.replace(/1$/, "2"),
+        CHANNEL_ENDPOINT.replace(/1$/, "2"),
+      ]);
+    });
+
+    it("drops the renewal that was due once the socket drops", async () => {
+      const { hub } = await dropped({ socket: ["confirms", "closes"], token: lasting(200) });
+
+      await vi.advanceTimersByTimeAsync(200_000);
+
+      expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
+    });
+
+    it("reconnects when the socket drops mid-renewal and the renewal then fails", async () => {
+      const renewal = held();
+      const { hub, reported } = await connectedOnTheClock({
+        token: [lasting(200), renewal.answer],
       });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
 
-      it("spaces its retries by a backoff that doubles", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "closes"] });
-        const opened: number[] = [];
+      hub.dropSockets();
+      renewal.give({ status: 400 });
 
-        for (const backoff of [1_000, 2_000, 4_000, 8_000, 16_000]) {
-          await vi.advanceTimersByTimeAsync(backoff - 1);
-          opened.push(hub.sockets().length - 1);
-          await vi.advanceTimersByTimeAsync(1);
-          opened.push(hub.sockets().length - 1);
-        }
+      await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
+    });
 
-        expect(opened).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5]);
+    it("reports no connection won back while retrying a failed renewal fails", async () => {
+      const { hub, reported } = await connectedOnTheClock({
+        token: [lasting(200), { status: 400 }],
       });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
 
-      it("gives up after five retries, reporting disconnected", async () => {
-        const { hub, reported } = await dropped({ socket: ["confirms", "closes"] });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(3));
+      await vi.advanceTimersByTimeAsync(0);
 
-        await vi.advanceTimersByTimeAsync(7_200_000);
+      expect(reported.mock.calls).toEqual([["reconnecting"]]);
+    });
+  });
+  describe("one live subscription", () => {
+    const SECOND_ENDPOINT = CHANNEL_ENDPOINT.replace(/1$/, "2");
 
-        expect([hub.sockets().length - 1, reported.mock.calls]).toEqual([
-          5,
-          [["reconnecting"], ["disconnected"]],
-        ]);
-      });
+    /** Moves the clock `ms` on, then lets the hub confirm the socket the page has opened by then. */
+    async function movedOnAfter(ms: number, hub: FakeHub, sockets: number) {
+      await vi.advanceTimersByTimeAsync(ms);
+      await eventually(() => expect(hub.sockets()).toHaveLength(sockets));
+      await vi.advanceTimersByTimeAsync(0);
+    }
 
-      it("counts its retries afresh once a retry has connected", async () => {
-        const { hub, reported } = await dropped({
-          socket: ["confirms", "closes", "confirms", "closes"],
-        });
+    /** Each unsubscription the hub was sent: its endpoint, and its Bearer. */
+    const unsubscriptions = (hub: FakeHub) =>
+      modeAt(hub, "unsubscribe").map(({ authorization, body }) => [
+        new URLSearchParams(body).get("hub.channel.endpoint"),
+        authorization,
+      ]);
+
+    /**
+     * Ends the session's FHIRcast on the fake clock, moving it on until the
+     * teardown settles: a hub that never answers holds each step its 3 s.
+     */
+    async function endedOnTheClock() {
+      let settled = false;
+      void endFhircast().then(() => (settled = true));
+      while (!settled) {
         await vi.advanceTimersByTimeAsync(3_000);
+        await new Promise((resolve) => realSetTimeout(resolve, 5));
+      }
+    }
 
-        hub.dropSockets();
-        await vi.advanceTimersByTimeAsync(7_200_000);
+    /** Each Hub Token the hub was asked to revoke. */
+    const revoked = (hub: FakeHub) =>
+      hub.requestsTo(REVOCATION_ENDPOINT).map(({ body }) => new URLSearchParams(body).get("token"));
 
-        expect([hub.sockets().length, reported.mock.calls]).toEqual([
-          8,
-          [["reconnecting"], ["connected"], ["reconnecting"], ["disconnected"]],
-        ]);
+    it("unsubscribes the endpoint a renewal moved off, with the Hub Token it was made with", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+
+      await movedOnAfter(140_000, hub, 2);
+
+      await eventually(() =>
+        expect(unsubscriptions(hub)).toEqual([[CHANNEL_ENDPOINT, `Bearer ${HUB_TOKEN}`]]),
+      );
+    });
+
+    it("then revokes that Hub Token, and nothing else", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+      const since = requestsSince(hub);
+
+      await movedOnAfter(140_000, hub, 2);
+
+      await eventually(() =>
+        expect([since().map(({ method, url }) => `${method} ${url}`), revoked(hub)]).toEqual([
+          [
+            `POST ${TOKEN_ENDPOINT}`,
+            `POST ${HUB_URL}`,
+            `POST ${HUB_URL}`,
+            `POST ${REVOCATION_ENDPOINT}`,
+          ],
+          [HUB_TOKEN],
+        ]),
+      );
+    });
+
+    it("cancels nothing until the new subscription's socket is confirmed", async () => {
+      let confirm = () => undefined as void;
+      const { hub } = await connectedOnTheClock({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
+        leaseSeconds: 200,
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+
+      await throughout(() => expect(unsubscriptions(hub)).toEqual([]));
+      confirm();
+
+      await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
+    });
+
+    it("cancels the subscription a resubscribe moved off once the hub denied its endpoint", async () => {
+      const { hub } = await connectedOnTheClock({
+        socket: ["confirms", "denies", "confirms"],
+      });
+      hub.dropSockets();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(3));
+      await vi.advanceTimersByTimeAsync(0);
+
+      await eventually(() =>
+        expect([unsubscriptions(hub), revoked(hub)]).toEqual([
+          [[CHANNEL_ENDPOINT, `Bearer ${HUB_TOKEN}`]],
+          [HUB_TOKEN],
+        ]),
+      );
+    });
+
+    it("cancels nothing when it reopens the same subscription after a drop", async () => {
+      const { hub, reported } = await connectedOnTheClock();
+      hub.dropSockets();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+
+      await throughout(() => expect([unsubscriptions(hub), revoked(hub)]).toEqual([[], []]));
+    });
+
+    it("revokes the Hub Token, but unsubscribes nothing, when the renewal is answered the same endpoint", async () => {
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        subscription: {
+          body: { "hub.channel.endpoint": CHANNEL_ENDPOINT },
+          status: 202,
+        },
       });
 
-      it("subscribes anew when the hub says the endpoint is gone", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
+      await movedOnAfter(140_000, hub, 2);
 
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.sockets()).toHaveLength(3));
-        await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(revoked(hub)).toEqual([HUB_TOKEN]));
+      expect(unsubscriptions(hub)).toEqual([]);
+    });
 
-        expect([hub.sockets(), hub.openSockets()]).toEqual([
-          [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, CHANNEL_ENDPOINT.replace(/1$/, "2")],
+    it("only unsubscribes for a hub that names no revocation endpoint", async () => {
+      const { hub } = await connectedOnTheClock({
+        fhircastConfiguration: {
+          body: {
+            registration_endpoint: REGISTRATION_ENDPOINT,
+            token_endpoint: TOKEN_ENDPOINT,
+          },
+          status: 200,
+        },
+        leaseSeconds: 200,
+      });
+
+      const fetchedBefore = vi.mocked(fetch).mock.calls.length;
+
+      await movedOnAfter(140_000, hub, 2);
+
+      await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
+      // The renewal's Hub Token and subscription, then the unsubscription, and nothing anywhere else.
+      await throughout(() =>
+        expect(
+          vi
+            .mocked(fetch)
+            .mock.calls.slice(fetchedBefore)
+            .map(([url]) => String(url)),
+        ).toEqual([TOKEN_ENDPOINT, HUB_URL, HUB_URL]),
+      );
+    });
+
+    it("cancels both the subscription last confirmed and the one still opening when the session ends", async () => {
+      let confirm = () => undefined as void;
+      const { hub } = await connectedOnTheClock({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
+        leaseSeconds: 200,
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+
+      await endFhircast();
+      confirm();
+
+      expect([unsubscriptions(hub), revoked(hub)]).toEqual([
+        [
+          [CHANNEL_ENDPOINT, `Bearer ${HUB_TOKEN}`],
+          [SECOND_ENDPOINT, `Bearer ${HUB_TOKEN}-2`],
+        ],
+        [HUB_TOKEN, `${HUB_TOKEN}-2`],
+      ]);
+    });
+
+    it.each<[string, HubAnswer]>([
+      ["is never reached", "unreachable"],
+      ["fails", { status: 500, text: "<html>down</html>" }],
+    ])(
+      "still revokes, and stays connected, when the unsubscription %s",
+      async (_name, unsubscription) => {
+        const { events, hub, reported } = await connectedOnTheClock({
+          leaseSeconds: 200,
+          revocation: unsubscription,
+          unsubscription,
+        });
+        await movedOnAfter(140_000, hub, 2);
+        await eventually(() => expect(revoked(hub)).toEqual([HUB_TOKEN]));
+
+        hub.notify(OPEN);
+
+        expect([events.mock.calls, reported.mock.calls, hub.openSockets()]).toEqual([
+          [[HANDED_OPEN]],
+          [],
           1,
         ]);
+      },
+    );
+
+    it("gives up a step the hub leaves unanswered after 3 seconds, and stays connected", async () => {
+      const never = new Promise<HubAnswer>(() => undefined);
+      const { events, hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        revocation: never,
+        unsubscription: never,
       });
+      await movedOnAfter(140_000, hub, 2);
+      await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
 
-      it("subscribes anew with a fresh Hub Token", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
+      await vi.advanceTimersByTimeAsync(2_999);
+      const revokedBefore = revoked(hub).length;
+      await vi.advanceTimersByTimeAsync(1);
+      await eventually(() => expect(revoked(hub)).toHaveLength(1));
+      hub.notify(OPEN);
+      const handed = [...events.mock.calls];
+      await endedOnTheClock();
 
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.requestsTo(HUB_URL)).toHaveLength(2));
+      expect([revokedBefore, handed]).toEqual([0, [[HANDED_OPEN]]]);
+    });
 
-        await eventually(() => expect(hub.sockets()).toHaveLength(3));
-
-        expect(hub.requestsTo(HUB_URL)[1].authorization).toBe(`Bearer ${HUB_TOKEN}-2`);
+    it("renews again on time while the hub leaves the last cancel unanswered", async () => {
+      const never = new Promise<HubAnswer>(() => undefined);
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        unsubscription: never,
       });
+      await movedOnAfter(140_000, hub, 2);
 
-      it("reports connected once the new subscription's socket is confirmed", async () => {
-        const { hub, reported } = await dropped({ socket: ["confirms", "denies", "confirms"] });
+      await movedOnAfter(140_000, hub, 3);
+      await endedOnTheClock();
 
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.sockets()).toHaveLength(3));
-        await vi.advanceTimersByTimeAsync(0);
+      expect(hub.sockets()).toEqual([
+        CHANNEL_ENDPOINT,
+        SECOND_ENDPOINT,
+        CHANNEL_ENDPOINT.replace(/1$/, "3"),
+      ]);
+    });
 
-        expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+    it("deletes the registration at the end of the session only once the cancel under way is done", async () => {
+      const unsubscription = held();
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        unsubscription: unsubscription.answer,
       });
+      await movedOnAfter(140_000, hub, 2);
+      await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
 
-      it("takes the next retry when subscribing anew fails", async () => {
-        const { hub, reported } = await dropped({
-          socket: ["confirms", "denies"],
-          token: [lasting(3600), { status: 400 }],
-        });
+      const ending = endFhircast();
+      await throughout(() => expect(hub.requestsTo(REGISTRATION_CLIENT_URI)).toEqual([]));
+      unsubscription.give({ body: {}, status: 202 });
+      await ending;
 
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
-        await vi.advanceTimersByTimeAsync(2_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(3));
-
-        expect([hub.sockets().length, reported.mock.calls]).toEqual([2, [["reconnecting"]]]);
-      });
-
-      it("retries no more once closed", async () => {
-        const { hub, outcome } = await dropped();
-
-        if (outcome.kind === "connected") outcome.close();
-        await vi.advanceTimersByTimeAsync(7_200_000);
-
-        expect(hub.sockets()).toHaveLength(1);
-      });
-
-      it("closes a socket its retry opens once closed", async () => {
-        let confirm = () => undefined as void;
-        const { hub, outcome, reported } = await dropped({
-          hold: [null, new Promise((resolve) => (confirm = resolve))],
-        });
-        await vi.advanceTimersByTimeAsync(1_000);
-        expect(hub.sockets()).toHaveLength(2);
-
-        if (outcome.kind === "connected") outcome.close();
-        confirm();
-        await vi.advanceTimersByTimeAsync(7_200_000);
-
-        expect([hub.openSockets(), hub.sockets().length, reported.mock.calls]).toEqual([
-          0,
-          2,
-          [["reconnecting"]],
-        ]);
-      });
-
-      it("takes nothing but the hub's denial for the endpoint gone", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "says-otherwise"] });
-
-        await vi.advanceTimersByTimeAsync(1_000);
-
-        await throughout(() =>
-          expect([hub.sockets().length, hub.requestsTo(HUB_URL).length]).toEqual([2, 1]),
-        );
-      });
-
-      it("reopens the new subscription's endpoint when that socket drops in turn", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.sockets()).toHaveLength(3));
-        await vi.advanceTimersByTimeAsync(0);
-
-        hub.dropSockets();
-        await vi.advanceTimersByTimeAsync(1_000);
-
-        expect(hub.sockets().slice(2)).toEqual([
-          CHANNEL_ENDPOINT.replace(/1$/, "2"),
-          CHANNEL_ENDPOINT.replace(/1$/, "2"),
-        ]);
-      });
-
-      it("drops the renewal that was due once the socket drops", async () => {
-        const { hub } = await dropped({ socket: ["confirms", "closes"], token: lasting(200) });
-
-        await vi.advanceTimersByTimeAsync(200_000);
-
-        expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(1);
-      });
-
-      it("reconnects when the socket drops mid-renewal and the renewal then fails", async () => {
-        const renewal = held();
-        const { hub, reported } = await connectedOnTheClock({
-          token: [lasting(200), renewal.answer],
-        });
-        await vi.advanceTimersByTimeAsync(140_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
-
-        hub.dropSockets();
-        renewal.give({ status: 400 });
-
-        await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
-      });
-
-      it("reports no connection won back while retrying a failed renewal fails", async () => {
-        const { hub, reported } = await connectedOnTheClock({
-          token: [lasting(200), { status: 400 }],
-        });
-        await vi.advanceTimersByTimeAsync(140_000);
-        await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
-
-        await vi.advanceTimersByTimeAsync(1_000);
-        await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(3));
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(reported.mock.calls).toEqual([["reconnecting"]]);
-      });
+      expect([
+        unsubscriptions(hub),
+        revoked(hub),
+        hub.requestsTo(REGISTRATION_CLIENT_URI).length,
+      ]).toEqual([
+        [
+          [CHANNEL_ENDPOINT, `Bearer ${HUB_TOKEN}`],
+          [SECOND_ENDPOINT, `Bearer ${HUB_TOKEN}-2`],
+        ],
+        [HUB_TOKEN, `${HUB_TOKEN}-2`],
+        1,
+      ]);
     });
   });
 });
@@ -1542,7 +1913,7 @@ describe("endFhircast", () => {
 
     await endFhircast();
 
-    expect(kept()).toEqual([null, null, null, null]);
+    expect(kept()).toEqual([null]);
   });
 
   it("tears down nothing twice", async () => {
@@ -1681,7 +2052,7 @@ describe("endFhircast", () => {
 
       await endFhircast();
 
-      expect(kept()).toEqual([null, null, null, null]);
+      expect(kept()).toEqual([null]);
     });
 
     describe("on the clock", () => {
@@ -1756,7 +2127,7 @@ describe("endFhircast", () => {
     it("leaves no FHIRcast key in sessionStorage", async () => {
       await endedWhileRegistering();
 
-      expect(kept()).toEqual([null, null, null, null]);
+      expect(kept()).toEqual([null]);
     });
   });
 
@@ -1865,6 +2236,33 @@ describe("the session's FHIRcast connection", () => {
     await eventually(() => expect(hub.openSockets()).toBe(1));
   });
 
+  it("keeps the subscription of the retry's connection, not of the one it replaced", async () => {
+    let confirmFirst = () => undefined as void;
+    const hub = hubOnly({ hold: [new Promise((resolve) => (confirmFirst = resolve)), null] });
+    startFhircast(releasing);
+    await eventually(() => expect(hub.sockets()).toHaveLength(1));
+    retryFhircast();
+    await connectedNow();
+
+    confirmFirst();
+    await eventually(() => expect(hub.openSockets()).toBe(1));
+
+    expect(keptState()?.subscription).toMatchObject({
+      endpoint: CHANNEL_ENDPOINT.replace(/1$/, "2"),
+    });
+  });
+
+  it("resumes the tab's registration on a retry, registering nothing", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+
+    retryFhircast();
+    await connectedNow();
+
+    expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(1);
+  });
+
   it("connects again from the start on a retry after the hub refused", async () => {
     const hub = hubOnly({ registration: { status: 401 } });
     startFhircast(releasing);
@@ -1885,6 +2283,18 @@ describe("the session's FHIRcast connection", () => {
     hub.notify(PATIENT_OPEN);
 
     expect(fhircastSnapshot().last).toBeNull();
+  });
+
+  it("shows nothing the ended session's connection says of a socket the hub drops as the session ends", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+
+    const ending = endFhircast();
+    hub.dropSockets();
+    await ending;
+
+    expect(fhircastSnapshot().status).toBe("connecting");
   });
 
   it("tells a watcher what it shows, until the watcher stops watching", async () => {
@@ -1953,6 +2363,728 @@ describe("the session's FHIRcast connection", () => {
       { last: null, status: "connecting" },
       [],
     ]);
+  });
+});
+
+describe("a reload", () => {
+  const releasing = () => Promise.resolve(RELEASE);
+
+  /** The FHIRcast module, as a page loads it. */
+  type Page = typeof import("./fhircast");
+
+  /**
+   * The tab after a reload: the FHIRcast module loaded afresh, holding nothing
+   * in memory, over the sessionStorage the page before it left. Its session's
+   * FHIRcast is ended once the test is over, as the page before's is.
+   */
+  async function reloaded(): Promise<Page> {
+    vi.resetModules();
+    const page = await import("./fhircast");
+    onTestFinished(() => page.endFhircast());
+    return page;
+  }
+
+  /**
+   * Connected to a hub answering `options` in the page before the reload,
+   * which then went as a reload takes a page: its socket closed, nothing torn
+   * down at the hub.
+   */
+  async function connectedBefore(options: HubOptions = {}) {
+    const hub = hubOnly(options);
+    const outcome = await connectFhircast(RELEASE);
+    expect(outcome.kind).toBe("connected");
+    if (outcome.kind === "connected") outcome.close();
+    return hub;
+  }
+
+  /** Each request, as its method and URL. */
+  const routes = (requests: readonly HubRequest[]) =>
+    requests.map(({ method, url }) => `${method} ${url}`);
+
+  /** Started on `page` with `release`, once it says `status`. */
+  async function startedOn(page: Page, status = "connected", release = RELEASE) {
+    page.startFhircast(() => Promise.resolve(release));
+    await eventually(() => expect(page.fhircastSnapshot().status).toBe(status));
+  }
+
+  const DISCOVER = `GET ${HUB_URL}/.well-known/fhircast-configuration`;
+  const REGISTER = `POST ${REGISTRATION_ENDPOINT}`;
+  const MINT = `POST ${TOKEN_ENDPOINT}`;
+  /** A subscription, or its unsubscription: both are posted to the hub URL. */
+  const AT_HUB = `POST ${HUB_URL}`;
+  const REVOKE = `POST ${REVOCATION_ENDPOINT}`;
+  const DELETE = `DELETE ${REGISTRATION_CLIENT_URI}`;
+
+  const SECOND_ENDPOINT = CHANNEL_ENDPOINT.replace(/1$/, "2");
+
+  /** A form body's parameters. */
+  const form = (body: string) => Object.fromEntries(new URLSearchParams(body));
+
+  /** A token answer: a Hub Token named `token`, lasting `seconds`. */
+  const lasting = (seconds: number, token = HUB_TOKEN): HubAnswer => ({
+    body: { access_token: token, expires_in: seconds, token_type: "Bearer" },
+    status: 200,
+  });
+
+  describe("with the stored Hub Token and lease unexpired", () => {
+    it("reopens the stored channel endpoint, asking the hub for nothing", async () => {
+      const hub = await connectedBefore();
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded());
+
+      expect([routes(since()), hub.sockets()]).toEqual([[], [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]]);
+    });
+
+    it("shows connecting until the hub confirms the reopened socket", async () => {
+      let confirm = () => undefined as void;
+      const hub = await connectedBefore({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
+      });
+      const page = await reloaded();
+
+      page.startFhircast(releasing);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+      const beforeConfirmed = page.fhircastSnapshot().status;
+      confirm();
+
+      await eventually(() =>
+        expect([beforeConfirmed, page.fhircastSnapshot().status]).toEqual([
+          "connecting",
+          "connected",
+        ]),
+      );
+    });
+
+    it("hands on events from the reopened socket", async () => {
+      const hub = await connectedBefore();
+      const page = await reloaded();
+      const follower = vi.fn();
+      const stop = page.followFhircastEvents(follower);
+      await startedOn(page);
+
+      hub.notify(patientNotification("Patient-open"));
+      stop();
+
+      expect(follower.mock.calls).toEqual([
+        [
+          {
+            event: "Patient-open",
+            patientId: "patient-1",
+            timestamp: "2026-10-24T02:00:05Z",
+          },
+        ],
+      ]);
+    });
+
+    it("keeps the stored subscription as it was", async () => {
+      await connectedBefore();
+      const before = keptState()?.subscription;
+
+      await startedOn(await reloaded());
+
+      expect(keptState()?.subscription).toEqual(before);
+    });
+
+    describe("on the clock", () => {
+      const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+      const RELOADED_AT = CONNECTED_AT + 100_000;
+
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        vi.setSystemTime(CONNECTED_AT);
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it.each<[string, HubOptions]>([
+        ["Hub Token's", { token: lasting(200) }],
+        ["lease's", { leaseSeconds: 200, token: lasting(3600) }],
+      ])(
+        "renews by the stored %s expiry, 60 s before it, and not before",
+        async (_name, options) => {
+          const hub = await connectedBefore(options);
+          vi.setSystemTime(RELOADED_AT);
+          await startedOn(await reloaded());
+          const since = requestsSince(hub);
+
+          await vi.advanceTimersByTimeAsync(39_999);
+          const mintedBefore = routes(since());
+          await vi.advanceTimersByTimeAsync(1);
+
+          await eventually(() => expect([mintedBefore, routes(since())[0]]).toEqual([[], MINT]));
+        },
+      );
+    });
+  });
+
+  describe("once the stored Hub Token or lease has run out", () => {
+    const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(CONNECTED_AT);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each<[string, HubOptions, number]>([
+      ["the Hub Token", { token: [lasting(200), lasting(3600, `${HUB_TOKEN}-2`)] }, 200_000],
+      [
+        "the lease",
+        {
+          leaseSeconds: 200,
+          token: [lasting(3600), lasting(3600, `${HUB_TOKEN}-2`)],
+        },
+        200_000,
+      ],
+    ])(
+      "mints a Hub Token and subscribes anew when %s has, registering nothing",
+      async (_name, options, ranOutAfter) => {
+        const hub = await connectedBefore(options);
+        const since = requestsSince(hub);
+        vi.setSystemTime(CONNECTED_AT + ranOutAfter);
+
+        await startedOn(await reloaded());
+
+        expect([routes(since()).slice(0, 2), hub.sockets()]).toEqual([
+          [MINT, AT_HUB],
+          [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+        ]);
+      },
+    );
+
+    it("signs the new Hub Token's assertion as the stored client, with the stored key", async () => {
+      const hub = await connectedBefore({ token: lasting(200) });
+      vi.setSystemTime(CONNECTED_AT + 200_000);
+
+      await startedOn(await reloaded());
+
+      const minted = hub.requestsTo(TOKEN_ENDPOINT)[1];
+      expect([
+        assertionOf(minted.body).claims.iss,
+        assertionOf(minted.body).header.kid,
+        await signedByRegisteredKey(hub, minted.body),
+      ]).toEqual([CLIENT_ID, (keptState() as { keyId: string }).keyId, true]);
+    });
+
+    it("keeps the new subscription in place of the stored one", async () => {
+      await connectedBefore({
+        token: [lasting(200), lasting(3600, `${HUB_TOKEN}-2`)],
+      });
+      vi.setSystemTime(CONNECTED_AT + 200_000);
+
+      await startedOn(await reloaded());
+
+      expect(keptState()).toMatchObject({
+        subscription: { endpoint: SECOND_ENDPOINT, hubToken: `${HUB_TOKEN}-2` },
+      });
+    });
+  });
+
+  it.each<[string, SocketBehaviour]>([
+    ["denies the stored endpoint", "denies"],
+    ["closes the reopened socket unconfirmed", "closes"],
+  ])(
+    "mints a Hub Token and subscribes anew when the hub %s, registering nothing",
+    async (_name, behaviour) => {
+      const hub = await connectedBefore({
+        socket: ["confirms", behaviour, "confirms"],
+      });
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded());
+
+      expect([routes(since()).slice(0, 2), hub.sockets()]).toEqual([
+        [MINT, AT_HUB],
+        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+      ]);
+    },
+  );
+
+  it("is unavailable when subscribing anew fails, the stored registration kept", async () => {
+    const hub = await connectedBefore({
+      socket: ["confirms", "denies"],
+      subscription: [
+        { body: { "hub.channel.endpoint": CHANNEL_ENDPOINT }, status: 202 },
+        { status: 403 },
+      ],
+    });
+
+    await startedOn(await reloaded(), "unavailable");
+
+    expect([hub.requestsTo(REGISTRATION_ENDPOINT).length, keptState()?.clientId]).toEqual([
+      1,
+      CLIENT_ID,
+    ]);
+  });
+
+  describe("when the hub refuses the stored client at the token endpoint", () => {
+    it.each([400, 401])(
+      "deletes the stored registration, then registers anew, on a %s",
+      async (status) => {
+        const hub = await connectedBefore({
+          socket: ["confirms", "denies", "confirms"],
+          token: [lasting(3600), { body: { error: "invalid_grant" }, status }, lasting(3600)],
+        });
+        const since = requestsSince(hub);
+
+        await startedOn(await reloaded());
+
+        expect(routes(since())).toEqual([MINT, DELETE, DISCOVER, REGISTER, MINT, AT_HUB]);
+      },
+    );
+
+    it("registers anew with the release's SMART access token, under a key of its own", async () => {
+      const hub = await connectedBefore({
+        socket: ["confirms", "denies", "confirms"],
+        token: [lasting(3600), { status: 400 }, lasting(3600)],
+      });
+      const before = keptState() as { keyId: string };
+
+      await startedOn(await reloaded());
+
+      const [, again] = hub.requestsTo(REGISTRATION_ENDPOINT);
+      const registered = JSON.parse(again.body) as {
+        jwks: { keys: { kid: string }[] };
+      };
+      expect([again.authorization, registered.jwks.keys[0].kid === before.keyId]).toEqual([
+        `Bearer ${SMART_ACCESS_TOKEN}`,
+        false,
+      ]);
+    });
+
+    it("registers anew when the stored registration names no way to delete it", async () => {
+      const hub = await connectedBefore({
+        registration: { body: { client_id: CLIENT_ID }, status: 201 },
+        socket: ["confirms", "denies", "confirms"],
+        token: [lasting(3600), { status: 400 }, lasting(3600)],
+      });
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded());
+
+      expect(routes(since())).toEqual([MINT, DISCOVER, REGISTER, MINT, AT_HUB]);
+    });
+
+    it("deletes nothing twice, and registers nothing, once the session ended while it was refused", async () => {
+      let refuse = () => undefined as void;
+      const hub = await connectedBefore({
+        socket: ["confirms", "denies"],
+        token: [
+          lasting(3600),
+          new Promise<HubAnswer>((resolve) => (refuse = () => resolve({ status: 400 }))),
+        ],
+      });
+      const page = await reloaded();
+      page.startFhircast(releasing);
+      await eventually(() => expect(hub.requestsTo(TOKEN_ENDPOINT)).toHaveLength(2));
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+      refuse();
+
+      await throughout(() => expect(routes(since())).toEqual([AT_HUB, REVOKE, DELETE]));
+    });
+
+    it("is unavailable, registering nothing, when the token endpoint fails instead", async () => {
+      const hub = await connectedBefore({
+        socket: ["confirms", "denies"],
+        token: [lasting(3600), { status: 500, text: "<html>down</html>" }],
+      });
+
+      await startedOn(await reloaded(), "unavailable");
+
+      expect([hub.requestsTo(REGISTRATION_ENDPOINT).length, keptState()?.clientId]).toEqual([
+        1,
+        CLIENT_ID,
+      ]);
+    });
+  });
+
+  describe("a stored registration for another hub or topic", () => {
+    const ELSEWHERE = "http://127.0.0.1:8104/fhircast/STU3";
+
+    it.each<[string, FhircastRelease]>([
+      ["another topic", { ...RELEASE, hubTopic: "topic-2" }],
+      ["another hub", { ...RELEASE, hubUrl: ELSEWHERE }],
+    ])("is torn down, then the tab registers anew, for %s", async (_name, release) => {
+      const hub = await connectedBefore();
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded(), "connected", release);
+
+      expect(routes(since())).toEqual([
+        AT_HUB,
+        REVOKE,
+        DELETE,
+        `GET ${release.hubUrl}/.well-known/fhircast-configuration`,
+        REGISTER,
+        MINT,
+        `POST ${release.hubUrl}`,
+      ]);
+    });
+
+    it("is unsubscribed from at its own topic, with its own Hub Token", async () => {
+      const hub = await connectedBefore();
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded(), "connected", {
+        ...RELEASE,
+        hubTopic: "topic-2",
+      });
+
+      const [unsubscription] = since();
+      expect([unsubscription.authorization, form(unsubscription.body)]).toEqual([
+        `Bearer ${HUB_TOKEN}`,
+        {
+          "hub.channel.endpoint": CHANNEL_ENDPOINT,
+          "hub.channel.type": "websocket",
+          "hub.mode": "unsubscribe",
+          "hub.topic": "topic-1",
+        },
+      ]);
+    });
+
+    it("is never resumed against: its endpoint is not reopened", async () => {
+      const hub = await connectedBefore();
+
+      await startedOn(await reloaded(), "connected", {
+        ...RELEASE,
+        hubTopic: "topic-2",
+      });
+
+      expect(hub.sockets()).toEqual([CHANNEL_ENDPOINT, SECOND_ENDPOINT]);
+    });
+
+    it("is forgotten, the new registration kept for the new topic", async () => {
+      await connectedBefore();
+
+      await startedOn(await reloaded(), "connected", {
+        ...RELEASE,
+        hubTopic: "topic-2",
+      });
+
+      expect(keptState()).toMatchObject({
+        hubTopic: "topic-2",
+        subscription: { endpoint: SECOND_ENDPOINT },
+      });
+    });
+  });
+
+  describe("stored state that does not decode", () => {
+    /** What the page before kept, as `change` leaves it. */
+    function keptAs(change: (kept: Record<string, Record<string, unknown>>) => void) {
+      const kept = keptState() as Record<string, Record<string, unknown>>;
+      change(kept);
+      window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.connection, JSON.stringify(kept));
+    }
+
+    it.each([
+      ["no JSON", "{"],
+      ["JSON null", "null"],
+      ["a JSON list", "[]"],
+      ["an empty object", "{}"],
+    ])("is taken for none when it is %s, and cleared", async (_name, kept) => {
+      const hub = hubOnly({ registration: { status: 401 } });
+      window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.connection, kept);
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded(), "unavailable");
+
+      expect([routes(since()), keptState()]).toEqual([[DISCOVER, REGISTER], null]);
+    });
+
+    it.each<[string, (kept: Record<string, Record<string, unknown>>) => void]>([
+      ["no clientId", (kept) => delete kept.clientId],
+      ["a clientId that is no string", (kept) => (kept.clientId = 7 as never)],
+      ["no hubTopic", (kept) => delete kept.hubTopic],
+      ["no hubUrl", (kept) => delete kept.hubUrl],
+      ["no keyId", (kept) => delete kept.keyId],
+      ["no tokenEndpoint", (kept) => delete kept.tokenEndpoint],
+      ["no revocationEndpoint", (kept) => delete kept.revocationEndpoint],
+      ["a revocationEndpoint that is no string", (kept) => (kept.revocationEndpoint = 7 as never)],
+      ["no registration", (kept) => delete kept.registration],
+      ["a registration with no token", (kept) => delete kept.registration.token],
+      ["a registration with no uri", (kept) => delete kept.registration.uri],
+      ["no subscription", (kept) => delete kept.subscription],
+      ["a subscription that is no object", (kept) => (kept.subscription = 7 as never)],
+      ["a subscription with no endpoint", (kept) => delete kept.subscription.endpoint],
+      ["a subscription with no Hub Token", (kept) => delete kept.subscription.hubToken],
+      [
+        "a subscription with no Hub Token expiry",
+        (kept) => delete kept.subscription.hubTokenExpiresAt,
+      ],
+      [
+        "a Hub Token expiry that is no instant",
+        (kept) => (kept.subscription.hubTokenExpiresAt = "soon"),
+      ],
+      ["a subscription with no lease expiry", (kept) => delete kept.subscription.leaseExpiresAt],
+      ["a lease expiry that is no instant", (kept) => (kept.subscription.leaseExpiresAt = "soon")],
+      ["no signingJwk", (kept) => delete kept.signingJwk],
+      ...(["crv", "d", "kty", "x", "y"] as const).map(
+        (member): [string, (kept: Record<string, Record<string, unknown>>) => void] => [
+          `a signingJwk with no ${member}`,
+          (kept) => delete kept.signingJwk[member],
+        ],
+      ),
+      ["a signingJwk on another curve", (kept) => (kept.signingJwk.crv = "P-256")],
+      ["a signingJwk whose d is not its key's", (kept) => (kept.signingJwk.d = "AAAA")],
+    ])("is taken for none when it has %s: the tab registers anew", async (_name, change) => {
+      const hub = await connectedBefore();
+      keptAs(change);
+      const since = requestsSince(hub);
+
+      await startedOn(await reloaded());
+
+      expect(routes(since()).slice(0, 2)).toEqual([DISCOVER, REGISTER]);
+    });
+
+    /** Every URL the page sent a request to, or opened a socket at, off the hub's own. */
+    const offTheHub = (hub: FakeHub) => [
+      ...vi
+        .mocked(fetch)
+        .mock.calls.map(([url]) => String(url))
+        .filter((url) => !url.startsWith("http://127.0.0.1:8103/")),
+      ...hub.sockets().filter((url) => !url.startsWith("ws://127.0.0.1:8103/")),
+    ];
+
+    it.each<[string, (kept: Record<string, Record<string, unknown>>) => void]>([
+      ["hubUrl", (kept) => (kept.hubUrl = "http://10.0.0.1/fhircast/STU3" as never)],
+      ["tokenEndpoint", (kept) => (kept.tokenEndpoint = "http://10.0.0.1/dcr/token" as never)],
+      [
+        "revocationEndpoint",
+        (kept) => (kept.revocationEndpoint = "http://10.0.0.1/dcr/revoke" as never),
+      ],
+      [
+        "registration's uri",
+        (kept) => (kept.registration.uri = "http://10.0.0.1/dcr/register/client-1"),
+      ],
+      [
+        "subscription's endpoint",
+        // A fixture for the refusal: an endpoint off loopback is never connected to.
+        // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+        (kept) => (kept.subscription.endpoint = "ws://10.0.0.1/ws/fhircast/endpoint-1"),
+      ],
+      [
+        "subscription's endpoint, as http",
+        (kept) => (kept.subscription.endpoint = "http://127.0.0.1:8103/ws/fhircast/endpoint-1"),
+      ],
+    ])(
+      "is taken for none when its %s is off 127.0.0.1, nothing sent there",
+      async (_name, change) => {
+        const hub = await connectedBefore();
+        keptAs(change);
+        const since = requestsSince(hub);
+        const page = await reloaded();
+
+        await startedOn(page);
+        await page.endFhircast();
+
+        expect([routes(since()).slice(0, 2), offTheHub(hub)]).toEqual([[DISCOVER, REGISTER], []]);
+      },
+    );
+
+    it("is torn down nowhere when the session ends, and cleared", async () => {
+      const hub = await connectedBefore();
+      keptAs((kept) => delete kept.clientId);
+      const since = requestsSince(hub);
+
+      await (await reloaded()).endFhircast();
+
+      expect([since(), keptState()]).toEqual([[], null]);
+    });
+  });
+
+  describe("and then the end of the session", () => {
+    it("unsubscribes, revokes and deletes what the tab kept, though it never resumed it", async () => {
+      const hub = await connectedBefore();
+      const since = requestsSince(hub);
+
+      await (await reloaded()).endFhircast();
+
+      expect(routes(since())).toEqual([AT_HUB, REVOKE, DELETE]);
+    });
+
+    it("unsubscribes at the stored endpoint, with the stored Hub Token", async () => {
+      const hub = await connectedBefore();
+      const since = requestsSince(hub);
+
+      await (await reloaded()).endFhircast();
+
+      const [unsubscription] = since();
+      expect([unsubscription.authorization, form(unsubscription.body)]).toEqual([
+        `Bearer ${HUB_TOKEN}`,
+        {
+          "hub.channel.endpoint": CHANNEL_ENDPOINT,
+          "hub.channel.type": "websocket",
+          "hub.mode": "unsubscribe",
+          "hub.topic": "topic-1",
+        },
+      ]);
+    });
+
+    it("revokes the stored Hub Token as the stored client, signed with the stored key", async () => {
+      const hub = await connectedBefore();
+
+      await (await reloaded()).endFhircast();
+
+      const { body } = hub.requestTo(REVOCATION_ENDPOINT);
+      const { client_assertion: signed, client_id, token } = form(body);
+      expect([
+        client_id,
+        token,
+        assertionOf(new URLSearchParams({ assertion: signed }).toString()).claims.aud,
+        await signedByRegisteredKey(hub, body, "client_assertion"),
+      ]).toEqual([CLIENT_ID, HUB_TOKEN, TOKEN_ENDPOINT, true]);
+    });
+
+    it("deletes the stored registration with its registration access token", async () => {
+      const hub = await connectedBefore();
+
+      await (await reloaded()).endFhircast();
+
+      expect(hub.requestTo(REGISTRATION_CLIENT_URI)).toMatchObject({
+        authorization: `Bearer ${REGISTRATION_ACCESS_TOKEN}`,
+        method: "DELETE",
+      });
+    });
+
+    it("forgets what the tab kept at once", async () => {
+      await connectedBefore();
+      const page = await reloaded();
+
+      const ending = page.endFhircast();
+      const keptOnceCalled = keptState();
+      await ending;
+
+      expect(keptOnceCalled).toBeNull();
+    });
+
+    it("tears down a registration with no subscription stored by deleting it alone", async () => {
+      const hub = hubOnly({ token: { status: 400 } });
+      await connectFhircast(RELEASE);
+      const since = requestsSince(hub);
+
+      await (await reloaded()).endFhircast();
+
+      expect(routes(since())).toEqual([DELETE]);
+    });
+
+    it("skips what the hub named no way to do", async () => {
+      const hub = await connectedBefore({
+        fhircastConfiguration: {
+          body: {
+            registration_endpoint: REGISTRATION_ENDPOINT,
+            token_endpoint: TOKEN_ENDPOINT,
+          },
+          status: 200,
+        },
+        registration: { body: { client_id: CLIENT_ID }, status: 201 },
+      });
+      const since = requestsSince(hub);
+
+      await (await reloaded()).endFhircast();
+
+      expect(routes(since())).toEqual([AT_HUB]);
+    });
+
+    it("tears down a resumed connection from what it holds, once what the tab kept is forgotten", async () => {
+      const hub = await connectedBefore();
+      const page = await reloaded();
+      await startedOn(page);
+      page.clearFhircastStorage();
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+
+      expect(routes(since())).toEqual([AT_HUB, REVOKE, DELETE]);
+    });
+
+    it("resumes nothing when the session ends while the tab's state is still being read", async () => {
+      const hub = await connectedBefore();
+      const page = await reloaded();
+      // WebCrypto holds the first stored key it is handed until the test lets it go.
+      let takeKey = () => undefined as void;
+      const importKey = crypto.subtle.importKey.bind(crypto.subtle);
+      const importing = vi
+        .spyOn(crypto.subtle, "importKey")
+        .mockImplementationOnce(async (...taking: Parameters<typeof importKey>) => {
+          await new Promise<void>((resolve) => (takeKey = resolve));
+          return importKey(...taking);
+        });
+      onTestFinished(() => importing.mockRestore());
+      page.startFhircast(releasing);
+      await eventually(() => expect(importing).toHaveBeenCalled());
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+      takeKey();
+
+      await throughout(() =>
+        expect([routes(since()), hub.sockets()]).toEqual([
+          [AT_HUB, REVOKE, DELETE],
+          [CHANNEL_ENDPOINT],
+        ]),
+      );
+    });
+
+    it("tears down a resumed connection once, closing its socket", async () => {
+      const hub = await connectedBefore();
+      const page = await reloaded();
+      await startedOn(page);
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+
+      expect([routes(since()), hub.openSockets()]).toEqual([[AT_HUB, REVOKE, DELETE], 0]);
+    });
+
+    it("tears down a connection still resuming once", async () => {
+      let confirm = () => undefined as void;
+      const hub = await connectedBefore({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
+      });
+      const page = await reloaded();
+      page.startFhircast(releasing);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+      confirm();
+      await eventually(() => expect(hub.openSockets()).toBe(0));
+
+      await throughout(() => expect(routes(since())).toEqual([AT_HUB, REVOKE, DELETE]));
+    });
+
+    it("tears down the subscription a resumed connection moved to, not the stored one twice", async () => {
+      const hub = await connectedBefore({
+        socket: ["confirms", "denies", "confirms"],
+      });
+      const page = await reloaded();
+      await startedOn(page);
+      // The stored subscription, cancelled once the new one's socket is confirmed.
+      await eventually(() => expect(hub.requestsTo(REVOCATION_ENDPOINT)).toHaveLength(1));
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+
+      expect(
+        since().map(({ authorization, body, method, url }) =>
+          method === "DELETE"
+            ? DELETE
+            : [url, authorization, form(body)["hub.channel.endpoint"] ?? form(body).token],
+        ),
+      ).toEqual([
+        [HUB_URL, `Bearer ${HUB_TOKEN}-2`, SECOND_ENDPOINT],
+        [REVOCATION_ENDPOINT, null, `${HUB_TOKEN}-2`],
+        DELETE,
+      ]);
+    });
   });
 });
 

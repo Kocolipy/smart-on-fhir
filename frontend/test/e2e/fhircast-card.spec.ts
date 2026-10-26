@@ -8,8 +8,11 @@ import {
   dropHubSockets,
   expectStandInConfigured,
   FHIR_BASE,
+  firstHubModeAt,
   hubState,
+  keptConnection,
   publishPatientEvent,
+  recordRegistrations,
   releasedTopic,
   seededClinician,
   signInAtMedplum,
@@ -44,8 +47,11 @@ import {
  * is deleted again in a `finally`.
  *
  * The card stays connected: `make integration-test` has the shim issue Hub
- * Tokens and grant leases of 75 s, so one case outlives both, and another
- * drops the card's socket through the shim's test-only lever. No case here
+ * Tokens and grant leases of 75 s, so one case outlives both, another drops
+ * the card's socket through the shim's test-only lever, and another checks
+ * that a renewal leaves the hub only the new subscription. A reload resumes
+ * the connection rather than registering again, and one case comes back to
+ * the tab once its stored Hub Token has run out. No case here
  * drops the hub from the release: Medplum always names its hub on `127.0.0.1`
  * and a well-formed topic, so the drop rules are the backend's FakeEpic tests',
  * and the card's "FHIRcast unavailable" state is the SPA unit tests'.
@@ -167,7 +173,7 @@ test("an event published once the first Hub Token and lease have expired still r
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     const statuses = await recordStatuses(page);
     // The first Hub Token and lease, which renewal, 15 s in, replaces.
-    const firstToken = await page.evaluate(() => sessionStorage.getItem("fhircast-hub-token"));
+    const firstToken = (await keptConnection(page)).subscription?.hubToken;
     expect(hubSockets, "the card has opened one socket to the hub").toHaveLength(1);
     const firstLease = channelEndpointId(hubSockets[0].url());
     const hubTopic = await releasedTopic(page);
@@ -189,6 +195,107 @@ test("an event published once the first Hub Token and lease have expired still r
     await expect(field(page, "Event")).toHaveText("Patient-open");
     // Renewed ahead of time, never lost and won back.
     expect(await statuses()).toEqual(["Connected"]);
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("after a renewal the hub holds only the new subscription", async ({ browser }) => {
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-renewal-cleanup@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinician = await freshBrowser(browser);
+  try {
+    const page = await clinician.newPage();
+    const hubSockets: WebSocket[] = [];
+    page.on("websocket", (socket) => {
+      if (new URL(socket.url()).pathname.startsWith("/ws/fhircast/")) hubSockets.push(socket);
+    });
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const first = await keptConnection(page);
+
+    // The renewal, 15 s in: a second socket, at the renewed subscription's endpoint.
+    await expect.poll(() => hubSockets.length, { timeout: 40_000 }).toBe(2);
+    const renewed = hubSockets[1].url();
+
+    // Both leases still run, so a denial at the first endpoint is its unsubscription.
+    await expect.poll(() => firstHubModeAt(hubSockets[0].url())).toBe("denied");
+    expect(await firstHubModeAt(renewed), "the renewed subscription stands").toBe("subscribe");
+    await expect
+      .poll(async () =>
+        (await hubState()).revokedTokens.includes(first.subscription?.hubToken ?? ""),
+      )
+      .toBe(true);
+    expect((await keptConnection(page)).subscription?.endpoint).toBe(renewed);
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("a reload connects again without registering at the hub again", async ({ browser }) => {
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-reload@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinician = await freshBrowser(browser);
+  try {
+    const page = await clinician.newPage();
+    const registrations = recordRegistrations(page);
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const { clientId } = await keptConnection(page);
+
+    await page.reload();
+
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    expect(registrations, "the tab registered once, before the reload").toHaveLength(1);
+    expect((await hubState()).clientIds).toContain(clientId);
+    expect((await keptConnection(page)).clientId).toBe(clientId);
+  } finally {
+    await clinician.close();
+    await deprovisionUser(directory.scim, id);
+  }
+});
+
+test("coming back to the tab once its stored Hub Token has expired reconnects with a new Hub Token and the same client", async ({
+  browser,
+}) => {
+  // The shim's Hub Tokens last 75 s: this case waits one out.
+  test.setTimeout(180_000);
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-reload-expired@example.com");
+  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinician = await freshBrowser(browser);
+  try {
+    const page = await clinician.newPage();
+    const registrations = recordRegistrations(page);
+    await page.goto(await launchUrl());
+    await signInAtMedplum(page, signIn);
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const before = await keptConnection(page);
+
+    // Away from the app, the tab keeps its sessionStorage but nothing renews,
+    // until the shim refuses the stored Hub Token: a reload once it expired.
+    await page.goto("about:blank");
+    await expect
+      .poll(
+        async () => (await hubState()).expiredTokens.includes(before.subscription?.hubToken ?? ""),
+        { intervals: [2_000], timeout: 120_000 },
+      )
+      .toBe(true);
+    await page.goto("/");
+
+    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const after = await keptConnection(page);
+    expect([
+      after.clientId,
+      after.subscription?.hubToken === before.subscription?.hubToken,
+      registrations.length,
+    ]).toEqual([before.clientId, false, 1]);
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
@@ -238,13 +345,7 @@ test("the connection lasts while the clinician is on another page, and Home show
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
-    // Every registration the tab asks the hub for: one per connection begun.
-    const registrations: string[] = [];
-    page.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname === "/dcr/register") {
-        registrations.push(request.url());
-      }
-    });
+    const registrations = recordRegistrations(page);
     await page.goto(await launchUrl());
     await signInAtMedplum(page, signIn);
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
