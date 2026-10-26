@@ -4,10 +4,7 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. This file states the current position. Last revised 2026-10-23: the
-rule's extensions to Session revocation, the event kinds, the append pool, the
-edge recording of refusals and the database's append-only enforcement are folded
-into the decision. History is in git.
+Accepted. Last revised 2026-10-23. History is in git.
 
 ## Context
 
@@ -118,10 +115,9 @@ instance, and a fail-open append fails after 2 s rather than 30 s in an outage.
 
 ### A refused write is recorded once, at the edge
 
-Whether a refusal reached the trail once depended on which module noticed it
-(architecture reviews 2026-10-13, B14, and 2026-10-22). Now the use cases raise a
-typed refusal and record nothing, and the advice at the edge records each, once,
-from one table:
+Whether a refusal reached the trail, and how often, once depended on which
+module noticed it. So the use cases raise a typed refusal and record nothing,
+and the advice at the edge records each, once, from one table:
 
 - **SCIM writes.** `ScimExceptionHandler` records every refused write from
   `scim.controller.ScimRefusals`, naming each refusal's status, `scimType`, log

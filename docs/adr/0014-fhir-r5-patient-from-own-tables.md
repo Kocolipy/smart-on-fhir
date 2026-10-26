@@ -87,7 +87,7 @@ The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
   (`FhirOperationOutcome`), beside `ApiError`. `/api/patient` is one of the
   error namespaces in `web.ErrorNamespaces`, which every refusing layer asks
   for its document, and `ErrorDocumentFilter` is the one `sendError` adapter
-  for every namespace (2026-10-19; it replaced a FHIR-only filter). `patient`
+  for every namespace. `patient`
   renders only the `Patient` and reaches `web` for nothing, and no module edge
   is added.
 

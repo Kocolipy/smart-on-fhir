@@ -4,8 +4,7 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. This file states the current position. Last revised 2026-10-23. History
-is in git.
+Accepted. Last revised 2026-10-23. History is in git.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -640,14 +639,10 @@ carries after is the audit trail's (`GROUP_PERMISSIONS_CHANGE`). The precise nam
 lives under `app.event.action`, as every operation's does; `event.action` stays on
 the standard's closed list, which has no value for it.
 
-This deviates from #159's wording, which asks for
-`event.action=group-permissions-change`. The record carries
-`event.action=user-administration` and
-`app.event.action=authorization.group_permissions_change` instead: the issue's spec
-line is amended by decision to keep the logging standard rather than open its
-closed `event.action` vocabulary. The authorization-change counter's
-`group-permissions-change` tag is unaffected — it is a metric tag, not a log
-field.
+`event.action` is not `group-permissions-change`: the logging standard's
+`event.action` vocabulary is closed, so the precise name stays under
+`app.event.action`. The authorization-change counter's `group-permissions-change`
+tag is a metric tag, not a log field, and is unaffected.
 
 **Epic Login's outbound calls** (ADR 0012, D23, D25, D26). `EpicOutboundInterceptor`
 writes "Epic outbound call started" and "completed" (`INFO`, whatever the status),

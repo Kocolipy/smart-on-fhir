@@ -4,12 +4,9 @@ Date: 2026-09-24
 
 ## Status
 
-Accepted. Consolidated from counting attempts on the login path (2026-09-24),
-one module completing a Login for both login methods (2026-10-10, architecture
-reviews 2026-10-08 and 2026-10-10, B1), and two 2026-10-11 refinements (step 1
-decides on the stable id; step 5 ends the session through `SessionEnding`). ADR
-0012 stays the authority on Epic Login itself; this ADR decides how a password
-Login and an Epic Login are counted and how they end.
+Accepted. ADR 0012 stays the authority on Epic Login itself; this ADR decides
+how a password Login and an Epic Login are counted and how they end. Last revised
+2026-10-26. History is in git.
 
 ## Context
 
@@ -82,9 +79,13 @@ can refuse a Login without the record.
 - a `LOGIN_FAILURE` under method `password`, with its reason from the closed set
   `PasswordRefusalReason` (`BAD_CREDENTIALS`, `UNKNOWN_ACCOUNT`, `ACCOUNT_LOCKED`,
   `ACCOUNT_DISABLED` or `OTHER`), the password analogue of
-  `EpicLoginFailureReason`. It names the
-  User when the name matched one, and counts toward the User's failure run. It is
-  a guess at our credential, unlike an Epic refusal (ADR 0012, D12);
+  `EpicLoginFailureReason`. It names the User the submitted name matched — or,
+  for a refusal on the User's standing after authentication, the User the
+  authentication resolved, by its stable id, so a rename landing in between
+  cannot move it — and counts toward that User's failure run. It is a guess at
+  our credential, unlike an Epic refusal (ADR 0012, D12). A User with no
+  password is the exception: there is no credential to guess, so its refusal
+  counts toward nothing (ADR 0007, "The failure lockout");
 - one `WARN`, "Login refused", with `app.login.method=password` and `session.hash`
   for the session the Login ran in. It has no reason, no user field, and never the
   submitted username (ADR 0003);

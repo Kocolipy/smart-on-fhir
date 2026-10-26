@@ -26,9 +26,9 @@ unknown one before any lookup, so its failure lengthens no failure run.
 
 **A User with no password has no password Login** — whatever is submitted, a
 credentialless User (one provisioned without a password, as a clinician who signs
-in only through Epic is) is refused as an unknown name is, never by comparing
-against a stand-in hash, and at the same cost: one Argon2id verification against
-Spring Security's own dummy hash. Its refusal is audited as `BAD_CREDENTIALS`,
+in only through Epic is) is refused as an unknown name is, and at the same cost:
+one Argon2id verification against Spring Security's own dummy hash, which no
+submitted string matches. Its refusal is audited as `BAD_CREDENTIALS`,
 naming the User, and lengthens no failure run — there is no password to guess,
 so a run of attempts never locks out a User who signs in only through Epic.
 

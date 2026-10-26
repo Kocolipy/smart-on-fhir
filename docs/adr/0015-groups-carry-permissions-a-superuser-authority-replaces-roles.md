@@ -4,11 +4,10 @@ Date: 2026-10-20
 
 ## Status
 
-Accepted, and in force. It absorbs ADR 0010 (fine-grained Permissions granted
-through a configured role mapping, 2026-10-03), which it superseded and which was
-removed on 2026-10-23; what survives of it is stated below as part of this
-decision. Last revised 2026-10-22: `account:unlock` is Unlock of a locked User
-only. History is in git.
+Accepted, and in force. It wholly replaces ADR 0010 (fine-grained Permissions
+granted through a configured role mapping), whose file is removed; what survives
+of it is stated below as part of this decision. Last revised 2026-10-22. History
+is in git.
 
 ## Context
 

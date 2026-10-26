@@ -8,9 +8,8 @@ Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 local
 and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
 rested on verification spikes V1–V6 (2026-10-12), under "Verified behaviour". It
 records a deviation from App-Standards' recommendation of PostgreSQL for production
-(Standalone User Access Control Q6, User SSO Q5). This file states the current
-position. Last revised 2026-10-23: the test JVMs share one SQL Server. History is
-in git.
+(Standalone User Access Control Q6, User SSO Q5). Last revised 2026-10-23.
+History is in git.
 
 ## Context
 
@@ -62,16 +61,15 @@ are one record.
 - **The audit append pool connects as the app login** (ADR 0004, "Fail-open
   appends commit on a pool of their own"), from the same secret, never as the
   owner login.
-- **A connector token's row lock sits with the SCIM resource locks** (added
-  2026-10-13). A rotation and a revocation lock the token's row before reading it
+- **A connector token's row lock sits with the SCIM resource locks.** A
+  rotation and a revocation lock the token's row before reading it
   (`ScimConnectorTokenJpaRepository.lockById`, `WITH (UPDLOCK, ROWLOCK)`, taken only
   by `ScimWriteLockAdapter`), so of two concurrent rotations exactly one mints a
   replacement. It locks one row by primary key, so it needs no order, and must be
   the transaction's first read of the token for the waiting rotation to see the first one's replacement
   under read-committed snapshot.
-- **The SCIM resource lock order is the application's, not the engine's** (added
-  2026-10-14). A SCIM write locks every resource row it may advance before reading
-  any of them, in one canonical order, so two writers whose sets overlap serialize
+- **The SCIM resource lock order is the application's, not the engine's.** A
+  SCIM write locks every resource row it may advance before reading any of them, in one canonical order, so two writers whose sets overlap serialize
   instead of deadlocking. SQL Server under `UPDLOCK` locks rows as the scan reads
   them, before any sort, so an `ORDER BY` on a locking statement gives no lock
   order, and a multi-row lock would deadlock concurrent SCIM writes.
@@ -474,62 +472,25 @@ and RDS keeps it managed and AWS-native.
 
 ## Verified behaviour
 
-Spikes V1–V6 ran on 2026-10-12, before the switchover. Each names what would have
-changed if it had failed, and ran on a throwaway harness outside the repository,
-so none of that code merges.
+Spikes V1–V6 ran on 2026-10-12, before the switchover, on a throwaway harness
+outside the repository. Each names what would have changed had it failed; the
+decisions above state what each verdict settled. V4's differences are listed in
+full below, because "Observable changes" and the API document cite them.
 
-| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                             |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
-| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                            |
-| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass; bind timestamps as UTC `OffsetDateTime`       |
-| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes" |
-| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged               |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                               |
+| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                                                                                     |
+| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass, typed; an untyped `getObject` reads a UUID as upper-case text; bind timestamps as UTC `OffsetDateTime` |
+| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                                                                         |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes"                                                          |
+| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged                                                                        |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                                                                                        |
 
-The pinned versions were:
-
-- **Image.** `mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04`, image
-  `sha256:4402d880dd4c…` (amd64). `@@VERSION` reported Microsoft SQL Server 2022
-  RTM-CU27 (KB5104824), 16.0.4295.3, Developer Edition.
-- **Libraries.** What the backend's Spring Boot 4.1.1 BOM resolves: mssql-jdbc
-  `13.4.0.jre11` ("Microsoft JDBC Driver 13.4 for SQL Server 13.4.0.0") and
-  Hibernate ORM `7.4.5.Final`, which selected `org.hibernate.dialect.SQLServerDialect`
-  at version 16.0. Java 25, with the JVM zone left at the host's `Asia/Singapore`, so
-  a zone-dependent result could not pass by accident.
-- **Database.** Created the way this ADR decides:
-  `CREATE DATABASE … COLLATE Latin1_General_100_BIN2_UTF8`, then
-  `COMPATIBILITY_LEVEL = 160`, `READ_COMMITTED_SNAPSHOT ON` and
-  `ALLOW_SNAPSHOT_ISOLATION ON`. `sys.databases` read back
-  `Latin1_General_100_BIN2_UTF8 160 1 ON`.
-- **Schema.** A T-SQL `V1`, with `UNIQUEIDENTIFIER`,
-  `DATETIMEOFFSET(6)`, `BIT`, `VARBINARY(64)`, `VARCHAR(4n)` and `VARCHAR(MAX)`, and
-  the token permissions in their child table.
-
-### V1: schema validation accepts the mapped types
-
-All ten entities booted with `ddl-auto=validate` and no other Hibernate setting:
-`DATETIMEOFFSET(6)` for `Instant`, `UNIQUEIDENTIFIER` for `UUID`, `BIT` for
-`boolean`, `VARBINARY` for `byte[]`. A `DATETIME2(6)` column failed validation as
-the negative control. Hibernate stored an entity's instant at offset 0 with the
-JVM at `+08:00`, and the UUID's server text matched Java's (no byte-order swap).
-
-### V2: the driver round-trips `OffsetDateTime` and `UUID`
-
-`setObject` / `getObject(…, type)` round-trip both, so hand-written JDBC binds
-`UUID` directly. `getObject()` with no type returns a UUID as an upper-case
-string, and `getObject(…, Instant.class)` is refused by the driver. A bound
-`java.sql.Timestamp` arrives as the JVM-local wall clock in a `datetime2`, which
-SQL Server reads as UTC against a `DATETIMEOFFSET`: with the JVM in
-`Asia/Singapore` a cutoff query returned the wrong row, while a UTC
-`OffsetDateTime` was right in every zone. "Storage is UTC only" records the rule.
-
-### V3: `READPAST` skips a held job-lock row under read-committed snapshot
-
-Two `READ COMMITTED` connections on the RCSI database: a held row returned nothing
-at once without blocking, another job's row was not skipped, the row returned once
-its holder committed or rolled back, and the plain count still told a held row
-from a missing one (ADR 0005).
+They ran on SQL Server 2022 CU27 Developer Edition (the image `compose.yaml`
+still pins), mssql-jdbc 13.4 and Hibernate ORM 7.4 under Spring Boot 4.1, and Java
+25 with the JVM zone left at `Asia/Singapore`, so a zone-dependent result could not
+pass by accident; on a database created the way this ADR decides, with a T-SQL
+`V1` of the types above.
 
 ### V4: `LOWER` differs from `toLowerCase(Locale.ROOT)`
 
@@ -589,16 +550,3 @@ A second run on fresh containers reproduced the 586.
 The fallback chosen is to document the differences. They are listed under
 "Observable changes". Uniqueness already compares application-normalized columns,
 and no other comparison is moved onto them.
-
-### V5: Hibernate reports the constraint and index name
-
-Unique-key (2627) and unique-index (2601) violations, by native insert and by
-entity flush, surfaced as `ConstraintViolationException` carrying the constraint
-name, so `IntegrityViolations` works unchanged provided `V1` keeps the constraint
-names. Both messages quote the refused value, as lm-19 assumes.
-
-### V6: test container cost at `forkCount` 2
-
-A container idles at about 0.9 GB and stays near 1.2 GB under load; two start side
-by side within a 2 GB limit each, so the fork count stayed 2. The gate scripts
-have since shared one server across the forks ("The test server").

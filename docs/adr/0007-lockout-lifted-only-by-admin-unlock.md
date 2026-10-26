@@ -4,11 +4,8 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. This file states the current position: the permanent failure lockout
-(2026-10-01), a departure from the original authentication slice, which shipped a
-lockout that lifted on a timer; and the dormancy lockout and Membership
-revocation (2026-10-03), a second cause under the same rule. Last revised
-2026-10-23: a Login racing a Lockout no longer lifts it. History is in git.
+Accepted. A departure from the original authentication slice, which shipped a
+lockout that lifted on a timer. Last revised 2026-10-26. History is in git.
 
 ## Context
 
@@ -48,28 +45,29 @@ standard's soft-delete and tombstone requirements.
   one, and the passage of time never lifts the lock. `locked_at` records when the
   lock was imposed, and `lock_cause` records `FAILURES`.
 - The Bootstrap Admin never locks. Its failures are counted and audited.
-- **Counting is atomic** (architecture review 2026-10-13, B18).
-  `LoginStateService` serializes every login-state write itself: it takes the
-  User's resource lock and decides from the state re-read under it, so callers do
-  not decide whether to lock. The run is capped at the limit — attempts against a
-  locked User are not counted — so N parallel failures at limit − 1 end with
-  exactly one Lockout, one `LOCKOUT_SET`, one revocation, and
-  `failed_login_attempts` equal to the limit. The Bootstrap Admin's run is
+- **Counting is atomic.** `LoginStateService` serializes every login-state write
+  itself: it takes the User's resource lock and decides from the state re-read
+  under it, so callers do not decide whether to lock. The run is capped at the
+  limit — attempts against a locked User are not counted — so N parallel failures
+  at limit − 1 end with exactly one Lockout, one `LOCKOUT_SET`, one revocation,
+  and `failed_login_attempts` equal to the limit. The Bootstrap Admin's run is
   serialized the same way. `LoginStateSerializationIntegrationTests` proves it
   against a real database.
-- **Refusal timing is uniform** (architecture review 2026-10-08, T1). Spring
-  Security's account-status check runs before the password is compared, so a
-  locked or deactivated User could be refused faster than a wrong password.
+- **Refusal timing is uniform.** Spring Security's account-status check runs
+  before the password is compared, so a locked or deactivated User could be
+  refused faster than a wrong password.
   `SecurityConfig` sets `DaoAuthenticationProvider.alwaysPerformAdditionalChecksOnUser`:
   the submitted password is compared first and the account's state still refuses
-  it, the right password included, with the same bare `401`. A wrong password, an
-  unknown name, a credentialless User, a locked User and a deactivated User each
-  cost exactly one Argon2id verification; `RefusalTimingEquivalenceTests` counts
-  them. A credentialless User has no password Login: it is refused as an unknown
-  name is, against Spring Security's own dummy hash rather than a stand-in hash a
-  submitted string could match, audited as `BAD_CREDENTIALS` naming it, and
-  counted toward no failure run, having no password to guess. The refusal's audit reason is `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED`,
-  whatever the password.
+  it, the right password included, with the same bare `401`, audited as
+  `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` whatever the password. A wrong
+  password, an unknown name, a credentialless User, a locked User and a
+  deactivated User each cost exactly one Argon2id verification;
+  `RefusalTimingEquivalenceTests` counts them.
+- **A User with no password has no password Login.** It is refused as an
+  unknown name is, against Spring Security's own dummy hash, which no submitted
+  string matches; audited as `BAD_CREDENTIALS` naming it; and counted toward no
+  failure run, by a Login or by the password change, having no password to
+  guess. So attempts never lock out a User who signs in only through Epic.
 - **A Login racing a Lockout does not lift it.** Spring Security's account check
   reads the User without the login-state lock, before the Argon2id comparison, so
   a Lockout committed during the comparison would get past it.
@@ -131,13 +129,12 @@ standard's soft-delete and tombstone requirements.
   checked first. Recovering from a self-inflicted lock takes a second
   administrator or the Bootstrap Admin. Any other User may be unlocked, Superusers
   included: there is no rule refusing a target that holds more than the caller.
-- **One login-state module decides every write** (issue #43). The login-state
-  module, `LoginStateService`, decides what a failure, a dormancy lock, a
-  Reactivation (SCIM `PUT` and `PATCH` alike) and an Unlock write. The dormancy job
-  reports each due User to it, and it stores the lock through a set-based update
-  that keeps its `locked_at is null` condition as a compare-and-set, so a cause
-  that already stands is never overwritten. Neither the persistence adapter nor
-  its queries hold any of these rules.
+- **One login-state module decides every write.** `LoginStateService` decides what
+  a failure, a dormancy lock, a Reactivation (SCIM `PUT` and `PATCH` alike) and an
+  Unlock write. The dormancy job reports each due User to it, and it stores the
+  lock through a set-based update that keeps its `locked_at is null` condition as
+  a compare-and-set, so a cause that already stands is never overwritten. Neither
+  the persistence adapter nor its queries hold any of these rules.
 
 ## Consequences
 

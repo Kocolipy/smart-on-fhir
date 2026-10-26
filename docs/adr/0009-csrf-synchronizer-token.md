@@ -5,8 +5,7 @@ Date: 2026-10-01
 ## Status
 
 Accepted. Reverses the original design's double-submit cookie choice for CSRF.
-Last revised 2026-10-09: a refused Login ends the session, and its token. History
-is in git.
+Last revised 2026-10-09. History is in git.
 
 ## Context
 

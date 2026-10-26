@@ -4,9 +4,7 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. This file states the current position. Last revised 2026-10-22: no
-administrative action sets the change-required flag on a User that is not
-locked (ADR 0015). History is in git.
+Accepted. Last revised 2026-10-22. History is in git.
 
 ## Context
 

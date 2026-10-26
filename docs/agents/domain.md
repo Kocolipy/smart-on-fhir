@@ -42,8 +42,11 @@ silently overriding it:
 > reopening because…_
 
 A decision that changes a recorded one is edited into that ADR in the same
-change — its body restated, its Status dated — so the file never carries a
-superseded rule beside the one that replaced it. A new decision gets a new ADR;
+change — its body restated, its Status's "Last revised" date moved — so the
+file never carries a superseded rule beside the one that replaced it. Restate
+the decision where it lives: a dated "Amended" section, a changelog in the
+Status, or a later ADR's "revisited" section is an addendum, and git already
+holds the history. A new decision gets a new ADR;
 one that wholly replaces an ADR absorbs what survives of it, and the old file is
 removed with every citation of it repointed. Cite an ADR by number, and by
 section name where the ADR is long.
