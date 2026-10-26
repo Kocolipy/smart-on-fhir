@@ -32,6 +32,8 @@ FAST_GATE=(
   arch/ArchitectureTest
   arch/DeadlockRetryRulesTests
   arch/EpicTokenRulesTests
+  arch/ModuleRulesTests
+  arch/NamedTargetRulesTests
   arch/NoRoleSwitchTest
   arch/TestSourceArchitectureTest
   arch/TrustServerCertificateTest

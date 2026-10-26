@@ -265,7 +265,8 @@ public class ArchitectureTest {
     static final ArchRule inner_layers_never_reach_the_epic_root =
         noClasses()
             .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
-            .should().dependOnClassesThat().resideInAPackage("com.example.backend.auth.epic")
+            .should().dependOnClassesThat().resideInAPackage(
+                    com.example.backend.auth.epic.EpicLogin.class.getPackageName())
             .because("Dependencies point inward: the Epic package root is adapter code, which the"
                     + " application and domain layers must not depend on");
 
@@ -285,7 +286,8 @@ public class ArchitectureTest {
     static final ArchRule inner_layers_never_reach_the_web_root =
         noClasses()
             .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
-            .should().dependOnClassesThat().resideInAPackage("com.example.backend.web..")
+            .should().dependOnClassesThat().resideInAPackage(
+                    ApiExceptionHandler.class.getPackageName() + "..")
             .because("Dependencies point inward: the web package is the API's error and SPA plumbing,"
                     + " which the application and domain layers must not depend on");
 
@@ -646,6 +648,31 @@ public class ArchitectureTest {
                     "jakarta.persistence..", "org.springframework.data..", "org.hibernate..")
             .allowEmptyShould(true)
             .because("JPA, Spring Data and Hibernate are a persistence adapter's implementation detail");
+
+    // The rule above names the JPA stack, not JDBC beneath it, and the database root, where
+    // TimedJdbc sits, is in no onion layer, so a use case could issue SQL unseen. The observability
+    // root reads SQLException to classify and redact it, and config builds the pools' templates.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule inner_layers_issue_no_sql =
+        noClasses()
+            .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "org.springframework.jdbc..", "java.sql..", "javax.sql..")
+            .orShould().dependOnClassesThat().haveFullyQualifiedName(
+                    "com.example.backend.database.TimedJdbc")
+            .because("Dependencies point inward: SQL is issued by a persistence adapter, behind the"
+                    + " port the use case calls");
+
+    // The onion rule holds the application layer away from the web adapters, not from the HTTP
+    // types they are written against; the domain's framework rules already cover it.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_application_layer_knows_no_http =
+        noClasses()
+            .that().resideInAPackage("com.example.backend..application..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "jakarta.servlet..", "org.springframework.web..", "org.springframework.http..")
+            .because("A use case is called the same way from a handler, a job or a test; the request"
+                    + " and its status codes are the web adapter's to read and write");
 
     // ADR 0015: every protected handler declares its Permission with method security, beside the
     // code it protects; the chain repeats it as a backstop. One mechanism, on handlers only.
@@ -1252,6 +1279,81 @@ public class ArchitectureTest {
     // ADR-derived
 
     /**
+     * A type or method a rule names by string, because it cannot be named by a literal: a
+     * package-private type, or a method. A rule whose name no longer resolves forbids nothing and
+     * still passes, so {@link #every_name_a_rule_reads_by_string_exists} holds every one of these
+     * fields to the imported classes. A public type a rule forbids is named by its class literal
+     * instead, so renaming it does not compile until the rule follows.
+     */
+    private record Named(String type, String method) {
+
+        static Named type(String type) {
+            return new Named(type, null);
+        }
+
+        static Named method(String type, String method) {
+            return new Named(type, method);
+        }
+
+        /** {@code call} targets this method, on its type or a type assignable to it. */
+        boolean isTargetOf(JavaMethodCall call) {
+            return call.getName().equals(method) && call.getTargetOwner().isAssignableTo(type);
+        }
+
+        boolean existsIn(com.tngtech.archunit.core.domain.JavaClasses classes) {
+            return classes.contain(type) && (method == null || classes.get(type).getAllMethods()
+                    .stream().anyMatch(declared -> declared.getName().equals(method)));
+        }
+
+        @Override
+        public String toString() {
+            return method == null ? type : type + "#" + method;
+        }
+    }
+
+    /** A name pattern for {@code types} and their nested classes, which ArchUnit reads as classes. */
+    private static String withNested(Class<?>... types) {
+        return java.util.stream.Stream.of(types)
+                .map(type -> java.util.regex.Pattern.quote(type.getName()))
+                .collect(java.util.stream.Collectors.joining("|", "(", ")(\\$.*)?"));
+    }
+
+    /** Every {@link Named} field of this class, alone or in a list. */
+    private static List<Named> namedFields() {
+        List<Named> named = new ArrayList<>();
+        for (java.lang.reflect.Field field : ArchitectureTest.class.getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            try {
+                Object value = field.get(null);
+                if (value instanceof Named one) {
+                    named.add(one);
+                } else if (value instanceof List<?> list) {
+                    list.stream().filter(Named.class::isInstance).map(Named.class::cast)
+                            .forEach(named::add);
+                }
+            } catch (IllegalAccessException failure) {
+                throw new IllegalStateException(failure);
+            }
+        }
+        return named;
+    }
+
+    @com.tngtech.archunit.junit.ArchTest
+    static void every_name_a_rule_reads_by_string_exists(
+            com.tngtech.archunit.core.domain.JavaClasses classes) {
+        List<Named> named = namedFields();
+        org.assertj.core.api.Assertions.assertThat(named)
+                .as("the rules name types and methods by string")
+                .isNotEmpty();
+        org.assertj.core.api.Assertions.assertThat(named.stream()
+                        .filter(name -> !name.existsIn(classes)).map(Named::toString).toList())
+                .as("types and methods a rule names by string, which no production class has")
+                .isEmpty();
+    }
+
+    /**
      * The logging context is written through one class or not at all.
      *
      * <p>Logs must carry correlation ids and never a userName, filter expression,
@@ -1343,6 +1445,13 @@ public class ArchitectureTest {
      * removed: the two would drift, and discovery would advertise one comparison while a filter
      * applied another.
      */
+    private static final List<Named> SCIM_ATTRIBUTE_BUILDERS = java.util.stream.Stream.of(
+                    "singular", "complex", "multiValuedComplex", "asRequired", "asCaseExact",
+                    "unique", "canonical", "references")
+            .map(name -> Named.method(
+                    com.example.backend.scim.domain.ScimAttribute.class.getName(), name))
+            .toList();
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_resource_schema_defines_scim_attributes =
         noClasses()
@@ -1353,12 +1462,12 @@ public class ArchitectureTest {
                             "a ScimAttribute constructor, factory or modifier") {
                         @Override
                         public boolean test(com.tngtech.archunit.core.domain.AccessTarget target) {
-                            return target.getOwner().getFullName()
-                                            .equals("com.example.backend.scim.domain.ScimAttribute")
-                                    && java.util.Set.of("<init>", "singular", "complex",
-                                            "multiValuedComplex", "asRequired", "asCaseExact", "unique",
-                                            "canonical", "references")
-                                            .contains(target.getName());
+                            return target.getOwner().isEquivalentTo(
+                                            com.example.backend.scim.domain.ScimAttribute.class)
+                                    && (target.getName().equals("<init>")
+                                            || SCIM_ATTRIBUTE_BUILDERS.stream().anyMatch(
+                                                    builder -> builder.method()
+                                                            .equals(target.getName())));
                         }
                     }))
             .allowEmptyShould(true)
@@ -1380,7 +1489,8 @@ public class ArchitectureTest {
             .should().callMethodWhere(com.tngtech.archunit.core.domain.JavaCall.Predicates.target(
                     com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.With.owner(
                             com.tngtech.archunit.core.domain.JavaClass.Predicates.assignableTo(
-                                    "com.example.backend.scim.domain.ScimPasswordHistoryRepository"))))
+                                    com.example.backend.scim.domain.ScimPasswordHistoryRepository
+                                            .class))))
             .allowEmptyShould(true)
             .because("callers decide on a new password through PasswordAcceptance, so reuse and"
                     + " remembering an accepted hash have one implementation (issue #103)");
@@ -1396,6 +1506,12 @@ public class ArchitectureTest {
      * {@link #no_domain_infrastructure_imports}, so the in-memory stores the unit tests run against
      * can ask it too, rather than keeping a copy of the rule that could drift.
      */
+    private static final String SCIM_RESOURCE_JPA_REPOSITORY =
+            "com.example.backend.scim.infrastructure.persistence.ScimResourceJpaRepository";
+
+    private static final Named ADVANCE_VERSIONS =
+            Named.method(SCIM_RESOURCE_JPA_REPOSITORY, "advanceVersions");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_resource_version_statements_advance_versions =
         noClasses()
@@ -1403,11 +1519,7 @@ public class ArchitectureTest {
                     "com.example.backend.scim.infrastructure.persistence.ResourceVersionStatements")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is ScimResourceJpaRepository.advanceVersions",
-                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("advanceVersions")
-                                    && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.scim.infrastructure.persistence"
-                                                    + ".ScimResourceJpaRepository")))
+                    ADVANCE_VERSIONS::isTargetOf))
             .allowEmptyShould(true)
             .because("ResourceVersionAdvance decides which resources' versions a write advances and"
                     + " ResourceVersionStatements alone applies it, so every write path applies one"
@@ -1422,6 +1534,9 @@ public class ArchitectureTest {
      * PUT on a shared membership deadlocked: each locked its own subject first and the other's
      * later.
      */
+    private static final Named LOCK_RESOURCE =
+            Named.method(SCIM_RESOURCE_JPA_REPOSITORY, "lockResource");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_write_lock_module_locks_scim_resources =
         noClasses()
@@ -1429,11 +1544,7 @@ public class ArchitectureTest {
                     "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is ScimResourceJpaRepository.lockResource",
-                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("lockResource")
-                                    && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.scim.infrastructure.persistence"
-                                                    + ".ScimResourceJpaRepository")))
+                    LOCK_RESOURCE::isTargetOf))
             .allowEmptyShould(true)
             .because("one module locks a SCIM write's rows, in one order, so no two writers can"
                     + " each hold a row the other waits for");
@@ -1445,6 +1556,10 @@ public class ArchitectureTest {
      * first and is refused, rather than both minting a live replacement. One adapter issuing every
      * lock statement keeps the token lock and the resource locks from growing orders of their own.
      */
+    private static final Named LOCK_CONNECTOR_TOKEN = Named.method(
+            "com.example.backend.scim.infrastructure.persistence.ScimConnectorTokenJpaRepository",
+            "lockById");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_write_lock_module_locks_connector_tokens =
         noClasses()
@@ -1452,11 +1567,7 @@ public class ArchitectureTest {
                     "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is ScimConnectorTokenJpaRepository.lockById",
-                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("lockById")
-                                    && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.scim.infrastructure.persistence"
-                                                    + ".ScimConnectorTokenJpaRepository")))
+                    LOCK_CONNECTOR_TOKEN::isTargetOf))
             .allowEmptyShould(true)
             .because("one module takes the scim slice's locks, a connector token's included, so a"
                     + " rotation's lock is taken the one way, before the token is read");
@@ -1469,6 +1580,9 @@ public class ArchitectureTest {
      * transaction it happened to be in — released after a first batch's commit, or at once in
      * autocommit on a data source whose transaction manager is not the lock's.
      */
+    private static final Named TAKE_A_JOB_LOCK = Named.method(
+            com.example.backend.scheduling.domain.ScheduledJobLock.class.getName(), "tryAcquire");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_scheduled_job_run_takes_a_job_lock =
         noClasses()
@@ -1476,11 +1590,7 @@ public class ArchitectureTest {
                     "com.example.backend.scheduling.application.ScheduledJobRunService")
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is ScheduledJobLock.tryAcquire",
-                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            call.getName().equals("tryAcquire")
-                                    && call.getTargetOwner().isAssignableTo(
-                                            "com.example.backend.scheduling.domain"
-                                                    + ".ScheduledJobLock")))
+                    TAKE_A_JOB_LOCK::isTargetOf))
             .allowEmptyShould(true)
             .because("the lock lives in the run's own transaction, which only the run module"
                     + " opens, so no job body can take it for a shorter one");
@@ -1515,7 +1625,13 @@ public class ArchitectureTest {
 
     /** The port the login state is written and its dormancy candidates read through. */
     private static final String LOGIN_STATE_PORT =
-            "com.example.backend.scim.domain.ScimLoginStateRepository";
+            com.example.backend.scim.domain.ScimLoginStateRepository.class.getName();
+
+    /** The port's login-state writes. */
+    private static final List<Named> LOGIN_STATE_WRITES = java.util.stream.Stream.of(
+                    "writeChange", "completePasswordChange", "imposeLock")
+            .map(name -> Named.method(LOGIN_STATE_PORT, name))
+            .toList();
 
     /**
      * What a newly imposed failure Lockout implies has one owner: the login-state module,
@@ -1563,10 +1679,7 @@ public class ArchitectureTest {
             .should().callMethodWhere(DescribedPredicate.describe(
                     "target is a ScimLoginStateRepository login-state write",
                     (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
-                            Set.of("writeChange", "completePasswordChange", "imposeLock")
-                                    .contains(call.getName())
-                                    && call.getTargetOwner().isAssignableTo(
-                                            LOGIN_STATE_PORT)))
+                            LOGIN_STATE_WRITES.stream().anyMatch(write -> write.isTargetOf(call))))
             .allowEmptyShould(true)
             .because("one module decides the login state, so no path writes the failure run, the"
                     + " lock, the dormancy basis, the change-required flag or the completed"
@@ -1628,7 +1741,7 @@ public class ArchitectureTest {
         noClasses()
             .that().resideOutsideOfPackage("com.example.backend.audit..")
             .should().dependOnClassesThat()
-                .haveFullyQualifiedName("com.example.backend.audit.domain.AuditEvent")
+                .haveFullyQualifiedName(com.example.backend.audit.domain.AuditEvent.class.getName())
             .allowEmptyShould(true)
             .because("The audit slice owns what goes into an event body; a caller says only"
                     + " what happened, through AuditTrail");
@@ -1655,8 +1768,8 @@ public class ArchitectureTest {
         noClasses()
             .that().resideInAPackage("..controller..")
             .should().dependOnClassesThat()
-                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\."
-                        + "(ConnectorTokenDigest|ScimConnectorToken)(\\$.*)?")
+                .haveNameMatching(withNested(com.example.backend.scim.domain.ConnectorTokenDigest.class,
+                        com.example.backend.scim.domain.ScimConnectorToken.class))
             .allowEmptyShould(true)
             .because("A web adapter returns projections that have no field a token digest"
                     + " could be written into; reaching the domain type directly is how"
@@ -1681,7 +1794,7 @@ public class ArchitectureTest {
         noClasses()
             .that().resideInAPackage("..controller..")
             .should().dependOnClassesThat()
-                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\.ScimUser(\\$.*)?")
+                .haveNameMatching(withNested(com.example.backend.scim.domain.ScimUser.class))
             .allowEmptyShould(true)
             .because("A web adapter renders the projection, which has no field a password"
                     + " hash could be written into; reaching the aggregate directly is how"
@@ -1704,8 +1817,8 @@ public class ArchitectureTest {
         noClasses()
             .that().areAnnotatedWith(RestController.class)
             .should().dependOnClassesThat()
-                .haveNameMatching("com\\.example\\.backend\\.auth\\.domain\\."
-                        + "(EpicTokenSet|EpicTokens)(\\$.*)?")
+                .haveNameMatching(withNested(com.example.backend.auth.domain.EpicTokenSet.class,
+                        com.example.backend.auth.domain.EpicTokens.class))
             .allowEmptyShould(true)
             .because("ADR 0012, D29: Epic's tokens are held server-side and"
                     + " never returned to the browser, so no handler can be handed them");
@@ -1726,7 +1839,7 @@ public class ArchitectureTest {
             .and().doNotHaveFullyQualifiedName(
                     "com.example.backend.auth.epic.controller.EpicFhircastController")
             .should().dependOnClassesThat()
-                .haveFullyQualifiedName("com.example.backend.auth.domain.FhircastAccess")
+                .haveFullyQualifiedName(com.example.backend.auth.domain.FhircastAccess.class.getName())
             .allowEmptyShould(true)
             .because("ADR 0016: the SMART access token leaves the backend through the FHIRcast"
                     + " release alone");
@@ -1747,9 +1860,10 @@ public class ArchitectureTest {
             .should().dependOnClassesThat(DescribedPredicate.describe(
                     "are Epic types other than EpicLogin",
                     (com.tngtech.archunit.core.domain.JavaClass type) ->
-                            type.getPackageName().startsWith("com.example.backend.auth.epic")
-                                    && !type.getName().equals(
-                                            "com.example.backend.auth.epic.EpicLogin")))
+                            type.getPackageName().startsWith(
+                                            com.example.backend.auth.epic.EpicLogin.class.getPackageName())
+                                    && !type.isEquivalentTo(
+                                            com.example.backend.auth.epic.EpicLogin.class)))
             .because("Epic Login plugs into the application chain at one seam, EpicLogin, which"
                     + " owns its gate, routes and handlers");
 
@@ -1793,7 +1907,8 @@ public class ArchitectureTest {
         noClasses()
             .that().haveNameMatching("com\\.example\\.backend\\.auth\\.application\\.SelfRecord(\\$.*)?")
             .should().dependOnClassesThat()
-                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\.(ScimLoginState|ScimUser)(\\$.*)?")
+                .haveNameMatching(withNested(com.example.backend.scim.domain.ScimLoginState.class,
+                        com.example.backend.scim.domain.ScimUser.class))
             .because("The login state holds the failure run, the lock and the hash; a projection"
                     + " component typed as it would publish all three under an innocent name");
 
@@ -1837,6 +1952,9 @@ public class ArchitectureTest {
             .because("The self-read resolves the User from the session alone, so no request value"
                     + " can name somebody else");
 
+    private static final Named SESSION_ESTABLISHMENT =
+            Named.type("com.example.backend.auth.controller.SessionEstablishment");
+
     /**
      * A session is signed in only as part of a whole Login.
      *
@@ -1851,7 +1969,7 @@ public class ArchitectureTest {
             .that().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.LoginCompletion(\\$.*)?")
             .and().haveNameNotMatching("com\\.example\\.backend\\.auth\\.controller\\.SessionEstablishment(\\$.*)?")
             .should().dependOnClassesThat()
-                .haveFullyQualifiedName("com.example.backend.auth.controller.SessionEstablishment")
+                .haveFullyQualifiedName(SESSION_ESTABLISHMENT.type())
             .because("ADR 0001: no adapter can sign a session in without the rest of the Login"
                     + " around it");
 
