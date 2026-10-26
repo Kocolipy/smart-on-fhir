@@ -37,6 +37,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -97,7 +99,7 @@ class LoginLockoutTests {
                 ScimIdentities.group("Admins", recovery), ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 sessions,
                 transaction,
@@ -402,6 +404,52 @@ class LoginLockoutTests {
         ScimUser ada = users.require("ada");
         users.given(ScimIdentities.withActive(ada, true, new ScimLoginState(
                 ada.login().passwordHash(), 5, NOW, LockCause.FAILURES, null, null)));
+    }
+
+    // ---- a User with no password -----------------------------------------------------------
+
+    /**
+     * No password, no password Login: whatever is submitted, a User with no credential is
+     * refused — including the passphrase an earlier marker hash was encoded from.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"no-password-set", "anything", ""})
+    void aUserWithNoPasswordIsRefusedWhateverIsSubmitted(String password) {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        assertThat(submitAs("nopass", password).reason())
+                .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS);
+    }
+
+    /** Audited as a wrong password is: a {@code LOGIN_FAILURE} naming the User. */
+    @Test
+    void aUserWithNoPasswordsRefusalIsAuditedAsBadCredentialsNamingTheUser() {
+        ScimUser nopass = users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        submitAs("nopass", "anything");
+
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(RecordingAuditTrail.Recorded::subjectId,
+                        RecordingAuditTrail.Recorded::detail)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(nopass.id(),
+                        com.example.backend.audit.domain.AuditRefusalReason
+                                .BAD_CREDENTIALS.name()));
+    }
+
+    /**
+     * There is no password to guess, so its refusals lengthen no failure run, and a run of them
+     * never locks out a User who signs in only through Epic.
+     */
+    @Test
+    void aUserWithNoPasswordsRefusalsLengthenNoFailureRun() {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            submitAs("nopass", "anything");
+        }
+
+        assertThat(users.require("nopass").login().failedLoginAttempts()).isZero();
+        assertThat(users.require("nopass").login().isLocked()).isFalse();
     }
 
     private void lockTheIdentity() {

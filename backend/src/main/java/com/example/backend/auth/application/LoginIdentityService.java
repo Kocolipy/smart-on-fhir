@@ -21,7 +21,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
@@ -99,35 +98,22 @@ public class LoginIdentityService implements UserDetailsService {
     public static final String PASSWORD_CHANGE_REQUIRED_AUTHORITY = "PASSWORD_CHANGE_REQUIRED";
 
     /**
-     * A fixed passphrase encoded with the same {@link PasswordEncoder} this service is
-     * configured with, standing in for a credentialless User's absent hash. Computed once, on
-     * first use, from whatever encoder is injected — mirroring how
-     * {@code DaoAuthenticationProvider} builds its own dummy hash for an unknown username —
-     * rather than a literal encoded string fixed at compile time, which would silently stop
-     * matching the encoder's parameters the moment they changed.
-     *
-     * <p>No password verifies against it — the encoded value matches nothing a caller can submit
-     * — so {@code DaoAuthenticationProvider} still runs one real Argon2id comparison, at the
-     * same cost as a genuine hash, before refusing. That uniformity, not the string's content,
-     * is why one is needed at all: passing {@code null} through to
-     * {@code User.withUsername(...).password(...)} would throw before any comparison happened,
-     * which is a different and distinguishable failure mode from a wrong password.
+     * The password an Epic Login's principal carries: none. An Epic Login presents no password of
+     * this service's (D20), so nothing compares against it, and Spring Security's {@code User}
+     * refuses a {@code null}.
      */
-    private volatile String noPasswordSetMarker;
+    private static final String NO_PASSWORD = "";
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
-    private final PasswordEncoder passwordEncoder;
     private final GroupPermissions groupPermissions;
 
     public LoginIdentityService(
             ScimUserRepository users,
             ScimGroupRepository groups,
-            PasswordEncoder passwordEncoder,
             GroupPermissions groupPermissions) {
         this.users = users;
         this.groups = groups;
-        this.passwordEncoder = passwordEncoder;
         this.groupPermissions = groupPermissions;
     }
 
@@ -138,10 +124,11 @@ public class LoginIdentityService implements UserDetailsService {
      * the password, and compares the password first all the same, so the refusal costs what a
      * wrong password's does ({@code SecurityConfig#authenticationManager}).
      *
-     * <p>A credentialless User — one with no password hash set — reports
-     * {@link #noPasswordSetMarker()} rather than {@code null}: the User exists and may be active
-     * and unlocked, but nothing submitted can match a hash nobody wrote, so it is refused on the
-     * password check like any other wrong password, in the same amount of work.
+     * <p>A credentialless User — one with no password hash set — has no password Login, whatever
+     * is submitted: it is reported as no User at all. {@code DaoAuthenticationProvider} then
+     * refuses it as it refuses an unknown name, never by authenticating, after one comparison
+     * against its own dummy hash, so the refusal costs what a wrong password's does; and it hides
+     * the refusal behind a wrong password, as which the Login records it, naming the User.
      *
      * <p>The lookup is by the NORMALIZED userName, which is what uniqueness is decided on, so a
      * correct password is not refused because of how the name was typed. The returned
@@ -151,8 +138,10 @@ public class LoginIdentityService implements UserDetailsService {
     @Override
     public LoginPrincipal loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
+                .filter(found -> found.login().hasPassword())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return userDetailsOf(user, LoginStateService.LoginKind.PASSWORD);
+        return userDetailsOf(
+                user, user.login().passwordHash(), LoginStateService.LoginKind.PASSWORD);
     }
 
     /**
@@ -179,7 +168,7 @@ public class LoginIdentityService implements UserDetailsService {
         return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
                 .filter(user -> user.profile().userName().equals(practitionerId))
                 .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
-                .map(user -> userDetailsOf(user, LoginStateService.LoginKind.EPIC));
+                .map(user -> userDetailsOf(user, NO_PASSWORD, LoginStateService.LoginKind.EPIC));
     }
 
     /**
@@ -191,11 +180,10 @@ public class LoginIdentityService implements UserDetailsService {
      * the dormancy basis, so the two halves of a Login cannot disagree about it. Asking it writes
      * nothing.
      */
-    private LoginPrincipal userDetailsOf(ScimUser user, LoginStateService.LoginKind kind) {
+    private LoginPrincipal userDetailsOf(
+            ScimUser user, String password, LoginStateService.LoginKind kind) {
         User.UserBuilder builder = User.withUsername(user.profile().userName())
-                .password(user.login().hasPassword()
-                        ? user.login().passwordHash()
-                        : noPasswordSetMarker());
+                .password(password);
         if (LoginStateService.confines(kind, user.login())) {
             builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
         } else {
@@ -292,24 +280,5 @@ public class LoginIdentityService implements UserDetailsService {
             return Optional.empty();
         }
         return Optional.of(NormalizedUserName.of(username));
-    }
-
-    /**
-     * Lazily computed and cached: encoding is the expensive Argon2id step this marker exists to
-     * force on the refusal path, so it must happen once per process, not on every credentialless
-     * login attempt.
-     */
-    private String noPasswordSetMarker() {
-        String cached = noPasswordSetMarker;
-        if (cached == null) {
-            synchronized (this) {
-                cached = noPasswordSetMarker;
-                if (cached == null) {
-                    cached = passwordEncoder.encode("no-password-set");
-                    noPasswordSetMarker = cached;
-                }
-            }
-        }
-        return cached;
     }
 }

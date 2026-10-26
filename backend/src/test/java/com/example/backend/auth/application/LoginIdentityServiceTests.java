@@ -15,16 +15,9 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,7 +25,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * What the login path sees of the directory, now that a SCIM User is the only login
@@ -54,10 +46,9 @@ class LoginIdentityServiceTests {
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-    private final CountingPasswordEncoder passwordEncoder = new CountingPasswordEncoder();
 
     private final LoginIdentityService service =
-            new LoginIdentityService(users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups));
+            new LoginIdentityService(users, groups, InMemoryGroupPermissions.over(groups));
 
     // Reporting the stored identity to Spring Security
 
@@ -246,112 +237,28 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * A credentialless identity — no password hash ever set — must still produce
-     * {@code UserDetails} with a non-null password: {@code User.withUsername} throws on
-     * {@code null} before {@code DaoAuthenticationProvider} ever reaches the comparison,
-     * which would refuse the login differently (and detectably) from a wrong-password
-     * attempt on an identity that does have a hash. What the marker equals is not the point
-     * — only that no submitted password matches it, so the identity is refused the same way
-     * any other wrong password is.
+     * A credentialless identity — no password hash ever set — has no password Login, so it is
+     * reported as no User at all: {@code DaoAuthenticationProvider} refuses it as it refuses an
+     * unknown name, whatever was submitted, rather than comparing against a stand-in hash that
+     * some submitted string could match.
      */
     @Test
-    void reportsACredentiallessIdentityWithANonNullUnmatchablePassword() {
+    void refusesACredentiallessIdentityTheWayItRefusesAnUnknownOne() {
         users.given(ScimIdentities.credentiallessUser("nopass"));
 
-        UserDetails details = service.loadUserByUsername("nopass");
-
-        assertThat(details.getPassword()).isNotNull();
-        assertThat(details.getPassword()).isNotEqualTo("anything the caller could submit");
+        assertThatThrownBy(() -> service.loadUserByUsername("nopass"))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
     }
 
-    /**
-     * The marker is a hash the configured encoder produced, not an arbitrary string: only a
-     * real encoded value makes {@code DaoAuthenticationProvider} run a full comparison, at the
-     * cost of a genuine one, before refusing.
-     */
+    /** It still has an Epic Login: Epic checked the credential, not this service (D20). */
     @Test
-    void reportsACredentiallessIdentityWithAPasswordTheConfiguredEncoderProduced() {
-        users.given(ScimIdentities.credentiallessUser("nopass"));
+    void anEpicPractitionerIdLinksToACredentiallessUser() {
+        users.given(ScimIdentities.credentiallessUser("eNOPASS1"));
 
-        String marker = service.loadUserByUsername("nopass").getPassword();
-
-        assertThat(passwordEncoder.encoded()).containsExactly(marker);
-    }
-
-    /**
-     * The unmatchable marker is encoded once per process and reused. Argon2id is
-     * deliberately expensive, so recomputing it on every credentialless login attempt would
-     * hand an unauthenticated caller a way to spend this service's CPU at will — the cache
-     * is a cost control, not a tidiness measure.
-     *
-     * <p>Asserted by call count rather than by comparing markers: the encoder is
-     * deterministic, so a marker recomputed on every call is byte-identical to a cached one
-     * and no equality assertion can tell them apart.
-     */
-    @Test
-    void theUnmatchableMarkerIsEncodedOnceAndReusedAcrossCalls() {
-        users.given(ScimIdentities.credentiallessUser("nopass"));
-
-        String first = service.loadUserByUsername("nopass").getPassword();
-        String second = service.loadUserByUsername("nopass").getPassword();
-        String third = service.loadUserByUsername("nopass").getPassword();
-
-        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
-        assertThat(second).isEqualTo(first);
-        assertThat(third).isEqualTo(first);
-    }
-
-    /**
-     * Two first lookups that race still encode the marker once: the second, arriving while the
-     * first is mid-encode, waits for and reuses the first's marker rather than paying for its own
-     * Argon2id run. Otherwise a burst of credentialless attempts against a cold process would
-     * each spend one.
-     */
-    @Test
-    void twoConcurrentFirstLookupsEncodeTheMarkerOnce() throws Exception {
-        users.given(ScimIdentities.credentiallessUser("nopass"));
-        GatedPasswordEncoder gatedEncoder = new GatedPasswordEncoder();
-        LoginIdentityService gated = new LoginIdentityService(
-                users, groups, gatedEncoder, InMemoryGroupPermissions.over(groups));
-        FutureTask<UserDetails> first = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
-        FutureTask<UserDetails> second = new FutureTask<>(() -> gated.loadUserByUsername("nopass"));
-        new Thread(first).start();
-        gatedEncoder.awaitFirstEncode();
-        Thread secondThread = new Thread(second);
-        secondThread.start();
-        awaitBlocked(secondThread);
-
-        gatedEncoder.release();
-        first.get(5, TimeUnit.SECONDS);
-        second.get(5, TimeUnit.SECONDS);
-
-        assertThat(gatedEncoder.encodeCount()).isEqualTo(1);
-    }
-
-    /**
-     * Two credentialless identities share the one marker, so the cache is keyed to the
-     * process rather than recomputed per identity.
-     */
-    @Test
-    void twoCredentiallessIdentitiesShareTheOneEncodedMarker() {
-        users.given(ScimIdentities.credentiallessUser("nopass-one"));
-        users.given(ScimIdentities.credentiallessUser("nopass-two"));
-
-        String one = service.loadUserByUsername("nopass-one").getPassword();
-        String two = service.loadUserByUsername("nopass-two").getPassword();
-
-        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
-        assertThat(two).isEqualTo(one);
-    }
-
-    /** A stored hash is never re-encoded: it is reported through as it stands. */
-    @Test
-    void reportingAnIdentityWithACredentialEncodesNothing() {
-        users.given(ScimIdentities.user("ada"));
-
-        service.loadUserByUsername("ada");
-
-        assertThat(passwordEncoder.totalEncodeCalls()).isZero();
+        assertThat(service.loadEpicLinkedUser("eNOPASS1"))
+                .map(UserDetails::getUsername)
+                .contains("eNOPASS1");
     }
 
     // Resolving the stable id
@@ -549,7 +456,7 @@ class LoginIdentityServiceTests {
      * Admin group is the one holding the reservation marker, and carries none.
      */
     private final LoginIdentityService mapped = new LoginIdentityService(
-            users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups)
+            users, groups, InMemoryGroupPermissions.over(groups)
                     .carrying(HELPDESK, Permission.ACCOUNT_UNLOCK, Permission.USER_READ)
                     .carrying(AUDITORS, Permission.AUDIT_READ, Permission.USER_READ));
 
@@ -636,7 +543,7 @@ class LoginIdentityServiceTests {
     void holdingEveryDelegatablePermissionThroughAGroupDoesNotMakeAUserASuperuser() {
         UUID everything = UUID.fromString("00000000-0000-4000-8000-0000000000b3");
         LoginIdentityService delegating = new LoginIdentityService(
-                users, groups, passwordEncoder, InMemoryGroupPermissions.over(groups)
+                users, groups, InMemoryGroupPermissions.over(groups)
                         .carrying(everything,
                                 Permission.allDelegatable().toArray(Permission[]::new)));
         ScimUser ada = users.given(ScimIdentities.user("ada"));
@@ -726,97 +633,5 @@ class LoginIdentityServiceTests {
 
     private static List<String> authoritiesOf(UserDetails details) {
         return details.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
-    }
-
-    /**
-     * Counts what it was asked to encode, per raw value.
-     *
-     * <p>Deterministic on purpose, and that is exactly why the count is what the assertions
-     * read: a re-encode returns an identical string, so no equality assertion could tell a
-     * cached marker from one recomputed on every call.
-     */
-    private static final class CountingPasswordEncoder implements PasswordEncoder {
-
-        private final Map<String, Integer> encodeCounts = new HashMap<>();
-
-        private final List<String> encoded = new ArrayList<>();
-
-        @Override
-        public String encode(CharSequence rawPassword) {
-            encodeCounts.merge(rawPassword.toString(), 1, Integer::sum);
-            String hash = "encoded:" + rawPassword;
-            encoded.add(hash);
-            return hash;
-        }
-
-        /** Every value {@link #encode} returned, in order. */
-        List<String> encoded() {
-            return List.copyOf(encoded);
-        }
-
-        @Override
-        public boolean matches(CharSequence rawPassword, String encodedPassword) {
-            return encode(rawPassword).equals(encodedPassword);
-        }
-
-        int encodeCountOf(String rawPassword) {
-            return encodeCounts.getOrDefault(rawPassword, 0);
-        }
-
-        int totalEncodeCalls() {
-            return encodeCounts.values().stream().mapToInt(Integer::intValue).sum();
-        }
-    }
-
-    /** Waits, up to five seconds, until {@code thread} is blocked waiting to enter a monitor. */
-    private static void awaitBlocked(Thread thread) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (thread.getState() != Thread.State.BLOCKED) {
-            assertThat(System.nanoTime()).as("the second lookup is waiting").isLessThan(deadline);
-            Thread.onSpinWait();
-        }
-    }
-
-    /**
-     * Counts its encodes, and holds the first one open until {@link #release} so a test can
-     * start a second caller while the first is mid-encode.
-     */
-    private static final class GatedPasswordEncoder implements PasswordEncoder {
-
-        private final AtomicInteger encodes = new AtomicInteger();
-
-        private final CountDownLatch firstEncodeStarted = new CountDownLatch(1);
-
-        private final CountDownLatch released = new CountDownLatch(1);
-
-        @Override
-        public String encode(CharSequence rawPassword) {
-            encodes.incrementAndGet();
-            firstEncodeStarted.countDown();
-            try {
-                assertThat(released.await(5, TimeUnit.SECONDS)).as("released").isTrue();
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(interrupted);
-            }
-            return "encoded:" + rawPassword;
-        }
-
-        @Override
-        public boolean matches(CharSequence rawPassword, String encodedPassword) {
-            return encode(rawPassword).equals(encodedPassword);
-        }
-
-        void awaitFirstEncode() throws InterruptedException {
-            assertThat(firstEncodeStarted.await(5, TimeUnit.SECONDS)).as("first encode").isTrue();
-        }
-
-        void release() {
-            released.countDown();
-        }
-
-        int encodeCount() {
-            return encodes.get();
-        }
     }
 }

@@ -65,7 +65,7 @@ class EpicLoginDecisionTests {
         SecurityConfig config = new SecurityConfig();
         PasswordEncoder passwordEncoder = config.passwordEncoder();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 new InMemoryAccountSessions(),
                 new PendingCommit(),

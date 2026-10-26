@@ -24,6 +24,14 @@ driven by Spring Security's authentication events is
 username with [edge whitespace](./directory.md) names no User and is refused as an
 unknown one before any lookup, so its failure lengthens no failure run.
 
+**A User with no password has no password Login** — whatever is submitted, a
+credentialless User (one provisioned without a password, as a clinician who signs
+in only through Epic is) is refused as an unknown name is, never by comparing
+against a stand-in hash, and at the same cost: one Argon2id verification against
+Spring Security's own dummy hash. Its refusal is audited as `BAD_CREDENTIALS`,
+naming the User, and lengthens no failure run — there is no password to guess,
+so a run of attempts never locks out a User who signs in only through Epic.
+
 **A refused Login ends the browser's session** — a refused password Login ends
 whatever session the browser held, whoever it belonged to, before its bare `401`,
 as a refused EHR launch does: a shared browser is never left signed in as the

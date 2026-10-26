@@ -124,7 +124,7 @@ class AuthControllerTests {
                 ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
         AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();

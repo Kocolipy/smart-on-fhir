@@ -71,7 +71,7 @@ class PasswordLoginRenameTests {
         hash = passwordEncoder.encode(PASSWORD);
         ada = users.given(withPassword("ada", 0)).id();
         LoginIdentityService identities = new LoginIdentityService(
-                users, groups, passwordEncoder, TestGroupPermissions.superuserOnly());
+                users, groups, TestGroupPermissions.superuserOnly());
         SessionRevocationService revocation = new SessionRevocationService(
                 sessions, transaction, audit, new RecordingOperationalAlerts());
         LoginAttemptService attempts = new LoginAttemptService(
