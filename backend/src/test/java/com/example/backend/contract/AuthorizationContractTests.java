@@ -77,7 +77,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *       caller holding ONLY it is refused neither {@code 401} nor {@code 403};
  *   <li>an operation declaring the Superuser refuses a caller holding every Permission but not
  *       {@code ROLE_SUPERUSER} with {@code 403}, and admits one holding only that role;
- *   <li>self-service needs no Permission, and public needs no session;
+ *   <li>self-service needs no Permission, public needs no session, and every other operation
+ *       refuses a caller without one {@code 401};
  *   <li>a session confined by a required password change reaches only the self-service trio;
  *   <li>a session — holding every Permission — cannot reach {@code /scim/**}, and a connector token
  *       cannot reach the application chain;
@@ -303,6 +304,17 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         for (Operation operation : open) {
             assertThat(call(operation, null)).as("%s with no session", operation)
                     .isNotIn(401, 403);
+        }
+    }
+
+    @Test
+    void every_other_operation_refuses_a_caller_without_a_session() throws Exception {
+        for (Operation operation : applicationOperations()) {
+            if (operation.requirement().access() == Access.PUBLIC) {
+                continue;
+            }
+            assertThat(call(operation, null)).as("%s with no session", operation)
+                    .isEqualTo(401);
         }
     }
 

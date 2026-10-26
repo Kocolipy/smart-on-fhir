@@ -430,26 +430,6 @@ class ScimConnectorLifecycleIntegrationTests {
                 });
     }
 
-    /** Connector administration is an Admin capability on the session chain. */
-    @Test
-    void connector_administration_refuses_a_caller_who_is_not_an_admin() throws Exception {
-        mvc.perform(get(CONNECTORS))
-                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
-
-        mvc.perform(asRole(get(CONNECTORS), "ROLE_USER"))
-                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(403));
-    }
-
-    /** A bearer token buys nothing on the administration API. */
-    @Test
-    void a_connector_token_does_not_authenticate_the_administration_api() throws Exception {
-        UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
-
-        mvc.perform(get(CONNECTORS).header(HttpHeaders.AUTHORIZATION, "Bearer " + presentedValue))
-                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
-    }
-
     /**
      * A second rotation of one token is refused {@code 409} without a body, and the administrative
      * edge records it on the audit pool once the rotation's transaction has rolled back: a failed
