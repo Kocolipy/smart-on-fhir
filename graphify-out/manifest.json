@@ -1146,9 +1146,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/arch/ArchitectureTest.java": {
-    "mtime": 1792915648.7377288,
-    "seen": 1792979663.3231678,
-    "ast_hash": "70739a300f9f30e47ba7feb2f490fc3b",
+    "mtime": 1792982331.525323,
+    "seen": 1792982588.122402,
+    "ast_hash": "28ad521fc43a3fdc6b19dc1a1eb551d0",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
@@ -1938,9 +1938,9 @@
     "semantic_hash": ""
   },
   "frontend/test/.dependency-cruiser.cjs": {
-    "mtime": 1792399327.496212,
-    "seen": 1792979663.3235006,
-    "ast_hash": "803c5c00d36e8e48257458cf5f600a2e",
+    "mtime": 1792982103.6156373,
+    "seen": 1792982588.139954,
+    "ast_hash": "0bea1bc6478bb6fc31b609aca19b6d67",
     "semantic_hash": ""
   },
   "frontend/test/arch/designTokens.test.ts": {
@@ -2142,9 +2142,9 @@
     "semantic_hash": ""
   },
   "CONTEXT.md": {
-    "mtime": 1792976459.7548866,
-    "seen": 1792979663.3235664,
-    "ast_hash": "371a9ee86ed8a396fd04295c9048843a",
+    "mtime": 1792982559.7049143,
+    "seen": 1792982588.1417081,
+    "ast_hash": "63d0efc8a87c608eaa5bedc6af0e3328",
     "semantic_hash": ""
   },
   "README.md": {
@@ -4758,9 +4758,9 @@
     "semantic_hash": ""
   },
   "backend/scripts/test-gates.sh": {
-    "mtime": 1792839888.082713,
-    "seen": 1792979663.3227854,
-    "ast_hash": "c096bdf29c6f2856a11a1357ce38c7cb",
+    "mtime": 1792982457.1558676,
+    "seen": 1792982588.1035745,
+    "ast_hash": "6dc8326a67ebeede100138133419c4ed",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/LoginStateSerializationIntegrationTests.java": {
@@ -6426,9 +6426,9 @@
     "semantic_hash": ""
   },
   "frontend/src/lib/fake-hub.testHelpers.ts": {
-    "mtime": 1792976459.7628865,
-    "seen": 1792979663.3234713,
-    "ast_hash": "ddf54f58893e74cf1c9d774606b55225",
+    "mtime": 1792981500.1570544,
+    "seen": 1792981569.6714628,
+    "ast_hash": "0d309321d26e1fac8ec4c1fac63d0141",
     "semantic_hash": ""
   },
   "frontend/src/lib/fhircast.test.ts": {
@@ -6563,10 +6563,16 @@
     "ast_hash": "cea9c0cc131c60927713f5062d68a119",
     "semantic_hash": ""
   },
-  "infra/infrastructure-dev.txt": {
-    "mtime": 1792980245.918125,
-    "seen": 1792980785.1694636,
-    "ast_hash": "122e425f776fce9b11e88154fff6ed34",
+  "backend/src/test/java/arch/ModuleRulesTests.java": {
+    "mtime": 1792982484.109578,
+    "seen": 1792982588.122481,
+    "ast_hash": "87ca89e4a065323f40ccaa0b2de81b23",
+    "semantic_hash": ""
+  },
+  "backend/src/test/java/arch/NamedTargetRulesTests.java": {
+    "mtime": 1792982445.4589088,
+    "seen": 1792982588.1224828,
+    "ast_hash": "2b044483b83abdff92a76621d9187e35",
     "semantic_hash": ""
   }
 }
