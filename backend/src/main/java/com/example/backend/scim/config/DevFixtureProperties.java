@@ -18,7 +18,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                       clinician's Practitioner id, which Epic Login links by character for
  *                       character ({@code make fhircast-up} sets it); {@code null} or blank for
  *                       none
- * @param groups         the fixture Groups, each with one User in it
+ * @param epicClinicianDisplayName the Epic clinician's displayName, with its salutation
+ *                       ({@code make fhircast-up} sets it from the clinician's Practitioner
+ *                       name); {@code null} or blank for its userName
+ * @param groups        the fixture Groups, each with one User in it
  * @param dormantMember  the userName of a User whose dormancy basis is backdated past the
  *                       revocation window at every startup, so the development profile's startup
  *                       dormancy run locks it and removes its memberships; {@code null} for none
@@ -34,6 +37,7 @@ public record DevFixtureProperties(
         String password,
         String baselineMember,
         String epicClinician,
+        String epicClinicianDisplayName,
         List<GroupFixture> groups,
         String dormantMember,
         List<UUID> dormantGroups,

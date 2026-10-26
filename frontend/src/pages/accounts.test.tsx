@@ -108,28 +108,30 @@ describe("Accounts", () => {
         .map((header) => header.textContent),
     ).toEqual([
       "User",
-      "Access",
-      "Active",
-      "Password",
-      "Lockout",
-      "Change required",
-      "Last sign-in",
-      "Created",
       "Groups",
+      "Active",
+      "Lockout",
+      "Password",
+      "Password change required",
+      "Last sign-in",
       "Actions",
     ]);
     const grace = row("grace");
     expect(grace.getByText("Grace Hopper")).toBeInTheDocument();
-    expect(grace.getByText("User")).toBeInTheDocument();
-    expect(grace.getByText("Active")).toBeInTheDocument();
-    expect(grace.getByText("Configured")).toBeInTheDocument();
-    expect(grace.getByText("Not locked")).toBeInTheDocument();
-    expect(grace.getByText("No")).toBeInTheDocument();
-    expect(grace.getByText("2026-03-05 01:06")).toBeInTheDocument();
-    expect(grace.getByText("2026-01-03")).toBeInTheDocument();
-    expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
+    expect(
+      grace
+        .getAllByRole("cell")
+        .slice(0, -1)
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "Engineering, Operators",
+      "Active",
+      "Not locked",
+      "Configured",
+      "No",
+      "2026-03-05 01:06",
+    ]);
 
-    expect(row("ada").getByText("Superuser")).toBeInTheDocument();
     expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/accounts" });
   });
 
@@ -357,7 +359,6 @@ describe("Accounts", () => {
 
     await screen.findByRole("rowheader", { name: /^root/ });
     const root = row("root");
-    expect(root.getByText("Bootstrap Admin")).toBeInTheDocument();
     expect(root.getByTitle("The Bootstrap Admin cannot be locked")).toHaveTextContent("—");
     expect(root.queryByText(/^Locked/)).not.toBeInTheDocument();
     expect(root.queryByText("Not locked")).not.toBeInTheDocument();

@@ -7,7 +7,7 @@ import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatInstant } from "@/lib/time";
+import { formatInstant } from "@/lib/time";
 
 import {
   GROUPS,
@@ -68,16 +68,6 @@ function LockoutCell({ user }: { user: UserRow }) {
 const offersUnlock = (user: UserRow, self: boolean): boolean =>
   user.locked && !user.bootstrapAdmin && !self;
 
-/**
- * The access column: the recovery identity first, then the Superuser — a
- * direct member of the Admin group, the derived `admin` flag — then everyone
- * else, whose Permissions come from their Groups.
- */
-function accessOf(user: UserRow): string {
-  if (user.bootstrapAdmin) return "Bootstrap Admin";
-  return user.admin ? "Superuser" : "User";
-}
-
 type OnUnlock = (user: UserRow) => void;
 
 function UnlockButton({
@@ -132,7 +122,9 @@ function UserRowView({
           <span className="block font-normal text-muted-foreground">{user.displayName}</span>
         ) : null}
       </th>
-      <td className={MUTED_CELL}>{accessOf(user)}</td>
+      <td className={MUTED_CELL}>
+        {user.groups.map((group) => group.displayName).join(", ") || "—"}
+      </td>
       <td className="py-3 pr-4">
         {user.active ? (
           <span className="text-muted-foreground">Active</span>
@@ -140,17 +132,13 @@ function UserRowView({
           <span className="font-medium text-destructive">Inactive</span>
         )}
       </td>
-      <td className={MUTED_CELL}>{user.hasPassword ? "Configured" : "None"}</td>
       <td className="py-3 pr-4">
         <LockoutCell user={user} />
       </td>
+      <td className={MUTED_CELL}>{user.hasPassword ? "Configured" : "None"}</td>
       <td className={MUTED_CELL}>{user.passwordChangeRequired ? "Required" : "No"}</td>
       <td className={MUTED_CELL}>
         {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
-      </td>
-      <td className={MUTED_CELL}>{formatDate(user.createdAt)}</td>
-      <td className={MUTED_CELL}>
-        {user.groups.map((group) => group.displayName).join(", ") || "—"}
       </td>
       <td className="py-3">
         <UnlockButton
@@ -166,14 +154,12 @@ function UserRowView({
 
 const USER_COLUMNS = [
   "User",
-  "Access",
-  "Active",
-  "Password",
-  "Lockout",
-  "Change required",
-  "Last sign-in",
-  "Created",
   "Groups",
+  "Active",
+  "Lockout",
+  "Password",
+  "Password change required",
+  "Last sign-in",
   "Actions",
 ];
 

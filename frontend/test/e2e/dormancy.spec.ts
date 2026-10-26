@@ -31,7 +31,7 @@ const CHOSEN = `Returned-After-Absence-${Date.now().toString(36)}`;
 const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
 
 /** The Users table's Groups column, among a row's cells (the User is its row header). */
-const GROUPS_COLUMN = 7;
+const GROUPS_COLUMN = 0;
 
 /** The two Groups seeding puts the fixture back into (`dormant-groups` in `authorization.yaml`). */
 const { auditors: AUDITORS, helpdesk: HELPDESK } = FIXTURE_GROUPS;
