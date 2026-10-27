@@ -126,8 +126,11 @@ Faster checks for the edit loop. None replaces the baseline gate.
 | Baseline       | `./scripts/verify.sh`                      | Docker, Semgrep, network |
 
 The fast gate is an explicit class list in the script: every test class that
-starts no Spring context and no container, and its run fails if the log shows
-either. A test that must reach the database as the driver sees it, without a
+boots no application and starts no container, and its run fails if the log
+shows either. An in-memory `ApplicationContextRunner` over named configuration
+classes boots no application, so a class using one qualifies. It also refuses to run, naming the entry, when a listed class has no
+source file, so a deleted or renamed class cannot linger in the list matching
+nothing. A test that must reach the database as the driver sees it, without a
 container, runs over `ScriptedJdbc`, a JDBC fake that fails on any statement its
 script does not name, and so stays fast. Subsystem names are the script's
 `SUBSYSTEM_NAMES`; a test package missing from it, and the root-package
