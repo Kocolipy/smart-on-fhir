@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * A {@link PatientStore} in memory, for the tests above the persistence adapter. It refuses what
@@ -39,13 +40,20 @@ public final class InMemoryPatientStore implements PatientStore {
         return patients.containsKey(id);
     }
 
+    /**
+     * Refuses with the exception the adapter's flush raises ({@code PatientStoreContract}). What
+     * the refusal does to the rest of a transaction — on SQL Server it can no longer commit — is
+     * not modelled here.
+     */
     @Override
     public void insert(Patient patient) {
         if (patients.containsKey(patient.id())) {
-            throw new IllegalStateException("a patient is already stored under " + patient.id());
+            throw new DataIntegrityViolationException(
+                    "pk_patients: a patient is already stored under " + patient.id());
         }
         if (patients.values().stream().anyMatch(stored -> stored.nric().equals(patient.nric()))) {
-            throw new IllegalStateException("a patient already holds that NRIC");
+            throw new DataIntegrityViolationException(
+                    "uq_patients_nric: a patient already holds that NRIC");
         }
         patients.put(patient.id(), patient);
     }
