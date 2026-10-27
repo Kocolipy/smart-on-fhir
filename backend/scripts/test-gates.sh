@@ -176,6 +176,7 @@ FAST_GATE=(
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests
   com/example/backend/scim/application/ScimGroupServiceTests
+  com/example/backend/scim/application/ScimMembershipRevocationServiceTests
   com/example/backend/scim/application/ScimSearchServiceTests
   com/example/backend/scim/application/ScimSeedServiceTests
   com/example/backend/scim/application/ScimUserReplacementTests
