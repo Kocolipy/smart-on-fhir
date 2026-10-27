@@ -513,7 +513,8 @@ public final class OpenApiContract {
          *   <li>{@code security: []} — {@link Access#PUBLIC};
          *   <li>{@code - sessionCookie: []} — {@link Access#SELF_SERVICE}: authenticated, no
          *       Permission;
-         *   <li>{@code - sessionCookie: [<permission>]} — {@link Access#PERMISSION}, exactly one;
+         *   <li>{@code - sessionCookie: [<permission>, ...]} — {@link Access#PERMISSION}: one or more
+         *       Permissions in the one entry, every one of them required;
          *   <li>{@code - sessionCookie: [superuser]} — {@link Access#SUPERUSER}: the Superuser,
          *       which is not a Permission and so names none;
          *   <li>{@code - connectorBearer: []} — {@link Access#BEARER}, the SCIM chain's: a valid
@@ -523,8 +524,9 @@ public final class OpenApiContract {
          *   <li>two or more {@code - connectorBearer: [<permission>]} alternatives —
          *       {@link Access#BEARER_ANY_OF}: any one of them suffices (the base {@code /.search}).
          * </ul>
-         * Anything else — a session requirement among alternatives, two Permissions in one
-         * requirement, an unknown scheme — is {@link Access#MALFORMED}.
+         * Anything else — a session requirement among alternatives, two Permissions in one bearer
+         * requirement, the Superuser beside a Permission, a Permission named twice, an unknown
+         * scheme — is {@link Access#MALFORMED}.
          */
         public Requirement requirement() {
             JsonNode security = definition.get("security");
@@ -560,12 +562,26 @@ public final class OpenApiContract {
                     if (scopes.size() == 1 && SUPERUSER_SCOPE.equals(scopes.get(0).asText(null))) {
                         return new Requirement(Access.SUPERUSER, null);
                     }
-                    return scopes.size() == 1 && scopes.get(0).isTextual()
-                            ? new Requirement(Access.PERMISSION, scopes.get(0).asText())
-                            : new Requirement(Access.MALFORMED, null);
+                    return permissions(scopes);
                 default:
                     return new Requirement(Access.MALFORMED, null);
             }
+        }
+
+        /**
+         * The Permissions one {@code sessionCookie} entry names, every one required: each a
+         * string, none twice, and never the Superuser beside them.
+         */
+        private static Requirement permissions(JsonNode scopes) {
+            List<String> allOf = new ArrayList<>();
+            for (JsonNode scope : scopes) {
+                if (!scope.isTextual() || SUPERUSER_SCOPE.equals(scope.asText())
+                        || allOf.contains(scope.asText())) {
+                    return new Requirement(Access.MALFORMED, null);
+                }
+                allOf.add(scope.asText());
+            }
+            return new Requirement(Access.PERMISSION, null, List.of(), allOf);
         }
 
         /** Alternatives, each one {@code connectorBearer} naming exactly one Permission. */
@@ -613,21 +629,28 @@ public final class OpenApiContract {
     /**
      * An operation's declared requirement.
      *
-     * @param permission the one Permission a {@link Access#PERMISSION} operation names, or a
-     *                   {@link Access#BEARER} operation needs beyond a valid token, as spelled in
-     *                   the document; {@code null} for every other access, and for a bearer
-     *                   operation needing a valid token alone
+     * @param permission the one Permission a {@link Access#BEARER} operation needs beyond a valid
+     *                   token, as spelled in the document; {@code null} for every other access,
+     *                   and for a bearer operation needing a valid token alone
      * @param anyOf      the alternatives of a {@link Access#BEARER_ANY_OF} operation; empty
      *                   otherwise
+     * @param allOf      the Permissions a {@link Access#PERMISSION} operation names, in the
+     *                   document's order, every one of them required; empty otherwise
      */
-    public record Requirement(Access access, String permission, List<String> anyOf) {
+    public record Requirement(
+            Access access, String permission, List<String> anyOf, List<String> allOf) {
 
         public Requirement {
             anyOf = anyOf == null ? List.of() : List.copyOf(anyOf);
+            allOf = allOf == null ? List.of() : List.copyOf(allOf);
         }
 
         public Requirement(Access access, String permission) {
-            this(access, permission, List.of());
+            this(access, permission, List.of(), List.of());
+        }
+
+        public Requirement(Access access, String permission, List<String> anyOf) {
+            this(access, permission, anyOf, List.of());
         }
     }
 

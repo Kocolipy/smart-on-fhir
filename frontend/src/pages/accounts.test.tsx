@@ -14,7 +14,7 @@ import {
   type StartingSession,
 } from "@/auth/session-adapter.testHelpers";
 
-import type { GroupRow, UserRow } from "./accounts-api";
+import type { GroupMember, GroupRow, UserRow } from "./accounts-api";
 import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
 const USERS = "GET /api/admin/accounts";
@@ -227,7 +227,12 @@ describe("Accounts", () => {
       expect(within(table).queryAllByRole("checkbox")).toHaveLength(0);
       expect(within(table).queryAllByRole("combobox")).toHaveLength(0);
     }
-    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    // The Groups table's only buttons disclose a Group's members, which change nothing.
+    expect(
+      within(groupsTable())
+        .queryAllByRole("button")
+        .map((button) => button.getAttribute("aria-expanded")),
+    ).toEqual(["false"]);
     const labels = within(usersTable())
       .getAllByRole("button")
       .map((button) => button.textContent ?? "");
@@ -605,6 +610,190 @@ describe("Accounts with its Connectors panel", () => {
   });
 });
 
+const ENGINEERING_ID = "00000000-0000-4000-8000-0000000000e0";
+
+/** The read of one page of Engineering's members, from `startIndex`. */
+const membersFrom = (startIndex: number) =>
+  `GET /api/admin/groups/${ENGINEERING_ID}/members?startIndex=${startIndex}&count=20`;
+
+const member = (index: number, overrides: Partial<GroupMember> = {}): GroupMember => ({
+  active: true,
+  displayName: null,
+  id: `member-${index}`,
+  userName: `member-${String(index).padStart(2, "0")}`,
+  ...overrides,
+});
+
+/** A page of Engineering's members as the backend answers it. */
+const memberPage = (totalResults: number, startIndex: number, members: GroupMember[]) =>
+  json({ members, startIndex, totalResults });
+
+const membersControl = () =>
+  within(groupsTable()).getByRole("button", { name: "Members of Engineering" });
+
+const membersRegion = () => screen.getByRole("region", { name: "Members of Engineering" });
+
+describe("a Group's members", () => {
+  it("are a disclosure behind the member count, read on expanding it", async () => {
+    const { requests } = await renderAccounts({
+      [GROUPS]: json([groupRow()]),
+      [membersFrom(1)]: memberPage(2, 1, [
+        member(1, { displayName: "Ada Lovelace", userName: "ada" }),
+        member(2, { active: false, userName: "babbage" }),
+      ]),
+    });
+
+    const control = await screen.findByRole("button", { name: "Members of Engineering" });
+    expect([control.textContent, control.getAttribute("aria-expanded")]).toEqual(["2", "false"]);
+    expect(requests()).not.toContainEqual({ method: "GET", path: membersFrom(1).slice(4) });
+
+    await userEvent.click(control);
+
+    expect(control.getAttribute("aria-expanded")).toBe("true");
+    expect(control.getAttribute("aria-controls")).toBe(membersRegion().id);
+    const items = await within(membersRegion()).findAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual(["adaAda Lovelace", "babbageInactive"]);
+    expect(within(membersRegion()).getByText("Members 1–2 of 2")).toBeInTheDocument();
+    expect(within(membersRegion()).queryByRole("button")).toBeNull();
+  });
+
+  it("are expanded and collapsed from the keyboard", async () => {
+    await renderAccounts({
+      [GROUPS]: json([groupRow()]),
+      [membersFrom(1)]: memberPage(1, 1, [member(1)]),
+    });
+    (await screen.findByRole("button", { name: "Members of Engineering" })).focus();
+
+    await userEvent.keyboard("{Enter}");
+    expect(await within(membersRegion()).findByText("member-01")).toBeInTheDocument();
+    await userEvent.keyboard(" ");
+
+    expect(membersControl().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "Members of Engineering" })).toBeNull();
+  });
+
+  it("are read a page at a time, moving on while more remain and back again", async () => {
+    const first = Array.from({ length: 20 }, (_, index) => member(index + 1));
+    const { requests } = await renderAccounts({
+      [GROUPS]: json([groupRow({ memberCount: 25 })]),
+      [membersFrom(1)]: memberPage(25, 1, first),
+      [membersFrom(21)]: memberPage(
+        25,
+        21,
+        [21, 22, 23, 24, 25].map((index) => member(index)),
+      ),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+    expect(await within(membersRegion()).findByText("Members 1–20 of 25")).toBeInTheDocument();
+    expect(within(membersRegion()).queryByRole("button", { name: "Previous" })).toBeNull();
+
+    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
+
+    expect(await within(membersRegion()).findByText("Members 21–25 of 25")).toBeInTheDocument();
+    expect(
+      within(membersRegion())
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["member-21", "member-22", "member-23", "member-24", "member-25"]);
+    expect(within(membersRegion()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(requests()).toContainEqual({ method: "GET", path: membersFrom(21).slice(4) });
+
+    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
+    expect(await within(membersRegion()).findByText("Members 1–20 of 25")).toBeInTheDocument();
+  });
+
+  /**
+   * A page can come back short of twenty while members remain — one removed
+   * between the backend's count and its read — and the next page starts where
+   * that one ended; moving back from there never goes before the first.
+   */
+  it("move on from where a short page ended, and back no further than the first", async () => {
+    await renderAccounts({
+      [GROUPS]: json([groupRow({ memberCount: 30 })]),
+      [membersFrom(1)]: memberPage(
+        30,
+        1,
+        Array.from({ length: 14 }, (_, index) => member(index + 1)),
+      ),
+      [membersFrom(15)]: memberPage(30, 15, [member(15)]),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+    await within(membersRegion()).findByText("Members 1–14 of 30");
+
+    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
+    expect(await within(membersRegion()).findByText("Members 15–15 of 30")).toBeInTheDocument();
+    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
+
+    expect(await within(membersRegion()).findByText("Members 1–14 of 30")).toBeInTheDocument();
+  });
+
+  /** The members' row spans every column the table has, the Superuser's Actions included. */
+  it.each([
+    ["the Superuser", holding(EVERY_PERMISSION, { superuser: true }), 4],
+    ["a session holding every Permission but not the Superuser", holding(EVERY_PERMISSION), 3],
+  ] as const)("span the whole table for %s", async (_, session, columns) => {
+    await renderAccounts(
+      { [GROUPS]: json([groupRow()]), [membersFrom(1)]: memberPage(1, 1, [member(1)]) },
+      session,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    expect(within(groupsTable()).getAllByRole("columnheader")).toHaveLength(columns);
+    expect(membersRegion().closest("td")?.colSpan).toBe(columns);
+  });
+
+  it("of a Group with none say so", async () => {
+    await renderAccounts({
+      [GROUPS]: json([groupRow({ memberCount: 0 })]),
+      [membersFrom(1)]: memberPage(0, 1, []),
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    expect(
+      await within(membersRegion()).findByText(/^Engineering has no members\.$/),
+    ).toBeInTheDocument();
+    expect(within(membersRegion()).queryByRole("list")).toBeNull();
+    expect(within(membersRegion()).queryByText(/^Members \d/)).toBeNull();
+  });
+
+  it("report a failed read to the page's one error line", async () => {
+    await renderAccounts({ [GROUPS]: json([groupRow()]), [membersFrom(1)]: bare(503) });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Unable to load the members of Engineering. Please try again.",
+    );
+    expect(within(membersRegion()).queryByRole("list")).toBeNull();
+    expect(within(membersRegion()).queryByText("Engineering has no members.")).toBeNull();
+  });
+
+  it("are shown loading while the first page is read", async () => {
+    const page = deferred();
+    await renderAccounts({ [GROUPS]: json([groupRow()]), [membersFrom(1)]: page.answer });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    expect(within(membersRegion()).getByText("Loading members…")).toBeInTheDocument();
+    await page.settle(memberPage(1, 1, [member(1)]));
+    expect(await within(membersRegion()).findByText("member-01")).toBeInTheDocument();
+  });
+
+  it("are not offered to a session holding group:read without user:read", async () => {
+    const { requests } = await renderAccounts(
+      { [GROUPS]: json([groupRow()]) },
+      holding(["group:read"]),
+    );
+
+    expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
+    expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
+    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(requests().map(({ path }) => path)).toEqual(["/api/admin/groups"]);
+  });
+});
+
 describe("Accounts by Permission", () => {
   /** Every request the page issued, by path. */
   const paths = (requests: () => readonly { path: string }[]) => requests().map(({ path }) => path);
@@ -717,13 +906,15 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     await renderAccounts({ [GROUPS]: threeGroups }, THE_SUPERUSER);
 
     expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
-    expect(row("Auditors", groupsTable()).getByRole("button")).toHaveTextContent(
-      "Edit permissions for Auditors",
-    );
-    expect(row("Engineering", groupsTable()).getByRole("button")).toHaveTextContent(
-      "Edit permissions for Engineering",
-    );
-    expect(row("Admins", groupsTable()).queryByRole("button")).toBeNull();
+    expect(
+      row("Auditors", groupsTable()).getByRole("button", { name: /^Edit permissions/ }),
+    ).toHaveTextContent("Edit permissions for Auditors");
+    expect(
+      row("Engineering", groupsTable()).getByRole("button", { name: /^Edit permissions/ }),
+    ).toHaveTextContent("Edit permissions for Engineering");
+    expect(
+      row("Admins", groupsTable()).queryByRole("button", { name: /^Edit permissions/ }),
+    ).toBeNull();
     expect(columns()).toEqual(["Group", "Members", "Permissions", "Actions"]);
   });
 
@@ -731,7 +922,9 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     await renderAccounts({ [GROUPS]: threeGroups }, holding(EVERY_PERMISSION));
 
     expect(await screen.findByRole("rowheader", { name: "Auditors" })).toBeInTheDocument();
-    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(
+      within(groupsTable()).queryAllByRole("button", { name: /^Edit permissions/ }),
+    ).toHaveLength(0);
     expect(columns()).toEqual(["Group", "Members", "Permissions"]);
   });
 

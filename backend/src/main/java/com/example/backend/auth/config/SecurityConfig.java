@@ -25,6 +25,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -349,6 +351,14 @@ public class SecurityConfig {
                                 .hasAuthority(Permission.ACCOUNT_UNLOCK.value())
                         .requestMatchers(read("/api/admin/groups"), read("/api/admin/permissions"))
                                 .hasAuthority(Permission.GROUP_READ.value())
+                        // A Group's members are Users-projection data: both Permissions, so
+                        // group:read alone discloses a Group's size and never who is in it.
+                        .requestMatchers(read("/api/admin/groups/*/members"))
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAuthority(
+                                                Permission.GROUP_READ.value()),
+                                        AuthorityAuthorizationManager.hasAuthority(
+                                                Permission.USER_READ.value())))
                         .requestMatchers(read("/api/admin/audit-events"))
                                 .hasAuthority(Permission.AUDIT_READ.value())
                         .requestMatchers(read("/api/admin/connectors"))

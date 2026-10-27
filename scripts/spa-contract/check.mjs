@@ -130,11 +130,26 @@ function placeholder() {
 
 const ARGUMENTS = Array.from({ length: 8 }, placeholder);
 
+/**
+ * What a declaration's `permission` requires, as the list of names a session
+ * must hold every one of: one Permission (or `superuser`), or the names of an
+ * `{ allOf }` — `null` for anything else, an `allOf` naming nothing included.
+ */
+function requiredBy(permission) {
+  if (typeof permission === "string") return [permission];
+  const allOf = permission?.allOf;
+  return Array.isArray(allOf) &&
+    allOf.length > 0 &&
+    allOf.every((name) => typeof name === "string")
+    ? allOf
+    : null;
+}
+
 const isDeclaration = (value) =>
   value !== null &&
   typeof value === "object" &&
   typeof value.path === "function" &&
-  typeof value.permission === "string";
+  requiredBy(value.permission) !== null;
 
 /** Every exported request declaration in `spa`, with where it is and how it is sent. */
 function declarationsOf(spa) {
@@ -145,7 +160,7 @@ function declarationsOf(spa) {
       found.push({
         label: `${name} (${module})`,
         method: value.method ?? "GET",
-        permission: value.permission,
+        required: requiredBy(value.permission),
         value,
       });
     }
@@ -183,14 +198,25 @@ function describeSecurity(security) {
     .join(" or ");
 }
 
-/** The one Permission, or `superuser`, a session must hold for `security`; `null` for anything else. */
+/**
+ * The Permissions, or `superuser`, a session must hold every one of for
+ * `security` — the scopes of its one `sessionCookie` entry; `null` for
+ * anything else: alternatives, another scheme, or an entry naming none.
+ */
 function sessionRequirement(security) {
   if (security.length !== 1) return null;
   const [alternative] = security;
   const schemes = Object.keys(alternative);
   if (schemes.length !== 1 || schemes[0] !== "sessionCookie") return null;
   const scopes = alternative.sessionCookie;
-  return scopes.length === 1 ? scopes[0] : null;
+  return scopes.length > 0 ? scopes : null;
+}
+
+/** Whether two lists of names hold the same names, as many times each, in any order. */
+function sameNames(a, b) {
+  if (a === null || b === null || a.length !== b.length) return false;
+  const sorted = (names) => [...names].sort();
+  return sorted(a).every((name, index) => name === sorted(b)[index]);
 }
 
 /** A path the declaration `value` builds from stand-in arguments, or `null` when it builds none. */
@@ -223,7 +249,7 @@ function declarationMismatches(spa, doc) {
     ];
   }
   const findings = unevaluatedDeclarations(spa);
-  for (const { label, method, value, permission } of declarations) {
+  for (const { label, method, value, required } of declarations) {
     const path = pathOf(value);
     if (path === null) {
       findings.push(
@@ -240,9 +266,10 @@ function declarationMismatches(spa, doc) {
     }
     const operation = doc.paths[template][method.toLowerCase()];
     const security = operation.security ?? doc.security ?? [];
-    if (sessionRequirement(security) !== permission) {
+    if (!sameNames(required, sessionRequirement(security))) {
+      const requires = required.map((name) => `"${name}"`).join(" and ");
       findings.push(
-        `${label} requires "${permission}" for ${method} ${template}, but openapi.yaml requires ${describeSecurity(security)}`,
+        `${label} requires ${requires} for ${method} ${template}, but openapi.yaml requires ${describeSecurity(security)}`,
       );
     }
   }

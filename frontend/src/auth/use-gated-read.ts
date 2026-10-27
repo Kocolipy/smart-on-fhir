@@ -25,7 +25,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth-context-value";
 import type { DeclarationArgs, ReadDeclaration } from "./declarations";
 import { useStatusReporter, type StatusReporter } from "./page-status";
-import { holds } from "./permissions";
+import { holds, type ReadRequirement } from "./permissions";
 import { refusalMessage, useSessionRequest, type SessionResult } from "./use-session-request";
 
 export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> & {
@@ -181,7 +181,7 @@ function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T, true> {
 }
 
 export function useGatedRead<T, A extends readonly unknown[], N extends boolean = false>(
-  { absentOnNotFound, decode, path: pathOf, permission }: ReadDeclaration<T, A, N>,
+  { absentOnNotFound, decode, path: pathOf, permission }: ReadDeclaration<T, A, N, ReadRequirement>,
   options: GatedReadOptions<A>,
 ): GatedRead<T, N> {
   const { failureMessage, forbiddenAsFailure = false } = options;

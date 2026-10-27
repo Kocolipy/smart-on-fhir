@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.authorization.domain.Permission;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** One collection query: what it holds, what it refuses, and how it is narrowed. */
 class ScimQueryTests {
@@ -89,6 +93,96 @@ class ScimQueryTests {
         assertThat(both.types()).as("the original is untouched").isEqualTo(BOTH);
         assertThatThrownBy(() -> both.restrictedTo(Set.of()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * {@code externalId} is the calling connector's own alias, and a {@code $ref} or
+     * {@code meta.location} is built from the SCIM base URI it called: a query naming one of them
+     * anywhere in its filter means nothing without a connector to ask on behalf of.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "externalId eq \"hr-1\"",
+            "externalId pr",
+            "meta.location pr",
+            "groups.$ref eq \"https://scim.example/Groups/1\"",
+            "groups[$ref eq \"https://scim.example/Groups/1\"]",
+            "userName eq \"ada\" and not (externalId pr)",
+            "externalId pr and userName eq \"ada\"",
+            "userName eq \"ada\" or meta.location pr",
+            "meta.location pr or userName eq \"ada\""})
+    void a_filter_naming_a_connector_scoped_path_needs_a_connector(String filter) {
+        ScimQuery query = new ScimQuery(USERS, ScimFilterParser.parse(filter, USERS), null, null);
+
+        assertThat(query.needsConnector()).as(filter).isTrue();
+    }
+
+    /** A Group's members are referenced the same way a User's Groups are. */
+    @Test
+    void a_filter_naming_a_members_ref_needs_a_connector() {
+        Set<ScimResourceType> groups = Set.of(ScimResourceType.GROUP);
+        ScimQuery query = new ScimQuery(groups,
+                ScimFilterParser.parse("members[$ref pr]", groups), null, null);
+
+        assertThat(query.needsConnector()).isTrue();
+    }
+
+    /**
+     * A member's identity and display name are the directory's own: only the {@code $ref} beside
+     * them is built from the base URI, so a filter on the rest of the attribute needs no
+     * connector.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"members[value pr]", "members[display pr]", "members[type pr]"})
+    void a_filter_on_a_members_directory_owned_attributes_needs_no_connector(String filter) {
+        Set<ScimResourceType> groups = Set.of(ScimResourceType.GROUP);
+        ScimQuery query = new ScimQuery(groups,
+                ScimFilterParser.parse(filter, groups), ScimSort.of("displayName", null, groups),
+                null);
+
+        assertThat(query.needsConnector()).as(filter).isFalse();
+    }
+
+    @Test
+    void a_sort_by_a_connector_scoped_path_needs_a_connector() {
+        ScimQuery query = new ScimQuery(USERS, null, ScimSort.of("externalId", null, USERS), null);
+
+        assertThat(query.needsConnector()).isTrue();
+    }
+
+    /** The directory's own attributes read the same whoever asks. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "userName eq \"ada\"",
+            "groups.value eq \"00000000-0000-4000-8000-000000000001\"",
+            "emails[type eq \"work\" and value co \"@\"]",
+            "meta.lastModified gt \"2024-01-01T00:00:00Z\" or not (active eq true)",
+            "id pr and displayName pr"})
+    void a_filter_on_the_directorys_own_attributes_needs_no_connector(String filter) {
+        ScimQuery query = new ScimQuery(USERS, ScimFilterParser.parse(filter, USERS),
+                ScimSort.of("userName", null, USERS), null);
+
+        assertThat(query.needsConnector()).as(filter).isFalse();
+    }
+
+    @Test
+    void a_query_with_no_filter_and_the_default_order_needs_no_connector() {
+        assertThat(new ScimQuery(USERS, null, null, null).needsConnector()).isFalse();
+    }
+
+    /** A result's ids of one type are that type's hits alone, in the result's order. */
+    @Test
+    void a_results_ids_of_one_type_are_that_types_hits_in_order() {
+        UUID ada = UUID.fromString("00000000-0000-4000-8000-0000000000a1");
+        UUID nurses = UUID.fromString("00000000-0000-4000-8000-0000000000b1");
+        UUID bea = UUID.fromString("00000000-0000-4000-8000-0000000000a2");
+        ScimQuery.Result result = new ScimQuery.Result(3, List.of(
+                new ScimQuery.Hit(ScimResourceType.USER, ada),
+                new ScimQuery.Hit(ScimResourceType.GROUP, nurses),
+                new ScimQuery.Hit(ScimResourceType.USER, bea)));
+
+        assertThat(List.of(result.idsOf(ScimResourceType.USER), result.idsOf(ScimResourceType.GROUP)))
+                .containsExactly(List.of(ada, bea), List.of(nurses));
     }
 
     /** Each resource type's wire name, endpoint, schema and Permissions. */

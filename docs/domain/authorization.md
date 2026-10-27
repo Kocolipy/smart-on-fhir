@@ -70,11 +70,14 @@ declares nothing is refused. Four kinds of operation:
 - **Self-service** — authenticated, no Permission: the four baseline routes
   above. They act only on the session's own User and take no User id from the
   request, so there is no caller-supplied id to check ownership against.
-- **One Permission** — every other operation requires exactly one, declared on
-  its handler with method security and repeated by the chain as a backstop:
+- **Permissions** — every other operation requires one or more Permissions,
+  exactly one but for the Group member read, which requires two. Each is
+  declared on its handler with method security and repeated by the chain as a
+  backstop:
   `user:read` lists Users; `account:unlock` unlocks a locked User;
   `group:read` lists Groups with their Permissions and lists the Permissions a
-  Group may carry; `audit:read`
+  Group may carry; `group:read` and `user:read` together read a Group's direct
+  members, since who they are is Users-projection data (ADR 0015); `audit:read`
   lists audit events; `connector:read` lists connectors; `ops:read` reaches every
   actuator endpoint but health, on whichever port actuator is served.
   `patient:read` reads a Patient (`GET /api/patient/{id}`, [patient](patient.md)).
@@ -107,9 +110,9 @@ nothing declares, or a confined session. Generic on purpose: the response carrie
 route template) and one reason (`INSUFFICIENT_PERMISSIONS` /
 `insufficient-permissions`), never naming the Permission, a Group or the rule. The
 missing Permission, or the Superuser, is recoverable from the operation's
-declaration in the API document, since each requires exactly one. A missing or stale CSRF token is a
-`403` too, but it is not an authorization decision and is neither audited nor
-reasoned as one.
+declaration in the API document, which names every Permission it requires. A
+missing or stale CSRF token is a `403` too, but it is not an authorization
+decision and is neither audited nor reasoned as one.
 
 ## Group Permissions
 
@@ -209,7 +212,10 @@ holder of `group:read`, lists every Group with its Group Permissions, sorted by
 name (none for the Admin group); the SPA's Groups table shows them, and the Admin
 group as "Superuser". `GET /api/admin/permissions`, by the same holder, lists
 every delegatable Permission: what any Group could carry, and what the
-Superuser's editor offers. Both are reads.
+Superuser's editor offers. Both are reads. `GET /api/admin/groups/{id}/members`
+reads a Group's direct members a page at a time, and only a session holding
+`user:read` beside `group:read` may: `group:read` alone discloses how many members
+a Group has, never who ([administration](./administration.md)).
 
 **Development fixtures** — the shipped `authorization.yaml` seeds, with
 `APP_DEV_FIXTURES_ENABLED=true`, one Group per development access level, each

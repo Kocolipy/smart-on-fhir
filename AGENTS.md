@@ -77,9 +77,9 @@ The check holds the vocabulary the SPA mirrors by hand to
 the running service, so the SPA is held to the backend by transitivity. It
 covers two things: the closed sets the SPA decodes strictly (the Permissions,
 the token Permissions, the audit operations and the lock causes), each against
-its enums in the document; and the Permission, or `superuser`, every exported
-request declaration under `frontend/src/` names, against its operation's
-`security`. `VOCABULARIES` in `scripts/spa-contract/check.mjs` is the one list
+its enums in the document; and the Permission — or every Permission, for a
+declaration requiring several — or `superuser`, every exported request
+declaration under `frontend/src/` names, against its operation's `security`. `VOCABULARIES` in `scripts/spa-contract/check.mjs` is the one list
 of which set is held to which schema; a new closed set joins it there.
 
 A value either side gains or loses fails the check, naming the mismatch. It

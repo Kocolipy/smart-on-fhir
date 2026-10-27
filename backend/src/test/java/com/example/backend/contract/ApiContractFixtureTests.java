@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -152,6 +153,9 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     @AfterEach
     void removeWhatThisFixtureCreated() {
         for (UUID id : created) {
+            // No membership may still name a resource being deleted: neither side's key cascades
+            // (ADR 0013).
+            jdbc.update("DELETE FROM scim_group_members WHERE group_id = ? OR user_id = ?", id, id);
             jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
         }
         created.clear();
@@ -403,6 +407,23 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.csrf(t.post("/api/admin/accounts/not-a-uuid/unlock")).cookie(admin), 400);
             t.expect(t.csrf(t.post("/api/admin/accounts/" + UUID.randomUUID() + "/unlock"))
                     .cookie(admin), 404);
+        });
+        add(all, "group members: a page of the members, and every documented refusal", t -> {
+            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+            String member = t.provision(true);
+            Cookie user = t.settle(t.provision(true));
+            UUID group = t.group(t.userId(member));
+            String path = "/api/admin/groups/%s/members";
+            JsonNode page = json(t.expect(t.get(path.formatted(group)).cookie(admin), 200));
+            assertThat(List.of(page.get("totalResults").asInt(),
+                            page.get("members").get(0).get("userName").asText()))
+                    .containsExactly(1, member);
+            t.expect(t.get(path.formatted(group) + "?startIndex=2&count=1").cookie(admin), 200);
+            t.expect(t.get(path.formatted("not-a-uuid")).cookie(admin), 400);
+            t.expect(t.get(path.formatted(group) + "?count=many").cookie(admin), 400);
+            t.expect(t.get(path.formatted(group)), 401);
+            t.expect(t.get(path.formatted(group)).cookie(user), 403);
+            t.expect(t.get(path.formatted(UUID.randomUUID())).cookie(admin), 404);
         });
         add(all, "group permissions: every documented outcome", t -> {
             Cookie superuser = t.logIn(ADMIN, ADMIN_PASSWORD);
@@ -680,15 +701,21 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         return userName;
     }
 
-    /** A fresh Group over SCIM, carrying nothing and with no members; removed after the fixture. */
-    UUID group() throws Exception {
+    /**
+     * A fresh Group over SCIM, carrying nothing, with these Users as its direct members; removed
+     * after the fixture.
+     */
+    UUID group(UUID... members) throws Exception {
         String displayName = "api-" + HexFormat.of().toHexDigits(
                 ThreadLocalRandom.current().nextInt());
+        String memberList = Stream.of(members)
+                .map(member -> "{\"value\":\"%s\"}".formatted(member))
+                .collect(Collectors.joining(","));
         MvcResult result = expect(call(HttpMethod.POST, "/scim/v2/Groups")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
                 .contentType(MediaType.valueOf("application/scim+json"))
-                .content("{\"schemas\":[\"%s\"],\"displayName\":\"%s\"}"
-                        .formatted(GROUP_SCHEMA, displayName)), 201);
+                .content("{\"schemas\":[\"%s\"],\"displayName\":\"%s\",\"members\":[%s]}"
+                        .formatted(GROUP_SCHEMA, displayName, memberList)), 201);
         UUID id = UUID.fromString(json(result).get("id").asText());
         created.add(id);
         return id;

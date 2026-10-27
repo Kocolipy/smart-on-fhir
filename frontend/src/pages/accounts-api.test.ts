@@ -9,6 +9,7 @@ import {
   CREATE_CONNECTOR,
   DELEGATABLE_PERMISSIONS,
   DELETE_CONNECTOR,
+  GROUP_MEMBERS,
   GROUPS,
   ISSUE_TOKEN,
   REVOKE_TOKEN,
@@ -18,6 +19,7 @@ import {
   USERS,
   decodeConnector,
   decodeConnectors,
+  decodeGroupMemberPage,
   decodeGroupRow,
   decodeGroupRows,
   decodeIssuedToken,
@@ -53,6 +55,19 @@ const GROUP_ROW = {
   memberCount: 2,
   adminGroup: false,
   permissions: ["audit:read", "user:read"],
+};
+
+const GROUP_MEMBER = {
+  id: "u-2",
+  userName: "hopper",
+  displayName: "Grace Hopper",
+  active: false,
+};
+
+const GROUP_MEMBER_PAGE = {
+  totalResults: 41,
+  startIndex: 21,
+  members: [GROUP_MEMBER],
 };
 
 const CONNECTOR_TOKEN = {
@@ -165,6 +180,12 @@ describeDecoder("GroupRow", decodeGroupRow, GROUP_ROW, {
   permissions: [null, "an array"],
 });
 
+describeDecoder("GroupMemberPage", decodeGroupMemberPage, GROUP_MEMBER_PAGE, {
+  totalResults: ["41", "an integer"],
+  startIndex: [1.5, "an integer"],
+  members: [GROUP_MEMBER, "an array"],
+});
+
 describeDecoder("Connector", decodeConnector, CONNECTOR, {
   id: STRING,
   displayName: STRING,
@@ -191,6 +212,18 @@ describeDecoder(
   {
     id: STRING,
     displayName: [null, "a string"],
+  },
+);
+
+describeDecoder(
+  "GroupMember",
+  (value) => decodeGroupMemberPage({ ...GROUP_MEMBER_PAGE, members: [value] }).members[0],
+  GROUP_MEMBER,
+  {
+    id: STRING,
+    userName: [null, "a string"],
+    displayName: [3, "a string"],
+    active: BOOLEAN,
   },
 );
 
@@ -402,6 +435,30 @@ describe("a Group's Permissions", () => {
   it("reads its answer as the Group's new row", async () => {
     await expect(decodedBy(SET_GROUP_PERMISSIONS.decode, GROUP_ROW)).resolves.toStrictEqual(
       GROUP_ROW,
+    );
+  });
+});
+
+describe("a Group's members", () => {
+  it("reads a page of them at the Group's own path, from startIndex, a page of twenty", () => {
+    expect([GROUP_MEMBERS.path("g-1", 1), GROUP_MEMBERS.path("a/b?c", 21)]).toEqual([
+      "/api/admin/groups/g-1/members?startIndex=1&count=20",
+      "/api/admin/groups/a%2Fb%3Fc/members?startIndex=21&count=20",
+    ]);
+  });
+
+  it("requires group:read and user:read together", () => {
+    expect(GROUP_MEMBERS.permission).toEqual({ allOf: ["group:read", "user:read"] });
+  });
+
+  it("reads its answer as a page of members, a member with no display name included", async () => {
+    const page = { ...GROUP_MEMBER_PAGE, members: [{ ...GROUP_MEMBER, displayName: null }] };
+    await expect(decodedBy(GROUP_MEMBERS.decode, page)).resolves.toStrictEqual(page);
+  });
+
+  it("refuses an answer that is a listing of Users rather than a page", async () => {
+    await expect(decodedBy(GROUP_MEMBERS.decode, [USER_ROW])).rejects.toThrow(
+      new DecodeError("GroupMemberPage is not an object"),
     );
   });
 });

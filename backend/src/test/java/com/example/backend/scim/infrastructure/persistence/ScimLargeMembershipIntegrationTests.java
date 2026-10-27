@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -142,6 +143,22 @@ class ScimLargeMembershipIntegrationTests {
                         .filter(group -> groupIds.contains(group.id()))
                         .filter(group -> group.hasMember(user)))
                 .hasSize(MANY);
+    }
+
+    /**
+     * The Groups projection counts a Group's members where they are stored, so a Group with more
+     * members than one request binds is counted exactly, without its members being read.
+     */
+    @Test
+    void theCountedListingCountsAGroupWithMoreMembersThanOneRequestBinds() {
+        UUID group = seededGroupOf(seededUsers(MANY));
+
+        List<ScimGroupHeadcount> listed =
+                inTransaction(groups::findAllHeadcountsOrderedByNormalizedDisplayName);
+
+        assertThat(listed).filteredOn(counted -> counted.id().equals(group))
+                .extracting(ScimGroupHeadcount::memberCount)
+                .containsExactly(MANY);
     }
 
     // ---- helpers --------------------------------------------------------------------------

@@ -29,10 +29,12 @@ info:
     `connectorBearer: [<permission>]` names the one Permission a token needs, and
     `connectorBearer: []` a valid token alone; `sessionCookie: []` is
     self-service — any signed-in session with baseline access, no Permission;
-    `sessionCookie: [<permission>]` names the one Permission the operation
+    `sessionCookie: [<permission>]` names the Permission the operation
     requires, from the Permissions a session may hold: `user:read`,
     `account:unlock`, `group:read`, `audit:read`, `connector:read`, `ops:read`,
     `patient:read` (`user:write` and `group:write` are a connector token's alone);
+    an operation naming two in that one entry requires both, as reading a
+    Group's members requires `group:read` and `user:read`;
     `sessionCookie: [superuser]` names the Superuser instead, which is not a
     Permission: connector creation and deletion, every token operation and
     setting a Group's Permissions require it (ADR 0015). A session's Permissions are
@@ -1007,6 +1009,62 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
+  /api/admin/groups/{id}/members:
+    get:
+      tags: [Administration]
+      summary: Read a page of a Group's direct members
+      description: |
+        The Groups projection's member read: one page of the Group's direct
+        members, each as the Users projection identifies it — its stable `id`,
+        `userName`, `displayName` and `active` — plus `totalResults`, how many
+        direct members the Group has in all. Ordered as the Users projection is,
+        by normalized `userName`. A member row has no field for a credential or
+        any other login state.
+
+        Paged as a SCIM collection is: `startIndex` is one-based and defaults to
+        1, anything below 1 being read as 1; `count` defaults to 100 and is
+        capped at 200, a negative value being read as 0, which reports
+        `totalResults` with no members.
+
+        Requires **both** `group:read` and `user:read`: member identities are
+        Users-projection data, so `group:read` alone discloses only each Group's
+        `memberCount` (ADR 0015). A caller lacking either is refused with 403, by
+        the handler's own declaration and by the application chain's matching
+        rule.
+      operationId: listGroupMembers
+      security:
+        - sessionCookie: [group:read, user:read]
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
+      responses:
+        "200":
+          description: The page, and the Group's direct member count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberPage"
+        "400":
+          description: |
+            The path's id is not a UUID, or `startIndex` or `count` is not an
+            integer. The generic `invalid-request` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
+        "404":
+          description: |
+            No Group has that id: it never existed, or a connector deleted it. The
+            generic `request-refused` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/admin/groups/{id}/permissions:
     put:
       tags: [Administration]
@@ -3735,6 +3793,46 @@ components:
             Admin group, which carries none: the Superuser is not a Permission.
           items:
             $ref: "#/components/schemas/DelegatablePermission"
+    GroupMemberPage:
+      type: object
+      description: |
+        One page of a Group's direct members, in normalized `userName` order.
+      required: [totalResults, startIndex, members]
+      properties:
+        totalResults:
+          type: integer
+          minimum: 0
+          description: How many direct members the Group has, whatever the page.
+        startIndex:
+          type: integer
+          minimum: 1
+          description: The one-based position of the page's first member.
+        members:
+          type: array
+          description: |
+            The page's members, in order. Empty past the last member and for a
+            Group with none.
+          items:
+            $ref: "#/components/schemas/GroupMember"
+    GroupMember:
+      type: object
+      description: |
+        A direct member as the Users projection identifies it, and nothing
+        more: there is no field a credential could be written into.
+      required: [id, userName, displayName, active]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        displayName:
+          type: [string, "null"]
+          description: The directory's display name, or null when it sets none.
+        active:
+          type: boolean
+          description: The directory's `active` attribute.
     DelegatablePermission:
       type: string
       description: |

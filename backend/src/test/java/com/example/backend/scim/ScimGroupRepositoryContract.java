@@ -7,6 +7,7 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
@@ -306,6 +307,64 @@ public abstract class ScimGroupRepositoryContract {
         ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
 
         assertThat(groups().findAllOrderedByNormalizedDisplayName()).contains(group);
+    }
+
+    /**
+     * The Groups projection's listing: each Group's name, reservation and how many direct members
+     * it has, counted rather than read, in normalized {@code displayName} order.
+     */
+    @Test
+    void every_group_is_listed_with_its_direct_member_count_in_normalized_display_name_order() {
+        String suffix = UUID.randomUUID().toString();
+        ScimUser ada = users().create(ScimIdentities.user("ada-" + suffix));
+        ScimUser bea = users().create(ScimIdentities.user("bea-" + suffix));
+        ScimUser cy = users().create(ScimIdentities.user("cy-" + suffix));
+        ScimGroup second = groups().create(ScimIdentities.group("b-" + suffix, ada, bea, cy));
+        ScimGroup first = groups().create(ScimIdentities.group("A-" + suffix, bea));
+        ScimGroup empty = groups().create(ScimIdentities.group("c-" + suffix));
+        Set<UUID> mine = Set.of(first.id(), second.id(), empty.id());
+
+        List<ScimGroupHeadcount> listed =
+                groups().findAllHeadcountsOrderedByNormalizedDisplayName().stream()
+                        .filter(group -> mine.contains(group.id()))
+                        .toList();
+
+        assertThat(listed).containsExactly(
+                new ScimGroupHeadcount(first.id(), "A-" + suffix, null, 1),
+                new ScimGroupHeadcount(second.id(), "b-" + suffix, null, 3),
+                new ScimGroupHeadcount(empty.id(), "c-" + suffix, null, 0));
+    }
+
+    /** The Admin group is told apart by its reservation, in the listing as anywhere. */
+    @Test
+    void the_counted_listing_carries_the_reservation() {
+        releaseTheAdminGroupReservation();
+        ScimGroup reserved = groups().createReserved(
+                ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
+
+        assertThat(groups().findAllHeadcountsOrderedByNormalizedDisplayName())
+                .filteredOn(group -> group.id().equals(reserved.id()))
+                .extracting(ScimGroupHeadcount::reservedName)
+                .containsExactly(ReservedResourceName.ADMIN_GROUP);
+    }
+
+    @Test
+    void a_stored_group_exists_and_an_id_naming_no_group_does_not() {
+        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+
+        assertThat(List.of(groups().existsById(group.id()), groups().existsById(user.id()),
+                        groups().existsById(UUID.randomUUID())))
+                .containsExactly(true, false, false);
+    }
+
+    @Test
+    void a_deleted_group_no_longer_exists() {
+        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+
+        groups().deleteById(group.id(), WRITTEN_AT);
+
+        assertThat(groups().existsById(group.id())).isFalse();
     }
 
     // ---- replace -------------------------------------------------------------------------------

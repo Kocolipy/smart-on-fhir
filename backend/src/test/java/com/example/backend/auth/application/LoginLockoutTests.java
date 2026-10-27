@@ -21,6 +21,7 @@ import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
@@ -119,7 +120,8 @@ class LoginLockoutTests {
                 groups,
                 loginState,
                 audit,
-                InMemoryGroupPermissions.over(groups));
+                InMemoryGroupPermissions.over(groups),
+                new InMemoryScimQueryRepository(users, groups));
     }
 
     @Test

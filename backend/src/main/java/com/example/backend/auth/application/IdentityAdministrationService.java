@@ -12,13 +12,19 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
+import com.example.backend.scim.domain.AdministrativeQueryRepository;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimQuery;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.ArrayList;
@@ -26,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -69,18 +76,21 @@ public class IdentityAdministrationService {
     private final LoginStateService loginState;
     private final AuditTrail audit;
     private final GroupPermissions groupPermissions;
+    private final AdministrativeQueryRepository queries;
 
     public IdentityAdministrationService(
             ScimUserRepository users,
             ScimGroupRepository groups,
             LoginStateService loginState,
             AuditTrail audit,
-            GroupPermissions groupPermissions) {
+            GroupPermissions groupPermissions,
+            AdministrativeQueryRepository queries) {
         this.users = users;
         this.groups = groups;
         this.loginState = loginState;
         this.audit = audit;
         this.groupPermissions = groupPermissions;
+        this.queries = queries;
     }
 
     /**
@@ -119,16 +129,44 @@ public class IdentityAdministrationService {
      * Every Group, for the read-only Groups projection: its name, how many direct members it has,
      * whether it is the protected Admin group — decided by the reservation marker, so a Group a
      * connector names "Admins" is not reported as one — and the Permissions it carries, sorted by
-     * name. One read for every Group's Permissions, not one per Group.
+     * name. The members are counted where they are stored, never read to be counted; one read for
+     * every Group's Permissions, not one per Group.
      */
     @Transactional(readOnly = true)
     public List<GroupSummary> listGroups() {
-        List<ScimGroup> all = groups.findAllOrderedByNormalizedDisplayName();
+        List<ScimGroupHeadcount> all = groups.findAllHeadcountsOrderedByNormalizedDisplayName();
         Map<UUID, Set<Permission>> carried =
-                groupPermissions.carriedBy(all.stream().map(ScimGroup::id).toList());
+                groupPermissions.carriedBy(all.stream().map(ScimGroupHeadcount::id).toList());
         return all.stream()
                 .map(group -> GroupSummary.of(group, carried.getOrDefault(group.id(), Set.of())))
                 .toList();
+    }
+
+    /**
+     * One page of a Group's direct members, for the Groups projection's member read: the
+     * directory's collection query, asked without a connector — the Users who are direct members
+     * of the Group, in the Users' default order (normalized {@code userName}), paged and totalled
+     * as SCIM pages and totals them — and the page's Users loaded in one read. Two statements for
+     * the query and one for the page, however many members there are; never one per member.
+     *
+     * <p>Empty when no live Group has the id — it never existed, a connector deleted it, or it is
+     * a User's. A Group with no members is a page of none with a total of zero.
+     *
+     * <p>A member's row is {@link GroupMemberPage.Member}, which has no field a credential could go
+     * in. Nothing is written, logged or audited: this is a read.
+     */
+    @Transactional(readOnly = true)
+    public Optional<GroupMemberPage> groupMembers(UUID groupId, ScimPageRequest page) {
+        if (!groups.existsById(groupId)) {
+            return Optional.empty();
+        }
+        ScimQuery.Result result = queries.query(new ScimQuery(
+                Set.of(ScimResourceType.USER), ScimFilter.directMemberOf(groupId), null, page));
+        List<GroupMemberPage.Member> members =
+                users.findAllById(result.idsOf(ScimResourceType.USER)).stream()
+                        .map(GroupMemberPage.Member::of)
+                        .toList();
+        return Optional.of(new GroupMemberPage(result.totalResults(), page.startIndex(), members));
     }
 
     /**

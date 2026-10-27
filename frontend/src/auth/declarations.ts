@@ -20,7 +20,7 @@
 import type { ApiDecoder } from "@/lib/http";
 
 import type { Permission } from "./api";
-import type { Requirement } from "./permissions";
+import type { ReadRequirement, Requirement } from "./permissions";
 
 /** How a hook is handed a declaration's arguments: omitted for an endpoint that takes none. */
 export type DeclarationArgs<A extends readonly unknown[]> = A extends readonly []
@@ -35,10 +35,18 @@ export type DeclarationArgs<A extends readonly unknown[]> = A extends readonly [
  * with `absentOnNotFound: true`, which makes {@link useGatedRead} show the
  * `404` as `absent`; a declaration that leaves it out reads a `404` as
  * `failed`, and its pages never have an `absent` view to handle.
+ *
+ * `P` is what the read requires: one Permission, as nearly every read does, or
+ * every one of several (`{ allOf }`).
  */
-export interface ReadDeclaration<T, A extends readonly unknown[] = [], N extends boolean = false> {
-  /** The Permission the backend requires; without it the read is never sent. */
-  readonly permission: Permission;
+export interface ReadDeclaration<
+  T,
+  A extends readonly unknown[] = [],
+  N extends boolean = false,
+  P extends ReadRequirement = Permission,
+> {
+  /** What the backend requires; without it the read is never sent. */
+  readonly permission: P;
   readonly path: (...args: A) => string;
   readonly decode: ApiDecoder<T>;
   /** A `404` means nothing is there, shown as `absent`, rather than a failure. */

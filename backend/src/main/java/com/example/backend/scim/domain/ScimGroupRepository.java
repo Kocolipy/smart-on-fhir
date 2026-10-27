@@ -138,6 +138,20 @@ public interface ScimGroupRepository {
     List<ScimGroup> findAllOrderedByNormalizedDisplayName();
 
     /**
+     * Every live Group with its direct member count, ordered by normalized {@code displayName}.
+     *
+     * <p>For the Groups projection, which shows how big each Group is and not who is in it: the
+     * memberships are counted where they are stored, never read to be counted.
+     */
+    List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName();
+
+    /**
+     * Whether a live Group has this id — {@code false} for an id of a User — without reading its
+     * membership.
+     */
+    boolean existsById(UUID id);
+
+    /**
      * The Groups this User is a direct member of, for the read-only reverse view on User.
      *
      * <p>Returns references rather than Groups: rendering a User's {@code groups} needs the

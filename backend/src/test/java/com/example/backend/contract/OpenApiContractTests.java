@@ -63,7 +63,25 @@ class OpenApiContractTests {
                 .satisfies(operation -> {
                     assertThat(operation.requirement().access())
                             .isEqualTo(OpenApiContract.Access.PERMISSION);
-                    assertThat(operation.requirement().permission()).isEqualTo("connector:read");
+                    assertThat(operation.requirement().allOf()).containsExactly("connector:read");
+                });
+    }
+
+    /**
+     * Two Permissions in the one {@code sessionCookie} entry are both required — not either: the
+     * member read needs the Groups projection's Permission and the Users projection's.
+     */
+    @Test
+    void a_session_requirement_naming_two_permissions_is_read_as_requiring_both() {
+        assertThat(CONTRACT.operations())
+                .filteredOn(operation -> operation.toString()
+                        .equals("GET /api/admin/groups/{id}/members"))
+                .singleElement()
+                .satisfies(operation -> {
+                    assertThat(operation.requirement().access())
+                            .isEqualTo(OpenApiContract.Access.PERMISSION);
+                    assertThat(operation.requirement().allOf())
+                            .containsExactly("group:read", "user:read");
                 });
     }
 

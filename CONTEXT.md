@@ -233,8 +233,8 @@ or `group:write`, a Superuser's included.
 
 **Deny by default**:
 The rule that every operation of the application chain declares what it needs —
-public, self-service, one Permission or the Superuser — and whatever declares
-nothing is refused.
+public, self-service, one or more Permissions or the Superuser — and whatever
+declares nothing is refused.
 
 **Token Permissions**:
 The Permissions a connector token carries: only Token-grantable Permissions, from
@@ -524,7 +524,13 @@ What administration may know about each User — never a credential.
 
 **Groups projection**:
 What administration may know about each Group: its name, member count, whether
-it is the Admin group, and its Group Permissions.
+it is the Admin group, and its Group Permissions. Who its members are is the
+Group member read's, not the projection's.
+
+**Group member read**:
+A page of one Group's direct members (`GET /api/admin/groups/{id}/members`),
+each as the Users projection identifies it — never a credential — read on
+expanding the Group's row. Requires both `group:read` and `user:read`.
 
 **Permissions listing**:
 The read of every Delegatable Permission (`GET /api/admin/permissions`), for a

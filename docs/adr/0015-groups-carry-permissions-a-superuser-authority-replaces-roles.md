@@ -6,7 +6,7 @@ Date: 2026-10-20
 
 Accepted, and in force. It wholly replaces ADR 0010 (fine-grained Permissions
 granted through a configured role mapping), whose file is removed; what survives
-of it is stated below as part of this decision. Last revised 2026-10-22. History
+of it is stated below as part of this decision. Last revised 2026-10-27. History
 is in git.
 
 ## Context
@@ -99,6 +99,20 @@ Each is declared like a Permission so the authorization contract covers it:
 `@PreAuthorize("hasRole('SUPERUSER')")` on the handler, a backstop rule in the
 chain, and `sessionCookie: [superuser]` in the API document, proved by
 `AuthorizationContractTests`. There is no step-up for them.
+
+### A Permission discloses its own projection, and no more
+
+Each read Permission discloses the projection it names. `group:read` reads the
+Groups projection — each Group's name, member count, Admin-group marker and
+Permissions — and `user:read` the Users projection. Who a Group's members are is
+Users-projection data, so the Group member read (`GET
+/api/admin/groups/{id}/members`) requires **both**, and a holder of `group:read`
+alone learns how many members a Group has and never who they are. An operation
+that discloses what two Permissions guard requires both: declared on the handler
+as `hasAuthority('group:read') and hasAuthority('user:read')`, repeated by the
+chain, and named together in the one `sessionCookie` entry of its `security`.
+`AuthorizationContractTests` proves each named Permission required and the set
+sufficient. No other operation requires more than one.
 
 ### Method security is the authority, and the chain is the backstop
 

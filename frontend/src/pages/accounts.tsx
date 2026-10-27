@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
@@ -10,10 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { formatInstant } from "@/lib/time";
 
 import {
+  GROUP_MEMBERS,
+  GROUP_MEMBERS_PAGE_SIZE,
   GROUPS,
   SET_GROUP_PERMISSIONS,
   UNLOCK_USER,
   USERS,
+  type GroupMember,
+  type GroupMemberPage,
   type GroupRow,
   type UserRow,
 } from "./accounts-api";
@@ -219,60 +223,195 @@ function confersOf(group: GroupRow): string {
  */
 const offersPermissionEdit = (group: GroupRow): boolean => !group.adminGroup;
 
+/** One member as its line in an expanded Group shows it. */
+function MemberItem({ member }: { member: GroupMember }) {
+  return (
+    <li className="py-1">
+      <span className="font-medium">{member.userName}</span>
+      {member.displayName ? (
+        <span className="ml-2 text-muted-foreground">{member.displayName}</span>
+      ) : null}
+      {member.active ? null : <span className="ml-2 font-medium text-destructive">Inactive</span>}
+    </li>
+  );
+}
+
+/** A page's members: the read's data, as the listing body counts rows. */
+const membersOf = (page: GroupMemberPage) => page.members;
+
+/**
+ * Where the page shown sits among the Group's members, and the moves that
+ * remain: back while it is not the first page, on while members lie past it.
+ */
+function MembersPager({
+  onMove,
+  page,
+}: {
+  onMove: (startIndex: number) => void;
+  page: GroupMemberPage;
+}) {
+  const last = page.startIndex + page.members.length - 1;
+  return (
+    <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+      <span>
+        Members {page.startIndex}–{last} of {page.totalResults}
+      </span>
+      {page.startIndex > 1 ? (
+        <Button
+          onClick={() => onMove(Math.max(1, page.startIndex - GROUP_MEMBERS_PAGE_SIZE))}
+          size="sm"
+          variant="outline"
+        >
+          Previous
+        </Button>
+      ) : null}
+      {last < page.totalResults ? (
+        <Button onClick={() => onMove(last + 1)} size="sm" variant="outline">
+          Next
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * An expanded Group's direct members, read a page at a time — only while the
+ * row is expanded, so a Group nobody opens costs no request. A failed read is
+ * reported to the page's one error line, as the listings' are.
+ */
+function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
+  const [startIndex, setStartIndex] = useState(1);
+  const { view } = useGatedRead(GROUP_MEMBERS, {
+    args: [group.id, startIndex],
+    failureMessage: `Unable to load the members of ${group.displayName}. Please try again.`,
+  });
+  return (
+    <div aria-label={`Members of ${group.displayName}`} id={id} role="region">
+      <ListingBody
+        empty={`${group.displayName} has no members.`}
+        loading="Loading members…"
+        rows={membersOf}
+        staleRows="hide"
+        view={view}
+      >
+        {(members) => (
+          <ul className="text-sm">
+            {members.map((member) => (
+              <MemberItem key={member.id} member={member} />
+            ))}
+          </ul>
+        )}
+      </ListingBody>
+      {view.kind === "ready" && view.data.members.length > 0 ? (
+        <MembersPager onMove={setStartIndex} page={view.data} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One Group's row. For a session that may read who a Group's members are,
+ * its member count is a disclosure: expanding it shows the members, in a row
+ * of their own beneath. Any other session sees the count alone.
+ */
+function GroupRowView({
+  columns,
+  group,
+  mayReadMembers,
+  onEdit,
+  pending,
+}: {
+  columns: number;
+  group: GroupRow;
+  mayReadMembers: boolean;
+  onEdit: ((group: GroupRow) => void) | null;
+  pending: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
+  return (
+    <>
+      <tr className="border-b last:border-0">
+        <th className="py-3 pr-4 font-medium" scope="row">
+          {group.displayName}
+        </th>
+        <td className="py-3 pr-4 text-muted-foreground">
+          {mayReadMembers ? (
+            <Button
+              aria-controls={panelId}
+              aria-expanded={expanded}
+              aria-label={`Members of ${group.displayName}`}
+              onClick={() => setExpanded((open) => !open)}
+              size="sm"
+              variant="ghost"
+            >
+              {group.memberCount}
+            </Button>
+          ) : (
+            group.memberCount
+          )}
+        </td>
+        <td className="py-3 pr-4 text-muted-foreground">{confersOf(group)}</td>
+        {onEdit === null ? null : (
+          <td className="py-3">
+            {offersPermissionEdit(group) ? (
+              <Button disabled={pending} onClick={() => onEdit(group)} size="sm" variant="outline">
+                Edit permissions for {group.displayName}
+              </Button>
+            ) : null}
+          </td>
+        )}
+      </tr>
+      {expanded ? (
+        <tr className="border-b last:border-0">
+          <td className="pb-3" colSpan={columns}>
+            <GroupMembers group={group} id={panelId} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+/** The Groups table's columns; a Superuser's session adds "Actions". */
+const GROUP_COLUMNS = ["Group", "Members", "Permissions"];
+
 function GroupsTable({
   groups,
+  mayReadMembers,
   onEdit,
   pending,
 }: {
   groups: readonly GroupRow[];
+  /** Whether the session may read who a Group's members are: `group:read` and `user:read`. */
+  mayReadMembers: boolean;
   /** `null` when the session is not the Superuser's, which alone sets Group Permissions. */
   onEdit: ((group: GroupRow) => void) | null;
   pending: boolean;
 }) {
+  const columns = onEdit === null ? GROUP_COLUMNS : [...GROUP_COLUMNS, "Actions"];
   return (
     <table className="w-full border-collapse text-left text-sm">
       <caption className="sr-only">Groups</caption>
       <thead>
         <tr className="border-b text-muted-foreground">
-          <th className="py-2 pr-4 font-medium" scope="col">
-            Group
-          </th>
-          <th className="py-2 pr-4 font-medium" scope="col">
-            Members
-          </th>
-          <th className="py-2 pr-4 font-medium" scope="col">
-            Permissions
-          </th>
-          {onEdit === null ? null : (
-            <th className="py-2 font-medium" scope="col">
-              Actions
+          {columns.map((heading) => (
+            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+              {heading}
             </th>
-          )}
+          ))}
         </tr>
       </thead>
       <tbody>
         {groups.map((group) => (
-          <tr className="border-b last:border-0" key={group.id}>
-            <th className="py-3 pr-4 font-medium" scope="row">
-              {group.displayName}
-            </th>
-            <td className="py-3 pr-4 text-muted-foreground">{group.memberCount}</td>
-            <td className="py-3 pr-4 text-muted-foreground">{confersOf(group)}</td>
-            {onEdit === null ? null : (
-              <td className="py-3">
-                {offersPermissionEdit(group) ? (
-                  <Button
-                    disabled={pending}
-                    onClick={() => onEdit(group)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Edit permissions for {group.displayName}
-                  </Button>
-                ) : null}
-              </td>
-            )}
-          </tr>
+          <GroupRowView
+            columns={columns.length}
+            group={group}
+            key={group.id}
+            mayReadMembers={mayReadMembers}
+            onEdit={onEdit}
+            pending={pending}
+          />
         ))}
       </tbody>
     </table>
@@ -396,7 +535,9 @@ function useDirectory() {
  *
  * Each view is shown only to a session holding the Permission its listing
  * requires — Users `user:read`, Groups `group:read`, Connectors
- * `connector:read` — and Unlock only with `account:unlock`.
+ * `connector:read` — and Unlock only with `account:unlock`. A Group's members
+ * are offered only to a session holding both `group:read` and `user:read`:
+ * who they are is Users-projection data, so `group:read` alone shows the count.
  * The route guard keeps out a User who may see none of them. All of that is a
  * rendering decision and never the authorization: the backend enforces every
  * operation on its own.
@@ -413,6 +554,7 @@ export function Accounts() {
     ? (target) => void runUnlock(target)
     : null;
   const onEdit = holds(user, SET_GROUP_PERMISSIONS.permission) ? setEditing : null;
+  const mayReadMembers = holds(user, GROUP_MEMBERS.permission);
 
   return (
     <div className="flex flex-col gap-6">
@@ -433,7 +575,14 @@ export function Accounts() {
         title="Groups"
         view={groups.view}
       >
-        {(rows) => <GroupsTable groups={rows} onEdit={onEdit} pending={pending} />}
+        {(rows) => (
+          <GroupsTable
+            groups={rows}
+            mayReadMembers={mayReadMembers}
+            onEdit={onEdit}
+            pending={pending}
+          />
+        )}
       </ProjectionCard>
 
       {editing === null ? null : (

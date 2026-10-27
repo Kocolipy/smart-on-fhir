@@ -22,6 +22,30 @@ describe("holds", () => {
   });
 });
 
+describe("holds every one of several Permissions", () => {
+  const BOTH = { allOf: ["group:read", "user:read"] } as const;
+
+  it("is true only for a session holding every one of them", () => {
+    expect([
+      holds({ permissions: ["group:read", "user:read", "audit:read"] }, BOTH),
+      holds({ permissions: ["group:read"] }, BOTH),
+      holds({ permissions: ["user:read"] }, BOTH),
+    ]).toEqual([true, false, false]);
+  });
+
+  it("is not met by the Superuser's standing alone, nor by no session", () => {
+    expect([
+      holds({ permissions: [], superuser: true }, BOTH),
+      holds(null, BOTH),
+      holds({}, BOTH),
+    ]).toEqual([false, false, false]);
+  });
+
+  it("is never met by naming nothing", () => {
+    expect(holds({ permissions: ["group:read"] }, { allOf: [] })).toBe(false);
+  });
+});
+
 describe("holds the Superuser", () => {
   it("is true only for a session the backend reported as a Superuser's", () => {
     expect(holds({ permissions: [], superuser: true }, SUPERUSER)).toBe(true);
