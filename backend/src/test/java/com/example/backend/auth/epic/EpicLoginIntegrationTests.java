@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.application.EpicLoginLogFields;
@@ -44,7 +45,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.DataType;
@@ -134,9 +134,6 @@ class EpicLoginIntegrationTests {
 
     @Autowired
     private RedisConnectionFactory redis;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     /** Every wait before a D26 JWKS refetch, in order, since the test began. */
     private static final List<Duration> PAUSES = Collections.synchronizedList(new ArrayList<>());
@@ -999,7 +996,7 @@ class EpicLoginIntegrationTests {
     }
 
     private Cookie issuedCookie(MvcResult result) {
-        Cookie issued = result.getResponse().getCookie(sessionCookieName);
+        Cookie issued = result.getResponse().getCookie(SessionCookie.NAME);
         assertThat(issued).as("a session cookie was issued").isNotNull();
         return new Cookie(issued.getName(), issued.getValue());
     }

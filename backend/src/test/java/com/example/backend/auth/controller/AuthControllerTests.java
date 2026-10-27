@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestGroupPermissions;
@@ -70,9 +71,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class AuthControllerTests {
 
-    /** Mirrors {@code server.servlet.session.cookie.name}. */
-    private static final String SESSION_COOKIE = "JSESSIONID";
-
     /** An idle bound no default produces, so a response carrying it read it off the session. */
     private static final int IDLE_TIMEOUT_SECONDS = 523;
 
@@ -128,7 +126,7 @@ class AuthControllerTests {
         AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
-        cookieSerializer.setCookieName(SESSION_COOKIE);
+        cookieSerializer.setCookieName(SessionCookie.NAME);
         SessionEnding sessionEnding = new SessionEnding(audit, cookieSerializer);
         Clock clock = Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC);
         accountSessions =
@@ -497,7 +495,7 @@ class AuthControllerTests {
                 .isTrue();
         assertThat(session.isInvalid()).isTrue();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        Cookie cleared = response.getCookie(SESSION_COOKIE);
+        Cookie cleared = response.getCookie(SessionCookie.NAME);
         assertThat(cleared).isNotNull();
         assertThat(cleared.getValue()).isEmpty();
         assertThat(cleared.getMaxAge()).isZero();

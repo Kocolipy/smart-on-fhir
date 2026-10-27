@@ -2,7 +2,8 @@ spring:
   application:
     name: backend
   config:
-    # The session repository type and configure-action live in `session.yaml`,
+    # The session repository type and configure-action, and the session cookie's
+    # name and attributes, live in `session.yaml`,
     # the structured log format in `logging.yaml`, the logger levels the
     # redaction rule depends on in `log-levels.yaml`, and the actuator exposure
     # and metrics settings in `telemetry.yaml`, so the test resources'
@@ -86,11 +87,7 @@ server:
   servlet:
     session:
       timeout: ${SESSION_TIMEOUT:15m}
-      cookie:
-        name: JSESSIONID
-        http-only: true
-        secure: ${SESSION_COOKIE_SECURE:false}
-        same-site: lax
+      # The session cookie — its name and attributes — is in `session.yaml`.
 
 app:
   scim:

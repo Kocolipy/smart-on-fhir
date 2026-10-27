@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
@@ -31,7 +32,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -99,9 +99,6 @@ class GroupPermissionStartupIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     private MockMvc mvc;
 
@@ -224,7 +221,7 @@ class GroupPermissionStartupIntegrationTests {
                                 .formatted(memberName, MEMBER_PASSWORD)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).as("login").isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(sessionCookieName);
+        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
     }

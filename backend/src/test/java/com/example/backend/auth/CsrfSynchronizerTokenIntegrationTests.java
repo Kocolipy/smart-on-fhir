@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
@@ -44,7 +45,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Import(ContainerTestConfiguration.class)
 class CsrfSynchronizerTokenIntegrationTests {
 
-    private static final String SESSION_COOKIE = "SESSION";
     private static final String CREDENTIALS =
             "{\"username\":\"test-user\",\"password\":\"test-password\"}";
 
@@ -86,7 +86,7 @@ class CsrfSynchronizerTokenIntegrationTests {
         JsonNode body = json.readTree(issued.getResponse().getContentAsString());
         assertThat(body.get("headerName").asText()).isEqualTo("X-CSRF-TOKEN");
         assertThat(body.get("token").asText()).isNotBlank();
-        assertThat(issued.getResponse().getCookie(SESSION_COOKIE))
+        assertThat(issued.getResponse().getCookie(SessionCookie.NAME))
                 .as("the guest's session, which the token is bound to")
                 .isNotNull();
     }
@@ -202,7 +202,7 @@ class CsrfSynchronizerTokenIntegrationTests {
         }
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
-        Cookie issued = result.getResponse().getCookie(SESSION_COOKIE);
+        Cookie issued = result.getResponse().getCookie(SessionCookie.NAME);
         Cookie carried = issued != null ? new Cookie(issued.getName(), issued.getValue()) : session;
         JsonNode body = json.readTree(result.getResponse().getContentAsString());
         return new Grant(carried, body.get("headerName").asText(), body.get("token").asText());
@@ -225,7 +225,7 @@ class CsrfSynchronizerTokenIntegrationTests {
     }
 
     private static Cookie sessionCookie(MvcResult result) {
-        Cookie issued = result.getResponse().getCookie(SESSION_COOKIE);
+        Cookie issued = result.getResponse().getCookie(SessionCookie.NAME);
         assertThat(issued).as("a session cookie on %s", result.getRequest().getRequestURI())
                 .isNotNull();
         return new Cookie(issued.getName(), issued.getValue());

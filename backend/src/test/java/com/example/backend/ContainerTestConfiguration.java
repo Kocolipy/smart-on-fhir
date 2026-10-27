@@ -75,9 +75,11 @@ import org.testcontainers.utility.DockerImageName;
  * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
  * database starts with the seeded Bootstrap Admin's first-login change already completed, and
  * {@link SeededTestUserConfiguration}, so it also starts with the non-administrative
- * {@code test-user}.
+ * {@code test-user}. And it imports {@link ShippedSessionCookieTestConfiguration}, so every
+ * context's session cookie carries the deployed name and attributes.
  */
-@Import({SeededBootstrapAdminTestConfiguration.class, SeededTestUserConfiguration.class})
+@Import({SeededBootstrapAdminTestConfiguration.class, SeededTestUserConfiguration.class,
+        ShippedSessionCookieTestConfiguration.class})
 public class ContainerTestConfiguration {
 
     /**

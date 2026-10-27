@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.SessionCookie;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
@@ -37,9 +38,6 @@ import org.springframework.session.web.http.DefaultCookieSerializer;
  * than a drift between callers.
  */
 class SessionEndingTests {
-
-    /** Mirrors {@code server.servlet.session.cookie.name}. */
-    private static final String SESSION_COOKIE = "JSESSIONID";
 
     /** The one value a logout sends: every data type a signed-out session may have left. */
     private static final String CLEAR_SITE_DATA = "\"cache\",\"cookies\",\"storage\"";
@@ -104,7 +102,7 @@ class SessionEndingTests {
 
         assertThat(List.of(session.isInvalid(),
                         SecurityContextHolder.getContext().getAuthentication() == null,
-                        response.getCookie(SESSION_COOKIE) == null,
+                        response.getCookie(SessionCookie.NAME) == null,
                         response.getHeader("Clear-Site-Data") == null))
                 .containsExactly(false, false, true, true);
     }
@@ -208,7 +206,7 @@ class SessionEndingTests {
 
     private static SessionEnding endingRecordingTo(AuditTrail trail) {
         DefaultCookieSerializer cookies = new DefaultCookieSerializer();
-        cookies.setCookieName(SESSION_COOKIE);
+        cookies.setCookieName(SessionCookie.NAME);
         return new SessionEnding(trail, cookies);
     }
 
@@ -231,7 +229,7 @@ class SessionEndingTests {
     }
 
     private static void assertCookieExpired(MockHttpServletResponse response) {
-        Cookie cleared = response.getCookie(SESSION_COOKIE);
+        Cookie cleared = response.getCookie(SessionCookie.NAME);
         assertThat(cleared).as("the session cookie is written").isNotNull();
         assertThat(List.of(cleared.getValue(), cleared.getMaxAge())).containsExactly("", 0);
     }

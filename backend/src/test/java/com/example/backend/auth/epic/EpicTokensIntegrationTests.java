@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.domain.EpicTokenSet;
@@ -30,7 +31,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.DataType;
@@ -115,9 +115,6 @@ class EpicTokensIntegrationTests {
 
     /** The FHIRcast release: the SMART access token and the hub, for the SPA (ADR 0016). */
     private static final String FHIRCAST_RELEASE = "/api/auth/epic/fhircast";
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     @BeforeEach
     void setUp() {
@@ -604,7 +601,7 @@ class EpicTokensIntegrationTests {
                                 .formatted(userName, EpicPractitioners.PASSWORD)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).as("signed in by password").isEqualTo(200);
-        Cookie issued = login.getResponse().getCookie(sessionCookieName);
+        Cookie issued = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(issued).as("a session cookie was issued").isNotNull();
         return new Cookie(issued.getName(), issued.getValue());
     }
