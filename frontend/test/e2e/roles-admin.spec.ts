@@ -3,12 +3,8 @@ import { expect, test } from "@playwright/test";
 import {
   DELEGATABLE_PERMISSIONS,
   DEV_FIXTURES,
-  adminRequest,
   groupPermissionsOf,
-  listedUser,
   everyRowOf,
-  postAdminAction,
-  userIdOf,
   type DevFixture,
 } from "./auth.helpers";
 
@@ -115,91 +111,12 @@ test.describe("ADMIN directory projections", () => {
     }
   });
 
+  // That the listing carries no password hash, and how an Unlock or a write to
+  // a directory-owned field is refused, need no browser: the backend's suites
+  // prove them (`AdminAccountEndpointTests`, `AuthorizationContractTests`).
   test("lists every Permission a Group may carry", async ({ page }) => {
     const permissions = await page.request.get("/api/admin/permissions");
     expect(permissions.status()).toBe(200);
     expect(await permissions.json()).toEqual([...DELEGATABLE_PERMISSIONS]);
-  });
-
-  /**
-   * The acceptance criterion the whole endpoint exists to respect. Asserted on
-   * the raw body, not on parsed fields: a hash nested inside an unexpected
-   * object would still be caught.
-   */
-  test("never returns password hashes", async ({ page }) => {
-    const body = await (await page.request.get("/api/admin/accounts")).text();
-
-    expect(body).not.toContain('"password"');
-    expect(body).not.toContain("$2a$");
-    expect(body).not.toContain("argon2");
-  });
-});
-
-test.describe("ADMIN account control", () => {
-  /**
-   * Unlocking a User that is serving no lockout is the safe case to assert
-   * live: it is refused and writes nothing, so it cannot disturb a parallel
-   * spec. The locked case is driven through the page in
-   * `accounts-admin.spec.ts`, on a User that spec provisions for itself.
-   */
-  test("refuses to unlock a User that is serving no lockout, and changes nothing", async ({
-    page,
-  }) => {
-    const id = await userIdOf(page, "guest");
-    const response = await postAdminAction(page, id, "unlock");
-
-    expect(response.status()).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "request-refused", status: 409 });
-    expect(await listedUser(page, "guest")).toMatchObject({
-      id,
-      locked: false,
-      passwordChangeRequired: false,
-    });
-  });
-
-  /**
-   * This project's session IS the Bootstrap Admin, the one Admin that cannot be
-   * locked; unlocking yourself is refused regardless, for the reason the page
-   * never offers it — a self-inflicted state takes a second Admin to undo.
-   */
-  test("refuses to unlock the account making the request", async ({ page }) => {
-    const response = await postAdminAction(page, await userIdOf(page, "admin"), "unlock");
-
-    expect(response.status()).toBe(403);
-  });
-
-  test("answers a request for a User that does not exist with 404", async ({ page }) => {
-    const response = await postAdminAction(page, crypto.randomUUID(), "unlock");
-
-    expect(response.status()).toBe(404);
-  });
-
-  /**
-   * The read-only criterion from the backend's side, over the real stack: no
-   * write reaches a directory-owned field, whatever method or path it takes.
-   */
-  test("refuses every write to a User or a Group", async ({ page }) => {
-    const id = await userIdOf(page, "guest");
-    const directoryOwned = async () => {
-      const row = await listedUser(page, "guest");
-      // Only the directory-owned fields: another project signing in moves
-      // `lastAuthenticatedAt`, which is application-owned and not in question.
-      return { active: row.active, groups: row.groups, userName: row.userName };
-    };
-    const before = await directoryOwned();
-    const change = { active: false, groups: [], userName: "renamed" };
-
-    for (const [method, path] of [
-      ["PUT", `/api/admin/accounts/${id}`],
-      ["PATCH", `/api/admin/accounts/${id}`],
-      ["DELETE", `/api/admin/accounts/${id}`],
-      ["POST", "/api/admin/accounts"],
-      ["POST", "/api/admin/groups"],
-      ["PUT", "/api/admin/groups"],
-    ] as const) {
-      const response = await adminRequest(page, method, path, change);
-      expect(response.status(), `${method} ${path}`).toBe(403);
-    }
-    expect(await directoryOwned()).toEqual(before);
   });
 });

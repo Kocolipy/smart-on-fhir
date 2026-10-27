@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { csrfHeaderFor, postAdminAction, submitLoginViaApi } from "./auth.helpers";
+import { csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
 import { cardTitled } from "./card.helpers";
 import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 import {
   anonymousApi,
-  BACKEND_URL,
   createConnector,
   deleteConnector,
   deprovisionUser,
@@ -18,8 +17,10 @@ import {
 } from "./scim.helpers";
 
 // The seeded `user`: a baseline User, in no Group, so holding only the
-// baseline Permissions every User holds. What it sees and what it is refused
-// are both asserted.
+// baseline Permissions every User holds. What it sees, and the pages the SPA
+// routes it away from, are asserted here. The backend refusing it every
+// administrative read and the Unlock needs no browser, and is the backend's
+// authorization suite's to prove (`AuthorizationContractTests`).
 
 test.describe("baseline User pages", () => {
   test("lands on Home with no patient in context, self-service, and no administration", async ({
@@ -47,48 +48,10 @@ test.describe("baseline User pages", () => {
 });
 
 test.describe("baseline User API", () => {
-  /**
-   * The server-side half: the SPA hiding a page proves only that the page is
-   * unreachable; this proves the data is, which is what matters when the
-   * caller is not a browser at all.
-   *
-   * 403 and not 401: the session is valid and the backend accepted it, the
-   * missing Permission is what was refused. A 401 here would mean the request
-   * arrived unauthenticated, and the test would be passing for the wrong reason.
-   */
   test("holds only the baseline Permissions", async ({ page }) => {
     const me = (await (await page.request.get("/api/auth/me")).json()) as Record<string, unknown>;
 
     expect(me.permissions).toEqual(["patient:read"]);
-  });
-
-  test("is refused every administrative read", async ({ page }) => {
-    for (const path of [
-      "/api/admin/accounts",
-      "/api/admin/groups",
-      "/api/admin/permissions",
-      "/api/admin/audit-events",
-      "/api/admin/connectors",
-      `${BACKEND_URL}/actuator/prometheus`,
-    ]) {
-      const response = await page.request.get(path);
-
-      expect(response.status(), `GET ${path}`).toBe(403);
-      expect(await response.text()).not.toContain("@");
-    }
-  });
-
-  /**
-   * The control endpoint matters more than the listings: a User who could
-   * reach it could unlock an administrator. The CSRF token is sent
-   * deliberately — without it the chain answers 403 from the CSRF filter first,
-   * and the test would pass without ever exercising the Permission check. Any
-   * id will do: the Permission is refused before the target is looked up.
-   */
-  test("is refused unlocking a User", async ({ page }) => {
-    const response = await postAdminAction(page, crypto.randomUUID(), "unlock");
-
-    expect(response.status(), "a baseline User must not reach unlock").toBe(403);
   });
 
   test("keeps its self-service", async ({ page }) => {

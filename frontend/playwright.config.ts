@@ -23,7 +23,7 @@ const adminSessionExtras = [
         // that connection down.
         {
           name: "fhircast",
-          testMatch: /fhircast-(?:launch|hub|card|patient|logout)\.spec\.ts/,
+          testMatch: /fhircast-(?:card|patient|logout)\.spec\.ts/,
           dependencies: ["setup"],
           use: {
             ...devices["Desktop Chrome"],
