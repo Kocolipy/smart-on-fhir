@@ -69,12 +69,11 @@ class ScimSchemaDocumentsTests {
     }
 
     /**
-     * The reverse membership view is advertised, wholly read-only, and a write neither
-     * accepts nor refuses it: RFC 7644 §3.5.2 has a read-only attribute in a body IGNORED, so
-     * a client that round-trips a User it read can PUT it back.
+     * The reverse membership view is advertised, wholly read-only. That a write then ignores it
+     * (RFC 7644 §3.5.2) is {@code ScimAttributeProfileIntegrationTests}' claim.
      */
     @Test
-    void the_reverse_groups_view_is_advertised_read_only_and_ignored_on_a_write() {
+    void the_reverse_groups_view_is_advertised_read_only() {
         Map<String, Object> groups = advertised("groups");
 
         assertThat(groups).containsEntry("mutability", "readOnly");
@@ -84,8 +83,6 @@ class ScimSchemaDocumentsTests {
                 .containsExactly("value", "display", "$ref", "type");
         assertThat(subAttributes(groups))
                 .allSatisfy(sub -> assertThat(sub).containsEntry("mutability", "readOnly"));
-        assertThat(USER.writableNames()).doesNotContain("groups");
-        assertThat(USER.readOnlyNames()).contains("groups");
     }
 
     /**

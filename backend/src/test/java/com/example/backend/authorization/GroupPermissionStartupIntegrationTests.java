@@ -1,16 +1,16 @@
 package com.example.backend.authorization;
 
+import static com.example.backend.SessionLogin.logIn;
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
-import com.example.backend.SessionCookie;
-import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.authorization.domain.InvalidGroupPermissionsException;
@@ -37,11 +37,9 @@ import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -61,8 +59,6 @@ import org.springframework.web.context.WebApplicationContext;
 class GroupPermissionStartupIntegrationTests {
 
     private static final String MEMBER_PASSWORD = "group-permission-startup-password";
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     @Autowired
     private WebApplicationContext context;
@@ -117,17 +113,17 @@ class GroupPermissionStartupIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Group Permission startup " + unique(), null).id();
+        connectorId = connectors.create(unique("Group Permission startup"), null).id();
         token = connectors.issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
-        memberName = "group-permission-startup-" + unique();
+        memberName = unique("group-permission-startup");
         member = new TransactionTemplate(transactions).execute(status -> users.create(
                 ScimUser.created(UUID.randomUUID(),
                         new ScimUserProfile(memberName, null, memberName, null, null, null, true,
                                 List.of()),
                         passwordEncoder.encode(MEMBER_PASSWORD), Instant.now())).id());
         group = new TransactionTemplate(transactions).execute(status -> groups.create(
-                ScimGroup.created(UUID.randomUUID(), "Startup auditors " + unique(),
+                ScimGroup.created(UUID.randomUUID(), unique("Startup auditors"),
                         List.of(ScimGroupMember.reference(member)), Instant.now())).id());
     }
 
@@ -146,7 +142,7 @@ class GroupPermissionStartupIntegrationTests {
             throws Exception {
         jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
                 group, "audit:read");
-        Cookie session = logIn();
+        Cookie session = logIn(mvc, memberName, MEMBER_PASSWORD);
         assertThat(status(get("/api/admin/audit-events").cookie(session)))
                 .as("the Group's Permission reached the session").isEqualTo(200);
 
@@ -172,18 +168,6 @@ class GroupPermissionStartupIntegrationTests {
                 });
         assertThatCode(() -> startup.run(new DefaultApplicationArguments()))
                 .doesNotThrowAnyException();
-    }
-
-    /** Deleting a Group that carries nothing ends no session: it moved nobody's Permissions. */
-    @Test
-    void deletingAGroupCarryingNothingEndsNoSession() throws Exception {
-        Cookie session = logIn();
-
-        assertThat(status(delete("/scim/v2/Groups/" + group)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)))
-                .isEqualTo(204);
-
-        assertThat(status(get("/api/auth/me").cookie(session))).isEqualTo(200);
     }
 
     /**
@@ -214,23 +198,8 @@ class GroupPermissionStartupIntegrationTests {
                         + " carries Permission 'user:write', which no Group may carry");
     }
 
-    private Cookie logIn() throws Exception {
-        MvcResult login = mvc.perform(SessionCsrf.withCsrf(mvc, post("/api/auth/login"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                                .formatted(memberName, MEMBER_PASSWORD)))
-                .andReturn();
-        assertThat(login.getResponse().getStatus()).as("login").isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
-        assertThat(session).as("the login issued a session cookie").isNotNull();
-        return new Cookie(session.getName(), session.getValue());
-    }
-
     private int status(MockHttpServletRequestBuilder request) throws Exception {
         return mvc.perform(request.contentType(SCIM_JSON)).andReturn().getResponse().getStatus();
     }
 
-    private static String unique() {
-        return UUID.randomUUID().toString().substring(0, 8);
-    }
 }

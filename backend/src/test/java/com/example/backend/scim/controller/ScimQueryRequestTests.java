@@ -138,7 +138,8 @@ class ScimQueryRequestTests {
 
     @ParameterizedTest
     @CsvSource(nullValues = "-", value = {
-            "-, -, 1, 100", "'', '', 1, 100", "' 4 ', ' 9 ', 4, 9", "+2, 0, 2, 0",
+            "-, -, 1, 100", "'', '', 1, 100", "' ', ' ', 1, 100",
+            "' 4 ', ' 9 ', 4, 9", "+2, 0, 2, 0",
             "0, -3, 1, 0", "99999999999, 99999999999, 2147483647, 200",
             "-99999999999, 5, 1, 5"})
     void query_parameters_are_parsed_and_coerced(

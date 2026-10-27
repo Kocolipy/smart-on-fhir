@@ -1,14 +1,18 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.ScimTestRows.unique;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.LoginService;
@@ -23,6 +27,7 @@ import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -35,13 +40,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
@@ -53,7 +58,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Conditional User writes driven over the real filter chain, against a real SQL Server and a real,
@@ -76,8 +80,6 @@ class ScimConditionalWriteIntegrationTests {
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
     private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     private static final String FIRST_PASSWORD = "first-correct-horse";
 
@@ -112,8 +114,6 @@ class ScimConditionalWriteIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorA;
@@ -124,7 +124,7 @@ class ScimConditionalWriteIntegrationTests {
 
     private String readOnlyToken;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -143,9 +143,7 @@ class ScimConditionalWriteIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
+        created.deleteAll(jdbc);
     }
 
     // ---- the precondition contract --------------------------------------------------------
@@ -162,35 +160,35 @@ class ScimConditionalWriteIntegrationTests {
         UUID group = createGroup("Unconditional Group");
 
         long userVersion = version(USERS, user);
-        MvcResult replaced = mvc.perform(as(tokenA, withBody(put(USERS + "/" + user),
-                minimalUser("unconditional-user-renamed")))).andReturn();
+        MvcResult replaced = mvc.perform(asConnector(withBody(put(USERS + "/" + user),
+                minimalUser("unconditional-user-renamed")), tokenA)).andReturn();
         assertApplied(replaced, user, userVersion);
         assertThat(userNameColumn(user)).isEqualTo("unconditional-user-renamed");
 
         userVersion = version(USERS, user);
-        MvcResult patched = mvc.perform(as(tokenA, withBody(patch(USERS + "/" + user), patchOp(
-                "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")))).andReturn();
+        MvcResult patched = mvc.perform(asConnector(withBody(patch(USERS + "/" + user), patchOp(
+                "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")), tokenA)).andReturn();
         assertApplied(patched, user, userVersion);
         assertThat(activeColumn(user)).isFalse();
 
         long groupVersion = version(GROUPS, group);
-        MvcResult groupReplaced = mvc.perform(as(tokenA, withBody(put(GROUPS + "/" + group),
+        MvcResult groupReplaced = mvc.perform(asConnector(withBody(put(GROUPS + "/" + group),
                 "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
-                        + "\"displayName\":\"Unconditional Renamed\"}"))).andReturn();
+                        + "\"displayName\":\"Unconditional Renamed\"}"), tokenA)).andReturn();
         assertApplied(groupReplaced, group, groupVersion);
         assertThat(groupDisplayName(group)).isEqualTo("Unconditional Renamed");
 
         groupVersion = version(GROUPS, group);
-        MvcResult groupPatched = mvc.perform(as(tokenA, withBody(patch(GROUPS + "/" + group),
+        MvcResult groupPatched = mvc.perform(asConnector(withBody(patch(GROUPS + "/" + group),
                 patchOp("{\"op\":\"replace\",\"path\":\"displayName\","
-                        + "\"value\":\"Unconditional Patched\"}")))).andReturn();
+                        + "\"value\":\"Unconditional Patched\"}")), tokenA)).andReturn();
         assertApplied(groupPatched, group, groupVersion);
         assertThat(groupDisplayName(group)).isEqualTo("Unconditional Patched");
 
-        assertThat(status(as(tokenA, delete(GROUPS + "/" + group)))).isEqualTo(204);
-        assertThat(status(as(tokenA, get(GROUPS + "/" + group)))).isEqualTo(404);
-        assertThat(status(as(tokenA, delete(USERS + "/" + user)))).isEqualTo(204);
-        assertThat(status(as(tokenA, get(USERS + "/" + user)))).isEqualTo(404);
+        assertThat(status(asConnector(delete(GROUPS + "/" + group), tokenA))).isEqualTo(204);
+        assertThat(status(asConnector(get(GROUPS + "/" + group), tokenA))).isEqualTo(404);
+        assertThat(status(asConnector(delete(USERS + "/" + user), tokenA))).isEqualTo(204);
+        assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
         assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isEqualTo(1);
     }
 
@@ -221,7 +219,7 @@ class ScimConditionalWriteIntegrationTests {
                         "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"R\"}"))
                         .header(HttpHeaders.IF_MATCH, staleGroup),
                 delete(GROUPS + "/" + group).header(HttpHeaders.IF_MATCH, staleGroup))) {
-            MvcResult refused = mvc.perform(as(tokenA, write)).andReturn();
+            MvcResult refused = mvc.perform(asConnector(write, tokenA)).andReturn();
 
             assertThat(refused.getResponse().getStatus()).isEqualTo(412);
             assertThat(body(refused).get("status").asText()).isEqualTo("412");
@@ -251,9 +249,9 @@ class ScimConditionalWriteIntegrationTests {
                 user))).isEqualTo(200);
 
         assertThat(version(GROUPS, group)).isEqualTo(groupVersion + 1);
-        MvcResult stale = mvc.perform(as(tokenA, withBody(put(GROUPS + "/" + group),
+        MvcResult stale = mvc.perform(asConnector(withBody(put(GROUPS + "/" + group),
                         "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
-                                + "\"displayName\":\"Label Display Name Renamed\"}"))
+                                + "\"displayName\":\"Label Display Name Renamed\"}"), tokenA)
                 .header(HttpHeaders.IF_MATCH, "\"" + groupVersion + "\"")).andReturn();
         assertThat(stale.getResponse().getStatus()).isEqualTo(412);
         assertThat(groupDisplayName(group)).isEqualTo("Label Display Name");
@@ -278,10 +276,10 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(status(conditional(tokenA, withBody(put(USERS + "/" + user),
                 minimalUser("label-user-name-renamed")), user))).isEqualTo(200);
         assertThat(version(GROUPS, group)).isEqualTo(groupVersion + 2);
-        MvcResult stale = mvc.perform(as(tokenA, delete(GROUPS + "/" + group))
+        MvcResult stale = mvc.perform(asConnector(delete(GROUPS + "/" + group), tokenA)
                 .header(HttpHeaders.IF_MATCH, "\"" + (groupVersion + 1) + "\"")).andReturn();
         assertThat(stale.getResponse().getStatus()).isEqualTo(412);
-        assertThat(status(as(tokenA, get(GROUPS + "/" + group)))).isEqualTo(200);
+        assertThat(status(asConnector(get(GROUPS + "/" + group), tokenA))).isEqualTo(200);
     }
 
     /**
@@ -311,8 +309,8 @@ class ScimConditionalWriteIntegrationTests {
         UUID user = createUser("precondition-invalid-" + Math.abs(header.hashCode()));
         long before = version(USERS, user);
 
-        MvcResult refused = mvc.perform(as(tokenA, withBody(patch(USERS + "/" + user),
-                        patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")))
+        MvcResult refused = mvc.perform(asConnector(withBody(patch(USERS + "/" + user),
+                        patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")), tokenA)
                 .header(HttpHeaders.IF_MATCH, header)).andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
@@ -328,8 +326,8 @@ class ScimConditionalWriteIntegrationTests {
         long before = version(USERS, user);
 
         for (String stale : List.of("\"" + (before + 1) + "\"", "W/\"" + before + "\"")) {
-            MvcResult refused = mvc.perform(as(tokenA, withBody(put(USERS + "/" + user),
-                            minimalUser("precondition-stale-renamed")))
+            MvcResult refused = mvc.perform(asConnector(withBody(put(USERS + "/" + user),
+                            minimalUser("precondition-stale-renamed")), tokenA)
                     .header(HttpHeaders.IF_MATCH, stale)).andReturn();
 
             assertThat(refused.getResponse().getStatus()).isEqualTo(412);
@@ -358,7 +356,7 @@ class ScimConditionalWriteIntegrationTests {
                 if (!ifMatch.isEmpty()) {
                     write.header(HttpHeaders.IF_MATCH, ifMatch);
                 }
-                assertThat(status(as(tokenA, write))).as("%s If-Match=[%s]", path, ifMatch)
+                assertThat(status(asConnector(write, tokenA))).as("%s If-Match=[%s]", path, ifMatch)
                         .isEqualTo(404);
             }
         }
@@ -386,7 +384,7 @@ class ScimConditionalWriteIntegrationTests {
                 UUID target = write.buildRequest(context.getServletContext()).getRequestURI()
                         .contains("/Users/") ? user : group;
                 assertThat(status(withIfMatch ? conditional(readOnlyToken, write, target)
-                        : as(readOnlyToken, write)))
+                        : asConnector(write, readOnlyToken)))
                         .as("If-Match sent: %s", withIfMatch).isEqualTo(403);
             }
         }
@@ -414,14 +412,14 @@ class ScimConditionalWriteIntegrationTests {
 
                 Future<Integer> first = pool.submit(() -> {
                     start.await();
-                    return status(as(tokenA, withBody(patch(USERS + "/" + user), patchOp(
-                            "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From A\"}")))
+                    return status(asConnector(withBody(patch(USERS + "/" + user), patchOp(
+                            "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From A\"}")), tokenA)
                             .header(HttpHeaders.IF_MATCH, etag));
                 });
                 Future<Integer> second = pool.submit(() -> {
                     start.await();
-                    return status(as(tokenB, withBody(patch(USERS + "/" + user), patchOp(
-                            "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From B\"}")))
+                    return status(asConnector(withBody(patch(USERS + "/" + user), patchOp(
+                            "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From B\"}")), tokenB)
                             .header(HttpHeaders.IF_MATCH, etag));
                 });
                 start.countDown();
@@ -456,15 +454,15 @@ class ScimConditionalWriteIntegrationTests {
 
                 Future<Integer> first = pool.submit(() -> {
                     start.await();
-                    return status(as(tokenA, withBody(patch(USERS + "/" + user), patchOp(
+                    return status(asConnector(withBody(patch(USERS + "/" + user), patchOp(
                             "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From A\"}",
-                            "{\"op\":\"replace\",\"path\":\"locale\",\"value\":\"en-AU\"}"))));
+                            "{\"op\":\"replace\",\"path\":\"locale\",\"value\":\"en-AU\"}")), tokenA));
                 });
                 Future<Integer> second = pool.submit(() -> {
                     start.await();
-                    return status(as(tokenB, withBody(patch(USERS + "/" + user), patchOp(
+                    return status(asConnector(withBody(patch(USERS + "/" + user), patchOp(
                             "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"From B\"}",
-                            "{\"op\":\"replace\",\"path\":\"locale\",\"value\":\"en-NZ\"}"))));
+                            "{\"op\":\"replace\",\"path\":\"locale\",\"value\":\"en-NZ\"}")), tokenB));
                 });
                 start.countDown();
 
@@ -507,7 +505,7 @@ class ScimConditionalWriteIntegrationTests {
                 UUID target = write.buildRequest(context.getServletContext()).getRequestURI()
                         .contains("/Users/") ? bootstrapAdmin : adminGroup;
                 MvcResult refused = mvc.perform(withIfMatch
-                        ? conditional(tokenA, write, target) : as(tokenA, write)).andReturn();
+                        ? conditional(tokenA, write, target) : asConnector(write, tokenA)).andReturn();
 
                 assertThat(refused.getResponse().getStatus())
                         .as("If-Match sent: %s", withIfMatch).isEqualTo(400);
@@ -533,11 +531,14 @@ class ScimConditionalWriteIntegrationTests {
     }
 
     /**
-     * Replacement: omitted optionals are cleared in the stored row, read-only attributes in the
-     * body are ignored, the version advances exactly once, and the omitted password still logs in.
+     * Replacement: omitted optionals are cleared in the stored row, the version advances exactly
+     * once, and the omitted password still logs in. The read-only {@code groups} it carries is
+     * EMPTY for a User that is a member: that ignoring it never removes a stored membership is
+     * this case's own claim — which read-only attributes a write ignores is
+     * {@code ScimAttributeProfileIntegrationTests}'.
      */
     @Test
-    void a_put_clears_omitted_optionals_ignores_read_only_attributes_and_keeps_the_password()
+    void a_put_clears_omitted_optionals_keeps_the_memberships_and_keeps_the_password()
             throws Exception {
         UUID user = createUser("put-replace");
         UUID group = createGroupWith("Put Replace Members", user);
@@ -553,9 +554,8 @@ class ScimConditionalWriteIntegrationTests {
 
         // `groups` sent EMPTY while the User is a real member: honouring it would remove the row.
         MvcResult replaced = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user), """
-                {"schemas":["%s"],"userName":"put-replace","id":"%s",
-                 "meta":{"version":"W/\\"999\\""},"groups":[]}"""
-                .formatted(USER_SCHEMA, UUID.randomUUID())), user))
+                {"schemas":["%s"],"userName":"put-replace","groups":[]}"""
+                .formatted(USER_SCHEMA)), user))
                 .andReturn();
 
         assertThat(replaced.getResponse().getStatus()).isEqualTo(200);
@@ -628,7 +628,7 @@ class ScimConditionalWriteIntegrationTests {
     @Test
     void a_no_op_patch_leaves_the_etag_and_last_modified_unchanged() throws Exception {
         UUID user = createUser("patch-no-op");
-        JsonNode before = body(mvc.perform(as(tokenA, get(USERS + "/" + user))).andReturn());
+        JsonNode before = body(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn());
 
         MvcResult patched = mvc.perform(conditional(tokenA, withBody(patch(USERS + "/" + user),
                 patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":true}",
@@ -665,14 +665,14 @@ class ScimConditionalWriteIntegrationTests {
     void a_multi_operation_patch_with_one_failure_restores_the_original() throws Exception {
         UUID user = createUser("patch-atomic");
         Session session = openSessionFor(user);
-        JsonNode before = body(mvc.perform(as(tokenA, get(USERS + "/" + user))).andReturn());
+        JsonNode before = body(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn());
 
         assertPatchRefused(user, "noTarget",
                 "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}",
                 "{\"op\":\"replace\",\"path\":\"userName\",\"value\":\"patch-atomic-2\"}",
                 "{\"op\":\"remove\",\"path\":\"emails[type eq \\\"pager\\\"]\"}");
 
-        JsonNode after = body(mvc.perform(as(tokenA, get(USERS + "/" + user))).andReturn());
+        JsonNode after = body(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn());
         assertThat(after).isEqualTo(before);
         assertThat(activeColumn(user)).isTrue();
         assertThat(sessionRepository.findById(session.getId())).isNotNull();
@@ -757,7 +757,7 @@ class ScimConditionalWriteIntegrationTests {
      */
     @Test
     void a_rolled_back_password_change_revokes_nothing() {
-        UUID user = createUserThroughHttp("revoke-rollback");
+        UUID user = createUser("revoke-rollback");
         Session session = openSessionFor(user);
         String hashBefore = passwordHash(user);
         long version = versionColumn(user);
@@ -821,65 +821,72 @@ class ScimConditionalWriteIntegrationTests {
                 """, String.class, user)).isEqualTo("displayName,emails");
     }
 
-    // ---- removal from the Admin group ends the removed User's sessions ---------------------
+    // ---- leaving a Group of power ends the removed User's sessions -------------------------
+
+    /** The three writes that take a User out of a Group. */
+    enum Removal {
+        /** A PATCH {@code remove} of the member by a value path. */
+        PATCH,
+        /** A PUT whose member list leaves the member out. */
+        PUT,
+        /** A DELETE of the Group, which takes every member out. */
+        DELETE
+    }
 
     /**
-     * Each write shape that drops a direct member of the Admin group — PATCH {@code remove} by a
-     * value path, PATCH {@code replace} of the members, and a PUT whose member list leaves the User
-     * out — ends that User's sessions after commit and records the revocation against
-     * {@code groups}; the member the write kept keeps its session.
+     * Each write shape that takes a User out of a Group carrying Permissions ends that User's
+     * sessions once the write commits, and records the revocation against {@code groups}; a
+     * member the write keeps keeps its session.
+     *
+     * <p>This is the wiring — HTTP, the after-commit hook, SQL Server and the Redis session index.
+     * Which writes change whose power is decided, and owned, by {@code ScimWriteEffectsTests} and
+     * {@code ScimGroupServiceTests} (a Group carrying nothing, the Admin group, a write that leaves
+     * the membership as it was); that the application restarts cleanly after such a delete, by
+     * {@code GroupPermissionStartupIntegrationTests}.
      */
-    @Test
-    void every_write_shape_removing_an_admin_member_revokes_only_the_removed_users_sessions()
-            throws Exception {
-        UUID adminGroup = reserved("admin-group");
-        UUID bootstrapAdmin = reserved("bootstrap-admin");
-        UUID byRemove = createUser("admin-removed-by-remove");
-        UUID byReplace = createUser("admin-removed-by-replace");
-        UUID byPut = createUser("admin-removed-by-put");
-        UUID kept = createUser("admin-kept");
-        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
-                "{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"" + byRemove
-                        + "\"},{\"value\":\"" + byReplace + "\"},{\"value\":\"" + byPut
-                        + "\"},{\"value\":\"" + kept + "\"}]}")), adminGroup))).isEqualTo(200);
-        Session removeSession = openSessionFor(byRemove);
-        Session replaceSession = openSessionFor(byReplace);
-        Session putSession = openSessionFor(byPut);
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Removal.class)
+    void every_write_shape_taking_a_member_out_of_a_group_of_power_revokes_only_its_sessions(
+            Removal removal) throws Exception {
+        String shape = removal.name().toLowerCase(Locale.ROOT);
+        UUID removed = createUser(unique("power-removed-by-" + shape));
+        UUID kept = createUser(unique("power-kept-by-" + shape));
+        String displayName = unique("Group of power " + shape);
+        UUID group = createGroupWith(displayName, removed, kept);
+        jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
+                group, "account:unlock");
+        Session removedSession = openSessionFor(removed);
         Session keptSession = openSessionFor(kept);
+        MockHttpServletRequestBuilder write = switch (removal) {
+            case PATCH -> withBody(patch(GROUPS + "/" + group), patchOp(
+                    "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + removed + "\\\"]\"}"));
+            case PUT -> withBody(put(GROUPS + "/" + group),
+                    "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
+                            + "\"displayName\":\"" + displayName + "\","
+                            + "\"members\":" + memberValues(List.of(kept)) + "}");
+            case DELETE -> delete(GROUPS + "/" + group);
+        };
 
-        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
-                "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + byRemove + "\\\"]\"}")),
-                adminGroup))).isEqualTo(200);
-        assertThat(sessionRepository.findById(removeSession.getId())).as("PATCH remove").isNull();
-        assertThat(sessionRepository.findById(replaceSession.getId())).isNotNull();
+        assertThat(status(conditional(tokenA, write, group)))
+                .isEqualTo(removal == Removal.DELETE ? 204 : 200);
 
-        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
-                "{\"op\":\"replace\",\"path\":\"members\",\"value\":"
-                        + memberValues(adminMembersExcept(adminGroup, byReplace)) + "}")),
-                adminGroup))).isEqualTo(200);
-        assertThat(sessionRepository.findById(replaceSession.getId())).as("PATCH replace").isNull();
-        assertThat(sessionRepository.findById(putSession.getId())).isNotNull();
-
-        assertThat(status(conditional(tokenA, withBody(put(GROUPS + "/" + adminGroup),
-                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
-                        + "\"displayName\":\"" + groupDisplayName(adminGroup) + "\","
-                        + "\"members\":" + memberValues(adminMembersExcept(adminGroup, byPut)) + "}"),
-                adminGroup))).isEqualTo(200);
-        assertThat(sessionRepository.findById(putSession.getId())).as("PUT").isNull();
-
-        assertThat(sessionRepository.findById(keptSession.getId())).as("kept member").isNotNull();
-        assertThat(auditCount("USER_SESSIONS_REVOKE", kept, "SUCCESS")).isZero();
-        assertThat(adminMembersExcept(adminGroup)).contains(kept, bootstrapAdmin)
-                .doesNotContain(byRemove, byReplace, byPut);
-        for (UUID removed : List.of(byRemove, byReplace, byPut)) {
-            assertThat(jdbc.queryForObject("""
-                    SELECT outcome, actor_id, changed_paths FROM audit_events
-                     WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""",
-                    UuidColumnRows.ROWS, removed))
-                    .containsEntry("outcome", "SUCCESS")
-                    .containsEntry("actor_id", connectorA)
-                    .containsEntry("changed_paths", "groups");
-        }
+        boolean keptStaysIn = removal != Removal.DELETE;
+        assertThat(Map.of(
+                        removed, sessionRepository.findById(removedSession.getId()) != null,
+                        kept, sessionRepository.findById(keptSession.getId()) != null))
+                .as("whose session outlives the write")
+                .isEqualTo(Map.of(removed, false, kept, keptStaysIn));
+        assertThat(jdbc.query("""
+                        SELECT subject_id, outcome, actor_id, changed_paths FROM audit_events
+                         WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id IN (?, ?)""",
+                        UuidColumnRows.ROWS, removed, kept))
+                .as("the revocations recorded")
+                .containsExactlyInAnyOrderElementsOf((keptStaysIn ? List.of(removed)
+                        : List.of(removed, kept)).stream()
+                        .map(user -> Map.<String, Object>of("subject_id", user,
+                                "outcome", "SUCCESS", "actor_id", connectorA,
+                                "changed_paths", "groups"))
+                        .toList());
     }
 
     /**
@@ -898,9 +905,9 @@ class ScimConditionalWriteIntegrationTests {
         Session session = openSessionFor(member);
         long version = versionColumn(adminGroup);
 
-        assertThat(status(as(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+        assertThat(status(asConnector(withBody(patch(GROUPS + "/" + adminGroup), patchOp(
                 "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member + "\\\"]\"}"))
-                .header(HttpHeaders.IF_MATCH, "\"" + (version - 1) + "\"")))).isEqualTo(412);
+                .header(HttpHeaders.IF_MATCH, "\"" + (version - 1) + "\""), tokenA))).isEqualTo(412);
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             groupService.patch(
@@ -915,21 +922,6 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(sessionRepository.findById(session.getId())).isNotNull();
         assertThat(adminMembersExcept(adminGroup)).contains(member);
         assertThat(versionColumn(adminGroup)).isEqualTo(version);
-        assertThat(auditCount("USER_SESSIONS_REVOKE", member, "SUCCESS")).isZero();
-    }
-
-    /** An ordinary Group confers no authority, so removing a member of one revokes nothing. */
-    @Test
-    void removal_from_an_ordinary_group_revokes_nothing() throws Exception {
-        UUID member = createUser("ordinary-removed");
-        UUID group = createGroupWith("Ordinary Revocation Group", member);
-        Session session = openSessionFor(member);
-
-        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + group), patchOp(
-                "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member + "\\\"]\"}")),
-                group))).isEqualTo(200);
-
-        assertThat(sessionRepository.findById(session.getId())).isNotNull();
         assertThat(auditCount("USER_SESSIONS_REVOKE", member, "SUCCESS")).isZero();
     }
 
@@ -962,57 +954,44 @@ class ScimConditionalWriteIntegrationTests {
 
     private MvcResult passwordWrite(UUID user, String password, boolean viaPatch)
             throws Exception {
-        String value = json.writeValueAsString(password);
+        String value = JSON.writeValueAsString(password);
         MockHttpServletRequestBuilder write = viaPatch
                 ? withBody(patch(USERS + "/" + user),
                         patchOp("{\"op\":\"replace\",\"path\":\"password\",\"value\":" + value + "}"))
                 : withBody(put(USERS + "/" + user), "{\"schemas\":[\"" + USER_SCHEMA + "\"],"
-                        + "\"userName\":" + json.writeValueAsString(userNameColumn(user))
+                        + "\"userName\":" + JSON.writeValueAsString(userNameColumn(user))
                         + ",\"password\":" + value + "}");
         return mvc.perform(conditional(tokenA, write, user)).andReturn();
     }
 
-    private UUID createUser(String userName) throws Exception {
-        return createUserThroughHttp(userName);
-    }
-
-    private UUID createUserThroughHttp(String userName) {
+    /**
+     * A User with a password, an alias, a name, a locale and an email, created as connector A.
+     * Callable from a racing thread, so it throws nothing checked.
+     */
+    private UUID createUser(String userName) {
         try {
-            MvcResult result = mvc.perform(as(tokenA, withBody(post(USERS), """
+            return created.create(mvc, tokenA, USERS, """
                     {"schemas":["%s"],"userName":"%s","password":"%s","displayName":"Shown",
                      "externalId":"ext-%s",
                      "name":{"givenName":"Given"},"locale":"en-GB",
                      "emails":[{"value":"%s@work.example","type":"work","primary":true}]}"""
-                    .formatted(USER_SCHEMA, userName, FIRST_PASSWORD, userName, userName))))
-                    .andReturn();
-            assertThat(result.getResponse().getStatus()).isEqualTo(201);
-            UUID id = UUID.fromString(body(result).get("id").asText());
-            created.add(id);
-            return id;
+                    .formatted(USER_SCHEMA, userName, FIRST_PASSWORD, userName, userName));
         } catch (Exception failed) {
             throw new AssertionError(failed);
         }
     }
 
     private UUID createGroup(String displayName) throws Exception {
-        MvcResult result = mvc.perform(as(tokenA, withBody(post(GROUPS),
+        return created.create(mvc, tokenA, GROUPS,
                 "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
-                        + "\"displayName\":\"" + displayName + "\"}"))).andReturn();
-        assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        UUID id = UUID.fromString(body(result).get("id").asText());
-        created.add(id);
-        return id;
+                        + "\"displayName\":\"" + displayName + "\"}");
     }
 
-    private UUID createGroupWith(String displayName, UUID member) throws Exception {
-        MvcResult result = mvc.perform(as(tokenA, withBody(post(GROUPS),
+    private UUID createGroupWith(String displayName, UUID... members) throws Exception {
+        return created.create(mvc, tokenA, GROUPS,
                 "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
                         + "\"displayName\":\"" + displayName + "\","
-                        + "\"members\":[{\"value\":\"" + member + "\"}]}"))).andReturn();
-        assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        UUID id = UUID.fromString(body(result).get("id").asText());
-        created.add(id);
-        return id;
+                        + "\"members\":" + memberValues(List.of(members)) + "}");
     }
 
     private static String minimalUser(String userName) {
@@ -1029,15 +1008,10 @@ class ScimConditionalWriteIntegrationTests {
         return request.contentType(SCIM_JSON).content(body);
     }
 
-    private static MockHttpServletRequestBuilder as(
-            String token, MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-    }
-
     /** The write with the resource's current version, as a conforming connector sends it. */
     private MockHttpServletRequestBuilder conditional(
             String token, MockHttpServletRequestBuilder request, UUID id) {
-        return as(token, request).header(HttpHeaders.IF_MATCH, "\"" + versionColumn(id) + "\"");
+        return asConnector(request, token).header(HttpHeaders.IF_MATCH, "\"" + versionColumn(id) + "\"");
     }
 
     private int status(MockHttpServletRequestBuilder request) throws Exception {
@@ -1046,7 +1020,7 @@ class ScimConditionalWriteIntegrationTests {
 
     /** The version as a connector reads it: the ETag of a GET. */
     private long version(String collection, UUID id) throws Exception {
-        String etag = mvc.perform(as(tokenA, get(collection + "/" + id))).andReturn()
+        String etag = mvc.perform(asConnector(get(collection + "/" + id), tokenA)).andReturn()
                 .getResponse().getHeader(HttpHeaders.ETAG);
         assertThat(etag).isNotNull();
         return Long.parseLong(etag.replace("\"", ""));
@@ -1102,10 +1076,6 @@ class ScimConditionalWriteIntegrationTests {
                 SELECT count(*) FROM audit_events
                  WHERE operation = ? AND subject_id = ? AND outcome = ?""",
                 Integer.class, operation, subject, outcome);
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 
     /** Opens a session indexed by the User's stable id, exactly as a real login does. */

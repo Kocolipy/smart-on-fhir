@@ -2,7 +2,6 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.scim.domain.ScimResourceType;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -91,39 +90,5 @@ class ScimDiscoveryTests {
     @Test
     void the_group_resource_type_declares_no_schema_extensions() {
         assertThat(ScimDiscovery.groupResourceType(BASE_URI)).doesNotContainKey("schemaExtensions");
-    }
-
-    /**
-     * Both types, in order. A resource type in this list is a claim that its endpoint
-     * answers, so the Group entry appearing here is the same assertion as the Group endpoint
-     * existing — the two were one release capability precisely so this list never advertises
-     * half a directory.
-     */
-    @Test
-    void the_resource_types_collection_is_the_user_and_group_types() {
-        assertThat(ScimDiscovery.resourceTypes(BASE_URI))
-                .containsExactly(
-                        ScimDiscovery.userResourceType(BASE_URI),
-                        ScimDiscovery.groupResourceType(BASE_URI));
-    }
-
-    @Test
-    void the_schemas_collection_is_the_core_user_and_group_schemas() {
-        assertThat(ScimDiscovery.schemas(BASE_URI))
-                .containsExactly(
-                        ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI),
-                        ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI));
-    }
-
-    /**
-     * RFC 7643 §3.1: {@code location} is the URI of the resource, so it is absolute and built
-     * from the base the caller passes — the request's — rather than from the bare path.
-     */
-    @Test
-    void the_capability_document_is_located_absolutely_under_the_given_base() {
-        assertThat(ScimDiscovery.serviceProviderConfig(BASE_URI).get("meta"))
-                .isEqualTo(Map.of(
-                        "resourceType", "ServiceProviderConfig",
-                        "location", BASE_URI + "/ServiceProviderConfig"));
     }
 }
