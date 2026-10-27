@@ -11,6 +11,7 @@ import {
   provisionUser,
   rowOf,
   runId,
+  searchCard,
   scimApi,
   scimPatch,
   settlePassword,
@@ -139,6 +140,8 @@ test.describe.serial("ADMIN accounts page", () => {
     await expect(
       groupsTable(page).getByRole("cell", { exact: true, name: "Superuser" }),
     ).toHaveCount(1);
+    // The Groups card shows a page at a time; the fixture Group is found by searching for it.
+    await searchCard(page, "Groups", "Helpdesk");
     await expect(
       groupsTable(page)
         .getByRole("row", { name: /^Helpdesk/ })
@@ -153,6 +156,7 @@ test.describe.serial("ADMIN accounts page", () => {
 
     // The Bootstrap Admin — this project's own session — is marked in its Lockout cell as never
     // lockable (the Users table names no access level since #211), and offers no Unlock.
+    await searchCard(page, "Users", "admin");
     const bootstrap = rowOf(page, usersTable(page), "admin");
     await expect(bootstrap.getByTitle("The Bootstrap Admin cannot be locked")).toBeVisible();
     await expect(bootstrap.getByText(/^(Locked|Not locked)$/)).toHaveCount(0);
@@ -229,6 +233,7 @@ test.describe.serial("ADMIN accounts page", () => {
 
       // Unlock it from the page.
       await page.reload();
+      await searchCard(page, "Users", LOCKED_USER);
       const locked = rowOf(page, usersTable(page), LOCKED_USER);
       await expect(locked.getByText("Locked: failed logins", { exact: true })).toBeVisible();
       await locked.getByRole("button", { name: `Unlock ${LOCKED_USER}` }).click();
@@ -241,6 +246,7 @@ test.describe.serial("ADMIN accounts page", () => {
       // The second is unlocked behind the page's back — as by another
       // administrator — so the Unlock the page still offers has nothing to lift:
       // refused, said so, and nothing changes.
+      await searchCard(page, "Users", RACED_USER);
       const raced = rowOf(page, usersTable(page), RACED_USER);
       await expect(raced.getByText("Locked: failed logins", { exact: true })).toBeVisible();
       const raceId = provisioned[1]!;
@@ -251,6 +257,7 @@ test.describe.serial("ADMIN accounts page", () => {
       );
       expect((await postAdminAction(page, raceId, "unlock")).status()).toBe(409);
       await page.reload();
+      await searchCard(page, "Users", RACED_USER);
       await expect(rowOf(page, usersTable(page), RACED_USER).getByText("Not locked")).toBeVisible();
       await expect(
         rowOf(page, usersTable(page), RACED_USER).getByRole("button", { name: /^Unlock/ }),
@@ -330,6 +337,7 @@ test("an Unlock leaves a deactivated User deactivated, until the directory react
     expect(deactivated.status(), "deactivating over SCIM").toBe(200);
 
     await openAccounts(page);
+    await searchCard(page, "Users", userName);
     const row = rowOf(page, usersTable(page), userName);
     await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
     await expect(row.getByText("Locked: failed logins", { exact: true })).toBeVisible();

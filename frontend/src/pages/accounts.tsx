@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
+import type { ReadDeclaration } from "@/auth/declarations";
 import { holds } from "@/auth/permissions";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
@@ -13,12 +14,16 @@ import {
   GROUP_MEMBERS,
   GROUP_MEMBERS_PAGE_SIZE,
   GROUPS,
+  LISTING_PAGE_SIZE,
   SET_GROUP_PERMISSIONS,
   UNLOCK_USER,
   USERS,
   type GroupMember,
   type GroupMemberPage,
+  type GroupPage,
   type GroupRow,
+  type ListingQuery,
+  type UserPage,
   type UserRow,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
@@ -236,41 +241,63 @@ function MemberItem({ member }: { member: GroupMember }) {
   );
 }
 
+/** A page of a paged read's rows, as the page shows it: its rows, where it starts, and the total. */
+interface ProjectionPage<R> {
+  rows: readonly R[];
+  startIndex: number;
+  totalResults: number;
+}
+
 /** A page's members: the read's data, as the listing body counts rows. */
 const membersOf = (page: GroupMemberPage) => page.members;
 
 /**
- * Where the page shown sits among the Group's members, and the moves that
- * remain: back while it is not the first page, on while members lie past it.
+ * Where the page shown sits among every row its read matched, and the moves
+ * that remain: back while it is not the first page — by one page, never before
+ * the first — and on while rows lie past it, from where this page ended. Every
+ * paged read on the page moves through this one control.
  */
-function MembersPager({
+function Pager({
+  disabled = false,
+  label,
+  noun,
   onMove,
-  page,
+  page: { rows, startIndex, totalResults },
+  pageSize,
 }: {
+  /** Holds the page still, as while an action that answers onto it is in flight. */
+  disabled?: boolean;
+  /** The control's accessible name. */
+  label: string;
+  /** What the rows are, as the position line names them: "Users 1–20 of 45". */
+  noun: string;
   onMove: (startIndex: number) => void;
-  page: GroupMemberPage;
+  /** The page shown, which the position line and the moves are counted from. */
+  page: ProjectionPage<unknown>;
+  pageSize: number;
 }) {
-  const last = page.startIndex + page.members.length - 1;
+  const last = startIndex + rows.length - 1;
   return (
-    <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+    <nav aria-label={label} className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
       <span>
-        Members {page.startIndex}–{last} of {page.totalResults}
+        {noun} {startIndex}–{last} of {totalResults}
       </span>
-      {page.startIndex > 1 ? (
+      {startIndex > 1 ? (
         <Button
-          onClick={() => onMove(Math.max(1, page.startIndex - GROUP_MEMBERS_PAGE_SIZE))}
+          disabled={disabled}
+          onClick={() => onMove(Math.max(1, startIndex - pageSize))}
           size="sm"
           variant="outline"
         >
           Previous
         </Button>
       ) : null}
-      {last < page.totalResults ? (
-        <Button onClick={() => onMove(last + 1)} size="sm" variant="outline">
+      {last < totalResults ? (
+        <Button disabled={disabled} onClick={() => onMove(last + 1)} size="sm" variant="outline">
           Next
         </Button>
       ) : null}
-    </div>
+    </nav>
   );
 }
 
@@ -303,7 +330,13 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
         )}
       </ListingBody>
       {view.kind === "ready" && view.data.members.length > 0 ? (
-        <MembersPager onMove={setStartIndex} page={view.data} />
+        <Pager
+          label={`Pages of the members of ${group.displayName}`}
+          noun="Members"
+          onMove={setStartIndex}
+          page={{ ...view.data, rows: membersOf(view.data) }}
+          pageSize={GROUP_MEMBERS_PAGE_SIZE}
+        />
       ) : null}
     </div>
   );
@@ -419,28 +452,93 @@ function GroupsTable({
 }
 
 /**
- * A projection's card around the shared listing body, or nothing for a
- * session without the projection's read Permission.
+ * A projection's search: the text a name must contain, sent when the form is
+ * submitted rather than on every keystroke. Submitting it reads the first page
+ * of what it matches; an emptied box reads every row again.
+ */
+function SearchBox({
+  disabled,
+  label,
+  name,
+  onSearch,
+}: {
+  /** Holds the search still, as {@link Pager} holds the page. */
+  disabled: boolean;
+  /** The search landmark's accessible name. */
+  label: string;
+  /** The box's accessible name. */
+  name: string;
+  onSearch: (search: string) => void;
+}) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      aria-label={label}
+      className="mb-3 flex items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSearch(text.trim());
+      }}
+      role="search"
+    >
+      <input
+        aria-label={name}
+        className="h-8 rounded-md border bg-background px-2 text-sm"
+        disabled={disabled}
+        onChange={(event) => setText(event.target.value)}
+        type="search"
+        value={text}
+      />
+      <Button disabled={disabled} size="sm" type="submit" variant="outline">
+        Search
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * A projection's card — its search, the shared listing body and the pager —
+ * or nothing for a session without the projection's read Permission. The
+ * body says which empty it is: nothing matches the search, or nothing is
+ * provisioned at all.
  *
  * A failed re-read hides the rows: a row's actions act on what it states, so
  * rows the listing could not confirm are not offered. The page re-reads
- * neither listing today — a row action replaces its row from the response —
- * so this decides only what a future re-read would show.
+ * neither listing on an action — a row action replaces its row from the
+ * response — so this decides what a failed read of another page or search
+ * shows.
  */
-function ProjectionCard<R>({
+function ProjectionCard<T, R>({
   children,
   description,
-  empty,
+  noun,
+  onMove,
+  onSearch,
+  pageOf,
+  pending,
+  search,
   title,
   view,
 }: {
   children: (rows: readonly R[]) => ReactNode;
   description: string;
-  empty: string;
+  /** The rows' name, lower-case and plural: "users". */
+  noun: string;
+  onMove: (startIndex: number) => void;
+  onSearch: (search: string) => void;
+  pageOf: (data: T) => ProjectionPage<R>;
+  /**
+   * Whether an action is in flight. Its answer replaces a row of the page
+   * shown, so the search and the pager hold still until it lands.
+   */
+  pending: boolean;
+  /** The search the shown page was read for; empty for none. */
+  search: string;
   title: string;
-  view: ReadView<R[]>;
+  view: ReadView<T>;
 }) {
   if (view.kind === "not-permitted") return null;
+  const page = view.kind === "ready" ? pageOf(view.data) : null;
   return (
     <Card>
       <CardHeader>
@@ -448,27 +546,69 @@ function ProjectionCard<R>({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
+        <SearchBox
+          disabled={pending}
+          label={`${title} search`}
+          name={`Search ${noun}`}
+          onSearch={onSearch}
+        />
         <ListingBody
-          empty={empty}
-          loading={`Loading ${title.toLowerCase()}…`}
-          rows={everyRow}
+          empty={search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`}
+          loading={`Loading ${noun}…`}
+          rows={(data: T) => pageOf(data).rows}
           staleRows="hide"
           view={view}
         >
           {children}
         </ListingBody>
+        {page !== null && page.rows.length > 0 ? (
+          <Pager
+            disabled={pending}
+            label={`${title} pages`}
+            noun={title}
+            onMove={onMove}
+            page={page}
+            pageSize={LISTING_PAGE_SIZE}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-/** A listing's rows: the read's data itself. */
-const everyRow = <R,>(rows: R[]) => rows;
+const usersOf = (page: UserPage): ProjectionPage<UserRow> => ({ ...page, rows: page.users });
+const groupsOf = (page: GroupPage): ProjectionPage<GroupRow> => ({ ...page, rows: page.groups });
+
+/** The first page, unsearched: what a projection reads on opening. */
+const FIRST_PAGE: ListingQuery = { search: "", startIndex: 1 };
+
+/**
+ * One projection's read, from the page and search the card has moved to: a
+ * new search starts again from the first page.
+ */
+function useProjection<T>(declaration: ReadDeclaration<T, [query: ListingQuery]>, failure: string) {
+  const [query, setQuery] = useState(FIRST_PAGE);
+  const read = useGatedRead(declaration, { args: [query], failureMessage: failure });
+  return {
+    ...read,
+    move: (startIndex: number) => setQuery((current) => ({ ...current, startIndex })),
+    query,
+    search: (search: string) => setQuery({ search, startIndex: 1 }),
+  };
+}
+
+/**
+ * The page's rows with the one an action answered replaced — matched by id,
+ * so an answer for a row no longer on the page changes nothing. With no page
+ * read there is no row to replace, so the actions hand the read `null` then.
+ */
+const replaceRow = <R extends { id: string }>(rows: readonly R[], updated: R): R[] =>
+  rows.map((row) => (row.id === updated.id ? updated : row));
 
 /**
  * The two listing reads and the row actions, as state: what the page shows and
- * the one function that changes it. Each listing is read only when the session
- * holds its Permission.
+ * the one function that changes it. Each listing is read a page at a time, and
+ * only when the session holds its Permission.
  *
  * Both listings, every action and the connector panel report to the page's
  * one error line, which the signed-in layout owns and renders, and it shows
@@ -476,27 +616,22 @@ const everyRow = <R,>(rows: R[]) => rows;
  * action supersedes it.
  */
 function useDirectory() {
-  const users = useGatedRead(USERS, {
-    failureMessage: "Unable to load the users. Please try again.",
-  });
-  const groups = useGatedRead(GROUPS, {
-    failureMessage: "Unable to load the groups. Please try again.",
-  });
+  const users = useProjection(USERS, "Unable to load the users. Please try again.");
+  const groups = useProjection(GROUPS, "Unable to load the groups. Please try again.");
   const write = useGatedWrite();
 
   /**
-   * Runs one Unlock and replaces just that row from the response, rather than
-   * reloading the listing: the response *is* the User's new state, so a refetch
-   * would only add a request that could disagree with it.
+   * Runs one Unlock and replaces just that row of the page shown from the
+   * response, rather than reading the page again: the response *is* the
+   * User's new state, so a refetch would only add a request that could
+   * disagree with it.
    */
   const runUnlock = (target: UserRow) =>
     write.run(UNLOCK_USER, {
       args: [target.id],
       messages: unlockMessages(target.userName),
       onOk: (updated) => {
-        users.update((current) =>
-          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
-        );
+        users.update((page) => page && { ...page, users: replaceRow(page.users, updated) });
       },
     });
 
@@ -519,9 +654,7 @@ function useDirectory() {
         default: `Unable to set the Permissions of ${target.displayName}. Please try again.`,
       },
       onOk: (updated) => {
-        groups.update((current) =>
-          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
-        );
+        groups.update((page) => page && { ...page, groups: replaceRow(page.groups, updated) });
       },
     });
 
@@ -560,7 +693,12 @@ export function Accounts() {
     <div className="flex flex-col gap-6">
       <ProjectionCard
         description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
-        empty="No users are provisioned."
+        noun="users"
+        onMove={users.move}
+        onSearch={users.search}
+        pageOf={usersOf}
+        pending={pending}
+        search={users.query.search}
         title="Users"
         view={users.view}
       >
@@ -571,7 +709,12 @@ export function Accounts() {
 
       <ProjectionCard
         description="Groups and their membership come from the directory and are read-only here. A Group grants its Permissions to its direct members from their next sign-in, and a Group with none grants nothing. The Admin group's direct members are the Superuser."
-        empty="No groups are provisioned."
+        noun="groups"
+        onMove={groups.move}
+        onSearch={groups.search}
+        pageOf={groupsOf}
+        pending={pending}
+        search={groups.query.search}
         title="Groups"
         view={groups.view}
       >

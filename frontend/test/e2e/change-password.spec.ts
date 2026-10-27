@@ -9,6 +9,7 @@ import {
   OWN_PASSWORD as OWN,
   provisionUser,
   rowOf,
+  searchCard,
   runId,
   settlePassword,
   workerConnector,
@@ -111,6 +112,7 @@ test("an Admin's Unlock confines the User to /change-password until it is made",
 
     // The Admin unlocks it from the Accounts page, which requires a change.
     await page.goto("/accounts");
+    await searchCard(page, "Users", user.userName);
     const row = rowOf(page, page.getByRole("table", { name: "Users" }), user.userName);
     await row.getByRole("button", { name: `Unlock ${user.userName}` }).click();
     await expect(row.getByText("Not locked")).toBeVisible();

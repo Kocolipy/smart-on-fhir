@@ -3,6 +3,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
   adminRequest,
   DEV_FIXTURES,
+  everyRowOf,
   groupPermissionsOf,
   submitLogin,
   submitLoginViaApi,
@@ -237,10 +238,10 @@ test("removal from the Admin group over SCIM ends the session and the Superuser"
   page: adminPage,
 }) => {
   test.setTimeout(90_000);
-  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+  const groups = await everyRowOf<{
     adminGroup: boolean;
     id: string;
-  }>;
+  }>(adminPage, "Groups");
   const adminGroup = groups.find((group) => group.adminGroup);
   expect(adminGroup, "the Admin group should be listed").toBeTruthy();
   const groupPath = `/scim/v2/Groups/${adminGroup!.id}`;
@@ -286,11 +287,11 @@ test("removal from a Group carrying Permissions over SCIM signs a Helpdesk membe
   test.setTimeout(90_000);
   // The Group carrying the Helpdesk's Permissions, as the Groups listing
   // shows it: an ordinary Group, whose stored Permissions are what it confers.
-  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+  const groups = await everyRowOf<{
     adminGroup: boolean;
     id: string;
     permissions: string[];
-  }>;
+  }>(adminPage, "Groups");
   const helpdesk = groups.find((group) => group.id === DEV_FIXTURES.helpdesk.group);
   expect(helpdesk?.permissions, "the Helpdesk Group's Permissions").toEqual(
     groupPermissionsOf("helpdesk"),

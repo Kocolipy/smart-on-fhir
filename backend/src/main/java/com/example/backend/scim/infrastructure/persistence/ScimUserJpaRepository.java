@@ -6,7 +6,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -27,15 +26,10 @@ import org.springframework.data.repository.query.Param;
  * sees what had committed when that statement began. A deletion that commits between them
  * therefore leaves a User row whose resource has gone, and the read fails with
  * {@code ObjectNotFoundException}: a {@code 500} for a User that was merely deleted while the
- * listing ran. One statement sees one snapshot, so the User is then read whole or not at all.
+ * page was read. One statement sees one snapshot, so the User is then read whole or not at all.
  * {@code findById} needs no graph: a load by id already joins both.
  */
 interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
-
-    /** Every User, in the given order, each read in the same statement as its resource. */
-    @Override
-    @EntityGraph(ScimUserEntity.WITH_RESOURCE_AND_EMAILS)
-    List<ScimUserEntity> findAll(Sort sort);
 
     /** The Users with these ids, a SCIM query's page, each read with its resource. */
     @Override

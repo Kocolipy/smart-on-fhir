@@ -876,13 +876,24 @@ paths:
   /api/admin/accounts:
     get:
       tags: [Administration]
-      summary: List the Users projection
+      summary: Read a page of the Users projection
       description: |
-        The Accounts page's Users view: every SCIM User with its directory-owned
-        identity, active flag and direct Groups, and its application-owned
-        credential, lockout, change-required and last-authentication state.
-        Requires `user:read`: a caller without it is refused with 403, by the
-        handler's own declaration and by the application chain's matching rule.
+        The Accounts page's Users view, one page at a time: each SCIM User with
+        its directory-owned identity, active flag and direct Groups, and its
+        application-owned credential, lockout, change-required and
+        last-authentication state, plus `totalResults`, how many Users matched.
+        Ordered by normalized `userName`. Requires `user:read`: a caller without
+        it is refused with 403, by the handler's own declaration and by the
+        application chain's matching rule.
+
+        `search` narrows the page to the Users whose `userName` or display name
+        contains it, ignoring case; it is stripped, and a blank one is no search.
+        Its text is matched literally — `%`, `_` and a quote are only
+        characters — and bound as a statement parameter, never put into filter or
+        statement text. Paged as a SCIM collection and a Group's member read are:
+        `startIndex` is one-based and defaults to 1, anything below 1 being read
+        as 1; `count` defaults to 100 and is capped at 200, a negative value
+        being read as 0, which reports `totalResults` with no Users.
 
         READ-ONLY for everything the directory owns. No operation under
         `/api/admin/accounts` accepts a `userName`, `displayName`, `active` flag
@@ -896,15 +907,25 @@ paths:
       operationId: listAccounts
       security:
         - sessionCookie: [user:read]
+      parameters:
+        - $ref: "#/components/parameters/AccountSearch"
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
       responses:
         "200":
-          description: Every account, ordered by username.
+          description: The page, and how many Users matched.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AccountSummary"
+                $ref: "#/components/schemas/AccountPage"
+        "400":
+          description: |
+            `startIndex` or `count` is not an integer. The generic
+            `invalid-request` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -980,12 +1001,19 @@ paths:
   /api/admin/groups:
     get:
       tags: [Administration]
-      summary: List the Groups projection
+      summary: Read a page of the Groups projection
       description: |
-        The Accounts page's Groups view: every SCIM Group with its direct member
-        count, whether it is the protected, server-seeded Admin group, and the
-        Permissions it confers on its direct members (ADR 0015). Requires
+        The Accounts page's Groups view, one page at a time: each SCIM Group with
+        its direct member count, whether it is the protected, server-seeded Admin
+        group, and the Permissions it confers on its direct members (ADR 0015),
+        plus `totalResults`, how many Groups matched. Ordered by normalized
+        display name. Member counts are counted, never read. Requires
         `group:read`.
+
+        `search` narrows the page to the Groups whose display name contains it,
+        ignoring case, matched and bound exactly as the Users projection's
+        search is. Paged exactly as the Users projection and a Group's member
+        read are.
 
         Groups and their membership are READ-ONLY here: a connector writes them
         over SCIM, and `POST`, `PUT`, `PATCH` and `DELETE` here or on
@@ -996,15 +1024,25 @@ paths:
       operationId: listGroups
       security:
         - sessionCookie: [group:read]
+      parameters:
+        - $ref: "#/components/parameters/GroupSearch"
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
       responses:
         "200":
-          description: Every Group, ordered by normalized display name.
+          description: The page, and how many Groups matched.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/GroupSummary"
+                $ref: "#/components/schemas/GroupPage"
+        "400":
+          description: |
+            `startIndex` or `count` is not an integer. The generic
+            `invalid-request` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2935,6 +2973,24 @@ components:
       schema:
         type: string
         format: uuid
+    AccountSearch:
+      name: search
+      in: query
+      required: false
+      description: |
+        Text a User's `userName` or display name must contain, ignoring case and
+        matched literally. Stripped; absent or blank lists every User.
+      schema:
+        type: string
+    GroupSearch:
+      name: search
+      in: query
+      required: false
+      description: |
+        Text a Group's display name must contain, ignoring case and matched
+        literally. Stripped; absent or blank lists every Group.
+      schema:
+        type: string
     CsrfToken:
       name: X-CSRF-TOKEN
       in: header
@@ -3640,7 +3696,7 @@ components:
       description: |
         One row of the Users projection. Directory-owned fields (`userName`,
         `displayName`, `active`, `groups`) are read-only here; the rest is
-        application-owned state. Returned by the listing and, for the User acted
+        application-owned state. Returned in a page of the listing and, for the User acted
         on, by `unlock`.
       required:
         [
@@ -3793,6 +3849,54 @@ components:
             Admin group, which carries none: the Superuser is not a Permission.
           items:
             $ref: "#/components/schemas/DelegatablePermission"
+    AccountPage:
+      type: object
+      description: |
+        One page of the Users projection, in normalized `userName` order.
+      required: [totalResults, startIndex, users]
+      additionalProperties: false
+      properties:
+        totalResults:
+          type: integer
+          minimum: 0
+          description: |
+            How many Users the search matched — every User without one —
+            whatever the page.
+        startIndex:
+          type: integer
+          minimum: 1
+          description: The one-based position of the page's first User.
+        users:
+          type: array
+          description: |
+            The page's Users, in order. Empty past the last match and when
+            nothing matched.
+          items:
+            $ref: "#/components/schemas/AccountSummary"
+    GroupPage:
+      type: object
+      description: |
+        One page of the Groups projection, in normalized display-name order.
+      required: [totalResults, startIndex, groups]
+      additionalProperties: false
+      properties:
+        totalResults:
+          type: integer
+          minimum: 0
+          description: |
+            How many Groups the search matched — every Group without one —
+            whatever the page.
+        startIndex:
+          type: integer
+          minimum: 1
+          description: The one-based position of the page's first Group.
+        groups:
+          type: array
+          description: |
+            The page's Groups, in order. Empty past the last match and when
+            nothing matched.
+          items:
+            $ref: "#/components/schemas/GroupSummary"
     GroupMemberPage:
       type: object
       description: |

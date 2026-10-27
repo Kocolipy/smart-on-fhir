@@ -191,7 +191,7 @@ class GroupPermissionPropagationIntegrationTests {
                         .cookie(logIn("auditor"))).andReturn();
 
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
-        JsonNode rows = json.readTree(listed.getResponse().getContentAsString());
+        JsonNode rows = json.readTree(listed.getResponse().getContentAsString()).get("groups");
         assertThat(String.join(",", strings(row(rows, AUDITORS).get("permissions"))))
                 .isEqualTo(AUDITOR_PERMISSIONS);
         JsonNode adminGroup = row(rows, SUPERUSERS);

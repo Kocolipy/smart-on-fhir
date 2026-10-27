@@ -85,6 +85,38 @@ export interface GroupRow {
 }
 
 /**
+ * One page of the **Users projection**, from `GET /api/admin/accounts`: the
+ * Users a search matched — every User without one — in normalized `userName`
+ * order, with how many matched in all. `startIndex` is one-based, as SCIM
+ * pages are.
+ */
+export interface UserPage {
+  totalResults: number;
+  startIndex: number;
+  users: UserRow[];
+}
+
+/**
+ * One page of the **Groups projection**, from `GET /api/admin/groups`: the
+ * Groups a search matched — every Group without one — in normalized display
+ * name order, with how many matched in all.
+ */
+export interface GroupPage {
+  totalResults: number;
+  startIndex: number;
+  groups: GroupRow[];
+}
+
+/**
+ * Which page of a projection to read: from the one-based `startIndex`, of the
+ * rows whose name contains `search` — every row when it is empty.
+ */
+export interface ListingQuery {
+  search: string;
+  startIndex: number;
+}
+
+/**
  * A Group's direct member, as `GET /api/admin/groups/{id}/members` reports
  * it: the Users projection's identity and nothing more — there is no field a
  * credential, or any login state, could arrive in.
@@ -283,11 +315,27 @@ export const decodeIssuedToken = (value: unknown): IssuedToken => {
   };
 };
 
-/** The three listings, each an array of its row type. */
-export const decodeUserRows = (value: unknown): UserRow[] =>
-  decodeArray(value, decodeUserRow, "UserRow[]");
-export const decodeGroupRows = (value: unknown): GroupRow[] =>
-  decodeArray(value, decodeGroupRow, "GroupRow[]");
+/** A page of the Users projection: where it starts, the total, and its rows. */
+export const decodeUserPage = (value: unknown): UserPage => {
+  const page = readObject(value, "UserPage");
+  return {
+    totalResults: page.integer("totalResults"),
+    startIndex: page.integer("startIndex"),
+    users: page.array("users", decodeUserRow),
+  };
+};
+
+/** A page of the Groups projection: where it starts, the total, and its rows. */
+export const decodeGroupPage = (value: unknown): GroupPage => {
+  const page = readObject(value, "GroupPage");
+  return {
+    totalResults: page.integer("totalResults"),
+    startIndex: page.integer("startIndex"),
+    groups: page.array("groups", decodeGroupRow),
+  };
+};
+
+/** The connectors listing, an array of its row type. */
 export const decodeConnectors = (value: unknown): Connector[] =>
   decodeArray(value, decodeConnector, "Connector[]");
 
@@ -305,22 +353,41 @@ const decodeDelegatablePermissions = (value: unknown): Permission[] =>
 // whether to offer the control, and hands the declaration to `useGatedRead` or
 // `useGatedWrite` to send it.
 
-/** The Users projection, `GET /api/admin/accounts`. */
-export const USERS: ReadDeclaration<UserRow[]> = {
-  decode: jsonDecoder(decodeUserRows),
-  path: () => USERS_PATH,
+/**
+ * How many rows one read of the Users or Groups projection asks for. A
+ * Group's member read asks for as many, so every pager on the page moves by
+ * the same step.
+ */
+export const LISTING_PAGE_SIZE = 20;
+
+/**
+ * A projection's query string: the page, then the search when there is one,
+ * encoded as one value — the backend binds it as a parameter and matches it
+ * literally, so nothing in it is filter syntax.
+ */
+const listingQuery = ({ search, startIndex }: ListingQuery) =>
+  `startIndex=${startIndex}&count=${LISTING_PAGE_SIZE}` +
+  (search === "" ? "" : `&search=${encodeURIComponent(search)}`);
+
+/**
+ * One page of the Users projection, `GET /api/admin/accounts`, searched by
+ * `userName` or display name.
+ */
+export const USERS: ReadDeclaration<UserPage, [query: ListingQuery]> = {
+  decode: jsonDecoder(decodeUserPage),
+  path: (query) => `${USERS_PATH}?${listingQuery(query)}`,
   permission: "user:read",
 };
 
-/** The Groups projection, `GET /api/admin/groups`. */
-export const GROUPS: ReadDeclaration<GroupRow[]> = {
-  decode: jsonDecoder(decodeGroupRows),
-  path: () => GROUPS_PATH,
+/** One page of the Groups projection, `GET /api/admin/groups`, searched by display name. */
+export const GROUPS: ReadDeclaration<GroupPage, [query: ListingQuery]> = {
+  decode: jsonDecoder(decodeGroupPage),
+  path: (query) => `${GROUPS_PATH}?${listingQuery(query)}`,
   permission: "group:read",
 };
 
-/** How many members one read of a Group's members asks for. */
-export const GROUP_MEMBERS_PAGE_SIZE = 20;
+/** How many members one read of a Group's members asks for: a listing page's worth. */
+export const GROUP_MEMBERS_PAGE_SIZE = LISTING_PAGE_SIZE;
 
 /**
  * One page of a Group's direct members, `GET /api/admin/groups/{id}/members`,

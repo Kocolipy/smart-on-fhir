@@ -203,25 +203,33 @@ describe("App", () => {
       {
         // Every Permission, as the Superuser Group confers them; no role field.
         [ME]: json(testUser({ permissions: EVERY_PERMISSION, username: "grace" })),
-        "GET /api/admin/accounts": json([
-          {
-            active: true,
-            admin: true,
-            bootstrapAdmin: false,
-            createdAt: "2026-01-02T03:04:05Z",
-            displayName: null,
-            groups: [],
-            hasPassword: true,
-            id: "00000000-0000-4000-8000-000000000001",
-            lastAuthenticatedAt: null,
-            locked: false,
-            lockCause: null,
-            passwordChangeRequired: false,
-            userName: "grace",
-          },
-        ]),
+        "GET /api/admin/accounts?startIndex=1&count=20": json({
+          startIndex: 1,
+          totalResults: 1,
+          users: [
+            {
+              active: true,
+              admin: true,
+              bootstrapAdmin: false,
+              createdAt: "2026-01-02T03:04:05Z",
+              displayName: null,
+              groups: [],
+              hasPassword: true,
+              id: "00000000-0000-4000-8000-000000000001",
+              lastAuthenticatedAt: null,
+              locked: false,
+              lockCause: null,
+              passwordChangeRequired: false,
+              userName: "grace",
+            },
+          ],
+        }),
         "GET /api/admin/connectors": json([]),
-        "GET /api/admin/groups": json([]),
+        "GET /api/admin/groups?startIndex=1&count=20": json({
+          groups: [],
+          startIndex: 1,
+          totalResults: 0,
+        }),
       },
       "/accounts",
     );

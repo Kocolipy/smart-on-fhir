@@ -50,20 +50,6 @@ class ScimGroupPersistenceAdapterIntegrationTests {
         created.forEach(this::deleteCommitted);
     }
 
-    /** The administrative listing reads each Group whole or not at all. */
-    @Test
-    void aGroupDeletedDuringTheListingIsListedWholeOrNotAtAll() {
-        ScimGroup victim = stored(unique("adapter-group-listing"));
-
-        List<ScimGroup> listed = inTransaction(() -> CommitBetweenStatements.afterReading(
-                "scim_groups",
-                () -> deleteCommitted(victim.id()),
-                groups::findAllOrderedByNormalizedDisplayName));
-
-        assertThat(listed.stream().filter(group -> group.id().equals(victim.id())).toList())
-                .isIn(List.of(), List.of(victim));
-    }
-
     /** A page of Groups by id, as a SCIM query loads one, reads each Group whole or not at all. */
     @Test
     void aGroupDeletedDuringAPageReadIsReadWholeOrNotAtAll() {

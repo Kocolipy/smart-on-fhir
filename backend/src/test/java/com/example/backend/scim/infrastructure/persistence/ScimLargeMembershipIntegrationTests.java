@@ -12,7 +12,6 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -131,34 +130,18 @@ class ScimLargeMembershipIntegrationTests {
         assertThat(groupVersions(groupIds)).hasSize(MANY).containsOnly(2L);
     }
 
-    /** The administrative listing reads every Group with its members, however many there are. */
-    @Test
-    void theListingOfMoreGroupsThanOneRequestBindsCarriesEachGroupsMembers() {
-        UUID user = seededUsers(1).getFirst();
-        Set<UUID> groupIds = Set.copyOf(seededGroupsContaining(user, MANY));
-
-        List<ScimGroup> listed = inTransaction(groups::findAllOrderedByNormalizedDisplayName);
-
-        assertThat(listed.stream()
-                        .filter(group -> groupIds.contains(group.id()))
-                        .filter(group -> group.hasMember(user)))
-                .hasSize(MANY);
-    }
-
     /**
      * The Groups projection counts a Group's members where they are stored, so a Group with more
      * members than one request binds is counted exactly, without its members being read.
      */
     @Test
-    void theCountedListingCountsAGroupWithMoreMembersThanOneRequestBinds() {
+    void theCountedPageCountsAGroupWithMoreMembersThanOneRequestBinds() {
         UUID group = seededGroupOf(seededUsers(MANY));
 
-        List<ScimGroupHeadcount> listed =
-                inTransaction(groups::findAllHeadcountsOrderedByNormalizedDisplayName);
+        List<ScimGroupHeadcount> counted =
+                inTransaction(() -> groups.findHeadcountsById(List.of(group)));
 
-        assertThat(listed).filteredOn(counted -> counted.id().equals(group))
-                .extracting(ScimGroupHeadcount::memberCount)
-                .containsExactly(MANY);
+        assertThat(counted).extracting(ScimGroupHeadcount::memberCount).containsExactly(MANY);
     }
 
     // ---- helpers --------------------------------------------------------------------------
@@ -241,22 +224,20 @@ class ScimLargeMembershipIntegrationTests {
     }
 
     /**
-     * These Users' versions, read back through the port's listing of the whole directory: one
-     * read for all of them, where reading each by id would cost a round trip apiece.
+     * These Users' versions, read back through the port by id: one read per {@link BoundIdChunks}
+     * chunk, where reading each by id would cost a round trip apiece.
      */
     private List<Long> userVersions(List<UUID> ids) {
-        Set<UUID> wanted = Set.copyOf(ids);
-        return inTransaction(() -> users.findAllOrderedByNormalizedUserName().stream()
-                .filter(user -> wanted.contains(user.id()))
+        return inTransaction(() -> BoundIdChunks.of(ids).stream()
+                .flatMap(chunk -> users.findAllById(chunk).stream())
                 .map(ScimUser::version)
                 .toList());
     }
 
-    /** These Groups' versions, read back through the port's listing, as for the Users. */
+    /** These Groups' versions, read back through the port by id, as for the Users. */
     private List<Long> groupVersions(List<UUID> ids) {
-        Set<UUID> wanted = Set.copyOf(ids);
-        return inTransaction(() -> groups.findAllOrderedByNormalizedDisplayName().stream()
-                .filter(group -> wanted.contains(group.id()))
+        return inTransaction(() -> BoundIdChunks.of(ids).stream()
+                .flatMap(chunk -> groups.findAllById(chunk).stream())
                 .map(ScimGroup::version)
                 .toList());
     }

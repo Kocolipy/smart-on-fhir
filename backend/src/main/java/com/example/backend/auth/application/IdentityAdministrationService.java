@@ -17,9 +17,7 @@ import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimFilter;
-import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupHeadcount;
-import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimPageRequest;
@@ -27,7 +25,6 @@ import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,52 +91,81 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * Every identity, for administrative review. Never carries a password hash.
+     * One page of the Users projection, for administrative review: the Users whose
+     * {@code userName} or display name contains {@code search}, ignoring case — every User when
+     * there is no search — in normalized {@code userName} order, with how many matched in all.
+     * Never carries a password hash.
      *
-     * <p>Every Group is read ONCE, memberships included, and each User's direct Groups are
-     * answered from it in memory by inverting every Group's. The Superuser flag is the answer the
-     * session gets at sign-in ({@link GroupPermissions#powersOf}), asked for every User at
-     * once from those memberships — one read of the Groups, not one statement per identity, which
-     * for a thousand identities would be a thousand of them to compute a column.
+     * <p>A page of the directory, not the whole of it: the directory's collection query, asked
+     * without a connector, selects and totals the page, and the search is a filter value whose
+     * text is bound as a statement parameter ({@link ScimFilter#nameContains}). The page's Users
+     * are loaded in one read, and their direct Groups in one more for the page's Users alone —
+     * never one per User, and never every Group's membership. The Superuser flag is the answer the
+     * session gets at sign-in ({@link GroupPermissions#powersOf}), asked for the page's Users at
+     * once from those memberships.
+     *
+     * @param search the text a name must contain, or {@code null}; stripped, and no search when
+     *               nothing is left
      */
     @Transactional(readOnly = true)
-    public List<IdentitySummary> listIdentities() {
-        Map<UUID, List<IdentitySummary.DirectGroup>> groupsByMember = new HashMap<>();
-        for (ScimGroup group : groups.findAllOrderedByNormalizedDisplayName()) {
-            IdentitySummary.DirectGroup reference =
-                    new IdentitySummary.DirectGroup(group.id(), group.displayName());
-            for (ScimGroupMember member : group.members()) {
-                groupsByMember.computeIfAbsent(member.userId(), id -> new ArrayList<>())
-                        .add(reference);
-            }
-        }
-        Map<UUID, ConferredPower> power = groupPermissions.powersOf(
-                groupsByMember.entrySet().stream().collect(Collectors.toMap(
-                        Map.Entry::getKey, member -> idsOf(member.getValue()))));
-        return users.findAllOrderedByNormalizedUserName().stream()
+    public IdentityPage listIdentities(String search, ScimPageRequest page) {
+        ScimQuery.Result result = matching(ScimResourceType.USER, search, page);
+        List<ScimUser> found = users.findAllById(result.idsOf(ScimResourceType.USER));
+        Map<UUID, List<IdentitySummary.DirectGroup>> direct = new HashMap<>();
+        groups.findGroupsOfUsers(found.stream().map(ScimUser::id).toList())
+                .forEach((userId, references) -> direct.put(userId, references.stream()
+                        .map(group -> new IdentitySummary.DirectGroup(
+                                group.id(), group.displayName()))
+                        .toList()));
+        Map<UUID, ConferredPower> power = groupPermissions.powersOf(direct.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, member -> idsOf(member.getValue()))));
+        List<IdentitySummary> rows = found.stream()
                 .map(user -> summarize(
                         user,
                         user.login(),
                         power.getOrDefault(user.id(), ConferredPower.NONE).superuser(),
-                        groupsByMember.get(user.id())))
+                        direct.get(user.id())))
                 .toList();
+        return new IdentityPage(result.totalResults(), page.startIndex(), rows);
     }
 
     /**
-     * Every Group, for the read-only Groups projection: its name, how many direct members it has,
-     * whether it is the protected Admin group — decided by the reservation marker, so a Group a
-     * connector names "Admins" is not reported as one — and the Permissions it carries, sorted by
-     * name. The members are counted where they are stored, never read to be counted; one read for
-     * every Group's Permissions, not one per Group.
+     * One page of the read-only Groups projection: the Groups whose display name contains
+     * {@code search}, ignoring case — every Group when there is no search — in normalized
+     * {@code displayName} order, with how many matched in all. Each row is the Group's name, how
+     * many direct members it has, whether it is the protected Admin group — decided by the
+     * reservation marker, so a Group a connector names "Admins" is not reported as one — and the
+     * Permissions it carries, sorted by name.
+     *
+     * <p>Selected and totalled by the directory's collection query, as {@link #listIdentities}
+     * is; the page's members are counted where they are stored, never read to be counted, and
+     * its Groups' Permissions are one read, not one per Group.
+     *
+     * @param search the text a display name must contain, or {@code null}; stripped, and no
+     *               search when nothing is left
      */
     @Transactional(readOnly = true)
-    public List<GroupSummary> listGroups() {
-        List<ScimGroupHeadcount> all = groups.findAllHeadcountsOrderedByNormalizedDisplayName();
+    public GroupPage listGroups(String search, ScimPageRequest page) {
+        ScimQuery.Result result = matching(ScimResourceType.GROUP, search, page);
+        List<ScimGroupHeadcount> found =
+                groups.findHeadcountsById(result.idsOf(ScimResourceType.GROUP));
         Map<UUID, Set<Permission>> carried =
-                groupPermissions.carriedBy(all.stream().map(ScimGroupHeadcount::id).toList());
-        return all.stream()
+                groupPermissions.carriedBy(found.stream().map(ScimGroupHeadcount::id).toList());
+        List<GroupSummary> rows = found.stream()
                 .map(group -> GroupSummary.of(group, carried.getOrDefault(group.id(), Set.of())))
                 .toList();
+        return new GroupPage(result.totalResults(), page.startIndex(), rows);
+    }
+
+    /**
+     * The page of one resource type a name search selects, in the type's default order, and its
+     * total: the administrative collection query, filtered only when the search has text left
+     * once stripped.
+     */
+    private ScimQuery.Result matching(ScimResourceType type, String search, ScimPageRequest page) {
+        String text = search == null ? "" : search.strip();
+        ScimFilter filter = text.isEmpty() ? null : ScimFilter.nameContains(type, text);
+        return queries.query(new ScimQuery(Set.of(type), filter, null, page));
     }
 
     /**
@@ -288,8 +314,8 @@ public class IdentityAdministrationService {
     /**
      * One User's row, for an operation's response: its direct Groups read for it alone, and the
      * Superuser flag from those Groups as sign-in answers it — the same two answers the listing
-     * computes for everyone at once. {@code login} is the state as the operation left it, which
-     * the stored {@code user} it was read from predates.
+     * computes for a page of Users at once. {@code login} is the state as the operation left it,
+     * which the stored {@code user} it was read from predates.
      */
     private IdentitySummary summarize(ScimUser user, ScimLoginState login) {
         List<IdentitySummary.DirectGroup> direct = groups.findGroupsOfUser(user.id()).stream()

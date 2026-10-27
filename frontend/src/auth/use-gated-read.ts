@@ -73,8 +73,12 @@ export interface GatedRead<T, N extends boolean = false> {
    * once its read has answered.
    */
   reload: () => Promise<void>;
-  /** Replaces the data locally, from a response that already states it. */
-  update: (next: (current: T | null) => T) => void;
+  /**
+   * Replaces the data locally, from a response that already states it. `next`
+   * answering `null` says the response changes nothing held — as an answer
+   * for one row of data that is not there — and the read stands as it was.
+   */
+  update: (next: (current: T | null) => T | null) => void;
 }
 
 /**
@@ -226,13 +230,14 @@ export function useGatedRead<T, A extends readonly unknown[], N extends boolean 
   // No need to memoise: `setState` is stable, and this is called from event
   // handlers, never named as a dependency. A response that states the data
   // makes it read — an `absent` one too, as the response says something is
-  // there now; only a read that failed stays failed, its data kept.
-  const update = (next: (current: T | null) => T) => {
-    setState((current) =>
-      current.outcome === "failed"
-        ? { ...current, data: next(current.data) }
-        : { data: next(current.data), outcome: "ok" },
-    );
+  // there now; only a read that failed stays failed, its data kept. One that
+  // changes nothing leaves the state as it was.
+  const update = (next: (current: T | null) => T | null) => {
+    setState((current) => {
+      const data = next(current.data);
+      if (data === null) return current;
+      return current.outcome === "failed" ? { ...current, data } : { data, outcome: "ok" };
+    });
   };
 
   // A state is `absent` only when the declaration opted in, as its `N` says,

@@ -10,6 +10,7 @@ import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupPermissionsChangeRefusedException;
 import com.example.backend.auth.application.GroupMemberPage;
+import com.example.backend.auth.application.GroupPage;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.SessionRevocationService;
@@ -117,15 +118,48 @@ class AdminGroupControllerTests {
         assertThat(audit.events()).isEmpty();
     }
 
-    /** The Groups projection: each Group with its direct member count, counted. */
+    /**
+     * The Groups projection, a page at a time: each Group with its direct member count, counted,
+     * and how many Groups there are in all. No parameter is the first page at SCIM's default size.
+     */
     @Test
-    void theGroupsAreListedWithTheirMemberCounts() {
+    void theGroupsAreListedAPageAtATimeWithTheirMemberCounts() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         ScimGroup nurses = groups.create(ScimIdentities.group("Nurses", ada));
 
-        assertThat(controller.listGroups()).containsExactly(
+        assertThat(controller.listGroups(null, null, null)).isEqualTo(new GroupPage(2, 1, List.of(
                 new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()),
-                new GroupSummary(nurses.id(), "Nurses", 1, false, List.of()));
+                new GroupSummary(nurses.id(), "Nurses", 1, false, List.of()))));
+    }
+
+    /** The page asked for, from the one-based {@code startIndex} for {@code count}. */
+    @Test
+    void theGroupsAreAnsweredFromTheStartIndexForTheCount() {
+        ScimGroup nurses = groups.create(ScimIdentities.group("Nurses"));
+        groups.create(ScimIdentities.group("Porters"));
+
+        assertThat(controller.listGroups(null, 2, 1)).isEqualTo(new GroupPage(3, 2, List.of(
+                new GroupSummary(nurses.id(), "Nurses", 0, false, List.of()))));
+    }
+
+    /** The search reaches the listing: only the Groups whose name contains it, and their total. */
+    @Test
+    void theGroupsAreSearchedByName() {
+        ScimGroup nurses = groups.create(ScimIdentities.group("Night Nurses"));
+        groups.create(ScimIdentities.group("Porters"));
+
+        assertThat(controller.listGroups("nurse", null, null)).isEqualTo(new GroupPage(1, 1,
+                List.of(new GroupSummary(nurses.id(), "Night Nurses", 0, false, List.of()))));
+    }
+
+    /** An out-of-range page is coerced, as the member read's and SCIM's are, never refused. */
+    @Test
+    void anOutOfRangePageIsCoercedNotRefused() {
+        groups.create(ScimIdentities.group("Nurses"));
+
+        assertThat(List.of(controller.listGroups(null, 0, -5), controller.listGroups(null, -3, 1)))
+                .containsExactly(new GroupPage(2, 1, List.of()), new GroupPage(2, 1, List.of(
+                        new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()))));
     }
 
     /** A Group's direct members, from the one-based {@code startIndex} for {@code count}. */

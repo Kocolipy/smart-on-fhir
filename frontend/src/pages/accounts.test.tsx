@@ -17,8 +17,8 @@ import {
 import type { GroupMember, GroupRow, UserRow } from "./accounts-api";
 import { renderSignedIn } from "./signed-in-shell.testHelpers";
 
-const USERS = "GET /api/admin/accounts";
-const GROUPS = "GET /api/admin/groups";
+const USERS = "GET /api/admin/accounts?startIndex=1&count=20";
+const GROUPS = "GET /api/admin/groups?startIndex=1&count=20";
 const CONNECTORS = "GET /api/admin/connectors";
 
 /** A Superuser's session, which sees every listing and every action on the page. */
@@ -54,6 +54,17 @@ const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
   ...overrides,
 });
 
+/**
+ * A page of the Users projection as the backend answers it: these rows, from
+ * `startIndex`, of `totalResults` in all — just these rows unless a test says so.
+ */
+const usersPage = (users: readonly object[], totalResults = users.length, startIndex = 1) =>
+  json({ startIndex, totalResults, users });
+
+/** A page of the Groups projection, as {@link usersPage} is one of Users. */
+const groupsPage = (groups: readonly object[], totalResults = groups.length, startIndex = 1) =>
+  json({ groups, startIndex, totalResults });
+
 const unlockGrace = `POST /api/admin/accounts/${GRACE_ID}/unlock`;
 
 /**
@@ -65,8 +76,8 @@ const unlockGrace = `POST /api/admin/accounts/${GRACE_ID}/unlock`;
 const renderAccounts = (answers: Answers, session: StartingSession = SUPERUSER) =>
   renderSignedIn("/accounts", session, {
     [CONNECTORS]: json([]),
-    [GROUPS]: json([]),
-    [USERS]: json([]),
+    [GROUPS]: groupsPage([]),
+    [USERS]: usersPage([]),
     ...answers,
   });
 
@@ -88,7 +99,7 @@ const row = (name: string, table = usersTable()) =>
 describe("Accounts", () => {
   it("lists every User with its identity, standing, credential and history", async () => {
     const { requests } = await renderAccounts({
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({
           displayName: "Grace Hopper",
           groups: [
@@ -132,12 +143,15 @@ describe("Accounts", () => {
       "2026-03-05 01:06",
     ]);
 
-    expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/accounts" });
+    expect(requests()).toContainEqual({
+      method: "GET",
+      path: "/api/admin/accounts?startIndex=1&count=20",
+    });
   });
 
   it("reports the states a directory and the login path can leave a User in", async () => {
     await renderAccounts({
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({ active: false, hasPassword: false, userName: "closed" }),
         userRow({ id: "p", locked: true, passwordChangeRequired: true, userName: "penalised" }),
       ]),
@@ -154,7 +168,7 @@ describe("Accounts", () => {
 
   it("says why each User is locked, so a forgotten password and an abandoned account differ", async () => {
     await renderAccounts({
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({ id: "f", locked: true, lockCause: "FAILURES", userName: "guessed" }),
         userRow({ id: "d", locked: true, lockCause: "DORMANCY", userName: "dormant" }),
         userRow({ id: "o", userName: "open" }),
@@ -171,12 +185,12 @@ describe("Accounts", () => {
 
   it("lists every Group with its member count and the Permissions it confers", async () => {
     const { requests } = await renderAccounts({
-      [GROUPS]: json([
+      [GROUPS]: groupsPage([
         groupRow({ adminGroup: true, displayName: "Admins", id: "a", memberCount: 1 }),
         groupRow({ displayName: "Auditors", id: "b", permissions: ["audit:read", "user:read"] }),
         groupRow(),
       ]),
-      [USERS]: json([userRow()]),
+      [USERS]: usersPage([userRow()]),
     });
 
     expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
@@ -188,16 +202,19 @@ describe("Accounts", () => {
     expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("—")).toBeInTheDocument();
-    expect(requests()).toContainEqual({ method: "GET", path: "/api/admin/groups" });
+    expect(requests()).toContainEqual({
+      method: "GET",
+      path: "/api/admin/groups?startIndex=1&count=20",
+    });
   });
 
   it("shows the Admin group as conferring the Superuser, whatever Permissions it reports", async () => {
     await renderAccounts({
-      [GROUPS]: json([
+      [GROUPS]: groupsPage([
         groupRow({ adminGroup: true, displayName: "Admins", id: "a" }),
         groupRow({ displayName: "Superusers", id: "b", permissions: ["ops:read"] }),
       ]),
-      [USERS]: json([userRow()]),
+      [USERS]: usersPage([userRow()]),
     });
 
     expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
@@ -213,8 +230,8 @@ describe("Accounts", () => {
    */
   it("offers no control that could change what the directory owns", async () => {
     await renderAccounts({
-      [GROUPS]: json([groupRow({ adminGroup: true, displayName: "Admins" })]),
-      [USERS]: json([
+      [GROUPS]: groupsPage([groupRow({ adminGroup: true, displayName: "Admins" })]),
+      [USERS]: usersPage([
         userRow({ locked: true }),
         userRow({ active: false, id: "h", userName: "hopper" }),
         userRow({ bootstrapAdmin: true, id: "r", userName: "root" }),
@@ -242,7 +259,7 @@ describe("Accounts", () => {
   });
 
   it("says Unlock is the only way a lockout ends and that it requires a password change", async () => {
-    await renderAccounts({ [USERS]: json([userRow({ locked: true })]) });
+    await renderAccounts({ [USERS]: usersPage([userRow({ locked: true })]) });
 
     const unlock = await screen.findByRole("button", { name: "Unlock grace" });
     const explanation =
@@ -256,7 +273,7 @@ describe("Accounts", () => {
   it("ends a lockout by the User's stable id and shows the change it now requires", async () => {
     const { requests } = await renderAccounts({
       [unlockGrace]: json(userRow({ locked: false, passwordChangeRequired: true })),
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -276,7 +293,7 @@ describe("Accounts", () => {
   it("reports an action answered with a row that does not decode, and keeps the row", async () => {
     await renderAccounts({
       [unlockGrace]: json({ ...userRow(), lockCause: "DORMANCY" }),
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -289,7 +306,7 @@ describe("Accounts", () => {
   });
 
   it("offers Unlock only while a lockout is in force", async () => {
-    await renderAccounts({ [USERS]: json([userRow()]) });
+    await renderAccounts({ [USERS]: usersPage([userRow()]) });
 
     await screen.findByRole("rowheader", { name: /^grace/ });
     expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
@@ -299,7 +316,7 @@ describe("Accounts", () => {
   // offers anything, whatever its credential.
   it("offers no action on an unlocked User, whatever its credential", async () => {
     await renderAccounts({
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({ userName: "settled" }),
         userRow({ hasPassword: false, id: "n", userName: "nopass" }),
         userRow({ id: "f", passwordChangeRequired: true, userName: "flagged" }),
@@ -311,7 +328,7 @@ describe("Accounts", () => {
   });
 
   it("offers Unlock alone on a locked User", async () => {
-    await renderAccounts({ [USERS]: json([userRow({ locked: true })]) });
+    await renderAccounts({ [USERS]: usersPage([userRow({ locked: true })]) });
 
     await screen.findByRole("rowheader", { name: /^grace/ });
     expect(
@@ -330,7 +347,7 @@ describe("Accounts", () => {
   it("offers the signed-in Admin no action on their own account after a rename", async () => {
     await renderAccounts(
       {
-        [USERS]: json([
+        [USERS]: usersPage([
           userRow({ admin: true, id: ALICE_ID, locked: true, userName: "alice.tan" }),
         ]),
       },
@@ -347,7 +364,7 @@ describe("Accounts", () => {
    */
   it("offers Unlock on another User who now holds the session's name", async () => {
     await renderAccounts(
-      { [USERS]: json([userRow({ locked: true, userName: "alice" })]) },
+      { [USERS]: usersPage([userRow({ locked: true, userName: "alice" })]) },
       holding(EVERY_PERMISSION, { id: ALICE_ID, username: "alice" }),
     );
 
@@ -357,7 +374,7 @@ describe("Accounts", () => {
   it("shows the Bootstrap Admin with no lockout state and no Unlock", async () => {
     await renderAccounts({
       // Locked is impossible for it; even a row claiming it renders no state.
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({ admin: true, bootstrapAdmin: true, locked: true, userName: "root" }),
       ]),
     });
@@ -374,7 +391,7 @@ describe("Accounts", () => {
     const unlocking = deferred();
     await renderAccounts({
       [unlockGrace]: unlocking.answer,
-      [USERS]: json([
+      [USERS]: usersPage([
         userRow({ locked: true }),
         userRow({ id: "h", locked: true, userName: "hopper" }),
       ]),
@@ -397,7 +414,7 @@ describe("Accounts", () => {
   it("reports an Unlock refused because the User is no longer locked", async () => {
     await renderAccounts({
       [unlockGrace]: json({ code: "request-refused", status: 409 }, 409),
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -411,7 +428,10 @@ describe("Accounts", () => {
   });
 
   it("reports a User that has since been removed", async () => {
-    await renderAccounts({ [unlockGrace]: bare(404), [USERS]: json([userRow({ locked: true })]) });
+    await renderAccounts({
+      [unlockGrace]: bare(404),
+      [USERS]: usersPage([userRow({ locked: true })]),
+    });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
@@ -424,7 +444,7 @@ describe("Accounts", () => {
   it("reports a failed action with action-specific copy", async () => {
     await renderAccounts({
       [unlockGrace]: UNREACHABLE,
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -438,7 +458,10 @@ describe("Accounts", () => {
   // hook's generic 400 copy — the status the page's action-specific sentence
   // is written for.
   it("reports a 400 refusal with the action's own copy, not the hook's generic one", async () => {
-    await renderAccounts({ [unlockGrace]: bare(400), [USERS]: json([userRow({ locked: true })]) });
+    await renderAccounts({
+      [unlockGrace]: bare(400),
+      [USERS]: usersPage([userRow({ locked: true })]),
+    });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
@@ -454,7 +477,7 @@ describe("Accounts", () => {
   it("clears the previous error when the next action succeeds", async () => {
     await renderAccounts({
       [unlockGrace]: [bare(503), json(userRow())],
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -467,7 +490,7 @@ describe("Accounts", () => {
   it("reports a refused action as permission denied and keeps the session", async () => {
     const { requests, session } = await renderAccounts({
       [unlockGrace]: bare(403),
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
 
@@ -502,7 +525,7 @@ describe("Accounts", () => {
   });
 
   it("reports a failed Groups read", async () => {
-    await renderAccounts({ [GROUPS]: bare(503), [USERS]: json([userRow()]) });
+    await renderAccounts({ [GROUPS]: bare(503), [USERS]: usersPage([userRow()]) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the groups. Please try again.",
@@ -535,8 +558,8 @@ describe("Accounts", () => {
   // accounts-api.test.ts's and decode.test.ts's to say.
   it("reports a Users body with a renamed field and renders none of it", async () => {
     await renderAccounts({
-      [GROUPS]: json([groupRow()]),
-      [USERS]: json([{ ...userRow(), userName: undefined, login: "grace" }]),
+      [GROUPS]: groupsPage([groupRow()]),
+      [USERS]: usersPage([{ ...userRow(), userName: undefined, login: "grace" }]),
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -599,7 +622,7 @@ describe("Accounts with its Connectors panel", () => {
     await renderAccounts({
       [CONNECTORS]: bare(503),
       [unlockGrace]: deferred().answer,
-      [USERS]: json([userRow({ locked: true })]),
+      [USERS]: usersPage([userRow({ locked: true })]),
     });
     const user = userEvent.setup();
     expect(await screen.findByRole("alert")).toHaveTextContent(/connectors/);
@@ -607,6 +630,239 @@ describe("Accounts with its Connectors panel", () => {
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+/** The read of one page of a projection, from `startIndex`, of the rows matching `search`. */
+const pageOf = (path: "accounts" | "groups", startIndex: number, search?: string) =>
+  `GET /api/admin/${path}?startIndex=${startIndex}&count=20` +
+  (search === undefined ? "" : `&search=${encodeURIComponent(search)}`);
+
+/** `count` Users, `user-01` onwards from `first`, each with an id of its own. */
+const usersFrom = (first: number, count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    userRow({
+      id: `user-${first + index}`,
+      userName: `user-${String(first + index).padStart(2, "0")}`,
+    }),
+  );
+
+/** `count` Groups, `group-01` onwards from `first`. */
+const groupsFrom = (first: number, count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    groupRow({
+      displayName: `group-${String(first + index).padStart(2, "0")}`,
+      id: `group-${first + index}`,
+    }),
+  );
+
+const rowHeaders = (table: HTMLElement) =>
+  within(table)
+    .getAllByRole("rowheader")
+    .map((header) => header.textContent);
+
+const searchFor = async (card: "users" | "groups", text: string) => {
+  const box = screen.getByRole("searchbox", { name: `Search ${card}` });
+  await userEvent.clear(box);
+  if (text !== "") await userEvent.type(box, text);
+  await userEvent.click(
+    within(
+      screen.getByRole("search", { name: `${card === "users" ? "Users" : "Groups"} search` }),
+    ).getByRole("button", { name: "Search" }),
+  );
+};
+
+describe("the Users and Groups projections, a page at a time", () => {
+  it("show the Users one page at a time with the total, moving on while more remain and back again", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 25),
+      [pageOf("accounts", 21)]: usersPage(usersFrom(21, 5), 25, 21),
+    });
+    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+    // Re-read on every use: a new page is a new pager.
+    const users = () => screen.getByRole("navigation", { name: "Users pages" });
+    expect(within(users()).queryByRole("button", { name: "Previous" })).toBeNull();
+
+    await userEvent.click(within(users()).getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Users 21–25 of 25")).toBeInTheDocument();
+    expect(rowHeaders(usersTable())).toEqual([
+      "user-21",
+      "user-22",
+      "user-23",
+      "user-24",
+      "user-25",
+    ]);
+    expect(within(users()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(requests()).toContainEqual({ method: "GET", path: pageOf("accounts", 21).slice(4) });
+
+    await userEvent.click(within(users()).getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+  });
+
+  it("show the Groups one page at a time with the total", async () => {
+    await renderAccounts({
+      [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 20), 21),
+      [pageOf("groups", 21)]: groupsPage(groupsFrom(21, 1), 21, 21),
+    });
+    expect(await screen.findByText("Groups 1–20 of 21")).toBeInTheDocument();
+
+    await userEvent.click(
+      within(screen.getByRole("navigation", { name: "Groups pages" })).getByRole("button", {
+        name: "Next",
+      }),
+    );
+
+    expect(await screen.findByText("Groups 21–21 of 21")).toBeInTheDocument();
+    expect(rowHeaders(groupsTable())).toEqual(["group-21"]);
+  });
+
+  it("search the Users by name from the first page, whichever page was shown", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 25),
+      [pageOf("accounts", 21)]: usersPage(usersFrom(21, 5), 25, 21),
+      [pageOf("accounts", 1, "grace hopper")]: usersPage([
+        userRow({ displayName: "Grace Hopper" }),
+      ]),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await screen.findByText("Users 21–25 of 25");
+
+    await searchFor("users", "  grace hopper ");
+
+    expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
+    expect(rowHeaders(usersTable())).toEqual(["graceGrace Hopper"]);
+    expect(requests()).toContainEqual({
+      method: "GET",
+      path: pageOf("accounts", 1, "grace hopper").slice(4),
+    });
+  });
+
+  it("search the Groups by name, and an emptied search lists every Group again", async () => {
+    await renderAccounts({
+      [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 2)),
+      [pageOf("groups", 1, "nurse")]: groupsPage([groupRow({ displayName: "Nurses" })]),
+    });
+    await screen.findByText("Groups 1–2 of 2");
+
+    await searchFor("groups", "nurse");
+    expect(await screen.findByRole("rowheader", { name: "Nurses" })).toBeInTheDocument();
+
+    await searchFor("groups", "");
+    expect(await screen.findByText("Groups 1–2 of 2")).toBeInTheDocument();
+    expect(rowHeaders(groupsTable())).toEqual(["group-01", "group-02"]);
+  });
+
+  it("say when a search matches nothing, which is not the same as none being provisioned", async () => {
+    await renderAccounts({
+      [pageOf("accounts", 1, "zz")]: usersPage([]),
+      [pageOf("groups", 1, "zz")]: groupsPage([]),
+    });
+    expect(await screen.findByText("No users are provisioned.")).toBeInTheDocument();
+    expect(await screen.findByText("No groups are provisioned.")).toBeInTheDocument();
+
+    await searchFor("users", "zz");
+    await searchFor("groups", "zz");
+
+    expect(await screen.findByText('No users match "zz".')).toBeInTheDocument();
+    expect(await screen.findByText('No groups match "zz".')).toBeInTheDocument();
+    expect(screen.queryByText(/are provisioned/)).toBeNull();
+    expect(screen.queryByRole("navigation", { name: /pages$/ })).toBeNull();
+  });
+
+  it("replace an unlocked User's row on a later page from the answer, reading nothing again", async () => {
+    const later = [...usersFrom(21, 2), userRow({ locked: true })];
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 23),
+      [pageOf("accounts", 21)]: usersPage(later, 23, 21),
+      [unlockGrace]: json(userRow({ passwordChangeRequired: true })),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Unlock grace" }));
+
+    expect(await row("grace").findByText("Not locked")).toBeInTheDocument();
+    expect(row("grace").getByText("Required")).toBeInTheDocument();
+    expect(screen.getByText("Users 21–23 of 23")).toBeInTheDocument();
+    expect(rowHeaders(usersTable())).toEqual(["user-21", "user-22", "grace"]);
+    expect(
+      requests()
+        .filter(({ path }) => path.startsWith("/api/admin/accounts?"))
+        .map(({ path }) => path),
+    ).toEqual([pageOf("accounts", 1).slice(4), pageOf("accounts", 21).slice(4)]);
+  });
+
+  /**
+   * An action's answer replaces its row on the page shown, so the page and
+   * the search hold still until it lands: moving off the page in between would
+   * leave the answer nowhere to go.
+   */
+  it("hold the page and the search still while an action is in flight", async () => {
+    const unlocking = deferred();
+    await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage([userRow({ locked: true }), ...usersFrom(2, 19)], 21),
+      [unlockGrace]: unlocking.answer,
+    });
+    const box = await screen.findByRole("searchbox", { name: "Search users" });
+    const controls = () => [
+      box,
+      within(screen.getByRole("search", { name: "Users search" })).getByRole("button"),
+      within(screen.getByRole("navigation", { name: "Users pages" })).getByRole("button", {
+        name: "Next",
+      }),
+    ];
+    expect(box).toHaveValue("");
+    expect(controls().map((control) => (control as HTMLButtonElement).disabled)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Unlock grace" }));
+
+    expect(controls().map((control) => (control as HTMLButtonElement).disabled)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    await unlocking.settle(json(userRow()));
+    expect(controls().map((control) => (control as HTMLButtonElement).disabled)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it("replace a Group's row on a later page from a Permissions save's answer", async () => {
+    const auditors = groupRow({ displayName: "Auditors", id: "auditors" });
+    await renderAccounts(
+      {
+        [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 20), 22),
+        [pageOf("groups", 21)]: groupsPage([...groupsFrom(21, 1), auditors], 22, 21),
+        "GET /api/admin/permissions": json(["audit:read", "user:read"]),
+        "PUT /api/admin/groups/auditors/permissions": json({
+          ...auditors,
+          permissions: ["audit:read"],
+        }),
+      },
+      holding(EVERY_PERMISSION, { superuser: true }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole("navigation", { name: "Groups pages" })).getByRole("button", {
+        name: "Next",
+      }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit permissions for Auditors" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Permissions of Auditors" });
+
+    await userEvent.click(await within(dialog).findByRole("checkbox", { name: "audit:read" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await row("Auditors", groupsTable()).findByText("audit:read")).toBeInTheDocument();
+    expect(rowHeaders(groupsTable())).toEqual(["group-21", "Auditors"]);
+    expect(screen.getByText("Groups 21–22 of 22")).toBeInTheDocument();
   });
 });
 
@@ -636,7 +892,7 @@ const membersRegion = () => screen.getByRole("region", { name: "Members of Engin
 describe("a Group's members", () => {
   it("are a disclosure behind the member count, read on expanding it", async () => {
     const { requests } = await renderAccounts({
-      [GROUPS]: json([groupRow()]),
+      [GROUPS]: groupsPage([groupRow()]),
       [membersFrom(1)]: memberPage(2, 1, [
         member(1, { displayName: "Ada Lovelace", userName: "ada" }),
         member(2, { active: false, userName: "babbage" }),
@@ -653,13 +909,17 @@ describe("a Group's members", () => {
     expect(control.getAttribute("aria-controls")).toBe(membersRegion().id);
     const items = await within(membersRegion()).findAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual(["adaAda Lovelace", "babbageInactive"]);
-    expect(within(membersRegion()).getByText("Members 1–2 of 2")).toBeInTheDocument();
+    expect(
+      within(membersRegion()).getByRole("navigation", {
+        name: "Pages of the members of Engineering",
+      }),
+    ).toHaveTextContent(/^Members 1–2 of 2$/);
     expect(within(membersRegion()).queryByRole("button")).toBeNull();
   });
 
   it("are expanded and collapsed from the keyboard", async () => {
     await renderAccounts({
-      [GROUPS]: json([groupRow()]),
+      [GROUPS]: groupsPage([groupRow()]),
       [membersFrom(1)]: memberPage(1, 1, [member(1)]),
     });
     (await screen.findByRole("button", { name: "Members of Engineering" })).focus();
@@ -675,7 +935,7 @@ describe("a Group's members", () => {
   it("are read a page at a time, moving on while more remain and back again", async () => {
     const first = Array.from({ length: 20 }, (_, index) => member(index + 1));
     const { requests } = await renderAccounts({
-      [GROUPS]: json([groupRow({ memberCount: 25 })]),
+      [GROUPS]: groupsPage([groupRow({ memberCount: 25 })]),
       [membersFrom(1)]: memberPage(25, 1, first),
       [membersFrom(21)]: memberPage(
         25,
@@ -709,7 +969,7 @@ describe("a Group's members", () => {
    */
   it("move on from where a short page ended, and back no further than the first", async () => {
     await renderAccounts({
-      [GROUPS]: json([groupRow({ memberCount: 30 })]),
+      [GROUPS]: groupsPage([groupRow({ memberCount: 30 })]),
       [membersFrom(1)]: memberPage(
         30,
         1,
@@ -733,7 +993,7 @@ describe("a Group's members", () => {
     ["a session holding every Permission but not the Superuser", holding(EVERY_PERMISSION), 3],
   ] as const)("span the whole table for %s", async (_, session, columns) => {
     await renderAccounts(
-      { [GROUPS]: json([groupRow()]), [membersFrom(1)]: memberPage(1, 1, [member(1)]) },
+      { [GROUPS]: groupsPage([groupRow()]), [membersFrom(1)]: memberPage(1, 1, [member(1)]) },
       session,
     );
 
@@ -745,7 +1005,7 @@ describe("a Group's members", () => {
 
   it("of a Group with none say so", async () => {
     await renderAccounts({
-      [GROUPS]: json([groupRow({ memberCount: 0 })]),
+      [GROUPS]: groupsPage([groupRow({ memberCount: 0 })]),
       [membersFrom(1)]: memberPage(0, 1, []),
     });
 
@@ -759,7 +1019,7 @@ describe("a Group's members", () => {
   });
 
   it("report a failed read to the page's one error line", async () => {
-    await renderAccounts({ [GROUPS]: json([groupRow()]), [membersFrom(1)]: bare(503) });
+    await renderAccounts({ [GROUPS]: groupsPage([groupRow()]), [membersFrom(1)]: bare(503) });
 
     await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
 
@@ -772,7 +1032,7 @@ describe("a Group's members", () => {
 
   it("are shown loading while the first page is read", async () => {
     const page = deferred();
-    await renderAccounts({ [GROUPS]: json([groupRow()]), [membersFrom(1)]: page.answer });
+    await renderAccounts({ [GROUPS]: groupsPage([groupRow()]), [membersFrom(1)]: page.answer });
 
     await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
 
@@ -783,14 +1043,14 @@ describe("a Group's members", () => {
 
   it("are not offered to a session holding group:read without user:read", async () => {
     const { requests } = await renderAccounts(
-      { [GROUPS]: json([groupRow()]) },
+      { [GROUPS]: groupsPage([groupRow()]) },
       holding(["group:read"]),
     );
 
     expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
     expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
-    expect(requests().map(({ path }) => path)).toEqual(["/api/admin/groups"]);
+    expect(requests().map(({ path }) => path)).toEqual(["/api/admin/groups?startIndex=1&count=20"]);
   });
 });
 
@@ -801,7 +1061,7 @@ describe("Accounts by Permission", () => {
   // Without connector:read the panel renders nothing of its own; its suite pins that.
   it("shows an Account admin the Users and Groups", async () => {
     await renderAccounts(
-      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      { [USERS]: usersPage([userRow({ locked: true, userName: "grace" })]) },
       holding(["group:read", "user:read", "account:unlock"]),
     );
 
@@ -814,7 +1074,7 @@ describe("Accounts by Permission", () => {
 
   it("shows a helpdesk the Users with Unlock, and no Groups", async () => {
     await renderAccounts(
-      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      { [USERS]: usersPage([userRow({ locked: true, userName: "grace" })]) },
       holding(["user:read", "account:unlock"]),
     );
 
@@ -825,7 +1085,7 @@ describe("Accounts by Permission", () => {
 
   it("offers no Unlock without account:unlock", async () => {
     await renderAccounts(
-      { [USERS]: json([userRow({ locked: true, userName: "grace" })]) },
+      { [USERS]: usersPage([userRow({ locked: true, userName: "grace" })]) },
       holding(["user:read"]),
     );
 
@@ -838,7 +1098,7 @@ describe("Accounts by Permission", () => {
 
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
-    expect(paths(requests)).toEqual(["/api/admin/groups"]);
+    expect(paths(requests)).toEqual(["/api/admin/groups?startIndex=1&count=20"]);
   });
 
   it("shows only the connector panel to a connector reader", async () => {
@@ -877,7 +1137,7 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
   });
   const putAuditors = `PUT /api/admin/groups/${AUDITORS_ID}/permissions`;
 
-  const threeGroups = json([
+  const threeGroups = groupsPage([
     groupRow({ adminGroup: true, displayName: "Admins", id: "a" }),
     auditors,
     groupRow(),

@@ -206,7 +206,8 @@ class ScimEndToEndIntegrationTests {
         assertThat(listing.getResponse().getStatus())
                 .as("the session the login issued reaches the admin-gated namespace")
                 .isEqualTo(200);
-        JsonNode identities = json.readTree(listing.getResponse().getContentAsString());
+        JsonNode identities =
+                json.readTree(listing.getResponse().getContentAsString()).get("users");
         assertThat(identities)
                 .anySatisfy(identity -> {
                     assertThat(identity.get("userName").asText()).isEqualTo(BOOTSTRAP_ADMIN);

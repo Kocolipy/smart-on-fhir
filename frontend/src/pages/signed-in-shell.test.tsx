@@ -153,9 +153,9 @@ describe("SignedInShell", () => {
  * showing the latest failure — and it starts empty on every page.
  */
 describe("SignedInShell's error line", () => {
-  const USERS = "GET /api/admin/accounts";
+  const USERS = "GET /api/admin/accounts?startIndex=1&count=20";
   const CONNECTORS = "GET /api/admin/connectors";
-  const GROUPS = "GET /api/admin/groups";
+  const GROUPS = "GET /api/admin/groups?startIndex=1&count=20";
   const CHANGE = "POST /api/auth/change-password";
   const MISMATCH = "The new password and its confirmation do not match.";
   const SIGN_OUT_FAILED = "Unable to sign out. Please try again. You are still signed in.";
@@ -174,7 +174,7 @@ describe("SignedInShell's error line", () => {
   it("shows one line on Accounts, the latest, when the Users, the Connectors and Sign out all fail", async () => {
     await renderSignedIn("/accounts", holding(EVERY_PERMISSION), {
       [CONNECTORS]: bare(503),
-      [GROUPS]: json([]),
+      [GROUPS]: json({ groups: [], startIndex: 1, totalResults: 0 }),
       [LOGOUT]: bare(500),
       [USERS]: bare(503),
     });
@@ -223,23 +223,27 @@ describe("SignedInShell's error line", () => {
     const unlock = deferred();
     await renderSignedIn("/accounts", holding(["user:read", "account:unlock"]), {
       "POST /api/admin/accounts/00000000-0000-4000-8000-000000000001/unlock": unlock.answer,
-      [USERS]: json([
-        {
-          active: true,
-          admin: false,
-          bootstrapAdmin: false,
-          createdAt: "2026-01-02T19:04:05Z",
-          displayName: null,
-          groups: [],
-          hasPassword: true,
-          id: "00000000-0000-4000-8000-000000000001",
-          lastAuthenticatedAt: null,
-          lockCause: "FAILURES",
-          locked: true,
-          passwordChangeRequired: false,
-          userName: "grace",
-        },
-      ]),
+      [USERS]: json({
+        startIndex: 1,
+        totalResults: 1,
+        users: [
+          {
+            active: true,
+            admin: false,
+            bootstrapAdmin: false,
+            createdAt: "2026-01-02T19:04:05Z",
+            displayName: null,
+            groups: [],
+            hasPassword: true,
+            id: "00000000-0000-4000-8000-000000000001",
+            lastAuthenticatedAt: null,
+            lockCause: "FAILURES",
+            locked: true,
+            passwordChangeRequired: false,
+            userName: "grace",
+          },
+        ],
+      }),
     });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));

@@ -118,24 +118,6 @@ class ScimUserPersistenceAdapterIntegrationTests {
         assertThat(reread).isEqualTo(new ScimLoginState("hash", 2, null, null, EARLIER, LATER));
     }
 
-    /**
-     * The administrative listing reads each User whole or not at all: a User whose deletion
-     * commits while the listing is reading is either listed as it was stored or absent, never a
-     * row whose resource has gone.
-     */
-    @Test
-    void aUserDeletedDuringTheListingIsListedWholeOrNotAtAll() {
-        ScimUser victim = storedWithEmail(unique("adapter-listing"));
-
-        List<ScimUser> listed = inTransaction(() -> CommitBetweenStatements.afterReading(
-                "scim_users",
-                () -> deleteCommitted(victim.id()),
-                users::findAllOrderedByNormalizedUserName));
-
-        assertThat(listed.stream().filter(user -> user.id().equals(victim.id())).toList())
-                .isIn(List.of(), List.of(victim));
-    }
-
     /** A page of Users by id, as a SCIM query loads one, reads each User whole or not at all. */
     @Test
     void aUserDeletedDuringAPageReadIsReadWholeOrNotAtAll() {

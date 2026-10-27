@@ -520,11 +520,14 @@ of a locked User, setting a Group's Permissions (the Superuser only), and
 connector management, each view shown by its own Permission.
 
 **Users projection**:
-What administration may know about each User — never a credential.
+What administration may know about each User — never a credential — read a page
+at a time and searched by `userName` or display name, never listed whole
+(ADR 0017).
 
 **Groups projection**:
 What administration may know about each Group: its name, member count, whether
-it is the Admin group, and its Group Permissions. Who its members are is the
+it is the Admin group, and its Group Permissions. Read a page at a time and
+searched by display name, as the Users projection is. Who its members are is the
 Group member read's, not the projection's.
 
 **Group member read**:

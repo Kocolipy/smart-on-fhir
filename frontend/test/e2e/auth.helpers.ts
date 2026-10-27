@@ -273,13 +273,60 @@ export async function adminRequest(
   return page.request.fetch(path, { data, headers: await csrfHeader(page), method });
 }
 
+/**
+ * Each card of the Accounts page and the projection read behind it: the path
+ * it is read from, and the array of the page that holds its rows.
+ */
+export const PROJECTIONS = {
+  Groups: { path: "/api/admin/groups", rows: "groups" },
+  Users: { path: "/api/admin/accounts", rows: "users" },
+} as const;
+
+/** A card of the Accounts page, named as its title reads. */
+export type Projection = keyof typeof PROJECTIONS;
+
+/**
+ * Every row a projection's read matches, read a page at a time — the largest
+ * page the backend serves — until `totalResults` are in. `search` narrows it
+ * as the card's search box does.
+ */
+export async function everyRowOf<R = Record<string, unknown>>(
+  page: Page,
+  projection: Projection,
+  search = "",
+): Promise<R[]> {
+  const { path, rows: key } = PROJECTIONS[projection];
+  const rows: R[] = [];
+  for (let startIndex = 1; ;) {
+    const answer = await page.request.get(path, {
+      params: { count: 200, search, startIndex },
+    });
+    expect(answer.status(), `reading the ${projection} projection from ${startIndex}`).toBe(200);
+    const body = (await answer.json()) as Record<string, unknown> & { totalResults: number };
+    const pageRows = body[key] as R[];
+    rows.push(...pageRows);
+    if (pageRows.length === 0 || rows.length >= body.totalResults) return rows;
+    startIndex += pageRows.length;
+  }
+}
+
+/**
+ * A User's row of the Users projection, found by searching it for the
+ * `userName` and picking the exact match out of the page — the projection is
+ * read a page at a time, so it is searched rather than read whole.
+ */
+export async function listedUser(page: Page, userName: string): Promise<Record<string, unknown>> {
+  const answer = await page.request.get(PROJECTIONS.Users.path, {
+    params: { count: 200, search: userName },
+  });
+  expect(answer.status(), `searching the Users projection for ${userName}`).toBe(200);
+  const { users } = (await answer.json()) as { users: Array<Record<string, unknown>> };
+  const found = users.find((row) => row.userName === userName);
+  expect(found, `${userName} should be listed`).toBeTruthy();
+  return found!;
+}
+
 /** The stable id of a listed User, read from the Users projection by `userName`. */
 export async function userIdOf(page: Page, userName: string): Promise<string> {
-  const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<{
-    id: string;
-    userName: string;
-  }>;
-  const found = listing.find((row) => row.userName === userName);
-  expect(found, `${userName} should be listed`).toBeTruthy();
-  return found!.id;
+  return (await listedUser(page, userName)).id as string;
 }

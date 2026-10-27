@@ -66,6 +66,20 @@ interface ScimGroupMemberJpaRepository
     List<ScimGroupReference> findGroupsOfUser(@Param("userId") UUID userId);
 
     /**
+     * The direct Groups of each of these Users — the reverse view for a page of Users, in one
+     * statement — in normalized {@code displayName} order, so each User's Groups come out in the
+     * order {@link #findGroupsOfUser} gives one User's.
+     */
+    @Query("""
+            select new com.example.backend.scim.infrastructure.persistence.ScimUserGroupRow(
+                       m.id.userId, g.resourceId, g.displayName)
+              from ScimGroupMemberEntity m
+              join ScimGroupEntity g on g.resourceId = m.id.groupId
+             where m.id.userId in :userIds
+             order by g.normalizedDisplayName asc""")
+    List<ScimUserGroupRow> findGroupsOfUsers(@Param("userIds") Collection<UUID> userIds);
+
+    /**
      * The member ids of one Group, for deciding whose versions a write has to advance.
      *
      * <p>No label, because nothing renders these: they are read immediately before the

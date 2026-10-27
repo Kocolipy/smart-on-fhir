@@ -17,7 +17,6 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.Test;
@@ -150,21 +149,6 @@ public abstract class ScimUserRepositoryContract {
         releaseTheBootstrapAdminReservation();
 
         assertThat(users().findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)).isEmpty();
-    }
-
-    @Test
-    void every_user_is_listed_in_normalized_user_name_order() {
-        String suffix = UUID.randomUUID().toString();
-        ScimUser second = users().create(ScimIdentities.user("b-" + suffix));
-        ScimUser first = users().create(ScimIdentities.user("A-" + suffix));
-        Set<UUID> mine = Set.of(first.id(), second.id());
-
-        List<UUID> listed = users().findAllOrderedByNormalizedUserName().stream()
-                .map(ScimUser::id)
-                .filter(mine::contains)
-                .toList();
-
-        assertThat(listed).containsExactly(first.id(), second.id());
     }
 
     @Test

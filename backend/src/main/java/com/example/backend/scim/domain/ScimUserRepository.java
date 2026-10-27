@@ -125,16 +125,6 @@ public interface ScimUserRepository {
     void deleteById(UUID id, Instant now);
 
     /**
-     * Every live User, ordered by the normalized {@code userName}.
-     *
-     * <p>For the administrative listing, which is a complete review of who can log in
-     * rather than a page of a directory. Ordering is the port's promise because only the
-     * adapter can push it into the query, and the normalized form is the key so the order
-     * does not depend on case.
-     */
-    List<ScimUser> findAllOrderedByNormalizedUserName();
-
-    /**
      * The live Users with these ids, in the order the ids are given; an id naming no live User
      * is skipped.
      *
