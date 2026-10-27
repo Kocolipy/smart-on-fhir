@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
+import com.example.backend.ShippedConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
@@ -16,6 +18,7 @@ import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +26,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -92,9 +94,6 @@ class LoginSessionHardeningIntegrationTests {
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     private MockMvc mvc;
 
@@ -204,6 +203,38 @@ class LoginSessionHardeningIntegrationTests {
                 .isEmpty();
     }
 
+    // ---- the session cookie's name --------------------------------------------------------------
+
+    /**
+     * The login issues its session under the name the shipped configuration gives the cookie, and
+     * that is the name every test names it by ({@link SessionCookie}). The shipped name is read
+     * from {@code src/main/resources/application.yaml} on disk, with its imports, because the
+     * test resources' {@code application.yaml} shadows it on the classpath: a test context that
+     * drifted from the deployed one — Spring Session's default {@code SESSION}, say — fails here.
+     */
+    @Test
+    void theLoginIssuesTheSessionCookieUnderTheShippedConfigurationsName() throws Exception {
+        create("cookie-name-ada");
+        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("cookie-name-ada", PASSWORD)))
+                .andReturn();
+        List<String> issued = Arrays.stream(login.getResponse().getCookies())
+                .map(Cookie::getName)
+                .distinct()
+                .toList();
+
+        assertThat(List.of(issued, List.of(shippedSessionCookieName())))
+                .as("the cookies the login issued, and the name the shipped configuration gives")
+                .containsOnly(List.of(SessionCookie.NAME));
+    }
+
+    private static String shippedSessionCookieName() {
+        return ShippedConfiguration.under()
+                .bind("server.servlet.session.cookie.name", String.class)
+                .orElse("(unset)");
+    }
+
     // ---- the idle bound the SPA signs out by ---------------------------------------------------
 
     /**
@@ -219,7 +250,7 @@ class LoginSessionHardeningIntegrationTests {
                         .content(loginBody("idle-timeout-ada", PASSWORD)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        Cookie issued = login.getResponse().getCookie(sessionCookieName);
+        Cookie issued = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(issued).as("the login issued a session cookie").isNotNull();
         // A MockMvc request cookie re-wrapping the issued one's name and value: it never reaches
         // a browser or a response, so its Secure flag means nothing here.
@@ -251,7 +282,7 @@ class LoginSessionHardeningIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody("stable-id-ada", PASSWORD)))
                 .andReturn();
-        Cookie issued = login.getResponse().getCookie(sessionCookieName);
+        Cookie issued = login.getResponse().getCookie(SessionCookie.NAME);
         // A MockMvc request cookie re-wrapping the issued one's name and value: it never reaches
         // a browser or a response, so its Secure flag means nothing here.
         // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false
@@ -363,7 +394,7 @@ class LoginSessionHardeningIntegrationTests {
         assertThat(refused.getResponse().getContentAsString()).isEmpty();
         assertThat(status(get("/api/auth/me"), bob)).isEqualTo(401);
         assertThat(sessionRepository.findById(sessionId(bob))).isNull();
-        Cookie minted = refused.getResponse().getCookie(sessionCookieName);
+        Cookie minted = refused.getResponse().getCookie(SessionCookie.NAME);
         assertThat(minted == null || minted.getMaxAge() == 0)
                 .as("the refusal sets no live session cookie")
                 .isTrue();
@@ -414,7 +445,7 @@ class LoginSessionHardeningIntegrationTests {
         }
         MvcResult login = mvc.perform(request).andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(sessionCookieName);
+        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
     }

@@ -1,5 +1,6 @@
 package com.example.backend.auth.epic;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -173,8 +174,7 @@ final class EpicTestEnvironment implements BeforeEachCallback, AfterEachCallback
                 context.getBean(PlatformTransactionManager.class),
                 context.getBean(JdbcTemplate.class));
         browser = new EpicBrowser(mvc, fake,
-                context.getEnvironment().getProperty("server.servlet.session.cookie.name",
-                        "SESSION"),
+                SessionCookie.NAME,
                 FHIR_BASE);
     }
 

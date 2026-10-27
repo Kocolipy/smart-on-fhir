@@ -25,9 +25,15 @@ MVN=${MVN:-./mvnw}
 
 # Explicit list: every test class whose source names none of @SpringBootTest,
 # ContainerTestConfiguration, Testcontainers, GenericContainer or
-# MSSQLServerContainer, so none starts a Spring context or a container. Add a
-# class only if it is that and needs no environment value; add it to nothing
-# else, since the subsystem gates select by package.
+# MSSQLServerContainer, so none boots the application or starts a container.
+# An in-memory ApplicationContextRunner over named configuration classes is
+# allowed: it boots no application, reads no shipped configuration and
+# connects to nothing. Add a class only if it is that and reads no value from
+# the process environment (one a test injects into a runner's environment, as
+# DatabaseConnectionsFixture.environment does, is not one); add it to nothing
+# else, since the subsystem gates select by package. Each entry is a path under
+# src/test/java without `.java`, and the run fails, naming the entry, when that
+# file does not exist.
 FAST_GATE=(
   arch/ArchitectureTest
   arch/DeadlockRetryRulesTests
@@ -41,6 +47,7 @@ FAST_GATE=(
   com/example/backend/audit/application/AuditRetentionServiceTests
   com/example/backend/audit/application/AuditTrailServiceTests
   com/example/backend/audit/config/AuditAppendPoolConfigTests
+  com/example/backend/audit/config/AuditRetentionPoolConfigTests
   com/example/backend/audit/config/AuditRetentionRunLogTests
   com/example/backend/audit/config/AuditRetentionStartupTests
   com/example/backend/audit/controller/AdminAuditControllerTests
@@ -57,6 +64,7 @@ FAST_GATE=(
   com/example/backend/auth/application/EpicLoginDecisionTests
   com/example/backend/auth/application/FhircastAccessServiceTests
   com/example/backend/auth/application/GroupMemberPageTests
+  com/example/backend/auth/application/GroupPermissionAdministrationServiceTests
   com/example/backend/auth/application/IdentityAdministrationServiceTests
   com/example/backend/auth/application/LoginAttemptServiceTests
   com/example/backend/auth/application/LoginIdentityServiceTests
@@ -81,6 +89,7 @@ FAST_GATE=(
   com/example/backend/auth/config/SecurityConfigPasswordEncoderTests
   com/example/backend/auth/controller/AbsoluteSessionLifetimeFilterTests
   com/example/backend/auth/controller/AdminAccountControllerTests
+  com/example/backend/auth/controller/AdminGroupControllerTests
   com/example/backend/auth/controller/AdminRefusalsTests
   com/example/backend/auth/controller/AuthControllerTests
   com/example/backend/auth/controller/HttpSessionAttributesTests
@@ -123,7 +132,10 @@ FAST_GATE=(
   com/example/backend/authorization/domain/GroupPermissionsTests
   com/example/backend/authorization/domain/PermissionTests
   com/example/backend/contract/OpenApiContractTests
+  com/example/backend/database/EveryPoolConnectsAlikeTests
+  com/example/backend/database/config/DataSourceConfigTests
   com/example/backend/database/config/DatabaseConnectionsTests
+  com/example/backend/database/config/DatabaseUrlTests
   com/example/backend/database/config/MigrationConnectionTests
   com/example/backend/database/config/MigrationLoginNamesTests
   com/example/backend/database/config/MigrationProfilesTests
@@ -171,15 +183,17 @@ FAST_GATE=(
   com/example/backend/scim/application/ScimWriteEffectsApplierTests
   com/example/backend/scim/application/ScimWriteEffectsTests
   com/example/backend/scim/config/ScimBearerAuthenticationFilterTests
-  com/example/backend/scim/config/ScimDispatcherErrorFilterTests
   com/example/backend/scim/config/ScimErrorDocumentErrorFieldsTests
+  com/example/backend/scim/config/ScimErrorNamespaceTests
   com/example/backend/scim/config/ScimInsufficientPermissionsTests
   com/example/backend/scim/config/ScimPasswordAcceptanceConfigTests
   com/example/backend/scim/config/ScimRequestBodyLimitFilterTests
   com/example/backend/scim/config/ScimSeedConfigStartupTests
+  com/example/backend/scim/controller/ConnectorAdministrationErrorTests
   com/example/backend/scim/controller/ScimAttributeProjectionTests
   com/example/backend/scim/controller/ScimDiscoveryTests
   com/example/backend/scim/controller/ScimExceptionHandlerBodyTests
+  com/example/backend/scim/controller/ScimExceptionHandlerDeadlockTests
   com/example/backend/scim/controller/ScimExceptionHandlerErrorFieldsTests
   com/example/backend/scim/controller/ScimExceptionHandlerLogTests
   com/example/backend/scim/controller/ScimExceptionHandlerMetricTests
@@ -230,7 +244,9 @@ FAST_GATE=(
   com/example/backend/scim/infrastructure/persistence/ScimSeedLockAdapterTests
   com/example/backend/scim/infrastructure/persistence/entity/CompositeKeyContractTests
   com/example/backend/web/ApiExceptionHandlerTests
-  com/example/backend/web/FhirErrorDocumentFilterTests
+  com/example/backend/web/ErrorDocumentFilterTests
+  com/example/backend/web/ErrorNamespacesTests
+  com/example/backend/web/NamespaceExceptionResolverTests
   com/example/backend/web/ReadRequestsTests
   com/example/backend/web/SpaRoutesScimNamespaceTests
   com/example/backend/web/SpaRoutesTests
@@ -262,12 +278,24 @@ mode="$1"; shift || true
 case "$mode" in
   fast)
     echo "== fast gate (${#FAST_GATE[@]} classes) =="
+    # Every entry must name a test source, resolved as Surefire's -Dtest resolves
+    # it against the test source root. The run below passes
+    # -Dsurefire.failIfNoSpecifiedTests=false, so an entry whose class was deleted
+    # or renamed would otherwise match nothing and pass silently.
+    missing=0
+    for entry in "${FAST_GATE[@]+"${FAST_GATE[@]}"}"; do
+      if [ ! -f "src/test/java/$entry.java" ]; then
+        echo "FAST_GATE lists $entry, but src/test/java/$entry.java does not exist; remove or correct the entry" >&2
+        missing=1
+      fi
+    done
+    [ "$missing" -eq 0 ] || exit 1
     joined=$(printf '%s,' "${FAST_GATE[@]+"${FAST_GATE[@]}"}")
     joined="${joined%,}"
     log=$(mktemp "${TMPDIR:-/tmp}/fast-gate.XXXXXX")
     status=0
     run_tests "$joined" 2>&1 | tee "$log" || status=$?
-    # The list's promise: no Spring context and no container. A class that
+    # The list's promise: no booted application and no container. A class that
     # breaks it belongs in a subsystem gate, not here.
     if grep -qE 'Creating container|Started [A-Za-z]+ in .* seconds' "$log"; then
       echo "fast gate started a Spring context or a container; remove the offending class from FAST_GATE" >&2

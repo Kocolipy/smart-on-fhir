@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
@@ -129,9 +130,6 @@ class PasswordChangeLifecycleIntegrationTests {
 
     @Autowired
     private MutableClock clock;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     @Value("${app.auth.lockout.max-attempts}")
     private int maxAttempts;
@@ -694,7 +692,7 @@ class PasswordChangeLifecycleIntegrationTests {
                 : "ADMIN".equals(role) ? TestGroupPermissions.EVERY_PERMISSION.size()
                 : LoginIdentityService.BASELINE_PERMISSIONS.size();
         assertThat(body.get("permissions").size()).isEqualTo(expected);
-        Cookie session = login.getResponse().getCookie(sessionCookieName);
+        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
     }

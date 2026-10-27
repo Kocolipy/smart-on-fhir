@@ -3,6 +3,7 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.SessionCookie;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -152,11 +153,8 @@ class SessionStartLogIntegrationTests extends EpicLoginOnContext {
 
     /** The session cookie the client now holds, exactly as the server set it. */
     private String sessionCookie() {
-        // Read from the context's own configuration: the test resources' application.yaml
-        // shadows the main one and leaves the name to Spring Session's default.
-        String name = environment.getProperty("server.servlet.session.cookie.name", "SESSION");
         return cookies.getCookieStore().getCookies().stream()
-                .filter(cookie -> name.equals(cookie.getName()))
+                .filter(cookie -> SessionCookie.NAME.equals(cookie.getName()))
                 .map(HttpCookie::getValue)
                 .findFirst()
                 .orElseThrow();

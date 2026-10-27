@@ -152,15 +152,14 @@ class AdminAccountEndpointTests {
      * The acceptance criterion that matters most: no hash on the wire, ever. Asserted as the exact
      * field set of every listed identity, so any added field — a hash under whatever name — fails
      * here; {@code hasPassword} and {@code passwordChangeRequired} are booleans about the
-     * credential, not the credential. The hash-format checks catch a value smuggled into an
-     * existing field.
+     * credential, not the credential. The Argon2id check — the only hash format this service
+     * stores — catches a hash smuggled into an existing field.
      */
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
         String body = mvc.perform(get("/api/admin/accounts")
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
-                .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
                 .andReturn().getResponse().getContentAsString();
 

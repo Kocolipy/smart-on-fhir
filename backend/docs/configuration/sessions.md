@@ -1,7 +1,7 @@
 ---
 type: Configuration Reference
 title: Session storage
-description: Why Spring Session's indexed Redis repository is required, and what that means for a deployment's Redis.
+description: Why Spring Session's indexed Redis repository is required, what that means for a deployment's Redis, and where the session cookie is configured.
 tags: [sessions, redis, configuration]
 ---
 
@@ -19,3 +19,13 @@ a deployment — the Redis instance is not interchangeable with a plain cache
 to `CONFIG SET notify-keyspace-events`, because ElastiCache refuses `CONFIG`. Set
 `notify-keyspace-events` in the cache parameter group if you want expiry events;
 without them expired sessions are reaped by the repository's cleanup cron.
+
+## The session cookie
+
+The session cookie's name (`JSESSIONID`) and attributes (`HttpOnly`,
+`SameSite=Lax`, and `Secure` from `SESSION_COOKIE_SECURE`, default `false`) are
+configured under `server.servlet.session.cookie` in the same
+`src/main/resources/session.yaml`, so every test context issues the cookie
+the deployed service does. The session timeout stays in the main
+`application.yaml` (`SESSION_TIMEOUT`). Set `SESSION_COOKIE_SECURE=true` when
+the service is served over HTTPS.

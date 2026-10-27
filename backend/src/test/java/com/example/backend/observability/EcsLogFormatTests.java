@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
@@ -87,8 +88,12 @@ class EcsLogFormatTests {
     /**
      * Values that must never appear anywhere in the log stream. The credentials and
      * identifiers are the test fixtures' own, so a leak shows up as a literal
-     * match; the rest are the shapes a secret takes in this service — a BCrypt
-     * hash's prefix, and the session cookie's name.
+     * match; the rest are the shapes a secret takes in this service. A password
+     * hash is Argon2id and nothing else ({@code SecurityConfig}), stored as
+     * {@code {argon2id}$argon2id$v=19$…}, so its {@code $argon2id$} prefix marks
+     * every stored hash. A session id travels as the session cookie, so the
+     * cookie's name — the one the service issues, {@link SessionCookie#NAME} —
+     * marks a logged cookie or {@code Cookie} header.
      */
     private static final List<String> FORBIDDEN = List.of(
             "test-user",
@@ -97,8 +102,8 @@ class EcsLogFormatTests {
             "test-admin-password",
             "not-a-real-account",
             "wrong-password",
-            "$2a$",
-            "JSESSIONID");
+            "$argon2id$",
+            SessionCookie.NAME);
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 

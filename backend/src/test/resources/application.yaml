@@ -4,7 +4,12 @@ spring:
     # repository type it needs is imported from the same document the deployed
     # service reads rather than copied here. Without it these contexts would wire
     # a session repository that cannot be searched by principal and
-    # AccountSessionsAdapter would have nothing to inject. `telemetry.yaml` is
+    # AccountSessionsAdapter would have nothing to inject. The session cookie's
+    # name and attributes come from the same document, so these contexts issue
+    # the deployed cookie name rather than Spring Session's default `SESSION`
+    # (ShippedSessionCookieTestConfiguration applies them in the mock web
+    # environment, where Boot alone would not), and a test naming the cookie or
+    # forbidding it from the log names the one the service ships. `telemetry.yaml` is
     # imported for the same reason: the scrape a test reads must be exposed and
     # bucketed exactly as the deployed one is. `log-levels.yaml` likewise: a
     # refused write must be logged at the deployed levels, or a test asserting

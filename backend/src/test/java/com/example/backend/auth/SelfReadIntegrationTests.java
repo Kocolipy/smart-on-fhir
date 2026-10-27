@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
@@ -88,9 +88,6 @@ class SelfReadIntegrationTests {
     @Autowired
     @Qualifier("springSessionRepositoryFilter")
     private Filter springSessionRepositoryFilter;
-
-    @Value("${server.servlet.session.cookie.name:SESSION}")
-    private String sessionCookieName;
 
     private MockMvc mvc;
 
@@ -260,7 +257,7 @@ class SelfReadIntegrationTests {
                                 .formatted(userName, password)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(sessionCookieName);
+        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
     }

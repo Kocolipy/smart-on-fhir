@@ -3,6 +3,7 @@ package com.example.backend.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
+import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.epic.EpicLoginOnContext;
@@ -268,7 +269,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(credentials(ADMIN, ADMIN_PASSWORD)), 200);
             assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
-                    .anyMatch(cookie -> cookie.startsWith("SESSION="));
+                    .anyMatch(cookie -> cookie.startsWith(SessionCookie.NAME + "="));
         });
         add(all, "login: 400 for a body that fails validation", t ->
                 t.expect(t.csrf(t.post("/api/auth/login")).contentType(MediaType.APPLICATION_JSON)
@@ -698,7 +699,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     Cookie logIn(String userName, String password) throws Exception {
         MvcResult login = expect(json(csrf(post("/api/auth/login")),
                 credentials(userName, password)), 200);
-        Cookie session = login.getResponse().getCookie("SESSION");
+        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
     }

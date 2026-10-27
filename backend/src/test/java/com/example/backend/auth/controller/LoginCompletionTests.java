@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.SessionCookie;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
@@ -70,9 +71,6 @@ class LoginCompletionTests {
     private static final Instant NOW = Instant.parse("2026-10-10T00:00:00Z");
 
     private static final String PASSWORD = "correct-password";
-
-    /** Mirrors {@code server.servlet.session.cookie.name}. */
-    private static final String SESSION_COOKIE = "JSESSIONID";
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
@@ -416,7 +414,7 @@ class LoginCompletionTests {
     // ---- helpers ----------------------------------------------------------------------------
 
     private static void assertExpiredWithoutClearSiteData(MockHttpServletResponse response) {
-        Cookie cleared = response.getCookie(SESSION_COOKIE);
+        Cookie cleared = response.getCookie(SessionCookie.NAME);
         assertThat(cleared).as("the session cookie is written").isNotNull();
         assertThat(List.of(cleared.getValue(), cleared.getMaxAge(),
                         String.valueOf(response.getHeader("Clear-Site-Data"))))
@@ -436,7 +434,7 @@ class LoginCompletionTests {
 
     private LoginCompletion completionOver(SessionAuthenticationStrategy rotation) {
         DefaultCookieSerializer cookies = new DefaultCookieSerializer();
-        cookies.setCookieName(SESSION_COOKIE);
+        cookies.setCookieName(SessionCookie.NAME);
         return new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
                 rotation, config.csrfTokenRepository()), outcomes, new SessionEnding(audit, cookies));
     }

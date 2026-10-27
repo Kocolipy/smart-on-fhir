@@ -17,7 +17,7 @@ settings govern is in `/docs/domain/`; this is what an operator sets and sees.
 # Storage
 
 - [Database logins](database.md) - The three database logins and their grants, the connection pools, where migrations run, and the local SQL Server setup.
-- [Session storage](sessions.md) - Why Spring Session's indexed Redis repository is required, and what that means for a deployment's Redis.
+- [Session storage](sessions.md) - Why Spring Session's indexed Redis repository is required, what that means for a deployment's Redis, and where the session cookie is configured.
 - [Audit trail](audit.md) - The retention period and schedule, what each run logs, and the pool fail-open audit appends commit on.
 
 # Observability
