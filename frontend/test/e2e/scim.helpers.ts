@@ -30,6 +30,7 @@ import { adminRequest, csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
 export const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
 
 export const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
+const GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 const PATCH_OP_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
 /** What every User and connector a spec creates is named with. */
@@ -185,6 +186,30 @@ export async function deprovisionUser(scim: APIRequestContext, id: string) {
     headers: { "If-Match": current.headers()["etag"] ?? "" },
   });
   expect(deleted.status(), `deprovisioning ${id}`).toBe(204);
+}
+
+/** Provisions a Group whose direct members are `memberIds`, returning its stable id. */
+export async function provisionGroup(
+  scim: APIRequestContext,
+  displayName: string,
+  memberIds: readonly string[] = [],
+): Promise<string> {
+  expect(displayName.startsWith(E2E_PREFIX), "fixture names carry the e2e prefix").toBe(true);
+  const created = await scim.post("/scim/v2/Groups", {
+    data: {
+      displayName,
+      members: memberIds.map((value) => ({ value })),
+      schemas: [GROUP_SCHEMA],
+    },
+  });
+  expect(created.status(), `provisioning ${displayName}`).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
+/** Deletes a SCIM Group; a Group already gone is not an error. */
+export async function deprovisionGroup(scim: APIRequestContext, id: string) {
+  const deleted = await scim.delete(`/scim/v2/Groups/${id}`);
+  expect([204, 404], `deprovisioning Group ${id}`).toContain(deleted.status());
 }
 
 /**

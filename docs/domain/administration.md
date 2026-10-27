@@ -33,7 +33,8 @@ no Deactivate or Activate: `active` is the directory's, and the backend has no
 endpoint that would accept a write to any directory-owned field. Each view and
 action is shown by its own Permission — the Users projection by `user:read`, its
 Unlock by `account:unlock`, the Groups projection by `group:read`
-(its "Edit permissions" action only to a Superuser), connectors by `connector:read`
+(its member read only beside `user:read`, and its "Edit permissions" action only
+to a Superuser), connectors by `connector:read`
 (create, delete and every token action are shown only to a Superuser) — and the
 page renders for a User who may see at least one view;
 a deep link from anyone else is routed to Home. The page never decides
@@ -69,7 +70,31 @@ for.
 row per Group (`GET /api/admin/groups`): its name, its direct member count,
 whether it is the protected Admin group, decided by the reservation marker, and
 the Permissions it carries. Its name and membership are the directory's and
-read-only here; its Permissions are the application's.
+read-only here; its Permissions are the application's. The member count is
+counted where the memberships are stored; listing the Groups never reads who is
+in them.
+
+**Group member read** — who a Group's direct members are, read a page at a time
+(`GET /api/admin/groups/{id}/members?startIndex&count`) on expanding the Group's
+row, where the member count is then a disclosure control. A member row shows the
+User's stable id, `userName`, display name and `active` flag — the Users
+projection's identity and nothing else, never a credential or any login state,
+which its type has no field for. Members come in the Users projection's order,
+normalized `userName`, with the Group's total beside the page; paging follows
+SCIM's bounds (`startIndex` one-based, `count` defaulting to 100 and capped at
+200, out-of-range values coerced), and the page asks for twenty at a time with a
+Next control while more remain. The read is the directory's own collection query,
+the one SCIM `GET /Users` runs, asked without a connector: a filter on
+`externalId`, a `$ref` or `meta.location`, which only a connector's query can
+give a value, is refused on that path. A Group with no members says so; an
+unknown or deleted Group is `404`; a failed read reports to the page's one error
+line.
+
+- It requires **both** `group:read` and `user:read`, declared on the handler,
+  repeated by the chain and in the API document's one `sessionCookie` entry,
+  because member identities are Users-projection data. A session holding
+  `group:read` alone sees the plain count and no control, so nothing is
+  disclosed to it that it did not see before (ADR 0015).
 
 **Group Permissions** — what a Group confers, set only by the Superuser (ADR 0015):
 in the Groups projection a Superuser sees "Edit permissions" on every Group but the

@@ -20,6 +20,9 @@ function document() {
       "/api/admin/groups/{id}/permissions": {
         put: { security: [{ sessionCookie: ["superuser"] }] },
       },
+      "/api/admin/groups/{id}/members": {
+        get: { security: [{ sessionCookie: ["group:read", "user:read"] }] },
+      },
       "/api/admin/audit-events": {
         get: { security: [{ sessionCookie: ["audit:read"] }] },
       },
@@ -69,6 +72,11 @@ function spa() {
           path: (groupId) =>
             `/api/admin/groups/${encodeURIComponent(groupId)}/permissions`,
         },
+        GROUP_MEMBERS: {
+          permission: { allOf: ["group:read", "user:read"] },
+          path: (groupId, startIndex) =>
+            `/api/admin/groups/${encodeURIComponent(groupId)}/members?startIndex=${startIndex}`,
+        },
       },
       "src/pages/audit-api.ts": {
         AUDIT_OPERATIONS: ["LOGIN_SUCCESS", "LOGOUT"],
@@ -79,7 +87,11 @@ function spa() {
       },
     },
     declared: {
-      "src/pages/accounts-api.ts": ["USERS", "SET_GROUP_PERMISSIONS"],
+      "src/pages/accounts-api.ts": [
+        "USERS",
+        "SET_GROUP_PERMISSIONS",
+        "GROUP_MEMBERS",
+      ],
       "src/pages/audit-api.ts": ["AUDIT_EVENTS"],
     },
   };
@@ -210,6 +222,71 @@ describe("the SPA's request declarations", () => {
     ]);
   });
 
+  it("names a declaration requiring two Permissions whose operation requires only one", () => {
+    const doc = document();
+    doc.paths["/api/admin/groups/{id}/members"].get.security = [
+      { sessionCookie: ["group:read"] },
+    ];
+
+    assert.deepEqual(findMismatches(spa(), doc), [
+      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read]',
+    ]);
+  });
+
+  it("names a declaration requiring one Permission whose operation requires two", () => {
+    const doc = document();
+    doc.paths["/api/admin/accounts"].get.security = [
+      { sessionCookie: ["user:read", "group:read"] },
+    ];
+
+    assert.deepEqual(findMismatches(spa(), doc), [
+      'USERS (src/pages/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [user:read, group:read]',
+    ]);
+  });
+
+  it("holds the Permissions an operation requires together as a set, in any order", () => {
+    const doc = document();
+    doc.paths["/api/admin/groups/{id}/members"].get.security = [
+      { sessionCookie: ["user:read", "group:read"] },
+    ];
+
+    assert.deepEqual(findMismatches(spa(), doc), []);
+  });
+
+  it("does not read two Permissions offered as alternatives as both required", () => {
+    const doc = document();
+    doc.paths["/api/admin/groups/{id}/members"].get.security = [
+      { sessionCookie: ["group:read"] },
+      { sessionCookie: ["user:read"] },
+    ];
+
+    assert.deepEqual(findMismatches(spa(), doc), [
+      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read] or sessionCookie: [user:read]',
+    ]);
+  });
+
+  it("names a declaration whose Permissions name one twice in place of a second", () => {
+    const s = spa();
+    s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS.permission = {
+      allOf: ["group:read", "group:read"],
+    };
+
+    assert.deepEqual(findMismatches(s, document()), [
+      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "group:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read, user:read]',
+    ]);
+  });
+
+  it("does not take a requirement naming no Permission for a declaration", () => {
+    const s = spa();
+    s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS.permission = {
+      allOf: [],
+    };
+
+    assert.deepEqual(findMismatches(s, document()), [
+      "src/pages/accounts-api.ts declares GROUP_MEMBERS, which did not evaluate to a request declaration",
+    ]);
+  });
+
   it("holds a declaration to the document's own security when its operation names none", () => {
     const doc = document();
     delete doc.paths["/api/admin/accounts"].get.security;
@@ -262,6 +339,7 @@ describe("the SPA's request declarations", () => {
     const s = spa();
     delete s.modules["src/pages/accounts-api.ts"].USERS;
     delete s.modules["src/pages/accounts-api.ts"].SET_GROUP_PERMISSIONS;
+    delete s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS;
     delete s.modules["src/pages/audit-api.ts"].AUDIT_EVENTS;
     s.declared = {};
 

@@ -4,6 +4,7 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
@@ -211,6 +212,22 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
                 .map(entity -> entity.getResource().getId())
                 .toList());
         return entities.stream().map(entity -> toDomain(entity, byGroup)).toList();
+    }
+
+    @Override
+    public List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName() {
+        return groups.findAllHeadcounts().stream()
+                .map(row -> new ScimGroupHeadcount(
+                        row.id(),
+                        row.displayName(),
+                        ReservedResourceName.ofStoredValue(row.reservedName()).orElse(null),
+                        Math.toIntExact(row.memberCount())))
+                .toList();
+    }
+
+    @Override
+    public boolean existsById(UUID id) {
+        return groups.existsById(id);
     }
 
     @Override

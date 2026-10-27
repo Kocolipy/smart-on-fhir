@@ -32,6 +32,21 @@ interface ScimGroupJpaRepository extends JpaRepository<ScimGroupEntity, UUID> {
     List<ScimGroupEntity> findAllById(Iterable<UUID> ids);
 
     /**
+     * Every Group with its stored reservation and its direct member count, in normalized
+     * {@code displayName} order: one statement, the membership counted by a correlated subquery
+     * rather than read.
+     */
+    @Query("""
+            select new com.example.backend.scim.infrastructure.persistence.ScimGroupHeadcountRow(
+                       g.resourceId, g.displayName, r.reservedName,
+                       (select count(m) from ScimGroupMemberEntity m
+                         where m.id.groupId = g.resourceId))
+              from ScimGroupEntity g
+              join g.resource r
+             order by g.normalizedDisplayName asc""")
+    List<ScimGroupHeadcountRow> findAllHeadcounts();
+
+    /**
      * The Group the deployment reserves under this name, or empty before seeding has run.
      *
      * <p>Left without the graph: the reserved Group cannot be deleted, so no deletion can land

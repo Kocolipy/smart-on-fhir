@@ -114,15 +114,20 @@ test.describe.serial("ADMIN accounts page", () => {
       await expect(table.getByRole("spinbutton")).toHaveCount(0);
     }
     // The Groups table's one write is the Superuser's Edit permissions (#159), offered on
-    // every Group but the Admin group; membership stays the directory's.
-    for (const label of await groupsTable(page).getByRole("button").allTextContents()) {
-      expect(label).toMatch(/^Edit permissions for /);
+    // every Group but the Admin group; its only other buttons disclose a Group's members
+    // (#213), which writes nothing. Membership stays the directory's.
+    for (const button of await groupsTable(page).getByRole("button").all()) {
+      if ((await button.getAttribute("aria-expanded")) === null) {
+        await expect(button).toHaveText(/^Edit permissions for /);
+      } else {
+        await expect(button).toHaveAccessibleName(/^Members of /);
+      }
     }
     await expect(
       groupsTable(page)
         .getByRole("row")
         .filter({ has: page.getByRole("cell", { exact: true, name: "Superuser" }) })
-        .getByRole("button"),
+        .getByRole("button", { name: /^Edit permissions for / }),
     ).toHaveCount(0);
     for (const label of await usersTable(page).getByRole("button").allTextContents()) {
       expect(label).toMatch(/^Unlock /);
@@ -146,9 +151,9 @@ test.describe.serial("ADMIN accounts page", () => {
       page.getByText(/A lockout never expires: Unlock is the only way it ends/),
     ).toBeVisible();
 
-    // The Bootstrap Admin — this project's own session — shows no lockout state and no Unlock.
+    // The Bootstrap Admin — this project's own session — is marked in its Lockout cell as never
+    // lockable (the Users table names no access level since #211), and offers no Unlock.
     const bootstrap = rowOf(page, usersTable(page), "admin");
-    await expect(bootstrap.getByText("Bootstrap Admin")).toBeVisible();
     await expect(bootstrap.getByTitle("The Bootstrap Admin cannot be locked")).toBeVisible();
     await expect(bootstrap.getByText(/^(Locked|Not locked)$/)).toHaveCount(0);
     await expect(bootstrap.getByRole("button", { name: /Unlock/ })).toHaveCount(0);

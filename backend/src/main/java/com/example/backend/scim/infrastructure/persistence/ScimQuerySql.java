@@ -113,9 +113,18 @@ final class ScimQuerySql {
 
     private int next;
 
+    /** For a connector's query: its aliases are the {@code externalId} values it sees. */
     ScimQuerySql(UUID connectorId, String baseUri) {
         parameters.put("connectorId", connectorId);
         parameters.put("baseUri", baseUri);
+    }
+
+    /**
+     * For a query no connector asks: neither the connector nor the base URI is bound, so a
+     * statement naming either could not run. The adapter refuses such a query before rendering
+     * it ({@link ScimQuery#needsConnector()}).
+     */
+    ScimQuerySql() {
     }
 
     /** Every bound value, by name. */

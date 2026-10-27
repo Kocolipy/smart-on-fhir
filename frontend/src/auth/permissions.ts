@@ -24,6 +24,19 @@ export const SUPERUSER = "superuser";
 export type Requirement = Permission | typeof SUPERUSER;
 
 /**
+ * Every one of several Permissions, which a request requires together: the
+ * read of a Group's members requires `group:read` and `user:read`, since who
+ * the members are is Users-projection data. Holding the Superuser does not
+ * stand in for any of them — the Superuser's session holds them as Permissions.
+ */
+export interface AllOf {
+  readonly allOf: readonly Permission[];
+}
+
+/** What a read requires of the session: one Permission, or every one of several. */
+export type ReadRequirement = Permission | AllOf;
+
+/**
  * The session as these checks read it: its Permissions and whether it is the
  * Superuser's, each absent while not known yet. An `AuthUser` is one.
  */
@@ -37,11 +50,16 @@ type SessionStanding =
 export type PageRequirement = "authenticated" | { anyOf: readonly Permission[] };
 
 /**
- * Whether the session meets `requirement`: holds the Permission, or is the
- * Superuser's. Holding every Permission is not being the Superuser. No session,
- * and one whose standing is not known yet, holds nothing.
+ * Whether the session meets `requirement`: holds the Permission, is the
+ * Superuser's, or holds every one of several Permissions — of which naming
+ * none is never met. Holding every Permission is not being the Superuser. No
+ * session, and one whose standing is not known yet, holds nothing.
  */
-export function holds(user: SessionStanding, requirement: Requirement) {
+export function holds(user: SessionStanding, requirement: Requirement | AllOf): boolean {
+  if (typeof requirement === "object") {
+    const { allOf } = requirement;
+    return allOf.length > 0 && allOf.every((permission) => holds(user, permission));
+  }
   if (requirement === SUPERUSER) return user?.superuser === true;
   return user?.permissions?.includes(requirement) === true;
 }

@@ -12,7 +12,7 @@
 
 import { permissionDecoder, type Permission } from "@/auth/api";
 import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
-import { SUPERUSER } from "@/auth/permissions";
+import { SUPERUSER, type AllOf } from "@/auth/permissions";
 import { decodeArray, DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 
 /** A Group a User belongs to directly, as its row reports it. */
@@ -82,6 +82,29 @@ export interface GroupRow {
   memberCount: number;
   adminGroup: boolean;
   permissions: Permission[];
+}
+
+/**
+ * A Group's direct member, as `GET /api/admin/groups/{id}/members` reports
+ * it: the Users projection's identity and nothing more — there is no field a
+ * credential, or any login state, could arrive in.
+ */
+export interface GroupMember {
+  id: string;
+  userName: string;
+  displayName: string | null;
+  active: boolean;
+}
+
+/**
+ * One page of a Group's direct members, in the Users projection's order
+ * (normalized `userName`), with how many there are in all. `startIndex` is
+ * one-based, as SCIM pages are.
+ */
+export interface GroupMemberPage {
+  totalResults: number;
+  startIndex: number;
+  members: GroupMember[];
 }
 
 /**
@@ -199,6 +222,25 @@ export const decodeGroupRow = (value: unknown): GroupRow => {
   };
 };
 
+const decodeGroupMember = (value: unknown): GroupMember => {
+  const member = readObject(value, "GroupMember");
+  return {
+    id: member.string("id"),
+    userName: member.string("userName"),
+    displayName: member.nullableString("displayName"),
+    active: member.boolean("active"),
+  };
+};
+
+export const decodeGroupMemberPage = (value: unknown): GroupMemberPage => {
+  const page = readObject(value, "GroupMemberPage");
+  return {
+    totalResults: page.integer("totalResults"),
+    startIndex: page.integer("startIndex"),
+    members: page.array("members", decodeGroupMember),
+  };
+};
+
 /** One token Permission, checked against `TOKEN_PERMISSIONS` rather than trusted. */
 const decodeTokenPermission = (value: unknown): TokenPermission => {
   const permission = TOKEN_PERMISSIONS.find((candidate) => candidate === value);
@@ -275,6 +317,27 @@ export const GROUPS: ReadDeclaration<GroupRow[]> = {
   decode: jsonDecoder(decodeGroupRows),
   path: () => GROUPS_PATH,
   permission: "group:read",
+};
+
+/** How many members one read of a Group's members asks for. */
+export const GROUP_MEMBERS_PAGE_SIZE = 20;
+
+/**
+ * One page of a Group's direct members, `GET /api/admin/groups/{id}/members`,
+ * from the one-based `startIndex`. Who a Group's members are is Users-projection
+ * data, so the read requires `user:read` beside `group:read`: a session holding
+ * `group:read` alone is shown each Group's count and nothing more.
+ */
+export const GROUP_MEMBERS: ReadDeclaration<
+  GroupMemberPage,
+  [groupId: string, startIndex: number],
+  false,
+  AllOf
+> = {
+  decode: jsonDecoder(decodeGroupMemberPage),
+  path: (groupId, startIndex) =>
+    `${GROUPS_PATH}/${encodeURIComponent(groupId)}/members?startIndex=${startIndex}&count=${GROUP_MEMBERS_PAGE_SIZE}`,
+  permission: { allOf: ["group:read", "user:read"] },
 };
 
 /**

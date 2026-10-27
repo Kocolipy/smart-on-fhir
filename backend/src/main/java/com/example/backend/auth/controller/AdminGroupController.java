@@ -1,20 +1,25 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.auth.application.GroupMemberPage;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -26,9 +31,10 @@ import tools.jackson.databind.JsonNode;
  * {@code DELETE} of a Group itself is refused by the chain, which denies by default. What a Group
  * confers is the application's, and only the Superuser sets it, here and never over SCIM.
  *
- * <p>The listing requires {@code group:read}; setting a Group's Permissions requires the
- * Superuser. Each is declared on the handler and repeated by the chain as a backstop, for the
- * reason {@link AdminAccountController} gives.
+ * <p>The listing requires {@code group:read}; reading a Group's direct members requires
+ * {@code user:read} as well, since who they are is Users-projection data; setting a Group's
+ * Permissions requires the Superuser. Each is declared on the handler and repeated by the chain
+ * as a backstop, for the reason {@link AdminAccountController} gives.
  */
 @RestController
 @AdminApiHandler
@@ -49,6 +55,31 @@ public class AdminGroupController {
     @PreAuthorize("hasAuthority('group:read')")
     public List<GroupSummary> listGroups() {
         return identities.listGroups();
+    }
+
+    /**
+     * One page of the Group's direct members, paged as a SCIM collection is: {@code startIndex}
+     * one-based, {@code count} defaulted and capped, each out-of-range value coerced rather than
+     * refused ({@link ScimPageRequest#of}). Requires both {@code group:read} and
+     * {@code user:read}: who a Group's members are is Users-projection data, and
+     * {@code group:read} alone discloses only how many there are (ADR 0015). No Group by that id
+     * is a {@code 404} naming nothing.
+     */
+    @GetMapping("/{id}/members")
+    @PreAuthorize("hasAuthority('group:read') and hasAuthority('user:read')")
+    public GroupMemberPage members(@PathVariable UUID id,
+            @RequestParam(required = false) Integer startIndex,
+            @RequestParam(required = false) Integer count) {
+        return identities.groupMembers(id, ScimPageRequest.of(startIndex, count))
+                .orElseThrow(NoSuchGroupException::new);
+    }
+
+    /** No Group is held under the id asked for. It carries no message and no id. */
+    static final class NoSuchGroupException extends ResponseStatusException {
+
+        NoSuchGroupException() {
+            super(HttpStatus.NOT_FOUND);
+        }
     }
 
     /**

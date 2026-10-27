@@ -4,6 +4,7 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
@@ -235,6 +236,19 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                 .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
                 .map(this::asRead)
                 .toList();
+    }
+
+    @Override
+    public List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName() {
+        return findAllOrderedByNormalizedDisplayName().stream()
+                .map(group -> new ScimGroupHeadcount(group.id(), group.displayName(),
+                        group.reservedName(), group.members().size()))
+                .toList();
+    }
+
+    @Override
+    public boolean existsById(UUID id) {
+        return stored.containsKey(id);
     }
 
     @Override

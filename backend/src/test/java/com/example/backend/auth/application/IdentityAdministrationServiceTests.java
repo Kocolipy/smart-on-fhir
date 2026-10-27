@@ -19,6 +19,7 @@ import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
@@ -27,11 +28,14 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
@@ -92,7 +96,8 @@ class IdentityAdministrationServiceTests {
             LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, clock),
             audit,
-            groupPermissions);
+            groupPermissions,
+            new InMemoryScimQueryRepository(users, groups));
 
     // Reviewing who has access
 
@@ -221,6 +226,85 @@ class IdentityAdministrationServiceTests {
     @Test
     void listsNoGroupsWhenNoneAreStored() {
         assertThat(service.listGroups()).isEmpty();
+    }
+
+    // A Group's direct members
+
+    /**
+     * A Group's direct members, a page at a time, in the Users projection's order — normalized
+     * {@code userName} — each as its stable id, {@code userName}, display name and
+     * {@code active}; a member of another Group, or of none, is not among them.
+     */
+    @Test
+    void aGroupsDirectMembersAreReadAPageAtATimeInUserNameOrder() {
+        ScimUser carol = given("carol");
+        ScimUser alice = users.given(ScimIdentities.withDisplayName(
+                ScimIdentities.user("Alice"), "Alice Liddell"));
+        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+        ScimUser outsider = given("aaron");
+        ScimGroup group = groups.create(ScimIdentities.group("Nurses", carol, alice, bob));
+        groups.create(ScimIdentities.group("Porters", outsider));
+
+        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new ScimPageRequest(1, 2));
+
+        assertThat(page).contains(new GroupMemberPage(3, 1, List.of(
+                new GroupMemberPage.Member(alice.id(), "Alice", "Alice Liddell", true),
+                new GroupMemberPage.Member(bob.id(), "bob", null, false))));
+    }
+
+    /** The next page starts where the last ended, and the total still counts every member. */
+    @Test
+    void aLaterPageStartsWhereThePreviousEnded() {
+        ScimUser carol = given("carol");
+        ScimGroup group = groups.create(
+                ScimIdentities.group("Nurses", carol, given("alice"), given("bob")));
+
+        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new ScimPageRequest(3, 2));
+
+        assertThat(page).contains(new GroupMemberPage(3, 3, List.of(
+                new GroupMemberPage.Member(carol.id(), "carol", null, true))));
+    }
+
+    @Test
+    void aGroupWithNoMembersReadsAsAnEmptyPageWithATotalOfZero() {
+        given("alice");
+        ScimGroup group = groups.create(ScimIdentities.group("Empty"));
+
+        assertThat(service.groupMembers(group.id(), ScimPageRequest.FIRST_PAGE))
+                .contains(new GroupMemberPage(0, 1, List.of()));
+    }
+
+    /** No Group by that id — never one, or a User's — has no members to read. */
+    @Test
+    void anIdNamingNoGroupHasNoMembersToRead() {
+        ScimUser alice = given("alice");
+        groups.create(ScimIdentities.group("Nurses", alice));
+
+        assertThat(List.of(service.groupMembers(UUID.randomUUID(), ScimPageRequest.FIRST_PAGE),
+                        service.groupMembers(alice.id(), ScimPageRequest.FIRST_PAGE)))
+                .containsOnly(Optional.empty());
+    }
+
+    /**
+     * A member row is the Users projection's identity and nothing else: there is no component a
+     * credential, or any login state, could be written into.
+     */
+    @Test
+    void aMemberRowHasNoFieldForACredential() {
+        assertThat(Arrays.stream(GroupMemberPage.Member.class.getRecordComponents())
+                        .map(component -> component.getName()))
+                .containsExactly("id", "userName", "displayName", "active");
+    }
+
+    @Test
+    void readingAGroupsMembersChangesNothing() {
+        ScimGroup group = groups.create(ScimIdentities.group("Nurses", given("alice")));
+        int before = users.writes();
+
+        service.groupMembers(group.id(), ScimPageRequest.FIRST_PAGE);
+
+        assertThat(users.writes()).isEqualTo(before);
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /** Reading the directory writes nothing and records nothing. */

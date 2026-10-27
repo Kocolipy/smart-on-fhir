@@ -61,6 +61,34 @@ public record ScimQuery(
     }
 
     /**
+     * Whether this query names, in its filter or its sort, a path whose value depends on who asks
+     * and where: {@code externalId}, which is the calling connector's own alias, or a
+     * {@code $ref} or {@code meta.location}, which are built from the SCIM base URI the connector
+     * called. Such a query is evaluated only for a connector
+     * ({@link ScimQueryRepository}); a caller that is none — an administrative read — is refused
+     * it rather than having it evaluated against nothing ({@link AdministrativeQueryRepository}).
+     */
+    public boolean needsConnector() {
+        return (filter != null && filter.testsAnyPath(ScimQuery::connectorScoped))
+                || (sort != null && connectorScoped(sort.attribute().path()));
+    }
+
+    /**
+     * The four paths of {@link ScimFilterPath} whose value is the calling connector's or its base
+     * URI's: {@code externalId}, a {@code $ref} of either multi-valued attribute, and
+     * {@code meta.location}. A closed set stated as identity comparisons rather than as a
+     * {@code switch}, which would compile to a null check and an unmatched-value branch that no
+     * caller can reach — a path always arrives from the parser or from {@link ScimSort} — and so
+     * to behavior no test can state.
+     */
+    private static boolean connectorScoped(ScimFilterPath path) {
+        return path == ScimFilterPath.EXTERNAL_ID
+                || path == ScimFilterPath.GROUPS_REF
+                || path == ScimFilterPath.MEMBERS_REF
+                || path == ScimFilterPath.META_LOCATION;
+    }
+
+    /**
      * What one query found: the total that matched, and the identities of the page, in order.
      *
      * @param totalResults how many resources matched, irrespective of the page

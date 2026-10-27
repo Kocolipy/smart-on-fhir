@@ -56,6 +56,7 @@ FAST_GATE=(
   com/example/backend/auth/application/DormancyServiceTests
   com/example/backend/auth/application/EpicLoginDecisionTests
   com/example/backend/auth/application/FhircastAccessServiceTests
+  com/example/backend/auth/application/GroupMemberPageTests
   com/example/backend/auth/application/IdentityAdministrationServiceTests
   com/example/backend/auth/application/LoginAttemptServiceTests
   com/example/backend/auth/application/LoginIdentityServiceTests

@@ -69,12 +69,14 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * application enforces (ADR 0015).
  *
  * <p>Every operation under {@code /api} and {@code /actuator} declares its own requirement — public,
- * self-service (authenticated, no Permission), exactly one Permission or the Superuser — and then,
- * over the real filter chain:
+ * self-service (authenticated, no Permission), one or more Permissions, every one required, or the
+ * Superuser — and then, over the real filter chain:
  *
  * <ul>
- *   <li>a caller holding every Permission EXCEPT the declared one is refused {@code 403}, and a
- *       caller holding ONLY it is refused neither {@code 401} nor {@code 403};
+ *   <li>for each declared Permission, a caller holding every Permission EXCEPT that one is refused
+ *       {@code 403} — so of an operation declaring two, a caller holding either alone is refused —
+ *       and a caller holding ONLY the declared ones is refused neither {@code 401} nor
+ *       {@code 403};
  *   <li>an operation declaring the Superuser refuses a caller holding every Permission but not
  *       {@code ROLE_SUPERUSER} with {@code 403}, and admits one holding only that role;
  *   <li>self-service needs no Permission, public needs no session, and every other operation
@@ -180,7 +182,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     // ---- the document itself ----------------------------------------------------------------
 
     @Test
-    void every_application_operation_declares_public_self_service_the_superuser_or_one_known_permission() {
+    void every_application_operation_declares_public_self_service_the_superuser_or_known_permissions() {
         List<Operation> operations = applicationOperations();
         assertThat(operations).as("the document lists application operations").hasSizeGreaterThan(20);
         for (Operation operation : operations) {
@@ -189,40 +191,77 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                     .as("%s declares its own security requirement", operation)
                     .isIn(Access.PUBLIC, Access.SELF_SERVICE, Access.PERMISSION, Access.SUPERUSER);
             if (requirement.access() == Access.PERMISSION) {
-                assertThat(Permission.fromValue(requirement.permission()))
-                        .as("%s names a Permission that exists", operation)
-                        .isPresent();
+                assertThat(requirement.allOf())
+                        .as("%s names Permissions that exist", operation)
+                        .isNotEmpty()
+                        .allSatisfy(permission -> assertThat(Permission.fromValue(permission))
+                                .isPresent());
             }
             if (requirement.access() == Access.SUPERUSER) {
-                assertThat(requirement.permission())
+                assertThat(requirement.allOf())
                         .as("%s names the Superuser, which is no Permission", operation)
-                        .isNull();
+                        .isEmpty();
             }
         }
     }
 
     // ---- per declaration ----------------------------------------------------------------------
 
+    /**
+     * Each declared Permission is required — a caller holding every Permission but that one is
+     * refused — and the declared ones together suffice. Of an operation declaring two, a caller
+     * holding either alone is refused, since "every Permission but the other" includes it.
+     */
     @Test
-    void each_declared_permission_is_required_and_is_sufficient() throws Exception {
+    void each_declared_permission_is_required_and_together_they_are_sufficient() throws Exception {
         List<Operation> protectedOperations = withAccess(Access.PERMISSION);
         assertThat(protectedOperations).hasSizeGreaterThan(7);
         List<String> failures = new ArrayList<>();
         for (Operation operation : protectedOperations) {
-            String permission = operation.requirement().permission();
-            List<String> allBut = new ArrayList<>(EVERY_PERMISSION);
-            allBut.remove(permission);
+            List<String> declared = operation.requirement().allOf();
+            for (String permission : declared) {
+                List<String> allBut = new ArrayList<>(EVERY_PERMISSION);
+                allBut.remove(permission);
 
-            int lacking = call(operation, session(allBut));
-            if (lacking != 403) {
-                failures.add(operation + " without " + permission + " -> " + lacking);
+                int lacking = call(operation, session(allBut));
+                if (lacking != 403) {
+                    failures.add(operation + " without " + permission + " -> " + lacking);
+                }
             }
-            int holding = call(operation, session(List.of(permission)));
+            int holding = call(operation, session(declared));
             if (holding == 401 || holding == 403) {
-                failures.add(operation + " holding only " + permission + " -> " + holding);
+                failures.add(operation + " holding only " + declared + " -> " + holding);
             }
         }
         assertThat(failures).isEmpty();
+    }
+
+    /**
+     * The one operation declaring two Permissions: reading a Group's members, which are
+     * Users-projection data, needs {@code user:read} beside {@code group:read} (ADR 0015). Held
+     * alone, either is refused — by the chain and by the handler — so {@code group:read} discloses
+     * a Group's member count and never who its members are.
+     */
+    @Test
+    void reading_a_groups_members_needs_both_group_read_and_user_read() throws Exception {
+        List<Operation> twoPermissions = withAccess(Access.PERMISSION).stream()
+                .filter(operation -> operation.requirement().allOf().size() > 1)
+                .toList();
+        assertThat(twoPermissions).extracting(Operation::toString)
+                .containsExactly("GET /api/admin/groups/{id}/members");
+        Operation members = twoPermissions.getFirst();
+        assertThat(members.requirement().allOf()).containsExactly("group:read", "user:read");
+        HandlerMethod handler = handlerOf(members);
+        Object bean = handler.getBean() instanceof String name
+                ? context.getBean(name) : handler.getBean();
+        for (String alone : List.of("group:read", "user:read")) {
+            assertThat(call(members, session(List.of(alone))))
+                    .as("%s holding only %s", members, alone)
+                    .isEqualTo(403);
+            assertThat(invoke(bean, handler.getMethod(), List.of(alone)))
+                    .as("%s handler holding only %s", members, alone)
+                    .isInstanceOf(AccessDeniedException.class);
+        }
     }
 
     /**
@@ -263,8 +302,8 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     @Test
     void only_unlock_is_declared_under_account_unlock() {
         assertThat(withAccess(Access.PERMISSION))
-                .filteredOn(operation -> "account:unlock".equals(
-                        operation.requirement().permission()))
+                .filteredOn(operation -> operation.requirement().allOf()
+                        .contains("account:unlock"))
                 .extracting(Operation::toString)
                 .containsExactly("POST /api/admin/accounts/{id}/unlock");
     }
@@ -277,7 +316,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 .map(Permission::value)
                 .toList();
         assertThat(withAccess(Access.PERMISSION))
-                .extracting(operation -> operation.requirement().permission())
+                .flatExtracting(operation -> operation.requirement().allOf())
                 .doesNotContainAnyElementsOf(tokenOnly);
     }
 
@@ -521,8 +560,8 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     /**
      * Past the chain: each documented operation's handler, invoked through its Spring proxy with
-     * no filter in front of it, refuses a caller lacking the declared Permission and admits one
-     * holding only it. This is what makes method security the authority and the URL rule the
+     * no filter in front of it, refuses a caller lacking any one declared Permission and admits
+     * one holding only the declared ones. This is what makes method security the authority and the URL rule the
      * backstop — remove a handler's declaration and the chain alone would still pass the tests
      * above. Arguments are placeholders: an admitted call may fail on them, a refused one never
      * reaches them. Actuator endpoints have no controller handler; the chain is their declaration.
@@ -539,15 +578,17 @@ class AuthorizationContractTests extends EpicLoginOnContext {
             Object bean = handler.getBean() instanceof String name
                     ? context.getBean(name) : handler.getBean();
             Method method = handler.getMethod();
-            String permission = operation.requirement().permission();
-            List<String> allBut = new ArrayList<>(EVERY_PERMISSION);
-            allBut.remove(permission);
+            List<String> declared = operation.requirement().allOf();
+            for (String permission : declared) {
+                List<String> allBut = new ArrayList<>(EVERY_PERMISSION);
+                allBut.remove(permission);
 
-            if (!(invoke(bean, method, allBut) instanceof AccessDeniedException)) {
-                failures.add(operation + " handler admitted a caller without " + permission);
+                if (!(invoke(bean, method, allBut) instanceof AccessDeniedException)) {
+                    failures.add(operation + " handler admitted a caller without " + permission);
+                }
             }
-            if (invoke(bean, method, List.of(permission)) instanceof AccessDeniedException) {
-                failures.add(operation + " handler refused a caller holding " + permission);
+            if (invoke(bean, method, declared) instanceof AccessDeniedException) {
+                failures.add(operation + " handler refused a caller holding " + declared);
             }
         }
         assertThat(failures).isEmpty();

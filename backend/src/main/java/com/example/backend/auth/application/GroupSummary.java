@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupHeadcount;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -16,8 +17,9 @@ import java.util.UUID;
  * Group grants.
  *
  * <p>A count rather than the member list: the question this view answers is "which Groups exist
- * and how big are they", and the per-User answer to "who is in it" is already each User row's
- * {@code groups}.
+ * and how big are they". Who is in a Group is a read of its own, a page at a time
+ * ({@link GroupMemberPage}), which needs {@code user:read} as well: member identities are
+ * Users-projection data.
  *
  * @param id          the SCIM resource id
  * @param displayName the directory's name for it
@@ -41,11 +43,19 @@ public record GroupSummary(
      * by its reservation marker, and the Permissions by name, sorted.
      */
     static GroupSummary of(ScimGroup group, Set<Permission> carried) {
-        return new GroupSummary(
-                group.id(),
-                group.displayName(),
-                group.members().size(),
-                group.reservedName() == ReservedResourceName.ADMIN_GROUP,
-                Permission.valuesOf(carried));
+        return of(group.id(), group.displayName(), group.members().size(), group.reservedName(),
+                carried);
+    }
+
+    /** The row of a Group the listing counted rather than read. */
+    static GroupSummary of(ScimGroupHeadcount group, Set<Permission> carried) {
+        return of(group.id(), group.displayName(), group.memberCount(), group.reservedName(),
+                carried);
+    }
+
+    private static GroupSummary of(UUID id, String displayName, int memberCount,
+            ReservedResourceName reservedName, Set<Permission> carried) {
+        return new GroupSummary(id, displayName, memberCount,
+                reservedName == ReservedResourceName.ADMIN_GROUP, Permission.valuesOf(carried));
     }
 }

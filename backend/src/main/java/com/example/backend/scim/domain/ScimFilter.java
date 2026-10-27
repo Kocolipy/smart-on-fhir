@@ -2,6 +2,8 @@ package com.example.backend.scim.domain;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * A parsed, validated RFC 7644 §3.4.2.2 filter.
@@ -19,6 +21,22 @@ import java.util.Locale;
  * negation and the translation never has to reason about SQL's third truth value.
  */
 public sealed interface ScimFilter {
+
+    /**
+     * The Users who are direct members of the Group — {@code groups.value eq "<id>"} — built as a
+     * value rather than parsed from filter text, so a Group id never passes through the grammar.
+     * For a query over Users; a Group has no {@code groups}.
+     */
+    static ScimFilter directMemberOf(UUID groupId) {
+        return new Comparison(
+                new AttributeRef(ScimFilterPath.GROUPS_VALUE, null), Operator.EQ, groupId.toString());
+    }
+
+    /**
+     * Whether any condition in this filter tests a path that satisfies {@code test}. A value
+     * path's own attribute only scopes its conditions, so it is their paths that are tested.
+     */
+    boolean testsAnyPath(Predicate<ScimFilterPath> test);
 
     /** RFC 7644 comparison operators. {@code pr} is {@link Presence}, not one of these. */
     enum Operator {
@@ -64,22 +82,47 @@ public sealed interface ScimFilter {
      *              which means "has no value" and "has a value" respectively
      */
     record Comparison(AttributeRef attribute, Operator operator, Object value) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return test.test(attribute.path());
+        }
     }
 
     /** {@code attr pr}: the attribute has a non-empty value. */
     record Presence(AttributeRef attribute) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return test.test(attribute.path());
+        }
     }
 
     /** {@code left and right}. */
     record And(ScimFilter left, ScimFilter right) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return left.testsAnyPath(test) || right.testsAnyPath(test);
+        }
     }
 
     /** {@code left or right}. */
     record Or(ScimFilter left, ScimFilter right) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return left.testsAnyPath(test) || right.testsAnyPath(test);
+        }
     }
 
     /** {@code not (inner)}. */
     record Not(ScimFilter inner) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return inner.testsAnyPath(test);
+        }
     }
 
     /**
@@ -91,5 +134,10 @@ public sealed interface ScimFilter {
      * @param inner a filter whose every path is a sub-attribute of {@code attribute}
      */
     record ValuePath(AttributeRef attribute, ScimFilter inner) implements ScimFilter {
+
+        @Override
+        public boolean testsAnyPath(Predicate<ScimFilterPath> test) {
+            return inner.testsAnyPath(test);
+        }
     }
 }
