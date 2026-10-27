@@ -166,13 +166,14 @@ and `src/lib/` may import `lib/http.ts`, so a page cannot call `apiFetch`.
 Pages consume `auth/`; they hold no session or Permission logic and never
 decide where a visitor goes.
 
-- `accounts.tsx` — the widest page: the Users and Groups projections, Unlock
+- `accounts.tsx` — the widest page: the Users and Groups projections, each
+  read a page at a time with a search box and one shared pager, Unlock
   of a locked User by stable id, a Group's members a page at a time behind
   its member count (only for a session holding `group:read` and `user:read`,
   the one read declared `{ allOf }`), and — for the Superuser alone, on
   every Group but the Admin group — "Edit permissions". An action replaces the
-  affected row from its response, which _is_ that User's or Group's new state,
-  rather than re-reading. Nothing the directory owns has a control, and the page
+  affected row on the page shown from its response, which _is_ that User's or
+  Group's new state, rather than re-reading. Nothing the directory owns has a control, and the page
   hides the actions the backend would refuse (its own row, the one whose stable
   id the session's `AuthUser.id` holds; Unlock on a User
   that is not locked, the Bootstrap Admin always among them; the Admin group's

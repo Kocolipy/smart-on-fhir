@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -39,9 +38,6 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRepository {
-
-    /** The order the administrative listing promises: by normalized {@code userName}. */
-    private static final Sort BY_NORMALIZED_USER_NAME = Sort.by("normalizedUserName");
 
     private final ScimUserJpaRepository users;
     private final ScimResourceJpaRepository resources;
@@ -283,13 +279,6 @@ class ScimUserPersistenceAdapter implements ScimUserRepository, ScimLoginStateRe
                 ResourceVersionAdvance.userDeleted(memberships.findGroupIdsOfUser(id), now), resources);
         memberships.deleteMembershipsHeldBy(id);
         resources.deleteResource(id);
-    }
-
-    @Override
-    public List<ScimUser> findAllOrderedByNormalizedUserName() {
-        return users.findAll(BY_NORMALIZED_USER_NAME).stream()
-                .map(ScimUserPersistenceAdapter::toDomain)
-                .toList();
     }
 
     @Override

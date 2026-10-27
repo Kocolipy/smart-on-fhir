@@ -24,7 +24,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -57,8 +56,6 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 class ScimGroupPersistenceAdapter implements ScimGroupRepository {
-
-    private static final Sort BY_NORMALIZED_DISPLAY_NAME = Sort.by("normalizedDisplayName");
 
     private final ScimGroupJpaRepository groups;
     private final ScimGroupMemberJpaRepository memberships;
@@ -203,26 +200,32 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     }
 
     @Override
-    public List<ScimGroup> findAllOrderedByNormalizedDisplayName() {
-        List<ScimGroupEntity> entities = groups.findAll(BY_NORMALIZED_DISPLAY_NAME);
-        if (entities.isEmpty()) {
+    public List<ScimGroupHeadcount> findHeadcountsById(List<UUID> ids) {
+        if (ids.isEmpty()) {
             return List.of();
         }
-        Map<UUID, List<ScimGroupMember>> byGroup = membersOf(entities.stream()
-                .map(entity -> entity.getResource().getId())
-                .toList());
-        return entities.stream().map(entity -> toDomain(entity, byGroup)).toList();
+        Map<UUID, ScimGroupHeadcount> byId = new HashMap<>();
+        for (ScimGroupHeadcountRow row : groups.findHeadcountsById(ids)) {
+            byId.put(row.id(), new ScimGroupHeadcount(
+                    row.id(),
+                    row.displayName(),
+                    ReservedResourceName.ofStoredValue(row.reservedName()).orElse(null),
+                    Math.toIntExact(row.memberCount())));
+        }
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     @Override
-    public List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName() {
-        return groups.findAllHeadcounts().stream()
-                .map(row -> new ScimGroupHeadcount(
-                        row.id(),
-                        row.displayName(),
-                        ReservedResourceName.ofStoredValue(row.reservedName()).orElse(null),
-                        Math.toIntExact(row.memberCount())))
-                .toList();
+    public Map<UUID, List<ScimGroupReference>> findGroupsOfUsers(Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return memberships.findGroupsOfUsers(userIds).stream()
+                .collect(Collectors.groupingBy(
+                        ScimUserGroupRow::userId,
+                        Collectors.mapping(
+                                row -> new ScimGroupReference(row.groupId(), row.displayName()),
+                                Collectors.toList())));
     }
 
     @Override
@@ -344,8 +347,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * is a stale read rather than a failure, since a Group with no rows here is a legitimate
      * empty Group.
      *
-     * <p>One statement per {@link BoundIdChunks chunk} of Group ids: the administrative listing
-     * reads every Group in the directory, which a connector may grow past the 2,100 parameters
+     * <p>One statement per {@link BoundIdChunks chunk} of Group ids: the whole-directory read
+     * names every Group in the directory, which a connector may grow past the 2,100 parameters
      * SQL Server binds in one request. Each Group's members all come from its own chunk's
      * statement, so each Group's order is that statement's.
      */

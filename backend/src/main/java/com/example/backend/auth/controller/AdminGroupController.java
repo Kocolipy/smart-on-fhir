@@ -1,6 +1,7 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.GroupMemberPage;
+import com.example.backend.auth.application.GroupPage;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
@@ -51,10 +52,18 @@ public class AdminGroupController {
         this.groupPermissions = groupPermissions;
     }
 
+    /**
+     * One page of the Groups projection: the Groups whose display name contains {@code search},
+     * ignoring case — every Group without one — in normalized display-name order, with how many
+     * matched; paged exactly as {@link #members} is.
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('group:read')")
-    public List<GroupSummary> listGroups() {
-        return identities.listGroups();
+    public GroupPage listGroups(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer startIndex,
+            @RequestParam(required = false) Integer count) {
+        return identities.listGroups(search, ScimPageRequest.of(startIndex, count));
     }
 
     /**

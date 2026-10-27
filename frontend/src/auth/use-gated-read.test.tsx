@@ -466,6 +466,25 @@ describe("useGatedRead", () => {
     expect(result.current.view).toEqual({ data: 6, kind: "ready" });
   });
 
+  it("leaves a read in flight loading when an update finds nothing to change", () => {
+    const { result } = renderRead();
+
+    act(() => result.current.update(() => null));
+
+    expect(result.current.view).toEqual({ kind: "loading" });
+  });
+
+  it("keeps a failed read's data stale when an update finds nothing to change", async () => {
+    const { result } = renderRead();
+    await answer(example(3));
+    act(() => void result.current.reload());
+    await answer(bare(500));
+
+    act(() => result.current.update(() => null));
+
+    expect(result.current.view).toEqual({ data: 3, kind: "stale" });
+  });
+
   it("holds data a later response states as stale after a failed first read", async () => {
     const { result } = renderRead();
     await answer(bare(500));

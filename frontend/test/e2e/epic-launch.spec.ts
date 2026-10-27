@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { expect, test } from "@playwright/test";
 
-import { DEV_FIXTURES, groupPermissionsOf } from "./auth.helpers";
+import { DEV_FIXTURES, everyRowOf, groupPermissionsOf } from "./auth.helpers";
 import {
   createLaunch,
   expectStandInConfigured,
@@ -104,10 +104,10 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
 
   // The Group carrying the Helpdesk's Permissions, read the way an operator
   // reviews them: the Groups listing, where each row carries its Permissions.
-  const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
+  const groups = await everyRowOf<{
     id: string;
     permissions: string[];
-  }>;
+  }>(adminPage, "Groups");
   const helpdesk = groups.find((group) => group.id === DEV_FIXTURES.helpdesk.group);
   expect(helpdesk?.permissions, "the Helpdesk Group's Permissions").toEqual(
     groupPermissionsOf("helpdesk"),

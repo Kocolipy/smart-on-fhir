@@ -229,9 +229,11 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return stored.size();
     }
 
-    /** Every stored Group, in the order the persistent query's default order gives them. */
-    @Override
-    public List<ScimGroup> findAllOrderedByNormalizedDisplayName() {
+    /**
+     * Every stored Group, in the order the persistent query's default order gives them: by
+     * normalized {@code displayName}. The fake's own, not the port's.
+     */
+    public List<ScimGroup> inQueryOrder() {
         return stored.values().stream()
                 .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
                 .map(this::asRead)
@@ -239,11 +241,23 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     @Override
-    public List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName() {
-        return findAllOrderedByNormalizedDisplayName().stream()
+    public List<ScimGroupHeadcount> findHeadcountsById(List<UUID> ids) {
+        return findAllById(ids).stream()
                 .map(group -> new ScimGroupHeadcount(group.id(), group.displayName(),
                         group.reservedName(), group.members().size()))
                 .toList();
+    }
+
+    @Override
+    public Map<UUID, List<ScimGroupReference>> findGroupsOfUsers(Collection<UUID> userIds) {
+        Map<UUID, List<ScimGroupReference>> answer = new LinkedHashMap<>();
+        for (UUID userId : userIds) {
+            List<ScimGroupReference> direct = findGroupsOfUser(userId);
+            if (!direct.isEmpty()) {
+                answer.put(userId, direct);
+            }
+        }
+        return answer;
     }
 
     @Override

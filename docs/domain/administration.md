@@ -42,7 +42,7 @@ authorization: the backend refuses each operation to a caller lacking its
 Permission regardless.
 
 **Users projection** — what identity administration may know about a User, one
-row per User (`GET /api/admin/accounts`): its stable resource id, `userName` and
+row per User, read a page at a time (`GET /api/admin/accounts`): its stable resource id, `userName` and
 display name, whether it is the Bootstrap Admin, whether the Admin group confers
 administrative authority on it, its `active` flag, whether a credential is set at
 all, whether a lockout is in force and its cause (`FAILURES` or `DORMANCY`, so an
@@ -51,6 +51,19 @@ whether a change is required, its last authentication, its creation timestamp an
 its direct Groups. The directory-owned fields — identity, `active`, Groups — are
 read-only there. Never the password hash, which no projection type has a field
 for.
+
+It is a page of the directory, not a complete review of it (ADR 0017). The Users
+come in normalized `userName` order, twenty to a page on the Accounts page, with
+the total beside them and Previous and Next controls. A search box narrows them
+to the Users whose `userName` or display name contains the text, ignoring case.
+Submitting a search reads its first page. A search that matches nothing says so
+("No users match …"), which is distinct from no User being provisioned at all.
+The search is matched literally and bound as a statement parameter, never
+composed into filter text. Paging follows SCIM's bounds (`startIndex` one-based,
+`count` defaulting to 100 and capped at 200, out-of-range values coerced), as the
+Group member read's does. Each page's direct Groups, and so its Superuser flag,
+come from one membership read for that page's Users. An Unlock replaces its row
+on the page shown from the response, without reading the page again.
 
 - No field says when a lockout lifts, because none does: what ends it is an
   Admin's Unlock.
@@ -67,12 +80,14 @@ for.
   so "not locked" would describe a condition that could change.
 
 **Groups projection** — what identity administration may know about a Group, one
-row per Group (`GET /api/admin/groups`): its name, its direct member count,
+row per Group, read a page at a time (`GET /api/admin/groups`): its name, its direct member count,
 whether it is the protected Admin group, decided by the reservation marker, and
 the Permissions it carries. Its name and membership are the directory's and
 read-only here; its Permissions are the application's. The member count is
 counted where the memberships are stored; listing the Groups never reads who is
-in them.
+in them. Its paging, search and empty results are the Users projection's, with
+the Groups in normalized display-name order and the search matching the display
+name alone. A Group Permissions save replaces its row on the page shown.
 
 **Group member read** — who a Group's direct members are, read a page at a time
 (`GET /api/admin/groups/{id}/members?startIndex&count`) on expanding the Group's

@@ -33,6 +33,33 @@ public sealed interface ScimFilter {
     }
 
     /**
+     * The resources of one type whose name contains {@code text} — over Users
+     * {@code userName co "<text>" or displayName co "<text>"}, over Groups
+     * {@code displayName co "<text>"} — for an administrative listing's search. Built as a value,
+     * as {@link #directMemberOf} is: the text is the comparison's literal, which the translation
+     * binds as a statement parameter, so nothing typed into a search box ever passes through the
+     * grammar or into a statement. Both names are {@code caseExact=false}, so the match ignores
+     * case.
+     *
+     * @throws IllegalArgumentException when {@code text} is blank: a search with no text is no
+     *                                  search, and its caller asks for no filter at all
+     */
+    static ScimFilter nameContains(ScimResourceType type, String text) {
+        if (text.isBlank()) {
+            throw new IllegalArgumentException("a name search has text");
+        }
+        Comparison displayName = new Comparison(
+                new AttributeRef(ScimFilterPath.DISPLAY_NAME, null), Operator.CO, text);
+        // A comparison rather than a switch, for the reason ScimQuery.connectorScoped gives: a
+        // switch over the two types compiles to an unmatched-value branch no caller can reach.
+        return type == ScimResourceType.USER
+                ? new Or(new Comparison(
+                        new AttributeRef(ScimFilterPath.USER_NAME, null), Operator.CO, text),
+                        displayName)
+                : displayName;
+    }
+
+    /**
      * Whether any condition in this filter tests a path that satisfies {@code test}. A value
      * path's own attribute only scopes its conditions, so it is their paths that are tested.
      */

@@ -1,7 +1,9 @@
 package com.example.backend.scim.domain;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -128,22 +130,26 @@ public interface ScimGroupRepository {
     List<ScimGroup> findAllById(List<UUID> ids);
 
     /**
-     * Every live Group, memberships included, ordered by normalized {@code displayName}.
+     * The live Groups with these ids, each with its direct member count, in the order the ids are
+     * given; an id naming no live Group is skipped.
      *
-     * <p>For the Admin's read-only directory projection, which reports every Group with its
-     * member count and — inverted — every User's direct Groups. One membership read for the
-     * whole directory rather than one per User: a listing of a thousand Users is otherwise a
-     * thousand statements to compute a column.
+     * <p>How a page of the Groups projection is loaded, which shows how big each Group is and not
+     * who is in it: the query port decided which Groups and in what order, and this counts their
+     * memberships where they are stored, never reading them to be counted. A page is at most
+     * {@code ScimPageRequest.MAX_COUNT} ids, so it binds whole.
      */
-    List<ScimGroup> findAllOrderedByNormalizedDisplayName();
+    List<ScimGroupHeadcount> findHeadcountsById(List<UUID> ids);
 
     /**
-     * Every live Group with its direct member count, ordered by normalized {@code displayName}.
+     * The direct Groups of each of these Users, by User — each User's in normalized
+     * {@code displayName} order, as {@link #findGroupsOfUser} answers one — and no entry for a
+     * User in no Group.
      *
-     * <p>For the Groups projection, which shows how big each Group is and not who is in it: the
-     * memberships are counted where they are stored, never read to be counted.
+     * <p>How a page of the Users projection reads its Groups column: one membership read for the
+     * page's Users, not one per User, and never the membership of every Group. A page is at most
+     * {@code ScimPageRequest.MAX_COUNT} ids, so it binds whole.
      */
-    List<ScimGroupHeadcount> findAllHeadcountsOrderedByNormalizedDisplayName();
+    Map<UUID, List<ScimGroupReference>> findGroupsOfUsers(Collection<UUID> userIds);
 
     /**
      * Whether a live Group has this id — {@code false} for an id of a User — without reading its

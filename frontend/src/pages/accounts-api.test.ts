@@ -12,6 +12,7 @@ import {
   GROUP_MEMBERS,
   GROUPS,
   ISSUE_TOKEN,
+  LISTING_PAGE_SIZE,
   REVOKE_TOKEN,
   ROTATE_TOKEN,
   SET_GROUP_PERMISSIONS,
@@ -20,11 +21,11 @@ import {
   decodeConnector,
   decodeConnectors,
   decodeGroupMemberPage,
+  decodeGroupPage,
   decodeGroupRow,
-  decodeGroupRows,
   decodeIssuedToken,
+  decodeUserPage,
   decodeUserRow,
-  decodeUserRows,
 } from "./accounts-api";
 
 /**
@@ -69,6 +70,10 @@ const GROUP_MEMBER_PAGE = {
   startIndex: 21,
   members: [GROUP_MEMBER],
 };
+
+const USER_PAGE = { totalResults: 41, startIndex: 21, users: [USER_ROW] };
+
+const GROUP_PAGE = { totalResults: 3, startIndex: 1, groups: [GROUP_ROW] };
 
 const CONNECTOR_TOKEN = {
   id: "t-1",
@@ -186,6 +191,18 @@ describeDecoder("GroupMemberPage", decodeGroupMemberPage, GROUP_MEMBER_PAGE, {
   members: [GROUP_MEMBER, "an array"],
 });
 
+describeDecoder("UserPage", decodeUserPage, USER_PAGE, {
+  totalResults: ["41", "an integer"],
+  startIndex: [1.5, "an integer"],
+  users: [USER_ROW, "an array"],
+});
+
+describeDecoder("GroupPage", decodeGroupPage, GROUP_PAGE, {
+  totalResults: [null, "an integer"],
+  startIndex: ["1", "an integer"],
+  groups: [GROUP_ROW, "an array"],
+});
+
 describeDecoder("Connector", decodeConnector, CONNECTOR, {
   id: STRING,
   displayName: STRING,
@@ -244,10 +261,29 @@ describeDecoder(
 
 /** Each listing decoder, the row type it reads, and one valid row of it. */
 const LISTINGS: [list: string, decode: (value: unknown) => unknown, row: object, type: string][] = [
-  ["UserRow[]", decodeUserRows, USER_ROW, "UserRow"],
-  ["GroupRow[]", decodeGroupRows, GROUP_ROW, "GroupRow"],
   ["Connector[]", decodeConnectors, CONNECTOR, "Connector"],
 ];
+
+describe("the page decoders", () => {
+  it("read every row of a page, and a page of none", () => {
+    expect(decodeUserPage({ ...USER_PAGE, users: [USER_ROW, USER_ROW] }).users).toStrictEqual([
+      USER_ROW,
+      USER_ROW,
+    ]);
+    expect(decodeGroupPage({ ...GROUP_PAGE, groups: [] }).groups).toStrictEqual([]);
+  });
+
+  it("refuse a page with one malformed row", () => {
+    refusal(
+      () => decodeUserPage({ ...USER_PAGE, users: [USER_ROW, without(USER_ROW, "id")] }),
+      "UserRow.id is not a string",
+    );
+    refusal(
+      () => decodeGroupPage({ ...GROUP_PAGE, groups: [GROUP_ROW, without(GROUP_ROW, "id")] }),
+      "GroupRow.id is not a string",
+    );
+  });
+});
 
 describe("the lock cause", () => {
   it.each(["FAILURES", "DORMANCY"] as const)("decodes a %s lock", (lockCause) => {
@@ -332,31 +368,75 @@ const decodedBy = async (decode: ApiDecoder<unknown> | undefined, body: unknown)
   decode?.(Response.json(body));
 
 describe("the listing reads", () => {
+  it("CONNECTORS reads its listing at its own path, under its own Permission", () => {
+    expect({ path: CONNECTORS.path(), permission: CONNECTORS.permission }).toEqual({
+      path: "/api/admin/connectors",
+      permission: "connector:read",
+    });
+  });
+
   it.each([
     ["USERS", USERS, "user:read", "/api/admin/accounts"],
     ["GROUPS", GROUPS, "group:read", "/api/admin/groups"],
-    ["CONNECTORS", CONNECTORS, "connector:read", "/api/admin/connectors"],
   ] as const)(
-    "%s reads its listing at its own path, under its own Permission",
+    "%s reads a page of its projection from the one-based start, twenty at a time, under its own Permission",
     (_, read, permission, path) => {
-      expect({ path: read.path(), permission: read.permission }).toEqual({ path, permission });
+      expect({
+        first: read.path({ search: "", startIndex: 1 }),
+        later: read.path({ search: "", startIndex: 41 }),
+        permission: read.permission,
+      }).toEqual({
+        first: `${path}?startIndex=1&count=20`,
+        later: `${path}?startIndex=41&count=20`,
+        permission,
+      });
     },
   );
 
   it.each([
-    ["USERS", USERS, USER_ROW],
-    ["GROUPS", GROUPS, GROUP_ROW],
-    ["CONNECTORS", CONNECTORS, CONNECTOR],
-  ] as const)("%s reads its answer as a list of its own rows", async (_, read, row) => {
-    await expect(decodedBy(read.decode, [row])).resolves.toStrictEqual([row]);
+    ["USERS", USERS, "/api/admin/accounts"],
+    ["GROUPS", GROUPS, "/api/admin/groups"],
+  ] as const)("%s sends a search as one encoded query value", (_, read, path) => {
+    expect(read.path({ search: "o'brien & 50% #1", startIndex: 21 })).toBe(
+      `${path}?startIndex=21&count=20&search=o'brien%20%26%2050%25%20%231`,
+    );
+  });
+
+  it("pages twenty at a time, as a Group's members are", () => {
+    expect(LISTING_PAGE_SIZE).toBe(20);
   });
 
   it.each([
-    ["USERS", USERS, GROUP_ROW, "UserRow.locked is not a boolean"],
-    ["GROUPS", GROUPS, USER_ROW, "GroupRow.displayName is not a string"],
-    ["CONNECTORS", CONNECTORS, GROUP_ROW, "Connector.createdAt is not a string"],
-  ] as const)("%s refuses another listing's rows", async (_, read, row, message) => {
-    await expect(decodedBy(read.decode, [row])).rejects.toThrow(new DecodeError(message));
+    ["USERS", USERS, USER_PAGE],
+    ["GROUPS", GROUPS, GROUP_PAGE],
+  ] as const)("%s reads its answer as a page of its own rows", async (_, read, page) => {
+    await expect(decodedBy(read.decode, page)).resolves.toStrictEqual(page);
+  });
+
+  it("CONNECTORS reads its answer as a list of its own rows", async () => {
+    await expect(decodedBy(CONNECTORS.decode, [CONNECTOR])).resolves.toStrictEqual([CONNECTOR]);
+  });
+
+  it.each([
+    ["USERS", USERS, { ...USER_PAGE, users: [GROUP_ROW] }, "UserRow.locked is not a boolean"],
+    [
+      "GROUPS",
+      GROUPS,
+      { ...GROUP_PAGE, groups: [USER_ROW] },
+      "GroupRow.displayName is not a string",
+    ],
+    ["CONNECTORS", CONNECTORS, [GROUP_ROW], "Connector.createdAt is not a string"],
+  ] as const)("%s refuses another listing's rows", async (_, read, body, message) => {
+    await expect(decodedBy(read.decode, body)).rejects.toThrow(new DecodeError(message));
+  });
+
+  it.each([
+    ["USERS", USERS, "UserPage"],
+    ["GROUPS", GROUPS, "GroupPage"],
+  ] as const)("%s refuses a bare list of rows, which is no page", async (_, read, type) => {
+    await expect(decodedBy(read.decode, [])).rejects.toThrow(
+      new DecodeError(`${type} is not an object`),
+    );
   });
 
   it("opens the Accounts page to the Permission of any one of its listings, and nothing else", () => {

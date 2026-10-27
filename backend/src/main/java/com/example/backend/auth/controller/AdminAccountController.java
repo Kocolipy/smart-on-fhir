@@ -1,16 +1,18 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -40,7 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
  * lockout — is answered, logged and audited by the administrative edge
  * ({@link AdminExceptionHandler}), from the one table of administrative refusals.
  *
- * <p>{@link IdentitySummary} is returned as the wire shape rather than copied into
+ * <p>{@link IdentitySummary} is returned as the wire shape — alone by Unlock, and as the
+ * rows of an {@link IdentityPage} by the listing — rather than copied into
  * a response type of this adapter's own. The copy would have been field-identical
  * and would have had no property to enforce: the guarantee that no password hash
  * can reach a client belongs to {@code IdentitySummary}, which has no field one
@@ -58,10 +61,20 @@ public class AdminAccountController {
         this.identities = identities;
     }
 
+    /**
+     * One page of the Users projection: the Users whose {@code userName} or display name contains
+     * {@code search}, ignoring case — every User without one — in normalized {@code userName}
+     * order, with how many matched. Paged as a SCIM collection and as a Group's member read are:
+     * {@code startIndex} one-based, {@code count} defaulted and capped, each out-of-range value
+     * coerced rather than refused ({@link ScimPageRequest#of}).
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('user:read')")
-    public List<IdentitySummary> listAccounts() {
-        return identities.listIdentities();
+    public IdentityPage listAccounts(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer startIndex,
+            @RequestParam(required = false) Integer count) {
+        return identities.listIdentities(search, ScimPageRequest.of(startIndex, count));
     }
 
     /**

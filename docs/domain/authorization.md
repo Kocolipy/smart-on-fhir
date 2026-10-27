@@ -208,8 +208,8 @@ Permissions before and after, and counted on
 ([administration](./administration.md)).
 
 **Groups projection and Permissions listing** — `GET /api/admin/groups`, by a
-holder of `group:read`, lists every Group with its Group Permissions, sorted by
-name (none for the Admin group); the SPA's Groups table shows them, and the Admin
+holder of `group:read`, lists the Groups a page at a time, each with its Group
+Permissions sorted by name (none for the Admin group); the SPA's Groups table shows them, and the Admin
 group as "Superuser". `GET /api/admin/permissions`, by the same holder, lists
 every delegatable Permission: what any Group could carry, and what the
 Superuser's editor offers. Both are reads. `GET /api/admin/groups/{id}/members`

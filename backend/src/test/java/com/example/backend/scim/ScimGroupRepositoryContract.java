@@ -19,6 +19,7 @@ import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.groups.Tuple;
@@ -285,67 +286,75 @@ public abstract class ScimGroupRepositoryContract {
         assertThat(groups().findAllById(List.of())).isEmpty();
     }
 
-    /** Asked only about the Groups this case stored: a shared store may hold others. */
-    @Test
-    void every_group_is_listed_in_normalized_display_name_order() {
-        String suffix = UUID.randomUUID().toString();
-        ScimGroup second = groups().create(ScimIdentities.group("b-" + suffix));
-        ScimGroup first = groups().create(ScimIdentities.group("A-" + suffix));
-        Set<UUID> mine = Set.of(first.id(), second.id());
-
-        List<UUID> listed = groups().findAllOrderedByNormalizedDisplayName().stream()
-                .map(ScimGroup::id)
-                .filter(mine::contains)
-                .toList();
-
-        assertThat(listed).containsExactly(first.id(), second.id());
-    }
-
-    @Test
-    void the_listing_carries_each_groups_memberships() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
-
-        assertThat(groups().findAllOrderedByNormalizedDisplayName()).contains(group);
-    }
-
     /**
-     * The Groups projection's listing: each Group's name, reservation and how many direct members
-     * it has, counted rather than read, in normalized {@code displayName} order.
+     * A page of the Groups projection: each Group's name, reservation and how many direct members
+     * it has, counted rather than read, in the order the ids are given — the query's, not the
+     * port's — and an id naming no live Group skipped.
      */
     @Test
-    void every_group_is_listed_with_its_direct_member_count_in_normalized_display_name_order() {
+    void a_page_of_groups_is_counted_in_the_order_its_ids_are_given() {
         String suffix = UUID.randomUUID().toString();
         ScimUser ada = users().create(ScimIdentities.user("ada-" + suffix));
         ScimUser bea = users().create(ScimIdentities.user("bea-" + suffix));
         ScimUser cy = users().create(ScimIdentities.user("cy-" + suffix));
-        ScimGroup second = groups().create(ScimIdentities.group("b-" + suffix, ada, bea, cy));
-        ScimGroup first = groups().create(ScimIdentities.group("A-" + suffix, bea));
+        ScimGroup three = groups().create(ScimIdentities.group("b-" + suffix, ada, bea, cy));
+        ScimGroup one = groups().create(ScimIdentities.group("A-" + suffix, bea));
         ScimGroup empty = groups().create(ScimIdentities.group("c-" + suffix));
-        Set<UUID> mine = Set.of(first.id(), second.id(), empty.id());
 
-        List<ScimGroupHeadcount> listed =
-                groups().findAllHeadcountsOrderedByNormalizedDisplayName().stream()
-                        .filter(group -> mine.contains(group.id()))
-                        .toList();
+        List<ScimGroupHeadcount> page = groups().findHeadcountsById(
+                List.of(empty.id(), three.id(), UUID.randomUUID(), ada.id(), one.id()));
 
-        assertThat(listed).containsExactly(
-                new ScimGroupHeadcount(first.id(), "A-" + suffix, null, 1),
-                new ScimGroupHeadcount(second.id(), "b-" + suffix, null, 3),
-                new ScimGroupHeadcount(empty.id(), "c-" + suffix, null, 0));
+        assertThat(page).containsExactly(
+                new ScimGroupHeadcount(empty.id(), "c-" + suffix, null, 0),
+                new ScimGroupHeadcount(three.id(), "b-" + suffix, null, 3),
+                new ScimGroupHeadcount(one.id(), "A-" + suffix, null, 1));
     }
 
-    /** The Admin group is told apart by its reservation, in the listing as anywhere. */
     @Test
-    void the_counted_listing_carries_the_reservation() {
+    void a_page_of_no_group_ids_counts_none() {
+        assertThat(groups().findHeadcountsById(List.of())).isEmpty();
+    }
+
+    /** The Admin group is told apart by its reservation, in a counted page as anywhere. */
+    @Test
+    void a_counted_page_carries_the_reservation() {
         releaseTheAdminGroupReservation();
         ScimGroup reserved = groups().createReserved(
                 ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
 
-        assertThat(groups().findAllHeadcountsOrderedByNormalizedDisplayName())
-                .filteredOn(group -> group.id().equals(reserved.id()))
+        assertThat(groups().findHeadcountsById(List.of(reserved.id())))
                 .extracting(ScimGroupHeadcount::reservedName)
                 .containsExactly(ReservedResourceName.ADMIN_GROUP);
+    }
+
+    /**
+     * The direct Groups of a page of Users, in one read: each User's Groups by id and name, in
+     * normalized {@code displayName} order, and nothing for a User in no Group — nor for a Group
+     * none of them is in, nor for a User not asked about.
+     */
+    @Test
+    void the_direct_groups_of_several_users_are_read_together_in_display_name_order() {
+        String suffix = UUID.randomUUID().toString();
+        ScimUser ada = users().create(ScimIdentities.user("ada-" + suffix));
+        ScimUser bea = users().create(ScimIdentities.user("bea-" + suffix));
+        ScimUser loner = users().create(ScimIdentities.user("loner-" + suffix));
+        ScimUser unasked = users().create(ScimIdentities.user("unasked-" + suffix));
+        ScimGroup porters = groups().create(ScimIdentities.group("porters-" + suffix, ada, unasked));
+        ScimGroup nurses = groups().create(ScimIdentities.group("Nurses-" + suffix, ada, bea));
+        groups().create(ScimIdentities.group("others-" + suffix, unasked));
+
+        assertThat(groups().findGroupsOfUsers(List.of(ada.id(), bea.id(), loner.id())))
+                .isEqualTo(Map.of(
+                        ada.id(), List.of(
+                                new ScimGroupReference(nurses.id(), "Nurses-" + suffix),
+                                new ScimGroupReference(porters.id(), "porters-" + suffix)),
+                        bea.id(), List.of(
+                                new ScimGroupReference(nurses.id(), "Nurses-" + suffix))));
+    }
+
+    @Test
+    void the_direct_groups_of_no_users_are_none() {
+        assertThat(groups().findGroupsOfUsers(List.of())).isEmpty();
     }
 
     @Test

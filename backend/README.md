@@ -70,7 +70,7 @@ curl -c cookies.txt -b cookies.txt \
 
 token=$(csrf)
 curl -b cookies.txt http://localhost:8080/api/auth/me
-curl -b cookies.txt http://localhost:8080/api/admin/accounts
+curl -b cookies.txt "http://localhost:8080/api/admin/accounts?search=adm&startIndex=1&count=20"
 curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
   http://localhost:8080/api/admin/accounts/<id>/unlock
 ```

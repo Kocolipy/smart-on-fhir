@@ -185,6 +185,37 @@ class ScimQueryTests {
                 .containsExactly(List.of(ada, bea), List.of(nurses));
     }
 
+    /**
+     * The administrative name search over Users is the filter {@code userName co "<text>" or
+     * displayName co "<text>"}, built as a value: the text, a quote and {@code LIKE} wildcards
+     * included, is the comparison's literal, never filter-grammar text.
+     */
+    @Test
+    void a_name_search_over_users_is_user_name_or_display_name_containing_the_text() {
+        ScimFilter expected = ScimFilterParser.parse(
+                "userName co \"o\\\"Brien 50%\" or displayName co \"o\\\"Brien 50%\"", USERS);
+
+        assertThat(ScimFilter.nameContains(ScimResourceType.USER, "o\"Brien 50%"))
+                .isEqualTo(expected);
+    }
+
+    /** A name search with no text is no search: there is no such filter to build. */
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "\t"})
+    void a_name_search_has_text(String text) {
+        assertThatThrownBy(() -> ScimFilter.nameContains(ScimResourceType.USER, text))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** Over Groups the name is the display name alone: a Group has no {@code userName}. */
+    @Test
+    void a_name_search_over_groups_is_display_name_containing_the_text() {
+        Set<ScimResourceType> groups = Set.of(ScimResourceType.GROUP);
+
+        assertThat(ScimFilter.nameContains(ScimResourceType.GROUP, "Nurse"))
+                .isEqualTo(ScimFilterParser.parse("displayName co \"Nurse\"", groups));
+    }
+
     /** Each resource type's wire name, endpoint, schema and Permissions. */
     @Test
     void each_resource_type_names_its_wire_spelling_and_permissions() {

@@ -3,7 +3,7 @@ package com.example.backend.scim.infrastructure.persistence;
 import java.util.UUID;
 
 /**
- * One Group as the counted listing reads it: its identity, its stored reservation and its
+ * One Group as a counted page reads it: its identity, its stored reservation and its
  * membership counted in the same statement.
  *
  * <p>Package-private for the reason {@link ScimGroupMemberRow} is: it is the shape of a query,

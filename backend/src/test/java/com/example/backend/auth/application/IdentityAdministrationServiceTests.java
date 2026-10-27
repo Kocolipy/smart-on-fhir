@@ -107,7 +107,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = given("bob");
         ScimGroup admins = givenAdminGroup(ada);
 
-        assertThat(service.listIdentities()).containsExactly(
+        assertThat(everyIdentity()).containsExactly(
                 new IdentitySummary(ada.id(), "ada", null, true, false, true, false, null, true,
                         false, null, NOW,
                         List.of(new IdentitySummary.DirectGroup(admins.id(), "Admins"))),
@@ -136,12 +136,12 @@ class IdentityAdministrationServiceTests {
         ScimGroup ops = groups.create(ScimIdentities.group("Operators", grace));
         ScimGroup eng = groups.create(ScimIdentities.group("Engineering", grace, bob));
 
-        IdentitySummary row = service.listIdentities().getFirst();
+        IdentitySummary row = everyIdentity().getFirst();
 
         assertThat(row.userName()).isEqualTo("bob");
         assertThat(row.groups()).containsExactly(
                 new IdentitySummary.DirectGroup(eng.id(), "Engineering"));
-        IdentitySummary graceRow = service.listIdentities().get(1);
+        IdentitySummary graceRow = everyIdentity().get(1);
         assertThat(graceRow.displayName()).isEqualTo("Grace Hopper");
         // Read through the accessors, not only by record equality: an expected record built by
         // the same constructor would agree with a field the constructor dropped.
@@ -166,7 +166,7 @@ class IdentityAdministrationServiceTests {
         givenBootstrapAdmin();
         given("root-lookalike");
 
-        assertThat(service.listIdentities())
+        assertThat(everyIdentity())
                 .extracting(IdentitySummary::userName, IdentitySummary::bootstrapAdmin)
                 .containsExactly(tuple(BOOTSTRAP, true), tuple("root-lookalike", false));
     }
@@ -186,7 +186,7 @@ class IdentityAdministrationServiceTests {
         assertThat(unlocked.groups()).containsExactly(
                 new IdentitySummary.DirectGroup(admins.id(), "Admins"),
                 new IdentitySummary.DirectGroup(eng.id(), "Engineering"));
-        assertThat(unlocked).isEqualTo(service.listIdentities().stream()
+        assertThat(unlocked).isEqualTo(everyIdentity().stream()
                 .filter(row -> row.id().equals(bob.id()))
                 .findFirst()
                 .orElseThrow());
@@ -212,7 +212,7 @@ class IdentityAdministrationServiceTests {
         // Normalized display-name order: "administrators" sorts before "admins". Read field by
         // field rather than compared as records, so the expected rows cannot share a defect of
         // the record they would be built with.
-        assertThat(service.listGroups())
+        assertThat(everyGroup())
                 .extracting(GroupSummary::id, GroupSummary::displayName,
                         GroupSummary::memberCount, GroupSummary::adminGroup,
                         GroupSummary::permissions)
@@ -225,7 +225,7 @@ class IdentityAdministrationServiceTests {
 
     @Test
     void listsNoGroupsWhenNoneAreStored() {
-        assertThat(service.listGroups()).isEmpty();
+        assertThat(everyGroup()).isEmpty();
     }
 
     // A Group's direct members
@@ -314,8 +314,8 @@ class IdentityAdministrationServiceTests {
         givenAdminGroup(users.require("ada"));
         int before = users.writes();
 
-        service.listIdentities();
-        service.listGroups();
+        everyIdentity();
+        everyGroup();
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(audit.recorded()).isEmpty();
@@ -328,14 +328,124 @@ class IdentityAdministrationServiceTests {
         given("ada");
         given("bob");
 
-        assertThat(service.listIdentities())
+        assertThat(everyIdentity())
                 .extracting(IdentitySummary::userName)
                 .containsExactly("ada", "bob", "zoe");
     }
 
+    /**
+     * A page of the Users projection is a slice of that order from its one-based start, and the
+     * total counts every User whatever the page.
+     */
+    @Test
+    void theUsersAreListedAPageAtATimeWithTheirTotal() {
+        given("zoe");
+        given("ada");
+        given("bob");
+        given("cy");
+
+        IdentityPage page = service.listIdentities(null, new ScimPageRequest(2, 2));
+
+        assertThat(List.of(page.totalResults(), page.startIndex(),
+                        page.users().stream().map(IdentitySummary::userName).toList()))
+                .containsExactly(4L, 2, List.of("bob", "cy"));
+    }
+
+    /**
+     * The search matches a {@code userName} or a display name that contains it, ignoring case;
+     * the total counts only the matches.
+     */
+    @Test
+    void theUsersAreSearchedByUserNameOrDisplayName() {
+        given("adam");
+        users.given(ScimIdentities.withDisplayName(ScimIdentities.user("gh"), "Grace ADAms"));
+        given("bob");
+
+        IdentityPage page = service.listIdentities("Ada", ScimPageRequest.FIRST_PAGE);
+
+        assertThat(List.of(page.totalResults(),
+                        page.users().stream().map(IdentitySummary::userName).toList()))
+                .containsExactly(2L, List.of("adam", "gh"));
+    }
+
+    /** A search is stripped, and one with nothing left is no search: every User is listed. */
+    @Test
+    void aBlankSearchListsEveryUserAndASearchIsStripped() {
+        given("ada");
+        given("bob");
+
+        assertThat(List.of(" ", "\t", " bob ").stream()
+                        .map(search -> service.listIdentities(search, ScimPageRequest.FIRST_PAGE))
+                        .map(page -> page.users().stream().map(IdentitySummary::userName).toList()))
+                .containsExactly(List.of("ada", "bob"), List.of("ada", "bob"), List.of("bob"));
+    }
+
+    @Test
+    void aSearchMatchingNoUserIsAnEmptyPageWithATotalOfZero() {
+        given("ada");
+
+        assertThat(service.listIdentities("nobody", ScimPageRequest.FIRST_PAGE))
+                .isEqualTo(new IdentityPage(0, 1, List.of()));
+    }
+
+    /**
+     * A User on a later page still carries its direct Groups and the Superuser flag its Groups
+     * confer: both come from the memberships of that page's Users, read for them.
+     */
+    @Test
+    void aLaterPagesUsersCarryTheirGroupsAndTheirSuperuserFlag() {
+        given("ada");
+        ScimUser zoe = given("zoe");
+        ScimGroup admins = givenAdminGroup(zoe);
+        ScimGroup eng = groups.create(ScimIdentities.group("Engineering", zoe));
+
+        IdentitySummary row = service.listIdentities(null, new ScimPageRequest(2, 1))
+                .users().getFirst();
+
+        assertThat(List.of(row.userName(), row.admin(), row.groups())).containsExactly(
+                "zoe", true, List.of(
+                        new IdentitySummary.DirectGroup(admins.id(), "Admins"),
+                        new IdentitySummary.DirectGroup(eng.id(), "Engineering")));
+    }
+
+    /** A page of the Groups projection: a slice of display-name order, and every Group's total. */
+    @Test
+    void theGroupsAreListedAPageAtATimeWithTheirTotal() {
+        ScimGroup beta = groups.create(ScimIdentities.group("beta", given("ada")));
+        groups.create(ScimIdentities.group("Alpha"));
+        groups.create(ScimIdentities.group("gamma"));
+
+        GroupPage page = service.listGroups(null, new ScimPageRequest(2, 1));
+
+        // Read through the accessors, not only by record equality: an expected record built by
+        // the same constructor would agree with a component the constructor dropped.
+        assertThat(List.of(page.totalResults(), page.startIndex(), page.groups())).containsExactly(
+                3L, 2, List.of(new GroupSummary(beta.id(), "beta", 1, false, List.of())));
+    }
+
+    /** The Groups search matches a display name containing it, ignoring case, and is stripped. */
+    @Test
+    void theGroupsAreSearchedByDisplayName() {
+        ScimGroup nurses = groups.create(ScimIdentities.group("Night NURSES"));
+        groups.create(ScimIdentities.group("Porters"));
+
+        assertThat(service.listGroups(" nurse ", ScimPageRequest.FIRST_PAGE))
+                .isEqualTo(new GroupPage(1, 1, List.of(
+                        new GroupSummary(nurses.id(), "Night NURSES", 0, false, List.of()))));
+    }
+
+    @Test
+    void aBlankGroupsSearchListsEveryGroup() {
+        groups.create(ScimIdentities.group("Alpha"));
+        groups.create(ScimIdentities.group("beta"));
+
+        assertThat(service.listGroups("  ", ScimPageRequest.FIRST_PAGE).totalResults())
+                .isEqualTo(2);
+    }
+
     @Test
     void listsNoIdentitiesWhenNoneAreStored() {
-        assertThat(service.listIdentities()).isEmpty();
+        assertThat(everyIdentity()).isEmpty();
     }
 
     /**
@@ -353,7 +463,7 @@ class IdentityAdministrationServiceTests {
                 ReservedResourceName.ADMIN_GROUP);
         groups.create(ScimIdentities.group("Admins", users.require("bob")));
 
-        assertThat(service.listIdentities())
+        assertThat(everyIdentity())
                 .extracting(IdentitySummary::userName, IdentitySummary::admin)
                 .containsExactly(tuple("ada", true), tuple("bob", false));
     }
@@ -366,7 +476,7 @@ class IdentityAdministrationServiceTests {
     void reportsWhetherACredentialIsSetAtAll() {
         users.given(ScimIdentities.credentiallessUser("nopass"));
 
-        assertThat(service.listIdentities()).first()
+        assertThat(everyIdentity()).first()
                 .extracting(IdentitySummary::hasPassword)
                 .isEqualTo(false);
     }
@@ -584,7 +694,7 @@ class IdentityAdministrationServiceTests {
         givenLockedForDormancy("carol");
         given("dave");
 
-        assertThat(service.listIdentities())
+        assertThat(everyIdentity())
                 .extracting(IdentitySummary::userName, IdentitySummary::locked,
                         IdentitySummary::lockCause)
                 .containsExactly(
@@ -846,6 +956,16 @@ class IdentityAdministrationServiceTests {
 
     private ScimUser given(String userName) {
         return users.given(ScimIdentities.user(userName));
+    }
+
+    /** The Users projection's first page, unsearched: every User a test here stores. */
+    private List<IdentitySummary> everyIdentity() {
+        return service.listIdentities(null, ScimPageRequest.FIRST_PAGE).users();
+    }
+
+    /** The Groups projection's first page, unsearched: every Group a test here stores. */
+    private List<GroupSummary> everyGroup() {
+        return service.listGroups(null, ScimPageRequest.FIRST_PAGE).groups();
     }
 
     /** A User serving no lockout, with {@code failures} attempts in its failure run. */

@@ -8,6 +8,7 @@ import {
   OWN_PASSWORD,
   provisionUser,
   rowOf,
+  searchCard,
   runId,
   settlePassword,
   workerConnector,
@@ -33,6 +34,7 @@ const EXPIRED_NOTICE = "Your session ended. Please sign in again.";
 /** Ticks or unticks `permission` in the Group's editor on the Accounts page, and saves. */
 async function setPermission(page: Page, group: string, permission: string, held: boolean) {
   await page.goto("/accounts");
+  await searchCard(page, "Groups", group);
   const groups = page.getByRole("table", { name: "Groups" });
   await rowOf(page, groups, group)
     .getByRole("button", { name: `Edit permissions for ${group}` })

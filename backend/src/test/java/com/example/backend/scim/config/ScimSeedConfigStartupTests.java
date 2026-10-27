@@ -111,7 +111,7 @@ class ScimSeedConfigStartupTests {
 
         ScimUser baseline = users.require("guest");
         assertThat(baseline.login().passwordHash()).isEqualTo("encoded:fixture-password");
-        assertThat(groups.findAllOrderedByNormalizedDisplayName()).noneMatch(group -> group.hasMember(baseline.id()));
+        assertThat(groups.inQueryOrder()).noneMatch(group -> group.hasMember(baseline.id()));
     }
 
     /**
@@ -127,7 +127,7 @@ class ScimSeedConfigStartupTests {
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(users.require("guest").login().passwordHash()).isEqualTo("encoded:fixture-password");
-        assertThat(groups.findAllOrderedByNormalizedDisplayName())
+        assertThat(groups.inQueryOrder())
                 .extracting(ScimGroup::id)
                 .containsExactly(TestGroupPermissions.SUPERUSER_GROUP_ID);
     }
@@ -149,7 +149,7 @@ class ScimSeedConfigStartupTests {
 
         ScimUser clinician = users.require(CLINICIAN);
         assertThat(clinician.login().passwordHash()).isEqualTo("encoded:fixture-password");
-        assertThat(groups.findAllOrderedByNormalizedDisplayName())
+        assertThat(groups.inQueryOrder())
                 .noneMatch(group -> group.hasMember(clinician.id()));
     }
 

@@ -8,7 +8,14 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { adminRequest, csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
+import {
+  adminRequest,
+  csrfHeaderFor,
+  everyRowOf,
+  PROJECTIONS,
+  submitLoginViaApi,
+  type Projection,
+} from "./auth.helpers";
 
 /**
  * Fixtures for the specs that act on Users and connectors of their OWN: a
@@ -237,6 +244,25 @@ export async function settlePassword(
 }
 
 /**
+ * Searches one card of the Accounts page — its Users or its Groups — for
+ * `text`, as an operator does, and waits for the first page of what it
+ * matches. The cards show a page at a time, so a spec finds the row it acts on
+ * by searching for it rather than expecting it on the first page.
+ */
+export async function searchCard(page: Page, card: Projection, text: string) {
+  const projection = `${PROJECTIONS[card].path}?`;
+  const form = page.getByRole("search", { name: `${card} search` });
+  await form.getByRole("searchbox", { name: `Search ${card.toLowerCase()}` }).fill(text);
+  const answered = page.waitForResponse(
+    (response) =>
+      response.url().includes(projection) &&
+      new URL(response.url()).searchParams.get("search") === text,
+  );
+  await form.getByRole("button", { name: "Search" }).click();
+  expect((await answered).status(), `searching ${card} for ${text}`).toBe(200);
+}
+
+/**
  * A table row addressed by its row header, exactly: `admin` must not also match
  * `admin2`. The `has` locator is resolved inside each row, so it is built from
  * the page rather than from the table.
@@ -302,10 +328,8 @@ export function workerConnector(label: string) {
  * other projects start, which their `dependencies` guarantee.
  */
 export async function sweepLeftovers(adminPage: Page) {
-  const users = (await (await adminPage.request.get("/api/admin/accounts")).json()) as Array<{
-    id: string;
-    userName: string;
-  }>;
+  const users = await everyRowOf<{ id: string; userName: string }>(adminPage, "Users", E2E_PREFIX);
+  // The search matches the prefix anywhere in a name; a stray is one that starts with it.
   const strays = users.filter((row) => row.userName.startsWith(E2E_PREFIX));
 
   if (strays.length > 0) {

@@ -338,8 +338,11 @@ public final class InMemoryScimUserRepository
         writes++;
     }
 
-    @Override
-    public List<ScimUser> findAllOrderedByNormalizedUserName() {
+    /**
+     * Every stored User, in the order the persistent query's default order gives them: by
+     * normalized {@code userName}. The fake's own, not the port's.
+     */
+    public List<ScimUser> inQueryOrder() {
         return stored.values().stream()
                 .sorted(Comparator.comparing(user -> user.profile().normalizedUserName().value()))
                 .toList();

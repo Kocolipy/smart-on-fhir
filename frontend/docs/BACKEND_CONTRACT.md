@@ -117,8 +117,9 @@ change, when the backend side moves. What the SPA has to honour:
   them) and replaces the Group's set with it — an empty array clears it, a
   name sent twice is carried once, and there is no ETag or `If-Match`: the last
   writer wins. It answers `200` with the Group's row as it now stands, the same
-  shape as a `GET /api/admin/groups` row, which the Accounts page puts in place
-  of the old one (`SET_GROUP_PERMISSIONS`, `src/pages/accounts-api.ts`). Each
+  shape as a row of a `GET /api/admin/groups` page, which the Accounts page puts
+  in place of the old one on the page shown (`SET_GROUP_PERMISSIONS`,
+  `src/pages/accounts-api.ts`). Each
   refusal carries the generic `ApiError`: `400` (`invalid-request`) for a
   missing, non-JSON or non-array body, an element that is not a string, or a
   name that is not delegatable (`user:write`, `group:write`, `patient:read`, an

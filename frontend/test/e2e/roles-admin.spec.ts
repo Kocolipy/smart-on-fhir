@@ -5,6 +5,8 @@ import {
   DEV_FIXTURES,
   adminRequest,
   groupPermissionsOf,
+  listedUser,
+  everyRowOf,
   postAdminAction,
   userIdOf,
   type DevFixture,
@@ -38,12 +40,18 @@ test.describe("ADMIN directory projections", () => {
   // `page.request` shares the context's cookie jar, so the replayed ADMIN
   // session authenticates this call. No CSRF header is needed: the token is
   // only demanded of unsafe methods.
-  test("lists every User with the projection's fields", async ({ page }) => {
-    const response = await page.request.get("/api/admin/accounts");
+  test("lists a page of Users with the projection's fields", async ({ page }) => {
+    const response = await page.request.get("/api/admin/accounts", { params: { count: 200 } });
     expect(response.status()).toBe(200);
 
-    const users = (await response.json()) as Array<Record<string, unknown>>;
+    const { startIndex, totalResults, users } = (await response.json()) as {
+      startIndex: number;
+      totalResults: number;
+      users: Array<Record<string, unknown>>;
+    };
+    expect(startIndex).toBe(1);
     expect(users.length).toBeGreaterThanOrEqual(2);
+    expect(totalResults).toBeGreaterThanOrEqual(users.length);
     // The seeded identities, by derived authority rather than by name where it
     // allows, so renaming a seed account in configuration does not fail this.
     expect(users.map((user) => user.admin)).toContain(true);
@@ -76,10 +84,7 @@ test.describe("ADMIN directory projections", () => {
   test("lists every Group with its member count, the Admin marker and its Permissions", async ({
     page,
   }) => {
-    const response = await page.request.get("/api/admin/groups");
-    expect(response.status()).toBe(200);
-
-    const groups = (await response.json()) as Array<Record<string, unknown>>;
+    const groups = await everyRowOf(page, "Groups");
     const adminGroups = groups.filter((group) => group.adminGroup === true);
     expect(adminGroups).toHaveLength(1);
     expect(adminGroups[0]!.memberCount).toEqual(expect.any(Number));
@@ -93,10 +98,10 @@ test.describe("ADMIN directory projections", () => {
    * them (ADR 0015).
    */
   test("shows each development Group carrying what its fixture User holds", async ({ page }) => {
-    const groups = (await (await page.request.get("/api/admin/groups")).json()) as Array<{
+    const groups = await everyRowOf<{
       id: string;
       permissions: string[];
-    }>;
+    }>(page, "Groups");
     const fixtures = (Object.keys(DEV_FIXTURES) as DevFixture[]).filter(
       (fixture): fixture is Exclude<DevFixture, "superuser"> => fixture !== "superuser",
     );
@@ -145,12 +150,8 @@ test.describe("ADMIN account control", () => {
 
     expect(response.status()).toBe(409);
     expect(await response.json()).toMatchObject({ code: "request-refused", status: 409 });
-    const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<{
-      id: string;
-      locked: boolean;
-      passwordChangeRequired: boolean;
-    }>;
-    expect(listing.find((row) => row.id === id)).toMatchObject({
+    expect(await listedUser(page, "guest")).toMatchObject({
+      id,
       locked: false,
       passwordChangeRequired: false,
     });
@@ -180,10 +181,7 @@ test.describe("ADMIN account control", () => {
   test("refuses every write to a User or a Group", async ({ page }) => {
     const id = await userIdOf(page, "guest");
     const directoryOwned = async () => {
-      const rows = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
-        Record<string, unknown>
-      >;
-      const row = rows.find((candidate) => candidate.id === id)!;
+      const row = await listedUser(page, "guest");
       // Only the directory-owned fields: another project signing in moves
       // `lastAuthenticatedAt`, which is application-owned and not in question.
       return { active: row.active, groups: row.groups, userName: row.userName };

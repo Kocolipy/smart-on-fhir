@@ -10,6 +10,7 @@ import {
   provisionGroup,
   provisionUser,
   rowOf,
+  searchCard,
   runId,
   settlePassword,
   workerConnector,
@@ -35,6 +36,7 @@ test("an admin holding group:read and user:read expands a seeded Group and sees 
   page,
 }) => {
   await page.goto("/accounts");
+  await searchCard(page, "Groups", "Auditors");
   const groups = page.getByRole("table", { name: "Groups" });
   const control = rowOf(page, groups, "Auditors").getByRole("button", {
     name: "Members of Auditors",
@@ -78,6 +80,7 @@ test("a session holding group:read without user:read sees the member count and n
     try {
       await loginAs(reader, userName, OWN_PASSWORD);
       await reader.goto("/accounts");
+      await searchCard(reader, "Groups", groupName);
       const groups = reader.getByRole("table", { name: "Groups" });
       const row = rowOf(reader, groups, groupName);
       await expect(row.getByRole("cell").first()).toHaveText("1");

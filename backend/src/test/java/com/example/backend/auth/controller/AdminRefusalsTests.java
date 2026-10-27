@@ -425,7 +425,10 @@ class AdminRefusalsTests {
     }
 
     private static HandlerMethod handler(Class<?> controller, String name) throws Exception {
-        Method method = controller.getMethod(name);
+        Method method = java.util.Arrays.stream(controller.getMethods())
+                .filter(candidate -> candidate.getName().equals(name))
+                .findFirst()
+                .orElseThrow();
         return new HandlerMethod(controller.getDeclaredConstructors()[0]
                 .newInstance(new Object[controller.getDeclaredConstructors()[0]
                         .getParameterCount()]), method);

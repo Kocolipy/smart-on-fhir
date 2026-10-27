@@ -14,6 +14,7 @@ import {
   FIXTURE_GROUPS,
   provisionUser,
   rowOf,
+  searchCard,
   runId,
   scimPatch,
   settlePassword,
@@ -95,6 +96,7 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
     async (id) => {
       // The Unlock, from the Accounts page, which requires a change of password.
       await page.goto("/accounts");
+      await searchCard(page, "Users", AUDITED_USER);
       const row = rowOf(page, page.getByRole("table", { name: "Users" }), AUDITED_USER);
       await row.getByRole("button", { name: `Unlock ${AUDITED_USER}` }).click();
       await expect(row.getByText("Required")).toBeVisible();

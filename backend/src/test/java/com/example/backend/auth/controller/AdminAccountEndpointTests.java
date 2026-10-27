@@ -112,17 +112,17 @@ class AdminAccountEndpointTests {
     void anAdministratorSeesEveryAccountWithItsRoleStatusAndCreationDate() throws Exception {
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].userName")
+                .andExpect(jsonPath("$.users[*].userName")
                         .value(Matchers.hasItems("test-admin", "test-user")))
-                .andExpect(jsonPath("$[?(@.userName == 'test-user')].admin")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-user')].admin")
                         .value(Matchers.contains(false)))
-                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].admin")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-admin')].admin")
                         .value(Matchers.contains(true)))
-                .andExpect(jsonPath("$[?(@.userName == 'test-user')].active")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-user')].active")
                         .value(Matchers.contains(true)))
                 // ISO-8601 rather than an epoch number, which is what the SPA and
                 // the OpenAPI document both describe.
-                .andExpect(jsonPath("$[?(@.userName == 'test-user')].createdAt")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-user')].createdAt")
                         .value(Matchers.contains(Matchers.matchesPattern(
                                 "\\d{4}-\\d{2}-\\d{2}T.*Z"))));
     }
@@ -138,13 +138,13 @@ class AdminAccountEndpointTests {
 
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].bootstrapAdmin")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-admin')].bootstrapAdmin")
                         .value(Matchers.contains(true)))
-                .andExpect(jsonPath("$[?(@.userName == 'test-user')].bootstrapAdmin")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-user')].bootstrapAdmin")
                         .value(Matchers.contains(false)))
-                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].groups[*].displayName")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-admin')].groups[*].displayName")
                         .value(Matchers.hasItem(adminGroup)))
-                .andExpect(jsonPath("$[?(@.userName == 'test-user')].groups[*].displayName")
+                .andExpect(jsonPath("$.users[?(@.userName == 'test-user')].groups[*].displayName")
                         .value(Matchers.not(Matchers.hasItem(adminGroup))));
     }
 
@@ -164,7 +164,7 @@ class AdminAccountEndpointTests {
                 .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
                 .andReturn().getResponse().getContentAsString();
 
-        JsonNode listing = JsonMapper.builder().build().readTree(body);
+        JsonNode listing = JsonMapper.builder().build().readTree(body).get("users");
         assertThat(listing.size()).isPositive();
         listing.valueStream().forEach(identity -> assertThat(identity.propertyNames())
                 .containsExactlyInAnyOrder("id", "userName", "displayName", "admin",
@@ -180,15 +180,15 @@ class AdminAccountEndpointTests {
         String body = mvc.perform(get("/api/admin/groups")
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].adminGroup")
+                .andExpect(jsonPath("$.groups[?(@.displayName == '" + adminGroup + "')].adminGroup")
                         .value(Matchers.contains(true)))
-                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].memberCount")
+                .andExpect(jsonPath("$.groups[?(@.displayName == '" + adminGroup + "')].memberCount")
                         .value(Matchers.contains(Matchers.greaterThanOrEqualTo(1))))
-                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].permissions")
+                .andExpect(jsonPath("$.groups[?(@.displayName == '" + adminGroup + "')].permissions")
                         .value(Matchers.contains(Matchers.empty())))
                 .andReturn().getResponse().getContentAsString();
 
-        JsonNode listing = JsonMapper.builder().build().readTree(body);
+        JsonNode listing = JsonMapper.builder().build().readTree(body).get("groups");
         assertThat(listing.size()).isPositive();
         listing.valueStream().forEach(group -> assertThat(group.propertyNames())
                 .containsExactlyInAnyOrder(

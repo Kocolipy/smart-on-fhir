@@ -3,11 +3,14 @@ package com.example.backend.auth.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.example.backend.auth.application.GroupPage;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.ScimPageRequest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
@@ -36,23 +39,34 @@ class AdminAccountControllerTests {
     private final MockHttpServletRequest signedInAsAda = requestInSessionOf(ADA);
 
     @Test
-    void listsEveryAccountTheServiceReports() {
+    void listsThePageOfAccountsTheServiceReports() {
         AdminAccountController controller = new AdminAccountController(new RecordingService(List.of(
                 summary(ADA, "ada", true, false),
                 summary(BOB, "bob", false, true))));
 
-        List<IdentitySummary> response = controller.listAccounts();
+        IdentityPage response = controller.listAccounts(null, null, null);
 
-        assertThat(response).containsExactly(
+        assertThat(response).isEqualTo(new IdentityPage(2, 1, List.of(
                 summary(ADA, "ada", true, false),
-                summary(BOB, "bob", false, true));
+                summary(BOB, "bob", false, true))));
     }
 
+    /**
+     * The search reaches the service as sent, and the page as SCIM coerces it: {@code startIndex}
+     * one-based and {@code count} capped — the same {@link ScimPageRequest#of} the member read and
+     * SCIM itself resolve their paging through.
+     */
     @Test
-    void listsNothingWhenNoAccountExists() {
-        AdminAccountController controller = new AdminAccountController(new RecordingService(List.of()));
+    void theSearchAndTheCoercedPageReachTheService() {
+        RecordingService service = new RecordingService(List.of());
+        AdminAccountController controller = new AdminAccountController(service);
 
-        assertThat(controller.listAccounts()).isEmpty();
+        controller.listAccounts("  Ada ", 0, 500);
+        controller.listAccounts(null, 21, 20);
+
+        assertThat(service.calls).containsExactly(
+                "list:  Ada :" + new ScimPageRequest(1, 200),
+                "list:null:" + new ScimPageRequest(21, 20));
     }
 
     /**
@@ -112,7 +126,8 @@ class AdminAccountControllerTests {
         AdminGroupController controller = new AdminGroupController(
                 new RecordingService(List.of(), List.of(engineering)), null);
 
-        assertThat(controller.listGroups()).containsExactly(engineering);
+        assertThat(controller.listGroups("eng", 1, 20))
+                .isEqualTo(new GroupPage(1, 1, List.of(engineering)));
     }
 
     /**
@@ -163,6 +178,13 @@ class AdminAccountControllerTests {
         assertThat(GroupSummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly("id", "displayName", "memberCount", "adminGroup", "permissions");
+        // A page wraps its rows and adds only where it sits and how many there are.
+        assertThat(IdentityPage.class.getRecordComponents())
+                .extracting(RecordComponent::getName)
+                .containsExactly("totalResults", "startIndex", "users");
+        assertThat(GroupPage.class.getRecordComponents())
+                .extracting(RecordComponent::getName)
+                .containsExactly("totalResults", "startIndex", "groups");
     }
 
     private static List<String> unsafeHandlers(Class<?> controller) {
@@ -204,13 +226,14 @@ class AdminAccountControllerTests {
         }
 
         @Override
-        public List<IdentitySummary> listIdentities() {
-            return summaries;
+        public IdentityPage listIdentities(String search, ScimPageRequest page) {
+            calls.add("list:" + search + ":" + page);
+            return new IdentityPage(summaries.size(), page.startIndex(), summaries);
         }
 
         @Override
-        public List<GroupSummary> listGroups() {
-            return groupSummaries;
+        public GroupPage listGroups(String search, ScimPageRequest page) {
+            return new GroupPage(groupSummaries.size(), page.startIndex(), groupSummaries);
         }
 
         @Override

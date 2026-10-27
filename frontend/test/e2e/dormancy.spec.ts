@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { FIXTURE_PASSWORD, loginAsFixture, submitLogin, userIdOf } from "./auth.helpers";
-import { FIXTURE_GROUPS, freshBrowser, rowOf } from "./scim.helpers";
+import { FIXTURE_GROUPS, freshBrowser, rowOf, searchCard } from "./scim.helpers";
 
 /**
  * The dormancy lockout and membership revocation end to end (ADR 0007), through
@@ -53,6 +53,7 @@ test("a dormant account is locked for dormancy until the Helpdesk unlocks it", a
     // The Helpdesk — a Group carrying account:unlock, not the Superuser — reads the list.
     await loginAsFixture(page, "helpdesk");
     await page.goto("/accounts");
+    await searchCard(page, "Users", DORMANT);
     const row = rowOf(page, usersTable(page), DORMANT);
     await expect(
       row.getByText("Locked: dormant"),
@@ -110,6 +111,7 @@ test("a dormant account is locked for dormancy until the Helpdesk unlocks it", a
 
     // The unlock restarted its dormancy window, so the list shows it in use again.
     await page.reload();
+    await searchCard(page, "Users", DORMANT);
     await expect(rowOf(page, usersTable(page), DORMANT).getByText("Not locked")).toBeVisible();
   } finally {
     await returning.close();
