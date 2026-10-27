@@ -10,16 +10,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.annotation.DirtiesContext.ClassMode;
 
+/**
+ * The application as it starts: its own security chain, and a schema Flyway alone built.
+ *
+ * <p>It joins the configuration most classes share rather than evicting it first. Both claims are
+ * facts the startup of that configuration fixed — the beans it wired, the migrations it ran — so
+ * the cached context reports exactly what a fresh one of the same configuration would, and no
+ * test writes either.
+ */
 @SpringBootTest
-@Import(com.example.backend.ContainerTestConfiguration.class)
-// The assertion below is about how the context is built, not about a context
-// that happens to be lying around: Spring's context cache is per JVM, so a
-// reused instance would report on wiring performed by some earlier test class.
-// Evicting first makes this class observe an actual startup.
-@DirtiesContext(classMode = ClassMode.BEFORE_CLASS)
+@Import(ContainerTestConfiguration.class)
 class BackendApplicationTests {
 
     /**
