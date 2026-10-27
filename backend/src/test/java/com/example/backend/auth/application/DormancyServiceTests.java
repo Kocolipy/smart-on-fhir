@@ -99,6 +99,9 @@ class DormancyServiceTests {
     private final InMemoryScheduledJobLock lock = new InMemoryScheduledJobLock();
     private final MutableClock clock = new MutableClock(RUN_AT);
 
+    /** Superuser grants counted on {@code authorization.changes}, as the metrics adapter would. */
+    private int superuserGrants;
+
     private DormancyService job;
 
     private ScimUser bootstrap;
@@ -290,6 +293,22 @@ class DormancyServiceTests {
         // it ended none and is not on record.
         assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
                 AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:GROUPS:MEMBERSHIP_REVOKED"));
+    }
+
+    /**
+     * Taking a dormant User out of the Admin group removes the Superuser, which the event marks;
+     * {@code authorization.changes} counts a Superuser grant and nothing else, so the run counts
+     * none.
+     */
+    @Test
+    void aDormantSuperusersRemovalFromTheAdminGroupCountsNoSuperuserGrant() {
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(MEMBERSHIP_REVOCATION.plusSeconds(1))));
+        superuserGroupOf(bootstrap, ada);
+
+        job.run();
+
+        assertThat(superuserGrants).isZero();
     }
 
     /** A boundary case, so the clock moves, as for the lockout window. */
@@ -687,8 +706,7 @@ class DormancyServiceTests {
                 groups,
                 writeLocks,
                 new ScimMembershipRevocationService(users, groups, sessions, audit, groupPermissions,
-                        () -> {
-                        }),
+                        () -> superuserGrants++),
                 sessions,
                 LoginStateModules.over(users, clock),
                 new ScheduledJobRunService(lock, new RecordingTransactionManager()),

@@ -1,8 +1,8 @@
 ---
 type: Testing Guide
 title: Backend testing guide
-description: How the Semgrep scan is configured, how to write a full-context test that joins a cached Spring context, and how to run and read a scoped PIT mutation run.
-tags: [testing, semgrep, pit, spring-boot-test]
+description: How the Semgrep scan is configured, how to write a full-context test that joins a cached Spring context, how an in-memory fake is held to its real adapter, and how to run and read a scoped PIT mutation run.
+tags: [testing, semgrep, pit, spring-boot-test, contract-tests]
 ---
 
 # Backend testing guide
@@ -26,6 +26,14 @@ A `@SpringBootTest` class runs in a context Spring caches and reuses for every c
 - A class that destroys shared state — deletes or reshapes a seeded fixture, the Admin group or the Bootstrap Admin — declares `@DirtiesContext(classMode = AFTER_CLASS)`, as `GroupPermissionPropagationIntegrationTests` does, so the eviction states the reason. Isolation that rests on a coincidentally different property disappears when a cleanup removes it. A case that runs inside a transaction rolled back after it destroys nothing, so it needs no eviction and joins the cached context. `@Transactional` does that where the class declares its own cases; a subclass whose cases are declared on an abstract contract registers `RollsBackEachCase`, as the SQL Server User store contracts do, because Spring reads `@Transactional` off the class declaring the case.
 
 The suite runs in two JVMs (`forkCount` in `pom.xml`); pass `-DforkCount=1` to debug in one. The gate scripts start the one SQL Server those JVMs share (`scripts/test-sql-server.sh`) and remove it when they exit; a leftover from a killed run carries the label `smart-on-fhir.test-sql-server`.
+
+## In-memory fakes
+
+A unit test that runs against an in-memory fake of a port says something about production only while the fake does what the real adapter does. So **an in-memory fake used beside a real adapter shares an abstract contract with it, run against both**: an abstract `<Port>Contract` declares the cases and asks each subclass for the port, and two subclasses run them — `InMemory<Port>ContractTests` over the fake, which joins the fast gate, and `SqlServer<Port>ContractTests` over the adapter, beside the adapter's other tests and registering `RollsBackEachCase` (or cleaning up as the owning module's integration tests do). `ScimUserRepositoryContract`, `InMemoryScimUserRepositoryContractTests` and `SqlServerScimUserRepositoryContractTests` are the pattern.
+
+- Cover what the unit tests rely on: lookups, uniqueness and conflicts, ordering, deletion, and — for a lock — exclusivity.
+- A uniqueness or conflict case runs against the real adapter, never only the fake. A fake that throws where the table refuses still cannot model what the refusal does to the rest of the transaction — on SQL Server it can no longer commit — so the SQL Server half asserts that against the adapter alone, as `SqlServerScimConnectorTokenRepositoryContractTests` does, and the contract says so.
+- A difference the contract exposes is fixed in the fake. A difference that is the adapter's defect is reported, not encoded in either half; a difference the fake keeps on purpose is named in the contract and left out of its cases.
 
 ## Mutation testing (PIT)
 

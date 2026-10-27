@@ -28,10 +28,20 @@ public final class InMemoryScimPasswordHistoryRepository implements ScimPassword
         return entries(userId).stream().map(Entry::setAt).toList();
     }
 
+    /**
+     * Newest is the latest {@code setAt}, as the adapter orders the rows — not the latest call —
+     * so an entry set earlier than one already held goes behind it, and the trim drops whichever
+     * was set earliest ({@code ScimPasswordHistoryRepositoryContract}). Two entries set at one
+     * instant read newest-recorded first here; the adapter breaks that tie by a random row id.
+     */
     @Override
     public void record(UUID userId, String passwordHash, Instant setAt) {
         List<Entry> history = newestFirst.computeIfAbsent(userId, key -> new ArrayList<>());
-        history.add(0, new Entry(passwordHash, setAt));
+        int position = 0;
+        while (position < history.size() && history.get(position).setAt().isAfter(setAt)) {
+            position++;
+        }
+        history.add(position, new Entry(passwordHash, setAt));
         while (history.size() > PasswordHistoryPolicy.RETAINED) {
             history.remove(history.size() - 1);
         }

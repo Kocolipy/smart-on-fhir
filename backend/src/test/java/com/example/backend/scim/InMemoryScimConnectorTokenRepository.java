@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /** A {@link ScimConnectorTokenRepository} in memory. */
 public final class InMemoryScimConnectorTokenRepository implements ScimConnectorTokenRepository {
@@ -17,9 +18,21 @@ public final class InMemoryScimConnectorTokenRepository implements ScimConnector
 
     private int saves;
 
+    /**
+     * Refuses a second token under a lookup id another token holds, as the table's unique key
+     * does, with the exception the adapter's flush raises
+     * ({@code ScimConnectorTokenRepositoryContract}).
+     */
     @Override
     public void save(ScimConnectorToken token) {
         saves++;
+        boolean lookupIdTaken = tokens.values().stream()
+                .anyMatch(stored -> stored.lookupId().equals(token.lookupId())
+                        && !stored.id().equals(token.id()));
+        if (lookupIdTaken) {
+            throw new DataIntegrityViolationException(
+                    "uq_scim_connector_tokens_lookup_id: another token holds this lookup id");
+        }
         tokens.put(token.id(), token);
     }
 

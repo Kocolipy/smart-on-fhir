@@ -158,6 +158,7 @@ FAST_GATE=(
   com/example/backend/observability/SessionHashTests
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
   com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
+  com/example/backend/patient/InMemoryPatientStoreContractTests
   com/example/backend/patient/application/DevPatientFixturesTests
   com/example/backend/patient/application/PatientSeedServiceTests
   com/example/backend/patient/config/PatientSeedConfigTests
@@ -165,17 +166,25 @@ FAST_GATE=(
   com/example/backend/patient/controller/PatientR5ConformanceTests
   com/example/backend/patient/domain/PatientIdTests
   com/example/backend/patient/domain/PatientTests
+  com/example/backend/scheduling/InMemoryScheduledJobLockContractTests
   com/example/backend/scheduling/application/ScheduledJobRunServiceTests
   com/example/backend/scheduling/infrastructure/persistence/ScheduledJobLockAdapterTests
   com/example/backend/scim/InMemoryGroupPermissionsContractTests
+  com/example/backend/scim/InMemoryScimConnectorRepositoryContractTests
+  com/example/backend/scim/InMemoryScimConnectorTokenRepositoryContractTests
+  com/example/backend/scim/InMemoryScimExternalIdRepositoryContractTests
   com/example/backend/scim/InMemoryScimGroupPermissionStoreContractTests
   com/example/backend/scim/InMemoryScimGroupRepositoryContractTests
   com/example/backend/scim/InMemoryScimLoginStateRepositoryContractTests
+  com/example/backend/scim/InMemoryScimPasswordHistoryRepositoryContractTests
+  com/example/backend/scim/InMemoryScimQueryRepositoryContractTests
+  com/example/backend/scim/InMemoryScimTombstoneRepositoryContractTests
   com/example/backend/scim/InMemoryScimUserRepositoryContractTests
   com/example/backend/scim/application/ConnectorAdministrationServiceTests
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests
   com/example/backend/scim/application/ScimGroupServiceTests
+  com/example/backend/scim/application/ScimMembershipRevocationServiceTests
   com/example/backend/scim/application/ScimSearchServiceTests
   com/example/backend/scim/application/ScimSeedServiceTests
   com/example/backend/scim/application/ScimUserReplacementTests
