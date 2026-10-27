@@ -1,5 +1,7 @@
 package com.example.backend.auth.epic;
 
+import static com.example.backend.SessionLogin.logIn;
+import static com.example.backend.SessionLogin.loginRequest;
 import static com.example.backend.auth.epic.EpicTestEnvironment.sessionId;
 import static com.example.backend.auth.epic.EpicPractitioners.unprovisioned;
 import static com.example.backend.auth.epic.EpicTestEnvironment.CLIENT_ID;
@@ -8,12 +10,10 @@ import static com.example.backend.auth.epic.EpicTestEnvironment.REDIRECT_URI;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.application.EpicLoginLogFields;
@@ -52,7 +52,6 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
@@ -274,7 +273,7 @@ class EpicLoginIntegrationTests {
     @Test
     void anEpicLoginGivesTheSameAuthoritiesAsPasswordLoginForTheSameUser() throws Exception {
         String practitioner = provisionInAdminGroup();
-        Set<String> byPassword = grantsOf(logIn(practitioner, null));
+        Set<String> byPassword = grantsOf(logIn(EPIC.mvc(), practitioner, PASSWORD));
 
         Set<String> byEpic = grantsOf(EPIC.signInFromEpic(practitioner, null).signedIn());
 
@@ -360,7 +359,7 @@ class EpicLoginIntegrationTests {
     @Test
     void anEpicLoginAfterAPasswordLoginEndsThePasswordSession() throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        Cookie byPassword = logIn(practitioner, null);
+        Cookie byPassword = logIn(EPIC.mvc(), practitioner, PASSWORD);
 
         Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
 
@@ -403,7 +402,7 @@ class EpicLoginIntegrationTests {
         String practitioner = provisionFlaggedInAdminGroup();
         EPIC.signInFromEpic(practitioner, null);
 
-        Cookie byPassword = logIn(practitioner, null);
+        Cookie byPassword = logIn(EPIC.mvc(), practitioner, PASSWORD);
 
         // A Superuser, so only the confinement refuses this read.
         assertThat(status(get("/api/admin/accounts"), byPassword)).isEqualTo(403);
@@ -453,7 +452,7 @@ class EpicLoginIntegrationTests {
     void aLaunchWhileAnotherUsersSessionIsPresentReplacesIt() throws Exception {
         String clinician = EPIC.practitioners().provision();
         String colleague = EPIC.practitioners().provision();
-        Cookie colleaguesSession = logIn(colleague, null);
+        Cookie colleaguesSession = logIn(EPIC.mvc(), colleague, PASSWORD);
 
         Landing landing = EPIC.signInFromEpic(clinician, colleaguesSession);
 
@@ -556,7 +555,7 @@ class EpicLoginIntegrationTests {
     @Test
     void aRefusedLaunchLeavesNoColleagueSignedIn() throws Exception {
         String colleague = EPIC.practitioners().provision();
-        Cookie colleaguesSession = logIn(colleague, null);
+        Cookie colleaguesSession = logIn(EPIC.mvc(), colleague, PASSWORD);
 
         EPIC.signInFromEpic(unprovisioned(), colleaguesSession);
 
@@ -984,23 +983,6 @@ class EpicLoginIntegrationTests {
         return practitioner;
     }
 
-    /** A password Login, from {@code jar} when there is one; the signed-in session cookie. */
-    private Cookie logIn(String userName, Cookie jar) throws Exception {
-        MockHttpServletRequestBuilder request = loginRequest(userName, PASSWORD);
-        if (jar != null) {
-            request.cookie(jar);
-        }
-        MvcResult login = EPIC.mvc().perform(request).andReturn();
-        assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        return issuedCookie(login);
-    }
-
-    private Cookie issuedCookie(MvcResult result) {
-        Cookie issued = result.getResponse().getCookie(SessionCookie.NAME);
-        assertThat(issued).as("a session cookie was issued").isNotNull();
-        return new Cookie(issued.getName(), issued.getValue());
-    }
-
     /**
      * {@link #provisionInAdminGroup()}, with the change-required flag set since
      * {@link #FLAGGED_SINCE}.
@@ -1014,17 +996,8 @@ class EpicLoginIntegrationTests {
 
     /** A password Login with a wrong password; its status. */
     private int failedLogIn(String userName) throws Exception {
-        return EPIC.mvc().perform(loginRequest(userName, "not-" + PASSWORD))
+        return EPIC.mvc().perform(loginRequest(EPIC.mvc(), userName, "not-" + PASSWORD))
                 .andReturn().getResponse().getStatus();
-    }
-
-    /** A CSRF-carrying {@code POST /api/auth/login} for {@code userName} and {@code password}. */
-    private MockHttpServletRequestBuilder loginRequest(String userName, String password)
-            throws Exception {
-        return SessionCsrf.withCsrf(EPIC.mvc(), post("/api/auth/login"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                        .formatted(userName, password));
     }
 
     /** The stored login state of the User {@code practitioner} links to. */

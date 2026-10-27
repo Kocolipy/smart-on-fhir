@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -143,7 +142,7 @@ class ScimReleaseGateIntegrationTests {
 
         MvcResult result = mvc.perform(post(USERS)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                        .contentType(MediaType.valueOf("application/scim+json"))
+                        .contentType(com.example.backend.ScimHttp.SCIM_JSON)
                         .content(CREATE_BODY))
                 .andReturn();
 

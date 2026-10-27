@@ -1,5 +1,7 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -36,7 +38,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0015) —
@@ -87,8 +88,6 @@ class ConnectorTokenPermissionsIntegrationTests {
 
     @Autowired
     private RequestIdFilter requestIdFilter;
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     private MockMvc mvc;
 
@@ -257,7 +256,7 @@ class ConnectorTokenPermissionsIntegrationTests {
         UUID connector = createConnector("permissions-group-writer");
         String token = presented(issue(connector, "[\"group:write\"]", SUPERUSER));
 
-        MvcResult created = mvc.perform(bearer(post("/scim/v2/Groups"), token)
+        MvcResult created = mvc.perform(asConnector(post("/scim/v2/Groups"), token)
                         .contentType("application/scim+json")
                         .content("{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
                                 + "\"displayName\":\"permissions-group-" + UUID.randomUUID() + "\"}"))
@@ -265,14 +264,14 @@ class ConnectorTokenPermissionsIntegrationTests {
         assertThat(created.getResponse().getStatus()).isEqualTo(201);
         String groupId = body(created).get("id").asText();
 
-        assertThat(mvc.perform(bearer(patch("/scim/v2/Groups/" + groupId), token)
+        assertThat(mvc.perform(asConnector(patch("/scim/v2/Groups/" + groupId), token)
                         .contentType("application/scim+json")
                         .content("{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],"
                                 + "\"Operations\":[{\"op\":\"replace\",\"path\":\"displayName\","
                                 + "\"value\":\"permissions-renamed-" + UUID.randomUUID() + "\"}]}"))
                 .andReturn().getResponse().getStatus()).isEqualTo(200);
 
-        MvcResult userWrite = mvc.perform(bearer(post("/scim/v2/Users"), token)
+        MvcResult userWrite = mvc.perform(asConnector(post("/scim/v2/Users"), token)
                         .contentType("application/scim+json")
                         .content("{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],"
                                 + "\"userName\":\"permissions-refused\"}"))
@@ -283,7 +282,7 @@ class ConnectorTokenPermissionsIntegrationTests {
         assertThat(userWrite.getResponse().getContentAsString()).isEmpty();
 
         // No group:read: reading the Group it just wrote is refused too.
-        assertThat(mvc.perform(bearer(get("/scim/v2/Groups/" + groupId), token))
+        assertThat(mvc.perform(asConnector(get("/scim/v2/Groups/" + groupId), token))
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
 
         assertThat(events("ACCESS_DENIED", connector)).hasSize(2).allSatisfy(row -> {
@@ -310,9 +309,9 @@ class ConnectorTokenPermissionsIntegrationTests {
         String search = "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:SearchRequest\"],"
                 + "\"count\":200}";
 
-        JsonNode users = body(mvc.perform(bearer(post("/scim/v2/.search"), userReader)
+        JsonNode users = body(mvc.perform(asConnector(post("/scim/v2/.search"), userReader)
                 .contentType("application/scim+json").content(search)).andReturn());
-        JsonNode both = body(mvc.perform(bearer(post("/scim/v2/.search"), bothReader)
+        JsonNode both = body(mvc.perform(asConnector(post("/scim/v2/.search"), bothReader)
                 .contentType("application/scim+json").content(search)).andReturn());
 
         assertThat(both.get("Resources").valueStream()
@@ -326,7 +325,7 @@ class ConnectorTokenPermissionsIntegrationTests {
         assertThat(users.get("totalResults").asLong())
                 .isLessThan(both.get("totalResults").asLong());
 
-        assertThat(mvc.perform(bearer(post("/scim/v2/.search"), writer)
+        assertThat(mvc.perform(asConnector(post("/scim/v2/.search"), writer)
                         .contentType("application/scim+json").content(search))
                 .andReturn().getResponse().getStatus()).isEqualTo(403);
     }
@@ -385,17 +384,8 @@ class ConnectorTokenPermissionsIntegrationTests {
         return body(issued).get("presentedValue").asText();
     }
 
-    private static MockHttpServletRequestBuilder bearer(
-            MockHttpServletRequestBuilder request, String token) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-    }
-
     private static List<String> strings(JsonNode array) {
         return array.valueStream().map(JsonNode::asText).toList();
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 
     private MockHttpServletRequestBuilder asRole(

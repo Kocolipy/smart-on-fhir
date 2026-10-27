@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -53,7 +54,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_created_user_is_read_back_as_given() {
-        ScimUser given = fullyDescribed(unique());
+        ScimUser given = fullyDescribed(unique("contract"));
 
         users().create(given);
 
@@ -63,7 +64,7 @@ public abstract class ScimUserRepositoryContract {
     /** No provisioning path can mint a resource that protects itself from being changed. */
     @Test
     void create_refuses_a_reservation_carried_by_the_user() {
-        ScimUser user = ScimIdentities.user(unique());
+        ScimUser user = ScimIdentities.user(unique("contract"));
         ScimUser claimingTheReservation = new ScimUser(user.id(), user.profile(), user.login(),
                 ReservedResourceName.BOOTSTRAP_ADMIN, user.version(), user.createdAt(),
                 user.lastModifiedAt());
@@ -75,7 +76,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void create_refuses_a_normalized_user_name_another_user_holds() {
-        String name = unique();
+        String name = unique("contract");
         users().create(ScimIdentities.user(name));
 
         assertThatThrownBy(() -> users().create(ScimIdentities.user(name.toUpperCase())))
@@ -85,7 +86,7 @@ public abstract class ScimUserRepositoryContract {
     @Test
     void create_reserved_applies_the_reservation() {
         releaseTheBootstrapAdminReservation();
-        ScimUser user = ScimIdentities.user(unique());
+        ScimUser user = ScimIdentities.user(unique("contract"));
 
         users().createReserved(user, ReservedResourceName.BOOTSTRAP_ADMIN);
 
@@ -100,8 +101,8 @@ public abstract class ScimUserRepositoryContract {
     @Test
     void create_reserved_refuses_a_reservation_already_held() {
         releaseTheBootstrapAdminReservation();
-        users().createReserved(ScimIdentities.user(unique()), ReservedResourceName.BOOTSTRAP_ADMIN);
-        ScimUser second = ScimIdentities.user(unique());
+        users().createReserved(ScimIdentities.user(unique("contract")), ReservedResourceName.BOOTSTRAP_ADMIN);
+        ScimUser second = ScimIdentities.user(unique("contract"));
 
         assertThatThrownBy(() -> users().createReserved(second,
                 ReservedResourceName.BOOTSTRAP_ADMIN))
@@ -118,7 +119,7 @@ public abstract class ScimUserRepositoryContract {
     /** Compared on the normalized form, so the case the name is typed in does not matter. */
     @Test
     void the_lookup_by_normalized_user_name_finds_the_user_holding_it() {
-        String name = unique();
+        String name = unique("contract");
         users().create(ScimIdentities.user("other-" + name));
         ScimUser holder = users().create(ScimIdentities.user("Mixed-" + name));
 
@@ -128,17 +129,17 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void the_lookup_by_a_normalized_user_name_nobody_holds_finds_nothing() {
-        users().create(ScimIdentities.user(unique()));
+        users().create(ScimIdentities.user(unique("contract")));
 
-        assertThat(users().findByNormalizedUserName(NormalizedUserName.of(unique()))).isEmpty();
+        assertThat(users().findByNormalizedUserName(NormalizedUserName.of(unique("contract")))).isEmpty();
     }
 
     @Test
     void the_lookup_by_reserved_name_finds_the_user_holding_it() {
         releaseTheBootstrapAdminReservation();
-        users().create(ScimIdentities.user(unique()));
+        users().create(ScimIdentities.user(unique("contract")));
         ScimUser holder = users().createReserved(
-                ScimIdentities.user(unique()), ReservedResourceName.BOOTSTRAP_ADMIN);
+                ScimIdentities.user(unique("contract")), ReservedResourceName.BOOTSTRAP_ADMIN);
 
         assertThat(users().findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)
                 .map(ScimUser::id)).contains(holder.id());
@@ -153,8 +154,8 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void users_by_id_come_in_the_order_asked_skipping_an_id_naming_nobody() {
-        ScimUser first = users().create(ScimIdentities.user(unique()));
-        ScimUser second = users().create(ScimIdentities.user(unique()));
+        ScimUser first = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser second = users().create(ScimIdentities.user(unique("contract")));
 
         assertThat(users().findAllById(List.of(second.id(), UUID.randomUUID(), first.id()))
                 .stream().map(ScimUser::id)).containsExactly(second.id(), first.id());
@@ -167,8 +168,8 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void every_users_id_is_listed() {
-        ScimUser first = users().create(ScimIdentities.user(unique()));
-        ScimUser second = users().create(ScimIdentities.user(unique()));
+        ScimUser first = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser second = users().create(ScimIdentities.user(unique("contract")));
 
         assertThat(users().findAllIds()).contains(first.id(), second.id());
     }
@@ -177,7 +178,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_replacement_stores_the_given_profile() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
         ScimUser replacement = fullyDescribed(user.profile().userName(), user);
 
         users().replace(replacement, WRITTEN_AT);
@@ -189,7 +190,7 @@ public abstract class ScimUserRepositoryContract {
     /** The failure run and the lock are the login path's; a replacement never stores them. */
     @Test
     void a_replacement_keeps_the_stored_failure_run_and_lock() {
-        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique(),
+        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique("contract"),
                 new ScimLoginState("hash", 2, EARLIER, LockCause.DORMANCY, EARLIER, null)));
 
         users().replace(ScimIdentities.withActive(user, true,
@@ -203,7 +204,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_replacement_of_the_profile_alone_keeps_the_credential() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         users().replace(ScimIdentities.withDisplayName(user, "Renamed"), WRITTEN_AT);
 
@@ -216,7 +217,7 @@ public abstract class ScimUserRepositoryContract {
      */
     @Test
     void a_replacement_stores_the_given_credential_flag_and_basis() {
-        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique(),
+        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique("contract"),
                 new ScimLoginState("hash", 0, null, null, EARLIER, EARLIER)));
 
         users().replace(ScimIdentities.withActive(user, true,
@@ -229,7 +230,7 @@ public abstract class ScimUserRepositoryContract {
     /** A connector's password write owes a change: the replacement carries the flag it set. */
     @Test
     void a_replacement_stores_a_given_change_required_flag() {
-        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique(),
+        ScimUser user = users().create(ScimIdentities.userWithLoginState(unique("contract"),
                 new ScimLoginState("hash", 0, null, null, EARLIER, null)));
 
         users().replace(ScimIdentities.withActive(user, true,
@@ -245,7 +246,7 @@ public abstract class ScimUserRepositoryContract {
     @Test
     void a_replacement_activating_the_user_stores_the_login_state_it_was_given() {
         ScimUser user = users().create(ScimIdentities.withActive(
-                ScimIdentities.inactiveUser(unique()), false,
+                ScimIdentities.inactiveUser(unique("contract")), false,
                 new ScimLoginState("hash", 0, null, null, EARLIER, null)));
 
         users().replace(ScimIdentities.withActive(user, true, user.login()), WRITTEN_AT);
@@ -256,7 +257,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_replacement_advances_the_version_exactly_once() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         users().replace(ScimIdentities.withDisplayName(user, "Renamed"), WRITTEN_AT);
 
@@ -266,7 +267,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_replacement_reports_the_user_as_it_now_stands() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
         ScimUser renamed = ScimIdentities.withDisplayName(user, "Renamed");
 
         assertThat(users().replace(renamed, WRITTEN_AT)).contains(new ScimUser(user.id(),
@@ -276,13 +277,13 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_replacement_of_a_missing_user_reports_absence() {
-        assertThat(users().replace(ScimIdentities.user(unique()), WRITTEN_AT)).isEmpty();
+        assertThat(users().replace(ScimIdentities.user(unique("contract")), WRITTEN_AT)).isEmpty();
     }
 
     @Test
     void a_replacement_to_a_normalized_user_name_another_user_holds_is_refused() {
-        ScimUser holder = users().create(ScimIdentities.user(unique()));
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser holder = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
         ScimUser takingTheName = new ScimUser(user.id(),
                 ScimIdentities.profile(holder.profile().userName().toUpperCase(), true),
                 user.login(), null, user.version(), user.createdAt(), user.lastModifiedAt());
@@ -294,8 +295,8 @@ public abstract class ScimUserRepositoryContract {
     /** A Group renders each member by its label, so a moved label is a change to the Group too. */
     @Test
     void a_replacement_moving_the_member_label_advances_each_group_of_the_user() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().replace(ScimIdentities.withDisplayName(user, "Renamed"), WRITTEN_AT);
 
@@ -307,8 +308,8 @@ public abstract class ScimUserRepositoryContract {
     @Test
     void a_replacement_keeping_the_member_label_leaves_the_groups_of_the_user() {
         ScimUser user = users().create(
-                ScimIdentities.withDisplayName(ScimIdentities.user(unique()), "Ada"));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+                ScimIdentities.withDisplayName(ScimIdentities.user(unique("contract")), "Ada"));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().replace(ScimIdentities.withActive(user, false, user.login()), WRITTEN_AT);
 
@@ -320,7 +321,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void advancing_the_version_moves_it_once_and_records_when() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         users().advanceVersion(user.id(), WRITTEN_AT);
 
@@ -331,8 +332,8 @@ public abstract class ScimUserRepositoryContract {
     /** An alias is written for the calling connector alone; no Group renders it. */
     @Test
     void advancing_the_version_leaves_the_groups_of_the_user() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().advanceVersion(user.id(), WRITTEN_AT);
 
@@ -344,7 +345,7 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_deleted_user_is_gone() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         users().deleteById(user.id(), WRITTEN_AT);
 
@@ -353,8 +354,8 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void a_deleted_user_leaves_no_membership() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().deleteById(user.id(), WRITTEN_AT);
 
@@ -363,8 +364,8 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void deleting_a_user_advances_each_group_it_was_in() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().deleteById(user.id(), WRITTEN_AT);
 
@@ -374,8 +375,8 @@ public abstract class ScimUserRepositoryContract {
 
     @Test
     void deleting_a_user_leaves_the_other_users() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimUser other = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser other = users().create(ScimIdentities.user(unique("contract")));
 
         users().deleteById(user.id(), WRITTEN_AT);
 
@@ -432,7 +433,4 @@ public abstract class ScimUserRepositoryContract {
         return Tuple.tuple(read.version(), read.lastModifiedAt());
     }
 
-    private static String unique() {
-        return "contract-" + UUID.randomUUID();
-    }
 }

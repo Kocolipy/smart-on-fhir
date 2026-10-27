@@ -1,7 +1,8 @@
 package com.example.backend.database;
 
-import static com.example.backend.scim.ScimConnectorClient.SCIM_JSON;
-import static com.example.backend.scim.ScimConnectorClient.id;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.TestJson.id;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,7 +27,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Storage is UTC only (ADR 0013): every instant the service writes is stored at offset
@@ -81,8 +81,6 @@ class UtcStorageIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private ScimConnectorClient connector;
 
     private UUID created;
@@ -117,7 +115,7 @@ class UtcStorageIntegrationTests {
 
         MvcResult read = connector.perform(get("/scim/v2/Users/" + created));
 
-        JsonNode meta = json.readTree(read.getResponse().getContentAsString()).get("meta");
+        JsonNode meta = JSON.readTree(read.getResponse().getContentAsString()).get("meta");
         assertThat(List.of(meta.get("created").asText(), meta.get("lastModified").asText()))
                 .allSatisfy(instant -> assertThat(instant).endsWith("Z"));
     }

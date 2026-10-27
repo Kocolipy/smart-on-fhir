@@ -1,5 +1,7 @@
 package com.example.backend.scim;
 
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,7 +20,6 @@ import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.time.Duration;
@@ -149,8 +150,6 @@ class ScimConnectorLifecycleIntegrationTests {
 
     @Autowired
     private RequestIdFilter requestIdFilter;
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     private MockMvc mvc;
 
@@ -595,16 +594,12 @@ class ScimConnectorLifecycleIntegrationTests {
     /** The first token the connector listing shows for {@code connectorId}. */
     private JsonNode firstTokenOf(UUID connectorId) throws Exception {
         MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
-        for (JsonNode connector : json.readTree(listed.getResponse().getContentAsString())) {
+        for (JsonNode connector : JSON.readTree(listed.getResponse().getContentAsString())) {
             if (connector.get("id").asText().equals(connectorId.toString())) {
                 return connector.get("tokens").get(0);
             }
         }
         throw new AssertionError("No listed connector with id " + connectorId);
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 
     private List<Map<String, Object>> eventsOf(AuditOperation operation, UUID connectorId) {

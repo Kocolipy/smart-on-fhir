@@ -5,7 +5,7 @@ import static com.example.backend.contract.ScimConformanceFixtureTests.ERROR_SCH
 import static com.example.backend.contract.ScimConformanceFixtureTests.GROUP_SCHEMA;
 import static com.example.backend.contract.ScimConformanceFixtureTests.LIST_SCHEMA;
 import static com.example.backend.contract.ScimConformanceFixtureTests.ONE_MIB;
-import static com.example.backend.contract.ScimConformanceFixtureTests.SCIM_JSON;
+import static com.example.backend.ScimHttp.SCIM_JSON;
 import static com.example.backend.contract.ScimConformanceFixtureTests.SEARCH_REQUEST;
 import static com.example.backend.contract.ScimConformanceFixtureTests.SPC_SCHEMA;
 import static com.example.backend.contract.ScimConformanceFixtureTests.USER_SCHEMA;

@@ -1,22 +1,21 @@
 package com.example.backend.patient;
 
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.ServerSession;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +30,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code /api/patient/{id}}'s error contract and its logging, over a real socket and the whole
@@ -64,8 +62,6 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
             "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
     private static final String REQUEST_RECORD = "HTTP request completed";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     /** This class's own row's FHIR id. */
     private final String id = "error-contract-" + UUID.randomUUID();
@@ -152,7 +148,7 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     void aMethodOtherThanAReadIsANotSupportedOutcome(String method) throws Exception {
         HttpClient session = signedIn();
 
-        HttpResponse<String> response = send(session, withCsrf(session, patient(id))
+        HttpResponse<String> response = send(session, ServerSession.withCsrf(session, port, patient(id))
                 .method(method, HttpRequest.BodyPublishers.noBody()));
 
         assertThat(answer(response))
@@ -239,18 +235,18 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     private Answer answer(HttpResponse<String> response) {
         return new Answer(response.statusCode(),
                 response.headers().firstValue("Content-Type").orElse(null).replace(" ", ""),
-                json.readTree(response.body()));
+                JSON.readTree(response.body()));
     }
 
     private Answer answer(int status, String code, String diagnostics) {
-        return new Answer(status, FHIR_JSON_R5, json.readTree("""
+        return new Answer(status, FHIR_JSON_R5, JSON.readTree("""
                 {"resourceType": "OperationOutcome",
                  "issue": [{"severity": "error", "code": "%s", "diagnostics": "%s"}]}"""
                 .formatted(code, diagnostics)));
     }
 
     private HttpClient signedIn() throws Exception {
-        return login("test-user", "test-password");
+        return ServerSession.logIn(port, "test-user", "test-password");
     }
 
     /** A session confined by a required password change, which holds no Permission. */
@@ -267,25 +263,8 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
                                  "userName":"%s","password":"connector-chosen-1"}"""
                                 .formatted(userName))));
         assertThat(created.statusCode()).isEqualTo(201);
-        provisioned.add(json.readTree(created.body()).get("id").asText());
-        return login(userName, "connector-chosen-1");
-    }
-
-    private HttpClient login(String username, String password) throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL)).build();
-        HttpResponse<String> response = send(client, withCsrf(client, request("/api/auth/login"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
-                        Map.of("username", username, "password", password)))));
-        assertThat(response.statusCode()).as("login of %s", username).isEqualTo(200);
-        return client;
-    }
-
-    private HttpRequest.Builder withCsrf(HttpClient client, HttpRequest.Builder request)
-            throws Exception {
-        JsonNode csrf = json.readTree(send(client, request("/api/auth/csrf").GET()).body());
-        return request.header(csrf.get("headerName").asText(), csrf.get("token").asText());
+        provisioned.add(JSON.readTree(created.body()).get("id").asText());
+        return ServerSession.logIn(port, userName, "connector-chosen-1");
     }
 
     private HttpRequest.Builder patient(String id) {

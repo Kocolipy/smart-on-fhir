@@ -3,6 +3,7 @@ package com.example.backend.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
@@ -138,7 +139,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
 
     private String writeToken;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -153,13 +154,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
 
     @AfterEach
     void removeWhatThisFixtureCreated() {
-        for (UUID id : created) {
-            // No membership may still name a resource being deleted: neither side's key cascades
-            // (ADR 0013).
-            jdbc.update("DELETE FROM scim_group_members WHERE group_id = ? OR user_id = ?", id, id);
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -716,7 +711,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 : "{\"schemas\":[\"%s\"],\"userName\":\"%s\"}".formatted(USER_SCHEMA, userName);
         MvcResult result = expect(call(HttpMethod.POST, "/scim/v2/Users")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
-                .contentType(MediaType.valueOf("application/scim+json")).content(body), 201);
+                .contentType(com.example.backend.ScimHttp.SCIM_JSON).content(body), 201);
         created.add(UUID.fromString(json(result).get("id").asText()));
         return userName;
     }
@@ -733,7 +728,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 .collect(Collectors.joining(","));
         MvcResult result = expect(call(HttpMethod.POST, "/scim/v2/Groups")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
-                .contentType(MediaType.valueOf("application/scim+json"))
+                .contentType(com.example.backend.ScimHttp.SCIM_JSON)
                 .content("{\"schemas\":[\"%s\"],\"displayName\":\"%s\",\"members\":[%s]}"
                         .formatted(GROUP_SCHEMA, displayName, memberList)), 201);
         UUID id = UUID.fromString(json(result).get("id").asText());

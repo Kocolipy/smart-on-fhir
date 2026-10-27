@@ -2,12 +2,10 @@ package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.application.NewScimGroup;
-import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.application.ScimGroupService;
@@ -66,7 +64,7 @@ class ScimWriteLockOrderIntegrationTests {
 
     private AuthenticatedConnector connector;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -77,10 +75,7 @@ class ScimWriteLockOrderIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     /**
@@ -92,9 +87,9 @@ class ScimWriteLockOrderIntegrationTests {
         List<String> failures = new ArrayList<>();
         for (int round = 0; round < ROUNDS; round++) {
             String tag = UUID.randomUUID().toString().substring(0, 8);
-            UUID user = createUser("lock-order-rename-" + tag);
-            UUID other = createUser("lock-order-other-" + tag);
-            UUID group = createGroup("Lock order rename " + tag, List.of(user, other));
+            UUID user = created.createUser(userService, connector, "lock-order-rename-" + tag, null);
+            UUID other = created.createUser(userService, connector, "lock-order-other-" + tag, null);
+            UUID group = created.createGroup(groupService, connector, "Lock order rename " + tag, List.of(user, other));
 
             failures.addAll(race(round,
                     () -> userService.replace(connector, user, UNCONDITIONAL,
@@ -119,9 +114,9 @@ class ScimWriteLockOrderIntegrationTests {
         List<String> failures = new ArrayList<>();
         for (int round = 0; round < ROUNDS; round++) {
             String tag = UUID.randomUUID().toString().substring(0, 8);
-            UUID user = createUser("lock-order-delete-" + tag);
-            UUID other = createUser("lock-order-stays-" + tag);
-            UUID group = createGroup("Lock order delete " + tag, List.of(user, other));
+            UUID user = created.createUser(userService, connector, "lock-order-delete-" + tag, null);
+            UUID other = created.createUser(userService, connector, "lock-order-stays-" + tag, null);
+            UUID group = created.createGroup(groupService, connector, "Lock order delete " + tag, List.of(user, other));
 
             failures.addAll(race(round,
                     () -> userService.delete(connector, user, UNCONDITIONAL),
@@ -158,19 +153,6 @@ class ScimWriteLockOrderIntegrationTests {
         } finally {
             pool.shutdownNow();
         }
-    }
-
-    private UUID createUser(String userName) {
-        UUID id = userService.create(connector,
-                new NewScimUser(profile(userName, null), null, null)).id();
-        created.add(id);
-        return id;
-    }
-
-    private UUID createGroup(String displayName, List<UUID> members) {
-        UUID id = groupService.create(connector, new NewScimGroup(displayName, members, null)).id();
-        created.add(id);
-        return id;
     }
 
     private static ScimUserProfile profile(String userName, String displayName) {

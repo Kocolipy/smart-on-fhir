@@ -1,5 +1,6 @@
 package com.example.backend.observability;
 
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
@@ -26,7 +27,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The {@code session-start} record as the deployed service writes it, over a real socket.
@@ -43,8 +43,6 @@ import tools.jackson.databind.json.JsonMapper;
 class SessionStartLogIntegrationTests extends EpicLoginOnContext {
 
     private static final String SESSION_STARTED = "Session started";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @LocalServerPort
     private int port;
@@ -78,7 +76,7 @@ class SessionStartLogIntegrationTests extends EpicLoginOnContext {
      */
     @Test
     void aLoginWritesOneSessionStartAndTheCsrfGrantWritesNone() throws Exception {
-        JsonNode csrf = json.readTree(send(request("/api/auth/csrf").GET()).body());
+        JsonNode csrf = JSON.readTree(send(request("/api/auth/csrf").GET()).body());
         String anonymousCookie = sessionCookie();
         logs.awaitRequestRecords(1);
         assertThat(sessionStarts()).as("the CSRF grant's anonymous session").isEmpty();
@@ -86,7 +84,7 @@ class SessionStartLogIntegrationTests extends EpicLoginOnContext {
         HttpResponse<String> login = send(request("/api/auth/login")
                 .header("Content-Type", "application/json")
                 .header(csrf.get("headerName").asText(), csrf.get("token").asText())
-                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
+                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(
                         Map.of("username", "test-user", "password", "test-password")))));
         assertThat(login.statusCode()).isEqualTo(200);
         String signedInCookie = sessionCookie();
@@ -104,7 +102,7 @@ class SessionStartLogIntegrationTests extends EpicLoginOnContext {
                 .containsExactly("start");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(record.at("/event/severity").asText()).isEqualTo("low");
-        int idleTimeoutSeconds = json.readTree(login.body()).get("idleTimeoutSeconds").asInt();
+        int idleTimeoutSeconds = JSON.readTree(login.body()).get("idleTimeoutSeconds").asInt();
         assertThat(idleTimeoutSeconds).isPositive();
         assertThat(record.at("/session/max_inactive_interval").asInt())
                 .isEqualTo(idleTimeoutSeconds);
@@ -128,12 +126,12 @@ class SessionStartLogIntegrationTests extends EpicLoginOnContext {
     /** A refused login started no session, so it writes no {@code session-start}. */
     @Test
     void aRefusedLoginWritesNoSessionStart() throws Exception {
-        JsonNode csrf = json.readTree(send(request("/api/auth/csrf").GET()).body());
+        JsonNode csrf = JSON.readTree(send(request("/api/auth/csrf").GET()).body());
 
         HttpResponse<String> login = send(request("/api/auth/login")
                 .header("Content-Type", "application/json")
                 .header(csrf.get("headerName").asText(), csrf.get("token").asText())
-                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
+                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(
                         Map.of("username", "test-user", "password", "wrong-password")))));
         assertThat(login.statusCode()).isEqualTo(401);
         logs.awaitRequestRecords(2);

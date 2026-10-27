@@ -1,5 +1,9 @@
 package com.example.backend.observability;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.id;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -7,12 +11,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -33,14 +37,11 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A write the database refuses, through the real stack against the real SQL Server schema, and
@@ -70,8 +71,6 @@ class JdbcErrorLogRedactionTests {
 
     private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     @Autowired
     private WebApplicationContext context;
 
@@ -95,9 +94,7 @@ class JdbcErrorLogRedactionTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private MockMvc mvc;
 
@@ -119,10 +116,7 @@ class JdbcErrorLogRedactionTests {
     @AfterEach
     void tearDown() {
         logs.close();
-        for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     // ---- the setting, as deployed ------------------------------------------------------------
@@ -221,7 +215,7 @@ class JdbcErrorLogRedactionTests {
         MvcResult refusedReplace;
         try {
             refusedCreate = createUser(newUserName, forced);
-            refusedReplace = mvc.perform(asConnector(put(USERS + "/" + id(existing)))
+            refusedReplace = mvc.perform(asConnector(put(USERS + "/" + id(existing)), writeToken)
                             .header(HttpHeaders.IF_MATCH,
                                     existing.getResponse().getHeader(HttpHeaders.ETAG))
                             .contentType(SCIM_JSON)
@@ -310,30 +304,12 @@ class JdbcErrorLogRedactionTests {
     }
 
     private MvcResult createUser(String userName, String locale) throws Exception {
-        return track(mvc.perform(asConnector(post(USERS))
-                        .contentType(SCIM_JSON)
-                        .content(userBody(userName, locale)))
-                .andReturn());
+        return created.post(mvc, writeToken, USERS, userBody(userName, locale));
     }
 
     private MvcResult createGroup(String displayName) throws Exception {
-        return track(mvc.perform(asConnector(post(GROUPS))
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"displayName":"%s"}"""
-                                .formatted(GROUP_SCHEMA, displayName)))
-                .andReturn());
-    }
-
-    private MvcResult track(MvcResult result) throws Exception {
-        if (status(result) == 201) {
-            created.add(id(result));
-        }
-        return result;
-    }
-
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
+        return created.post(mvc, writeToken, GROUPS, """
+                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, displayName));
     }
 
     private static int status(MvcResult result) {
@@ -341,11 +317,6 @@ class JdbcErrorLogRedactionTests {
     }
 
     private String scimType(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString()).get("scimType").asText();
-    }
-
-    private UUID id(MvcResult result) throws Exception {
-        return UUID.fromString(
-                json.readTree(result.getResponse().getContentAsString()).get("id").asText());
+        return JSON.readTree(result.getResponse().getContentAsString()).get("scimType").asText();
     }
 }

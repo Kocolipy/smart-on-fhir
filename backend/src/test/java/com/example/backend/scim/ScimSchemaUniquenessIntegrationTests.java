@@ -1,18 +1,17 @@
 package com.example.backend.scim;
 
-import static com.example.backend.scim.ScimConnectorClient.SCIM_JSON;
-import static com.example.backend.scim.ScimConnectorClient.id;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.id;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +24,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.context.WebApplicationContext;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The directory's uniqueness rules, against the SQL Server schema (ADR 0013; #68).
@@ -71,9 +69,7 @@ class ScimSchemaUniquenessIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private ScimConnectorClient connector;
 
@@ -88,10 +84,7 @@ class ScimSchemaUniquenessIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     // ---- userName ------------------------------------------------------------------------
@@ -240,13 +233,13 @@ class ScimSchemaUniquenessIntegrationTests {
     private void assertUniquenessConflict(MvcResult result) throws Exception {
         String raw = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(409);
-        assertThat(json.readTree(raw).get("scimType").asText()).isEqualTo("uniqueness");
+        assertThat(JSON.readTree(raw).get("scimType").asText()).isEqualTo("uniqueness");
     }
 
     private void assertInvalidValue(MvcResult result) throws Exception {
         String raw = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(400);
-        assertThat(json.readTree(raw).get("scimType").asText()).isEqualTo("invalidValue");
+        assertThat(JSON.readTree(raw).get("scimType").asText()).isEqualTo("invalidValue");
     }
 
     private int storedUsers(String normalizedUserName) {
@@ -256,25 +249,18 @@ class ScimSchemaUniquenessIntegrationTests {
     }
 
     private MvcResult createUser(String userName) throws Exception {
-        return track(connector.perform(post(USERS).contentType(SCIM_JSON).content("""
-                {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, userName))));
+        return created.post(connector::perform, USERS, """
+                {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, userName));
     }
 
     private MvcResult createUser(String userName, String emails) throws Exception {
-        return track(connector.perform(post(USERS).contentType(SCIM_JSON).content("""
+        return created.post(connector::perform, USERS, """
                 {"schemas":["%s"],"userName":"%s","emails":%s}"""
-                        .formatted(USER_SCHEMA, userName, emails))));
+                        .formatted(USER_SCHEMA, userName, emails));
     }
 
     private MvcResult createGroup(String displayName) throws Exception {
-        return track(connector.perform(post(GROUPS).contentType(SCIM_JSON).content("""
-                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, displayName))));
-    }
-
-    private MvcResult track(MvcResult result) throws Exception {
-        if (result.getResponse().getStatus() == 201) {
-            created.add(id(result));
-        }
-        return result;
+        return created.post(connector::perform, GROUPS, """
+                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, displayName));
     }
 }

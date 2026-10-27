@@ -1,5 +1,6 @@
 package com.example.backend.scim.infrastructure.persistence;
 
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
@@ -81,7 +82,4 @@ class ScimGroupPersistenceAdapterIntegrationTests {
         return new TransactionTemplate(transactionManager).execute(status -> work.get());
     }
 
-    private static String unique(String prefix) {
-        return prefix + "-" + UUID.randomUUID();
-    }
 }

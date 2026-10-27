@@ -1,18 +1,17 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.asConnector;
+
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import java.util.UUID;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A SCIM connector as a test drives it: a fresh connector holding a token with every Permission,
@@ -22,10 +21,6 @@ import tools.jackson.databind.json.JsonMapper;
  * uses it adds nothing to its context's configuration and shares the context it would have had.
  */
 public final class ScimConnectorClient {
-
-    public static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
-    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final MockMvc mvc;
 
@@ -50,13 +45,6 @@ public final class ScimConnectorClient {
 
     /** Performs {@code request} as the connector, with its bearer token. */
     public MvcResult perform(MockHttpServletRequestBuilder request) throws Exception {
-        return mvc.perform(request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andReturn();
-    }
-
-    /** The {@code id} of the resource a SCIM response body describes. */
-    public static UUID id(MvcResult result) throws Exception {
-        return UUID.fromString(
-                JSON.readTree(result.getResponse().getContentAsString()).get("id").asText());
+        return mvc.perform(asConnector(request, token)).andReturn();
     }
 }

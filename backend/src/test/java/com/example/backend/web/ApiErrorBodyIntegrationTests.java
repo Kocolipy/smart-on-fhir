@@ -1,18 +1,17 @@
 package com.example.backend.web;
 
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.ServerSession;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.observability.EcsLogCapture;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,7 +23,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Every error answer under {@code /api} carries {@link ApiError}, whichever layer refuses — the
@@ -47,8 +45,6 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
     private static final String REQUEST_RECORD = "HTTP request completed";
 
     private static final String FHIR_JSON_R5 = "application/fhir+json;fhirVersion=5.0";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @LocalServerPort
     private int port;
@@ -133,7 +129,7 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
     void the_dispatchers_refusal_of_a_body_type_is_a_415_api_error() throws Exception {
         HttpClient admin = admin();
 
-        HttpResponse<String> response = send(admin, withCsrf(admin, request("/api/admin/connectors"))
+        HttpResponse<String> response = send(admin, ServerSession.withCsrf(admin, port, request("/api/admin/connectors"))
                 .header("Content-Type", "text/plain")
                 .POST(HttpRequest.BodyPublishers.ofString("displayName=S1234567A")));
 
@@ -173,7 +169,7 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
     void a_malformed_password_change_body_is_still_an_invalid_request() throws Exception {
         HttpClient user = user();
 
-        HttpResponse<String> response = send(user, withCsrf(user, request("/api/auth/change-password"))
+        HttpResponse<String> response = send(user, ServerSession.withCsrf(user, port, request("/api/auth/change-password"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString("{\"currentPassword\": S1234567A")));
 
@@ -186,8 +182,8 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(contentType(response)).isEqualTo(FHIR_JSON_R5);
-        assertThat(json.readTree(response.body()))
-                .isEqualTo(json.valueToTree(FhirOperationOutcome.of(400)));
+        assertThat(JSON.readTree(response.body()))
+                .isEqualTo(JSON.valueToTree(FhirOperationOutcome.of(400)));
     }
 
     // ---- harness ---------------------------------------------------------------------------
@@ -200,9 +196,9 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
             String... fromTheRequest) {
         assertThat(response.statusCode()).isEqualTo(status);
         assertThat(contentType(response)).isEqualTo("application/json");
-        JsonNode body = json.readTree(response.body());
+        JsonNode body = JSON.readTree(response.body());
         assertThat(body.get("code").asText()).isEqualTo(code);
-        assertThat(body).isEqualTo(json.valueToTree(
+        assertThat(body).isEqualTo(JSON.valueToTree(
                 ApiError.of(org.springframework.http.HttpStatusCode.valueOf(status))));
         assertThat(response.body()).doesNotContain("timestamp", "path", "/api").doesNotContain(fromTheRequest);
     }
@@ -230,7 +226,7 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
     }
 
     private HttpRequest.Builder createConnector(HttpClient admin, String body) throws Exception {
-        return withCsrf(admin, request("/api/admin/connectors"))
+        return ServerSession.withCsrf(admin, port, request("/api/admin/connectors"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body));
     }
@@ -240,28 +236,11 @@ class ApiErrorBodyIntegrationTests extends EpicLoginOnContext {
     }
 
     private HttpClient user() throws Exception {
-        return login("test-user", "test-password");
+        return ServerSession.logIn(port, "test-user", "test-password");
     }
 
     private HttpClient admin() throws Exception {
-        return login("test-admin", "test-admin-password");
-    }
-
-    private HttpClient login(String username, String password) throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL)).build();
-        HttpResponse<String> response = send(client, withCsrf(client, request("/api/auth/login"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
-                        Map.of("username", username, "password", password)))));
-        assertThat(response.statusCode()).as("login of %s", username).isEqualTo(200);
-        return client;
-    }
-
-    private HttpRequest.Builder withCsrf(HttpClient client, HttpRequest.Builder request)
-            throws Exception {
-        JsonNode csrf = json.readTree(send(client, request("/api/auth/csrf").GET()).body());
-        return request.header(csrf.get("headerName").asText(), csrf.get("token").asText());
+        return ServerSession.logIn(port, "test-admin", "test-admin-password");
     }
 
     private HttpRequest.Builder request(String path) {
