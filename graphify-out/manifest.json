@@ -228,9 +228,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginService.java": {
-    "mtime": 1793168785.260994,
-    "seen": 1793170610.2864351,
-    "ast_hash": "97607e5a2b1771d0fc3ddbeeaa191f5a",
+    "mtime": 1793173456.8932996,
+    "seen": 1793174431.115155,
+    "ast_hash": "97c52f77c35bd4966130b684aefff094",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordChangeService.java": {
@@ -1140,9 +1140,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/arch/ArchitectureTest.java": {
-    "mtime": 1793168573.4306846,
-    "seen": 1793170610.2868552,
-    "ast_hash": "8dc87d3cc10168254dd938f0c79a3a2e",
+    "mtime": 1793173350.815085,
+    "seen": 1793174431.13405,
+    "ast_hash": "5cd1eaf4e30aebb15a39392f9ae7272a",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
@@ -2214,9 +2214,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0003-ecs-structured-logging-with-redaction.md": {
-    "mtime": 1793167272.1843984,
-    "seen": 1793170610.287542,
-    "ast_hash": "112718b0ee15f8a5c95cddbae7241489",
+    "mtime": 1793173392.7431083,
+    "seen": 1793174431.1643627,
+    "ast_hash": "cc7e241100c6c730c449218eb74836b0",
     "semantic_hash": ""
   },
   "docs/adr/0004-audit-append-failure-semantics.md": {
@@ -4422,15 +4422,15 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginStateService.java": {
-    "mtime": 1793168610.6258004,
-    "seen": 1793170610.2864366,
-    "ast_hash": "287ff9ce0b216e7fc96e328770edae08",
+    "mtime": 1793173452.461567,
+    "seen": 1793174431.1151567,
+    "ast_hash": "08b3bf158f21ed681582f6860a25df3c",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginStateServiceTests.java": {
-    "mtime": 1793168997.3957658,
-    "seen": 1793170610.2869492,
-    "ast_hash": "8423781030da909b1c79931903bb28a7",
+    "mtime": 1793173452.4630108,
+    "seen": 1793174431.1394432,
+    "ast_hash": "db7a15b400f4abe531116571da55c4cd",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/Lockout.java": {
@@ -4446,9 +4446,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/LoginStateModules.java": {
-    "mtime": 1793168780.0927107,
-    "seen": 1793170610.286929,
-    "ast_hash": "9489494b9e74dec88de761f4d8a4ff3e",
+    "mtime": 1793173460.0528553,
+    "seen": 1793174431.1382937,
+    "ast_hash": "748d41de67c206d2817b9ba73221ce10",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/domain/LockoutTests.java": {
@@ -5220,9 +5220,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0012-epic-login.md": {
-    "mtime": 1793168660.853041,
-    "seen": 1793170610.2875502,
-    "ast_hash": "7e799e1e11c78679296ea917e95df312",
+    "mtime": 1793173392.7538648,
+    "seen": 1793174431.164572,
+    "ast_hash": "d6111918a0e81ff00fe868ae3fb75ff9",
     "semantic_hash": ""
   },
   "docs/adr/0013-sql-server-2022-replaces-postgresql.md": {
@@ -6534,9 +6534,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordLoginAttempt.java": {
-    "mtime": 1793167272.0539775,
-    "seen": 1793170610.286439,
-    "ast_hash": "531dc789ad0c1312a9f6895751e9f849",
+    "mtime": 1793173452.4617581,
+    "seen": 1793174431.1152039,
+    "ast_hash": "b26b7680370f5143ad73d25c90b2d66c",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordLoginProvider.java": {
