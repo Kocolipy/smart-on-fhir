@@ -365,7 +365,8 @@ public class ArchitectureTest {
      *
      * <p>ADR 0013's as-13 retries "a SCIM or administrative write", once, at its outermost
      * transactional boundary, and never "read-only and scheduled paths: the next request or run
-     * covers them". Every other public {@code @Transactional} method that is not read-only carries
+     * covers them". Every other public method that opens a transaction which is not read-only —
+     * by a {@code @Transactional}, or by hand through a {@code TransactionTemplate} — carries
      * {@link com.example.backend.observability.RetriedOnDeadlock}, which
      * {@link #every_transactional_write_is_retried_on_deadlock} holds: a new write is retried
      * unless someone adds it here with a reason. An entry is the owner's name and the method's,
@@ -374,11 +375,11 @@ public class ArchitectureTest {
     static final Map<String, String> NOT_RETRIED_ON_DEADLOCK = Map.ofEntries(
             // The login-state events: the Login and the password change record what the attempt
             // did to the login state (ADR 0001). They are neither SCIM nor administrative writes,
-            // and the person signing in, whose attempt this is, tries again. A password Login's
-            // own transaction — a refused or accepted Login's login-state event, decided, counted
-            // and recorded together — is opened by hand inside LoginService#logIn, which holds the
-            // Argon2id comparison outside it, so no annotation names it here; it is not retried,
-            // for the same reason.
+            // and the person signing in, whose attempt this is, tries again.
+            Map.entry("com.example.backend.auth.application.LoginService#logIn",
+                    "a refused Login's login-state event, or an accepted Login's, decided, counted"
+                            + " and recorded in the one transaction logIn opens by hand once the"
+                            + " Argon2id comparison is done: not a SCIM or administrative write"),
             Map.entry("com.example.backend.auth.application.LoginService#logInFromEpic",
                     "an Epic Login (ADR 0012): an accepted or refused Epic Login's login-state"
                             + " event, not a SCIM or administrative write; the clinician launches"
@@ -417,9 +418,19 @@ public class ArchitectureTest {
                             + "#deleteBatchOccurredBefore",
                     "a batch of the audit retention job's delete: a scheduled path, which the next"
                             + " run covers"),
+            Map.entry("com.example.backend.scheduling.application.ScheduledJobRunService#run",
+                    "a scheduled job's run, in the REQUIRES_NEW transaction it opens by hand for"
+                            + " the job's lock (ADR 0005): a scheduled path, which the next run"
+                            + " covers"),
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
                     "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
-                            + " the outermost boundary a retry belongs at"));
+                            + " the outermost boundary a retry belongs at"),
+            // The audit append: the transaction it runs by hand is its caller's, joined.
+            Map.entry("com.example.backend.audit.application.AuditTrailService#append",
+                    "a fail-closed append joins its caller's transaction (PROPAGATION_REQUIRED), so"
+                            + " the caller's boundary is the one retried or exempted here; a"
+                            + " fail-open one commits alone on the audit pool, and its failure"
+                            + " raises an alert rather than propagating"));
 
     /** Spring's {@code @Transactional} on a method, or else on the class declaring it. */
     private static Optional<org.springframework.transaction.annotation.Transactional> transactionOf(
@@ -434,10 +445,50 @@ public class ArchitectureTest {
                 : Optional.empty();
     }
 
-    /** A public method that opens, or joins, a transaction that is not read-only. */
+    /**
+     * A public method that opens, or joins, a transaction that is not read-only: by a
+     * {@code @Transactional} that is not read-only, or by hand, through a
+     * {@link org.springframework.transaction.support.TransactionTemplate}.
+     */
     private static boolean isTransactionalWrite(JavaMethod method) {
         return method.getModifiers().contains(com.tngtech.archunit.core.domain.JavaModifier.PUBLIC)
-                && transactionOf(method).filter(transaction -> !transaction.readOnly()).isPresent();
+                && (transactionOf(method).filter(transaction -> !transaction.readOnly()).isPresent()
+                        || runsATransactionTemplate(method, new java.util.HashSet<>()));
+    }
+
+    /**
+     * Whether {@code method} runs a transaction by hand: calls a {@code TransactionTemplate}'s
+     * {@code execute} or {@code executeWithoutResult}, itself or through a private method of its
+     * own class. A template states its read-only flag at run time, out of a static rule's sight,
+     * so every one counts as a write; a read-only one is named in
+     * {@link #NOT_RETRIED_ON_DEADLOCK} with that reason.
+     */
+    private static boolean runsATransactionTemplate(JavaMethod method, Set<JavaMethod> seen) {
+        if (!seen.add(method)) {
+            return false;
+        }
+        for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+            String owner = call.getTargetOwner().getName();
+            boolean template = owner.equals(
+                            org.springframework.transaction.support.TransactionTemplate.class.getName())
+                    || owner.equals(org.springframework.transaction.support.TransactionOperations.class
+                            .getName());
+            if (template && (call.getName().equals("execute")
+                    || call.getName().equals("executeWithoutResult"))) {
+                return true;
+            }
+            if (call.getTargetOwner().equals(method.getOwner())) {
+                boolean viaPrivateHelper = call.getTarget().resolveMember()
+                        .filter(target -> target.getModifiers()
+                                .contains(com.tngtech.archunit.core.domain.JavaModifier.PRIVATE))
+                        .map(target -> runsATransactionTemplate(target, seen))
+                        .orElse(false);
+                if (viaPrivateHelper) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** {@code Owner#method}, the key {@link #NOT_RETRIED_ON_DEADLOCK} names a method by. */
@@ -472,8 +523,8 @@ public class ArchitectureTest {
             }
         }
         org.assertj.core.api.Assertions.assertThat(unretried)
-                .as("NOT_RETRIED_ON_DEADLOCK names only public, non-read-only @Transactional"
-                        + " methods that are not retried")
+                .as("NOT_RETRIED_ON_DEADLOCK names only public methods that are not retried and"
+                        + " open a transaction that is not read-only, by @Transactional or by hand")
                 .containsAll(NOT_RETRIED_ON_DEADLOCK.keySet());
     }
 
