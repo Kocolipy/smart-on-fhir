@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeFhircastRelease } from "./fhircast";
+import { decodeFhircastRelease } from "./release";
 import { RELEASE } from "./fhircast.testHelpers";
 
 // `decodeFhircastRelease`: the release the backend hands the session's FHIRcast.

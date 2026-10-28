@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
@@ -9,35 +9,27 @@ import {
   type HubAnswer,
   hubOnly,
   type HubOptions,
-  REGISTRATION_ACCESS_TOKEN,
-  REGISTRATION_CLIENT_URI,
   REGISTRATION_ENDPOINT,
   REVOCATION_ENDPOINT,
   TOKEN_ENDPOINT,
-} from "./fake-hub.testHelpers";
-import { fakeBackend } from "./fake-backend.testHelpers";
-import { clearFhircastStorage, connectFhircast, FHIRCAST_STORAGE_KEYS } from "./fhircast";
+} from "../fake-hub.testHelpers";
+import { fakeBackend } from "../fake-backend.testHelpers";
+import { clearFhircastStorage, connectFhircast } from ".";
+import { type Client, ES384 } from "./model";
+import { ClientRefused, discover, HubFailure, hubToken, register, subscribe } from "./protocol";
 import {
   assertionOf,
-  keptState,
   RELEASE,
   signedByRegisteredKey,
   SMART_ACCESS_TOKEN,
 } from "./fhircast.testHelpers";
 
-// `connectFhircast`, step by step: discovery, registration, the Hub Token,
-// the subscription, event notifications, a hub out of reach, and what the tab
-// keeps of a connection.
+// The hub protocol, through `connectFhircast`, step by step: discovery,
+// registration, the Hub Token, the subscription, and a hub out of reach. The
+// event notifications on the socket are `notifications.test.ts`'s, and what the
+// tab keeps `storage.test.ts`'s.
 
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
-
-/** The keys an earlier version of the module kept its connection under, one each. */
-const RETIRED_KEYS = [
-  "fhircast-client-id",
-  "fhircast-hub-token",
-  "fhircast-private-jwk",
-  "fhircast-smart-access-token",
-];
 
 describe("connectFhircast", () => {
   it("connects once the socket confirms the subscription", async () => {
@@ -482,215 +474,6 @@ describe("connectFhircast", () => {
     });
   });
 
-  describe("event notifications", () => {
-    /** A notification as the hub sends it: `event` for Patient `patientId` on `topic`. */
-    const notification = (
-      event: string,
-      { id = "event-1", patientId = "patient-1" as unknown, topic = "topic-1" } = {},
-    ) => ({
-      event: {
-        context: [{ key: "patient", resource: { id: patientId, resourceType: "Patient" } }],
-        "hub.event": event,
-        "hub.topic": topic,
-      },
-      id,
-      timestamp: "2026-10-24T02:00:05Z",
-    });
-
-    /** Connected to a hub, every event it hands on recorded. */
-    async function connected() {
-      const hub = hubOnly();
-      const events = vi.fn();
-      const outcome = await connectFhircast(RELEASE, { onEvent: events });
-      expect(outcome.kind).toBe("connected");
-      return { events, hub };
-    }
-
-    it("hands on a Patient-open with its timestamp and Patient id", async () => {
-      const { events, hub } = await connected();
-
-      hub.notify(notification("Patient-open"));
-
-      expect(events.mock.calls).toEqual([
-        [{ event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
-      ]);
-    });
-
-    it("hands on a Patient-close", async () => {
-      const { events, hub } = await connected();
-
-      hub.notify(notification("Patient-close"));
-
-      expect(events.mock.calls).toEqual([
-        [{ event: "Patient-close", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
-      ]);
-    });
-
-    it.each(["Patient-open", "Patient-close"])(
-      "acknowledges a %s on the socket with its id",
-      async (event) => {
-        const { hub } = await connected();
-
-        hub.notify(notification(event, { id: "event-7" }));
-
-        expect(hub.received().map((sent) => JSON.parse(sent) as unknown)).toEqual([
-          { id: "event-7", status: "200" },
-        ]);
-      },
-    );
-
-    it("hands on every event, in the order the hub sent them", async () => {
-      const { events, hub } = await connected();
-
-      hub.notify(notification("Patient-open", { id: "event-1" }));
-      hub.notify(notification("Patient-close", { id: "event-2" }));
-
-      expect(events.mock.calls.map(([handed]) => (handed as { event: string }).event)).toEqual([
-        "Patient-open",
-        "Patient-close",
-      ]);
-    });
-
-    it("reads the event name whatever its case", async () => {
-      const { events, hub } = await connected();
-
-      hub.notify(notification("pATIENT-oPEN"));
-
-      expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
-      ]);
-    });
-
-    it("takes the Patient id from the context's patient entry", async () => {
-      const { events, hub } = await connected();
-      const open = notification("Patient-open");
-
-      hub.notify({
-        ...open,
-        event: {
-          ...open.event,
-          context: [
-            { key: "encounter", resource: { id: "encounter-1", resourceType: "Encounter" } },
-            ...open.event.context,
-          ],
-        },
-      });
-
-      expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
-      ]);
-    });
-
-    it.each([
-      ["the grammar's every character", "Ab-9.z"],
-      ["sixty-four characters", "a".repeat(64)],
-    ])("hands on a Patient id of %s", async (_name, patientId) => {
-      const { events, hub } = await connected();
-
-      hub.notify(notification("Patient-open", { patientId }));
-
-      expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId, timestamp: "2026-10-24T02:00:05Z" },
-      ]);
-    });
-
-    describe("a Patient id outside the grammar", () => {
-      it.each<[string, unknown]>([
-        ["sixty-five characters", "a".repeat(65)],
-        ["empty", ""],
-        ["holding a slash", "patient/1"],
-        ["holding markup", "<b>Tan</b>"],
-        ["holding an underscore", "patient_1"],
-        ["a number", 7],
-      ])("is omitted when it is %s, the event still handed on", async (_name, patientId) => {
-        const { events, hub } = await connected();
-
-        hub.notify(notification("Patient-open", { patientId }));
-
-        expect(events.mock.calls).toEqual([
-          [{ event: "Patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
-        ]);
-      });
-
-      it("is still acknowledged", async () => {
-        const { hub } = await connected();
-
-        hub.notify(notification("Patient-open", { id: "event-3", patientId: "patient/1" }));
-
-        expect(hub.received().map((sent) => JSON.parse(sent) as unknown)).toEqual([
-          { id: "event-3", status: "200" },
-        ]);
-      });
-
-      it.each<[string, unknown[]]>([
-        ["names no patient", [{ key: "encounter", resource: { id: "encounter-1" } }]],
-        ["is empty", []],
-        ["has a patient entry with no resource", [{ key: "patient" }]],
-      ])("is omitted when the context %s", async (_name, context) => {
-        const { events, hub } = await connected();
-        const open = notification("Patient-open");
-
-        hub.notify({ ...open, event: { ...open.event, context } });
-
-        expect(events.mock.calls).toEqual([
-          [{ event: "Patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
-        ]);
-      });
-    });
-
-    describe("what is ignored, and not acknowledged", () => {
-      const open = notification("Patient-open");
-      const without = (key: string) =>
-        Object.fromEntries(Object.entries(open).filter(([member]) => member !== key));
-      const eventWithout = (key: string) => ({
-        ...open,
-        event: Object.fromEntries(Object.entries(open.event).filter(([member]) => member !== key)),
-      });
-
-      it.each<[string, unknown]>([
-        ["no JSON", "not json"],
-        ["JSON null", "null"],
-        ["a JSON list", JSON.stringify([open])],
-        ["no id", without("id")],
-        ["an empty id", { ...open, id: "" }],
-        ["an id that is no string", { ...open, id: 7 }],
-        ["no timestamp", without("timestamp")],
-        ["a timestamp that is no time", { ...open, timestamp: "yesterday" }],
-        ["no event", without("event")],
-        ["an event that is no object", { ...open, event: "Patient-open" }],
-        ["no hub.topic", eventWithout("hub.topic")],
-        ["no hub.event", eventWithout("hub.event")],
-        ["no context", eventWithout("context")],
-        ["a context that is no list", { ...open, event: { ...open.event, context: {} } }],
-        ["the subscription confirmed again", { "hub.mode": "subscribe", "hub.topic": "topic-1" }],
-        ["another topic", notification("Patient-open", { topic: "topic-2" })],
-        ["the topic in another case", notification("Patient-open", { topic: "TOPIC-1" })],
-        ["an event not subscribed to", notification("Encounter-open")],
-        ["the hub's heartbeat", notification("heartbeat")],
-      ])("a message with %s", async (_name, message) => {
-        const { events, hub } = await connected();
-
-        hub.notify(message);
-
-        expect([events.mock.calls, hub.received()]).toEqual([[], []]);
-      });
-    });
-
-    it("hands on nothing the hub sends before it confirms the subscription", async () => {
-      let confirm = () => undefined as void;
-      const hub = hubOnly({ hold: new Promise((resolve) => (confirm = resolve)) });
-      const events = vi.fn();
-      const outcome = connectFhircast(RELEASE, { onEvent: events });
-      await vi.waitFor(() => expect(hub.sockets()).toHaveLength(1));
-
-      hub.notify(notification("Patient-open"));
-      confirm();
-      await outcome;
-
-      expect([events.mock.calls, hub.received()]).toEqual([[], []]);
-    });
-  });
-
   describe("a hub the browser cannot reach", () => {
     it("is blocked by the browser when Local Network Access was refused", async () => {
       hubOnly({ fhircastConfiguration: "unreachable", localNetworkAccess: "denied" });
@@ -763,113 +546,93 @@ describe("connectFhircast", () => {
       expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
     });
   });
+});
 
-  describe("what the tab keeps", () => {
-    it("never keeps the SMART access token", async () => {
-      hubOnly();
+// The hub protocol's own requests, read without a session: each made of the
+// fake hub directly, so nothing here needs the session's FHIRcast reset.
 
-      await connectFhircast(RELEASE);
+describe("the hub protocol", () => {
+  /** A Hub Registration the fake hub answers for, signing with a fresh key. */
+  async function client(): Promise<Client> {
+    const keys = await crypto.subtle.generateKey(ES384, true, ["sign", "verify"]);
+    return {
+      clientId: CLIENT_ID,
+      hub: { hubTopic: RELEASE.hubTopic, hubUrl: HUB_URL },
+      management: null,
+      revocation: null,
+      signing: {
+        jwk: await crypto.subtle.exportKey("jwk", keys.privateKey),
+        keyId: "key-1",
+        privateKey: keys.privateKey,
+      },
+      tokenEndpoint: TOKEN_ENDPOINT,
+    };
+  }
 
-      expect(
-        Object.keys(window.sessionStorage).filter((key) =>
-          window.sessionStorage.getItem(key)?.includes(SMART_ACCESS_TOKEN),
-        ),
-      ).toEqual([]);
+  const metadata = (revocation: string): HubAnswer => ({
+    body: {
+      registration_endpoint: REGISTRATION_ENDPOINT,
+      revocation_endpoint: revocation,
+      token_endpoint: TOKEN_ENDPOINT,
+    },
+    status: 200,
+  });
+
+  it("discovers the registration, token and revocation endpoints", async () => {
+    hubOnly();
+
+    expect(await discover(HUB_URL)).toEqual({
+      registration: REGISTRATION_ENDPOINT,
+      revocation: REVOCATION_ENDPOINT,
+      token: TOKEN_ENDPOINT,
+    });
+  });
+
+  it("discovers no revocation endpoint the hub names off loopback", async () => {
+    hubOnly({ fhircastConfiguration: metadata("http://localhost:8103/dcr/revoke") });
+
+    expect((await discover(HUB_URL)).revocation).toBeNull();
+  });
+
+  it("registers no handle on a registration answered with no access token", async () => {
+    hubOnly({ registration: { body: { client_id: CLIENT_ID }, status: 201 } });
+    const { publicKey } = await crypto.subtle.generateKey(ES384, true, ["sign", "verify"]);
+
+    expect(await register(REGISTRATION_ENDPOINT, SMART_ACCESS_TOKEN, "key-1", publicKey)).toEqual({
+      clientId: CLIENT_ID,
+      management: null,
+    });
+  });
+
+  it("is granted a Hub Token, with the lifetime the hub says", async () => {
+    hubOnly();
+
+    expect(await hubToken(await client())).toEqual({ lifetime: 3600, token: HUB_TOKEN });
+  });
+
+  it("is granted a Hub Token of no lifetime when the hub says none", async () => {
+    hubOnly({ token: { body: { access_token: HUB_TOKEN, token_type: "Bearer" }, status: 200 } });
+
+    expect((await hubToken(await client())).lifetime).toBeNull();
+  });
+
+  it("is refused the client when the token endpoint answers 401", async () => {
+    hubOnly({ token: { body: { error: "invalid_client" }, status: 401 } });
+
+    await expect(hubToken(await client())).rejects.toBeInstanceOf(ClientRefused);
+  });
+
+  it("subscribes, answering the channel endpoint", async () => {
+    hubOnly();
+
+    expect(await subscribe((await client()).hub, HUB_TOKEN)).toBe(CHANNEL_ENDPOINT);
+  });
+
+  it("refuses a channel endpoint off loopback", async () => {
+    hubOnly({
+      subscription: { body: { "hub.channel.endpoint": "ws://localhost:8103/ws" }, status: 202 },
     });
 
-    describe("on the clock", () => {
-      const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
-
-      beforeEach(() => {
-        vi.useFakeTimers({ toFake: ["Date"] });
-        vi.setSystemTime(CONNECTED_AT);
-      });
-
-      afterEach(() => {
-        vi.useRealTimers();
-      });
-
-      it("keeps the registration, and the subscription with when its Hub Token and lease run out", async () => {
-        hubOnly({ leaseSeconds: 600 });
-
-        await connectFhircast(RELEASE);
-
-        expect(keptState()).toMatchObject({
-          clientId: CLIENT_ID,
-          hubTopic: "topic-1",
-          hubUrl: HUB_URL,
-          registration: { token: REGISTRATION_ACCESS_TOKEN, uri: REGISTRATION_CLIENT_URI },
-          revocationEndpoint: REVOCATION_ENDPOINT,
-          subscription: {
-            endpoint: CHANNEL_ENDPOINT,
-            hubToken: HUB_TOKEN,
-            hubTokenExpiresAt: CONNECTED_AT + 3_600_000,
-            leaseExpiresAt: CONNECTED_AT + 600_000,
-          },
-          tokenEndpoint: TOKEN_ENDPOINT,
-        });
-      });
-
-      it("keeps no expiry the hub did not state", async () => {
-        hubOnly({ token: { body: { access_token: HUB_TOKEN }, status: 200 } });
-
-        await connectFhircast(RELEASE);
-
-        expect(keptState()).toMatchObject({
-          subscription: { hubTokenExpiresAt: null, leaseExpiresAt: null },
-        });
-      });
-    });
-
-    it("keeps the private key it registered, under the kid it registered", async () => {
-      const hub = hubOnly();
-
-      await connectFhircast(RELEASE);
-
-      const registered = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
-        jwks: { keys: { kid: string; x: string }[] };
-      };
-      const { keyId, signingJwk } = keptState() as {
-        keyId: string;
-        signingJwk: JsonWebKey;
-      };
-      expect([keyId, signingJwk.kty, signingJwk.crv, signingJwk.x, typeof signingJwk.d]).toEqual([
-        registered.jwks.keys[0].kid,
-        "EC",
-        "P-384",
-        registered.jwks.keys[0].x,
-        "string",
-      ]);
-    });
-
-    it("keeps the registration before the hub grants a Hub Token, with no subscription", async () => {
-      hubOnly({ token: { status: 400 } });
-
-      await connectFhircast(RELEASE);
-
-      expect(keptState()).toMatchObject({ clientId: CLIENT_ID, subscription: null });
-    });
-
-    it("keeps no registration the hub named no way to delete", async () => {
-      hubOnly({ registration: { body: { client_id: CLIENT_ID }, status: 201 } });
-
-      await connectFhircast(RELEASE);
-
-      expect(keptState()).toMatchObject({ registration: null });
-    });
-
-    it("forgets it when cleared, and what an earlier version kept under keys of its own", async () => {
-      hubOnly();
-      await connectFhircast(RELEASE);
-      for (const key of RETIRED_KEYS) window.sessionStorage.setItem(key, "kept");
-
-      clearFhircastStorage();
-
-      expect(
-        [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_KEYS].map((key) =>
-          window.sessionStorage.getItem(key),
-        ),
-      ).toEqual([null, null, null, null, null]);
-    });
+    await expect(subscribe((await client()).hub, HUB_TOKEN)).rejects.toBeInstanceOf(HubFailure);
   });
 });

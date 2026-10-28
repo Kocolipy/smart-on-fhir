@@ -16,8 +16,8 @@ import {
   requestsSince,
   REVOCATION_ENDPOINT,
   TOKEN_ENDPOINT,
-} from "./fake-hub.testHelpers";
-import { connectFhircast, endFhircast, FHIRCAST_STORAGE_KEYS } from "./fhircast";
+} from "../fake-hub.testHelpers";
+import { connectFhircast, endFhircast, FHIRCAST_STORAGE_KEYS } from ".";
 import {
   assertionOf,
   DELETE,
