@@ -9,7 +9,7 @@ D1–D29, the accepted risk D13, the IM8 policy position and the App-Standards
 deviations. Two things are other ADRs': ADR 0016 decides the SMART access
 token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
 tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
-ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-26. History
+ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-28. History
 is in git.
 
 ## Context
