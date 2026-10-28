@@ -2,33 +2,26 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
-import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.LoginStateModules;
-import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.RecordingLoginCounts;
+import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.LoginDecision;
-import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.authorization.TestGroupPermissions;
-import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * A password Login is decided once, under the User's lock, on the state stored there: the
@@ -38,101 +31,87 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * <p>The authentication reads the User by name, then compares the password — an Argon2id
  * verification long enough for a connector's write to commit in between. The in-memory store's
  * {@link InMemoryScimUserRepository#afterNextNameLookup} lands that write right after the read,
- * before the comparison and the lock: the window a concurrent SCIM write lands in.
+ * before the comparison and the lock: the window a concurrent SCIM write lands in. The decision
+ * is the one {@link LoginHarness} assembles, at its default lockout threshold.
  */
 class PasswordLoginUnderLockTests {
 
-    private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
+    private static final Instant NOW = LoginHarness.NOW;
 
     private static final Instant EARLIER = Instant.parse("2026-06-01T00:00:00Z");
 
     private static final String PASSWORD = "correct-password";
 
-    private static final int LIMIT = 5;
+    private static final int LIMIT = LoginHarness.DEFAULT_LOCKOUT_THRESHOLD;
 
-    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
-    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-    private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
-    private final PendingCommit transaction = new PendingCommit();
-    private final RecordingAuditTrail audit = new RecordingAuditTrail();
+    private final LoginHarness harness = LoginHarness.create();
+    private final InMemoryScimUserRepository users = harness.users();
+    private final InMemoryAccountSessions sessions = harness.sessions();
+    private final RecordingAuditTrail audit = harness.audit();
+    private final LoginService login = harness.login();
 
-    private PasswordEncoder passwordEncoder;
+    private final String hash = harness.passwordEncoder().encode(PASSWORD);
 
-    private String hash;
-
-    private UUID ada;
-
-    private LoginService login;
-
-    @BeforeEach
-    void setUp() {
-        SecurityConfig config = new SecurityConfig();
-        passwordEncoder = config.passwordEncoder();
-        hash = passwordEncoder.encode(PASSWORD);
-        ada = users.given(adaWith(new ScimLoginState(hash, 0, null, null, EARLIER, null))).id();
-        LoginIdentityService identities = new LoginIdentityService(
-                users, groups, TestGroupPermissions.superuserOnly());
-        SessionRevocationService revocation = new SessionRevocationService(
-                sessions, transaction, audit, new RecordingOperationalAlerts());
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(LIMIT), audit, new MutableClock(NOW)),
-                revocation,
-                audit);
-        login = new LoginService(config.authenticationManager(identities, passwordEncoder),
-                attempts, identities, RecordingLoginCounts.uncounted(attempts, audit));
-    }
+    private final UUID ada =
+            users.given(adaWith(new ScimLoginState(hash, 0, null, null, EARLIER, null))).id();
 
     // ---- the credential, confirmed under the lock --------------------------------------------
 
+    /** A credential written while the old one was being compared, by whoever wrote it. */
+    enum CredentialWrite {
+        /** As a connector's PUT stores a password: a new credential, and a change required. */
+        A_CONNECTOR_REPLACES_THE_PASSWORD,
+        /** As Ada's own completed change stores one: a new credential, and no change owed. */
+        ADA_CHANGES_HER_PASSWORD_ELSEWHERE,
+        /** The same password written again: the hash is salted per write, so a new credential. */
+        THE_PASSWORD_IS_REWRITTEN_TO_THE_SAME_VALUE
+    }
+
     /**
-     * A connector replaced the password while the old one was being compared: at the moment of
-     * the decision the submitted password is simply wrong, so the Login is refused as one.
+     * At the moment of the decision the submitted password is simply wrong, so the Login is
+     * refused, recorded and counted exactly as a rejected password is, and moves nothing a
+     * success would. Ada's own change leaves no change required, so for it only the credential
+     * check stands between the old password and a Login that would move the dormancy basis.
      */
-    @Test
-    void aLoginWhosePasswordIsReplacedDuringTheComparisonIsRefusedAsBadCredentials() {
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(CredentialWrite.class)
+    void aLoginWhoseCredentialIsReplacedDuringTheComparisonIsRefusedAsAWrongPasswordIs(
+            CredentialWrite write) {
+        sessions.open(ada, "ada-current");
+        sessions.open(ada, "ada-elsewhere");
+        users.afterNextNameLookup(() -> users.given(adaWith(written(write))));
 
         LoginDecision decision = login.logIn("ada", PASSWORD, "ada-current");
+        harness.transaction().commit();
 
-        assertThat(decision.outcome())
-                .isEqualTo(new PasswordRefused(ada, PasswordRefusalReason.BAD_CREDENTIALS));
-    }
-
-    @Test
-    void aLoginWhosePasswordIsReplacedDuringTheComparisonIssuesNoSession() {
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
-
-        assertThat(login.logIn("ada", PASSWORD, "ada-current").accepted()).isEmpty();
-    }
-
-    @Test
-    void aLoginWhosePasswordIsReplacedDuringTheComparisonIsAuditedAsOneFailureNamingTheUser() {
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
-
-        login.logIn("ada", PASSWORD, "ada-current");
-
-        assertThat(audit.recorded())
-                .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
-                .containsExactly(tuple(AuditOperation.LOGIN_FAILURE, ada,
-                        AuditRefusalReason.BAD_CREDENTIALS.name()));
-    }
-
-    @Test
-    void aLoginWhosePasswordIsReplacedDuringTheComparisonIsCountedOnTheFailureRun() {
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
-
-        login.logIn("ada", PASSWORD, "ada-current");
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+        assertSoftly(softly -> {
+            softly.assertThat(decision.outcome())
+                    .as("refused as bad credentials")
+                    .isEqualTo(new PasswordRefused(ada, PasswordRefusalReason.BAD_CREDENTIALS));
+            softly.assertThat(decision.accepted()).as("issues no session").isEmpty();
+            softly.assertThat(audit.recorded())
+                    .as("audited as one failure naming the User")
+                    .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
+                    .containsExactly(tuple(AuditOperation.LOGIN_FAILURE, ada,
+                            AuditRefusalReason.BAD_CREDENTIALS.name()));
+            softly.assertThat(users.require("ada").login().failedLoginAttempts())
+                    .as("counted on the failure run")
+                    .isEqualTo(1);
+            softly.assertThat(users.require("ada").login().lastAuthenticatedAt())
+                    .as("leaves the dormancy basis")
+                    .isEqualTo(EARLIER);
+            softly.assertThat(sessions.sessionsOf(ada))
+                    .as("ends no other session")
+                    .containsExactlyInAnyOrder("ada-current", "ada-elsewhere");
+        });
     }
 
     /** Counted exactly as a rejected password is: the one reaching the limit imposes a Lockout. */
     @Test
     void aLoginWhosePasswordIsReplacedDuringTheComparisonLocksTheUserAtTheLimit() {
         users.given(adaWith(new ScimLoginState(hash, LIMIT - 1, null, null, EARLIER, null)));
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
+        users.afterNextNameLookup(
+                () -> users.given(adaWith(written(CredentialWrite.A_CONNECTOR_REPLACES_THE_PASSWORD))));
 
         login.logIn("ada", PASSWORD, "ada-current");
 
@@ -142,49 +121,22 @@ class PasswordLoginUnderLockTests {
     }
 
     /**
-     * Ada's own change in another session leaves no change required, so only the credential
-     * check stands between the old password and a Login that would move the basis.
+     * With nothing written in between, the same Login is accepted, its session unconfined: the
+     * check refuses no one else.
      */
     @Test
-    void aLoginWhosePasswordIsChangedElsewhereDuringTheComparisonLeavesTheDormancyBasis() {
-        users.afterNextNameLookup(this::adaChangesHerPasswordElsewhere);
+    void aLoginWhosePasswordStandsIsAcceptedUnconfined() {
+        LoginDecision decision = login.logIn("ada", PASSWORD, "ada-current");
 
-        login.logIn("ada", PASSWORD, "ada-current");
-
-        assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(EARLIER);
-    }
-
-    @Test
-    void aLoginWhosePasswordIsReplacedDuringTheComparisonEndsNoOtherSession() {
-        sessions.open(ada, "ada-current");
-        sessions.open(ada, "ada-elsewhere");
-        users.afterNextNameLookup(this::aConnectorReplacesAdasPassword);
-
-        login.logIn("ada", PASSWORD, "ada-current");
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(ada))
-                .containsExactlyInAnyOrder("ada-current", "ada-elsewhere");
-    }
-
-    /**
-     * The same password written again is a new credential: the hash is salted per write, so the
-     * Login compared against one that is no longer stored.
-     */
-    @Test
-    void aLoginWhosePasswordIsRewrittenToTheSameValueDuringTheComparisonIsRefused() {
-        users.afterNextNameLookup(() -> users.given(adaWith(
-                new ScimLoginState(passwordEncoder.encode(PASSWORD), 0, null, null, EARLIER,
-                        null))));
-
-        assertThat(login.logIn("ada", PASSWORD, "ada-current").outcome())
-                .isEqualTo(new PasswordRefused(ada, PasswordRefusalReason.BAD_CREDENTIALS));
-    }
-
-    /** With nothing written in between, the same Login is accepted: the check refuses no one else. */
-    @Test
-    void aLoginWhosePasswordStandsIsAccepted() {
-        assertThat(login.logIn("ada", PASSWORD, "ada-current").accepted()).isPresent();
+        assertSoftly(softly -> {
+            softly.assertThat(decision.accepted()).as("accepted").isPresent();
+            decision.accepted().ifPresent(accepted -> softly
+                    .assertThat(accepted.authentication().getAuthorities())
+                    .as("issued unconfined")
+                    .extracting(GrantedAuthority::getAuthority)
+                    .doesNotContain(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
+                    .contains("ROLE_USER"));
+        });
     }
 
     // ---- confinement, from the state the decision read ---------------------------------------
@@ -192,52 +144,43 @@ class PasswordLoginUnderLockTests {
     /**
      * A change required since the read — with the same credential — confines the session: the
      * authorities come from the state under the lock, the one that left the dormancy basis
-     * unmoved, not from the read before it.
+     * unmoved, not from the read before it. The confined principal the session carries holds
+     * what the authentication does, no more.
      */
     @Test
-    void aChangeRequiredSinceTheReadConfinesTheIssuedSession() {
+    void aChangeRequiredSinceTheReadConfinesTheIssuedSessionAndPrincipal() {
         users.afterNextNameLookup(() -> users.given(adaWith(
                 new ScimLoginState(hash, 0, null, null, EARLIER, NOW))));
 
-        assertThat(login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow()
-                        .authentication().getAuthorities())
-                .extracting(GrantedAuthority::getAuthority)
-                .contains(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
-                .doesNotContain("ROLE_USER", "patient:read");
+        LoginService.AcceptedLogin accepted =
+                login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow();
+
+        assertSoftly(softly -> {
+            softly.assertThat(accepted.authentication().getAuthorities())
+                    .as("the session's authorities")
+                    .extracting(GrantedAuthority::getAuthority)
+                    .contains(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
+                    .doesNotContain("ROLE_USER", "patient:read");
+            softly.assertThat(((LoginPrincipal) accepted.authentication().getPrincipal())
+                            .getAuthorities())
+                    .as("the principal's authorities")
+                    .extracting(GrantedAuthority::getAuthority)
+                    .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+        });
     }
 
-    /** The confined principal the session carries holds what the authentication does, no more. */
-    @Test
-    void aChangeRequiredSinceTheReadConfinesTheIssuedPrincipal() {
-        users.afterNextNameLookup(() -> users.given(adaWith(
-                new ScimLoginState(hash, 0, null, null, EARLIER, NOW))));
-
-        assertThat(((LoginPrincipal) login.logIn("ada", PASSWORD, "ada-current").accepted()
-                        .orElseThrow().authentication().getPrincipal()).getAuthorities())
-                .extracting(GrantedAuthority::getAuthority)
-                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
-    }
-
-    @Test
-    void anUnflaggedUsersSessionIsIssuedUnconfined() {
-        assertThat(login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow()
-                        .authentication().getAuthorities())
-                .extracting(GrantedAuthority::getAuthority)
-                .doesNotContain(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
-                .contains("ROLE_USER");
-    }
-
-    /** As Ada's own completed change stores one: a new credential, and no change owed. */
-    private void adaChangesHerPasswordElsewhere() {
-        users.given(adaWith(new ScimLoginState(
-                passwordEncoder.encode("adas-new-password"), 0, null, null, EARLIER, null)));
-    }
-
-    /** As a connector's PUT stores a password: a new credential, and a change required. */
-    private void aConnectorReplacesAdasPassword() {
-        users.given(adaWith(new ScimLoginState(
-                passwordEncoder.encode("connector-set-password"),
-                users.require("ada").login().failedLoginAttempts(), null, null, EARLIER, NOW)));
+    /** The login state {@code write} stores for Ada. */
+    private ScimLoginState written(CredentialWrite write) {
+        return switch (write) {
+            case A_CONNECTOR_REPLACES_THE_PASSWORD -> new ScimLoginState(
+                    harness.passwordEncoder().encode("connector-set-password"),
+                    users.require("ada").login().failedLoginAttempts(), null, null, EARLIER, NOW);
+            case ADA_CHANGES_HER_PASSWORD_ELSEWHERE -> new ScimLoginState(
+                    harness.passwordEncoder().encode("adas-new-password"), 0, null, null, EARLIER,
+                    null);
+            case THE_PASSWORD_IS_REWRITTEN_TO_THE_SAME_VALUE -> new ScimLoginState(
+                    harness.passwordEncoder().encode(PASSWORD), 0, null, null, EARLIER, null);
+        };
     }
 
     private ScimUser adaWith(ScimLoginState login) {
