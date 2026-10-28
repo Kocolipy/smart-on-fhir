@@ -5,7 +5,7 @@ Date: 2026-10-01
 ## Status
 
 Accepted. A departure from the original authentication slice, which shipped a
-lockout that lifted on a timer. Last revised 2026-10-26. History is in git.
+lockout that lifted on a timer. Last revised 2026-10-28. History is in git.
 
 ## Context
 
@@ -53,6 +53,14 @@ standard's soft-delete and tombstone requirements.
   and `failed_login_attempts` equal to the limit. The Bootstrap Admin's run is
   serialized the same way. `LoginStateSerializationIntegrationTests` proves it
   against a real database.
+- **A Login refused for a Lockout is never counted.** `LoginStateService` is
+  handed the refusal's reason, and an `ACCOUNT_LOCKED` refusal counts nothing on
+  that reason alone, whatever the state re-read under the lock holds: an Admin
+  Unlock can commit between the refusal and its recording, and counting it then
+  would make an attempt against a Lockout the first failure of the run the
+  Unlock started. It is still audited as a `LOGIN_FAILURE` with reason
+  `ACCOUNT_LOCKED`, moving nothing. Every other reason is counted on the
+  re-read state as above.
 - **Refusal timing is uniform.** Spring Security's account-status check runs
   before the password is compared, so a locked or deactivated User could be
   refused faster than a wrong password.
@@ -74,10 +82,11 @@ standard's soft-delete and tombstone requirements.
   `LoginStateService.credentialVerified` re-checks the standing it reads under the
   User's lock: a User found locked, deactivated or gone is refused, fail closed,
   and nothing is written. The Login is answered and recorded as the refusal the
-  account check would have made — `ACCOUNT_LOCKED` (counting nothing, as the run
-  is capped) or `ACCOUNT_DISABLED` (counted, as that refusal always is) — and an
-  Epic Login is refused the same way. ADR 0002's accepted window, a Login whose
-  decision committed before a revocation, is unchanged.
+  account check would have made — `ACCOUNT_LOCKED` (counting nothing, on its
+  reason, an Unlock committed in between included) or `ACCOUNT_DISABLED`
+  (counted, as that refusal always is) — and an Epic Login is refused the same
+  way. ADR 0002's accepted window, a Login whose decision committed before a
+  revocation, is unchanged.
 
 ### The dormancy lockout and Membership revocation
 

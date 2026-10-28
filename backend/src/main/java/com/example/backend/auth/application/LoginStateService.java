@@ -32,12 +32,16 @@ import org.springframework.stereotype.Service;
  * <p>The rules, event by event:
  *
  * <ul>
- *   <li><b>Failure counted</b> — a refused password Login or a self-service change's wrong current
- *       password: the run lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a
- *       Lockout for failures as of now. A User already locked is left as it is, whatever its lock
- *       cause. The Bootstrap Admin's failures are counted and never lock, read off its own
- *       reservation marker ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}). A
- *       User with no password has no run, so nothing is counted against it.
+ *   <li><b>Failure counted</b> — a refused password Login, with the reason it was refused for, or
+ *       a self-service change's wrong current password: the run lengthens, and reaching the
+ *       {@link LockoutPolicy}'s limit imposes a Lockout for failures as of now. A User already
+ *       locked is left as it is, whatever its lock cause. So is any User a Login was refused for
+ *       a Lockout ({@code ACCOUNT_LOCKED}), whatever is stored by the time it is counted: the
+ *       attempt was made against the Lockout, so an Unlock committed in between does not make it
+ *       the first failure of the run the Unlock started. The Bootstrap Admin's failures are
+ *       counted and never lock, read off its own reservation marker
+ *       ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}). A User with no password
+ *       has no run, so nothing is counted against it.
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
  *       moves unless the Login builds a Confined session (ADR 0008). A User found
  *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
@@ -376,10 +380,36 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
+     * A refused password Login against {@code user}, refused for {@code reason}: counted as
+     * {@link #failureCounted(ScimUser)} counts a failure, unless it was refused for a Lockout.
+     *
+     * <p>A Login refused {@code ACCOUNT_LOCKED} counts nothing, whatever the state read under the
+     * lock now holds, and nothing is written. The refusal was decided before this runs — by the
+     * authentication on its read, or under the lock by {@link #credentialVerified} — and an Admin
+     * Unlock can commit in between, leaving an unlocked User with a cleared run. Counting the
+     * attempt then would make one refused for the Lockout the first failure of the run the Unlock
+     * started, when an attempt made while a Lockout holds neither counts nor deepens it (ADR
+     * 0007). So the decision is the refusal's, not the re-read state's. Every other reason —
+     * a password replaced during the comparison among them, refused as {@code BAD_CREDENTIALS} —
+     * is counted.
+     */
+    public LoginStateChange failureCounted(ScimUser user, PasswordRefusalReason reason) {
+        ScimLoginState before = stateUnderLock(user);
+        if (reason == PasswordRefusalReason.ACCOUNT_LOCKED) {
+            return LoginStateChange.none(before);
+        }
+        return counted(user, before);
+    }
+
+    /**
      * A refused password Login or password-change attempt against {@code user}: counts it, and on a
      * newly imposed Lockout audits it and revokes every Session of the User after the commit.
      * Counted on the run stored under the User's lock, so a parallel failure is never lost and
-     * only the one that reaches the limit imposes the Lockout.
+     * only the one that reaches the limit imposes the Lockout. A User found locked there is left
+     * as it is. A refused password Login is reported with its reason instead
+     * ({@link #failureCounted(ScimUser, PasswordRefusalReason)}), so one refused for a Lockout an
+     * Unlock has lifted since counts nothing; a self-service change's wrong current password has
+     * no such reason, and is counted by this.
      *
      * <p>A User with no password has no failure run: there is no password to guess, so an attempt
      * against it lengthens nothing and can never lock out a User who signs in only through Epic.
@@ -388,7 +418,11 @@ public class LoginStateService implements ScimUserLoginState {
      * nothing, and nothing is written.
      */
     public LoginStateChange failureCounted(ScimUser user) {
-        ScimLoginState before = stateUnderLock(user);
+        return counted(user, stateUnderLock(user));
+    }
+
+    /** {@code user}'s failure counted on {@code before}, the state stored under its lock. */
+    private LoginStateChange counted(ScimUser user, ScimLoginState before) {
         if (!before.hasPassword()) {
             return LoginStateChange.none(before);
         }

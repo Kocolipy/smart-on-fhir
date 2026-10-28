@@ -86,6 +86,10 @@ class LoginStateServiceTests {
     /** An event as its caller reports it. */
     private enum Event {
         FAILURE_COUNTED((module, user) -> module.failureCounted(user)),
+        LOGIN_REFUSED_AS_A_WRONG_PASSWORD((module, user) ->
+                module.failureCounted(user, PasswordRefusalReason.BAD_CREDENTIALS)),
+        LOGIN_REFUSED_FOR_A_LOCKOUT((module, user) ->
+                module.failureCounted(user, PasswordRefusalReason.ACCOUNT_LOCKED)),
         PASSWORD_LOGIN((module, user) ->
                 module.credentialVerified(user, PASSWORD).change()),
         EPIC_LOGIN((module, user) ->
@@ -138,6 +142,12 @@ class LoginStateServiceTests {
                 row("a failure against a User with no password leaves its run as it stands",
                         Event.FAILURE_COUNTED, false, passwordlessWithRun(LIMIT - 1),
                         passwordlessWithRun(LIMIT - 1)),
+                row("a Login refused as a wrong password lengthens the run",
+                        Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1),
+                        new ScimLoginState("hash", 2, null, null, EARLIER, null)),
+                row("a Login refused for a Lockout an Unlock has lifted since counts nothing",
+                        Event.LOGIN_REFUSED_FOR_A_LOCKOUT, false, run(LIMIT - 1),
+                        run(LIMIT - 1)),
                 row("a password Login clears the run and moves the dormancy basis",
                         Event.PASSWORD_LOGIN, false, run(2),
                         new ScimLoginState("hash", 0, null, null, NOW, null)),
@@ -217,6 +227,10 @@ class LoginStateServiceTests {
                         Event.FAILURE_COUNTED, true, run(LIMIT - 1), RUN),
                 moved("a failure against a User with no password moves nothing",
                         Event.FAILURE_COUNTED, false, passwordlessWithRun(LIMIT - 1)),
+                moved("a Login refused as a wrong password moves the run",
+                        Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1), RUN),
+                moved("a Login refused for a Lockout an Unlock has lifted since moves nothing",
+                        Event.LOGIN_REFUSED_FOR_A_LOCKOUT, false, run(LIMIT - 1)),
                 moved("a password Login moves the run it clears and the basis",
                         Event.PASSWORD_LOGIN, false, run(2), RUN, BASIS),
                 moved("a password Login with no run moves the basis alone",

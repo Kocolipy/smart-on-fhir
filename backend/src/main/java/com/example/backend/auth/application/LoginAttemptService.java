@@ -65,10 +65,14 @@ public class LoginAttemptService {
      * Counts a refused password Login against the User the authentication's one read resolved,
      * and records its {@code LOGIN_FAILURE} — whether the authentication refused it or the login
      * decision under the User's lock did. What the attempt does to the failure run is the
-     * login-state module's ({@link LoginStateService#failureCounted}): the run lengthens, a Lockout
-     * is imposed at the policy's limit — never on the Bootstrap Admin, recognised by its
-     * reservation marker — and a User already locked, or with no password to guess, is counted
-     * nothing.
+     * login-state module's ({@link LoginStateService#failureCounted(ScimUser,
+     * PasswordRefusalReason)}), handed the refusal's reason: the run lengthens, a Lockout is
+     * imposed at the policy's limit — never on the Bootstrap Admin, recognised by its reservation
+     * marker — and a User already locked, or with no password to guess, is counted nothing. A
+     * Login refused for a Lockout ({@code ACCOUNT_LOCKED}) is counted nothing on the refusal's
+     * decision, not the state the module re-reads: an Admin Unlock committed between the refusal
+     * and its count does not turn the attempt into the first failure of the run the Unlock
+     * started.
      *
      * <p>The User is named by its stable id, never looked up again by the submitted name: a
      * directory rename landing after the authentication's read cannot move the failure, a Lockout
@@ -96,7 +100,7 @@ public class LoginAttemptService {
         Optional<ScimUser> found = Optional.ofNullable(userId).flatMap(users::findById);
         PasswordRefusalReason recorded = reason.settled(found.isPresent());
         Set<AuditLoginStateAttribute> moved = found
-                .map(loginState::failureCounted)
+                .map(user -> loginState.failureCounted(user, recorded))
                 .map(LoginStateChange::moved)
                 .orElse(Set.of());
         audit.append(new Audited.LoginFailure(found.map(ScimUser::id).orElse(null),

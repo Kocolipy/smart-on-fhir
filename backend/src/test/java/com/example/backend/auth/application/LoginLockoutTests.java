@@ -1,12 +1,17 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
@@ -29,6 +34,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -292,6 +298,93 @@ class LoginLockoutTests {
 
         assertThat(users.require("ada").login().lockedAt()).isEqualTo(lockedAt);
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(5);
+    }
+
+    /** A wrong password is counted, and its {@code LOGIN_FAILURE} names the run it moved. */
+    @Test
+    void aWrongPasswordsLoginFailureRecordsTheRunItMoved() {
+        submit("wrong");
+
+        assertThat(audit.events(Audited.LoginFailure.class))
+                .extracting(Audited.LoginFailure::reason, Audited.LoginFailure::moved)
+                .containsExactly(tuple(AuditRefusalReason.BAD_CREDENTIALS,
+                        Set.of(AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS)));
+    }
+
+    /** Whatever the lock's cause: a dormancy lock is not deepened, nor turned into a failure lock. */
+    @Test
+    void anAttemptAgainstADormancyLockCountsNothingAndKeepsItsCause() {
+        ScimUser ada = users.require("ada");
+        users.given(ScimIdentities.withActive(ada, true, new ScimLoginState(
+                ada.login().passwordHash(), 0, NOW, LockCause.DORMANCY, null, null)));
+
+        submit("wrong");
+
+        assertSoftly(softly -> {
+            softly.assertThat(users.require("ada").login().failedLoginAttempts())
+                    .as("the run").isZero();
+            softly.assertThat(users.require("ada").login().lockCause())
+                    .as("the lock's cause").isEqualTo(LockCause.DORMANCY);
+        });
+    }
+
+    // ---- an Unlock landing between a locked refusal and its count -------------------------
+
+    /**
+     * The authentication refused ada on its read, taken while she was locked, and an Admin Unlock
+     * committed before the refusal was counted: the attempt was made against the Lockout, so it
+     * counts nothing — not the first failure of the run the Unlock started. It is still recorded
+     * as the locked account's refusal it was, having moved nothing.
+     */
+    @Test
+    void aLockedRefusalCountsNothingWhenAnUnlockLandsBeforeItIsRecorded() {
+        lockTheIdentity();
+        audit.reset();
+        users.afterNextNameLookup(this::unlockAda);
+
+        PasswordRefused refused = submit(CORRECT_PASSWORD);
+
+        assertLockedRefusalCountedNothingAfterTheUnlock(refused);
+    }
+
+    /**
+     * The same for a Lockout the decision under the lock found: another attempt's Lockout
+     * committed while ada's correct password was compared, and an Unlock committed before the
+     * refusal it caused was counted. The refusal counts nothing.
+     */
+    @Test
+    void aRefusalOnALockoutFoundUnderTheLockCountsNothingWhenAnUnlockLandsBeforeItIsRecorded() {
+        locks.beforeNextGrant(() -> {
+            lockAdaForFailures();
+            locks.beforeNextGrant(this::unlockAda);
+        });
+
+        PasswordRefused refused = submit(CORRECT_PASSWORD);
+
+        assertLockedRefusalCountedNothingAfterTheUnlock(refused);
+    }
+
+    private void assertLockedRefusalCountedNothingAfterTheUnlock(PasswordRefused refused) {
+        assertSoftly(softly -> {
+            softly.assertThat(refused.reason())
+                    .as("refused for the Lockout")
+                    .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
+            softly.assertThat(users.require("ada").login().failedLoginAttempts())
+                    .as("the run the Unlock started")
+                    .isZero();
+            softly.assertThat(users.require("ada").login().isLocked())
+                    .as("locked")
+                    .isFalse();
+            softly.assertThat(audit.events(Audited.LoginFailure.class))
+                    .as("the LOGIN_FAILURE")
+                    .extracting(Audited.LoginFailure::reason, Audited.LoginFailure::moved)
+                    .containsExactly(tuple(AuditRefusalReason.ACCOUNT_LOCKED, Set.of()));
+        });
+    }
+
+    /** An Admin Unlock of ada, by the Bootstrap Admin, committed as it would be by the endpoint. */
+    private void unlockAda() {
+        administration.unlock(users.require("ada").id(), users.require(BOOTSTRAP_ADMIN).id());
     }
 
     /**
