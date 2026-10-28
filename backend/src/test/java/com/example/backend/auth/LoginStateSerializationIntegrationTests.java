@@ -9,9 +9,7 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.auth.application.LoginAttemptService;
-import com.example.backend.auth.application.LoginStateService;
-import com.example.backend.auth.application.PasswordRefusalReason;
+import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -37,6 +35,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -48,7 +47,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * lock and writes its login-state row, so it holds every lock a racer could need; the racers are
  * started and each reads the User before blocking; only once all of them are waiting is the
  * holder released. Every racer has therefore read the state before any other one wrote — the
- * interleaving a lost update needs — whichever lock it is waiting on.
+ * interleaving a lost update needs — whichever lock it is waiting on. Each racing Login is a real
+ * one, submitted through {@link LoginService}: the authentication's read before the lock, and the
+ * decision and its count under it, in the Login's one transaction.
  *
  * <p>Run on SQL Server under read-committed snapshot (ADR 0013's as-4): a racer reads the User
  * from its own statement's snapshot, never blocked by the holder, and waits only on a lock;
@@ -61,8 +62,15 @@ class LoginStateSerializationIntegrationTests {
     /** How many failed logins race on the User. */
     private static final int RACERS = 4;
 
+    private static final String PASSWORD = "the-correct-password";
+
+    private static final String WRONG_PASSWORD = "not-the-password";
+
     @Autowired
-    private LoginAttemptService attempts;
+    private LoginService login;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private IdentityAdministrationService administration;
@@ -174,8 +182,7 @@ class LoginStateSerializationIntegrationTests {
     void aSuccessRacingTheFailureThatLocksNeverLiftsTheLockout() throws Exception {
         ScimUser user = userWithFailures("serialized-success", threshold - 1);
         List<Callable<?>> both = new ArrayList<>(failedLogins(user, 1));
-        both.add(() -> attempts.recordPasswordSuccess(user.id(),
-                LoginStateService.VerifiedCredential.passwordHash(user.login().passwordHash()), null));
+        both.add(() -> login.logIn(user.profile().userName(), PASSWORD));
 
         race(user.id(), both, true);
 
@@ -193,9 +200,8 @@ class LoginStateSerializationIntegrationTests {
 
     private List<Callable<?>> failedLogins(ScimUser user, int count) {
         List<Callable<?>> logins = new ArrayList<>();
-        for (int login = 0; login < count; login++) {
-            logins.add(() -> attempts.recordFailure(
-                    user.id(), PasswordRefusalReason.BAD_CREDENTIALS));
+        for (int attempt = 0; attempt < count; attempt++) {
+            logins.add(() -> login.logIn(user.profile().userName(), WRONG_PASSWORD));
         }
         return logins;
     }
@@ -264,12 +270,14 @@ class LoginStateSerializationIntegrationTests {
     }
 
     private ScimUser userWithFailures(String userName, int failures) {
+        String hash = passwordEncoder.encode(PASSWORD);
         ScimUser stored = new TransactionTemplate(transactionManager).execute(status ->
-                users.create(ScimIdentities.user(
-                        userName + "-" + UUID.randomUUID().toString().substring(0, 8))));
+                users.create(ScimUser.created(UUID.randomUUID(), ScimIdentities.profile(
+                        userName + "-" + UUID.randomUUID().toString().substring(0, 8), true),
+                        hash, ScimIdentities.NOW)));
         created.add(stored.id());
         for (int failure = 0; failure < failures; failure++) {
-            attempts.recordFailure(stored.id(), PasswordRefusalReason.BAD_CREDENTIALS);
+            login.logIn(stored.profile().userName(), WRONG_PASSWORD);
         }
         return users.findById(stored.id()).orElseThrow();
     }

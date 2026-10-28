@@ -4,7 +4,7 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. Last revised 2026-10-23. History is in git.
+Accepted. Last revised 2026-10-28. History is in git.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and
@@ -354,8 +354,9 @@ Every other database failure is `database`. Two rows need more than a state:
   `503` on the retried writes alone. A deadlock is error `1205` under `40001`,
   never the snapshot conflict (`3960`) that shares the state.
 
-  **Coverage and placement are rules** (`ArchitectureTest`). Every public,
-  non-read-only `@Transactional` method carries the retry unless
+  **Coverage and placement are rules** (`ArchitectureTest`). Every public method
+  that opens a transaction which is not read-only, whether by `@Transactional` or
+  by hand through a `TransactionTemplate`, carries the retry unless
   `NOT_RETRIED_ON_DEADLOCK` names it with its reason. A retried method opens a
   read-write transaction of its own and is called only by an inbound web adapter,
   since a write joining an open transaction could not be re-run. A fail-open

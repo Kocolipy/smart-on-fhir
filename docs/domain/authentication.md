@@ -102,7 +102,11 @@ clock. A lock keeps the cause it was first imposed for.
   way as a wrong one, whatever the cause: a bare `401` with no body, so the
   response never reveals that the User exists or that it is locked — a User who
   cannot get in learns nothing by waiting, which is intended. Attempts made while
-  it holds neither count nor deepen it.
+  it holds neither count nor deepen it. An attempt refused for the Lockout counts
+  nothing even when an Unlock commits before the refusal is recorded: the
+  refusal's reason decides that, not the state read when it is counted, so it
+  never becomes the first failure of the run the Unlock started. It is still
+  recorded as a `LOGIN_FAILURE` with reason `ACCOUNT_LOCKED`, moving nothing.
 - A Login never lifts it, not even one racing it. The account check reads the
   User before the password comparison, so a Lockout another attempt imposes — or
   a deactivation the directory commits — while a correct password is being
@@ -111,6 +115,9 @@ clock. A lock keeps the cause it was first imposed for.
   nothing: no cleared run, no `LOGIN_SUCCESS`, no session. It is answered and
   recorded as the refusal the check would have made a moment later —
   `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` — and the same holds for an Epic Login.
+  A password Login's refusal there is counted as that refusal is, from the state
+  it was decided on, under the same lock and in the same transaction, so nothing
+  can commit between the decision and its count.
   A User both locked and deactivated is refused as locked, by every Login and by
   the self-service password change alike: the login-state module decides the
   standing, in that one order (`LoginStateService.StandingRefusal`).

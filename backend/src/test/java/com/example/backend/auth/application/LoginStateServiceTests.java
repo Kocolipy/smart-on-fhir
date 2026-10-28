@@ -14,6 +14,7 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.LoginStateService.VerifiedCredential;
+import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
@@ -48,9 +49,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * one {@code LOCKOUT_SET} and one revocation of every Session, after the commit.
  *
  * <p>The paths that report the events are tested for what is theirs alone (their refusal event,
- * their response, the order their refusal lands in) in {@link LoginAttemptServiceTests},
- * {@link PasswordChangeServiceTests} and {@link IdentityAdministrationServiceTests}; nothing about
- * the rules themselves is restated there.
+ * their response, the order their refusal lands in) in {@link PasswordLoginRecordingTests},
+ * {@link EpicLoginDecisionTests}, {@link PasswordChangeServiceTests} and
+ * {@link IdentityAdministrationServiceTests}; nothing about the rules themselves is restated there.
  */
 class LoginStateServiceTests {
 
@@ -71,7 +72,7 @@ class LoginStateServiceTests {
     private LoginStateService loginState = moduleDeferringTo(transaction);
 
     /** What a password Login's authentication verified: the credential every arranged state holds. */
-    private static final VerifiedCredential PASSWORD = VerifiedCredential.passwordHash("hash");
+    private static final VerifiedPassword PASSWORD = VerifiedCredential.passwordHash("hash");
 
     /** The route a Login came by, naming each parameterized case. */
     private enum Route { PASSWORD, EPIC }
@@ -86,10 +87,18 @@ class LoginStateServiceTests {
     /** An event as its caller reports it. */
     private enum Event {
         FAILURE_COUNTED((module, user) -> module.failureCounted(user)),
+        LOGIN_REFUSED_AS_A_WRONG_PASSWORD((module, user) ->
+                module.failureCounted(user, PasswordRefusalReason.BAD_CREDENTIALS)),
+        LOGIN_REFUSED_FOR_A_LOCKOUT((module, user) ->
+                module.failureCounted(user, PasswordRefusalReason.ACCOUNT_LOCKED)),
         PASSWORD_LOGIN((module, user) ->
                 module.credentialVerified(user, PASSWORD).change()),
         EPIC_LOGIN((module, user) ->
                 module.credentialVerified(user, VerifiedCredential.epic()).change()),
+        PASSWORD_LOGIN_DECIDED((module, user) ->
+                module.passwordLoginVerified(user, PASSWORD).change()),
+        PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL((module, user) -> module.passwordLoginVerified(
+                user, VerifiedCredential.passwordHash("old-hash")).change()),
         PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
         UNLOCKED((module, user) -> module.unlocked(user)),
         DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
@@ -138,6 +147,12 @@ class LoginStateServiceTests {
                 row("a failure against a User with no password leaves its run as it stands",
                         Event.FAILURE_COUNTED, false, passwordlessWithRun(LIMIT - 1),
                         passwordlessWithRun(LIMIT - 1)),
+                row("a Login refused as a wrong password lengthens the run",
+                        Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1),
+                        new ScimLoginState("hash", 2, null, null, EARLIER, null)),
+                row("a Login refused for a Lockout an Unlock has lifted since counts nothing",
+                        Event.LOGIN_REFUSED_FOR_A_LOCKOUT, false, run(LIMIT - 1),
+                        run(LIMIT - 1)),
                 row("a password Login clears the run and moves the dormancy basis",
                         Event.PASSWORD_LOGIN, false, run(2),
                         new ScimLoginState("hash", 0, null, null, NOW, null)),
@@ -147,6 +162,21 @@ class LoginStateServiceTests {
                 row("an Epic Login is never confined: it moves the basis and leaves the flag set",
                         Event.EPIC_LOGIN, false, flaggedWithRun(2),
                         new ScimLoginState("hash", 0, null, null, NOW, EARLIER)),
+                row("a password Login decided and accepted clears the run and moves the basis",
+                        Event.PASSWORD_LOGIN_DECIDED, false, run(2),
+                        new ScimLoginState("hash", 0, null, null, NOW, null)),
+                row("a password Login refused for a replaced credential lengthens the run",
+                        Event.PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL, false, run(1),
+                        new ScimLoginState("hash", 2, null, null, EARLIER, null)),
+                row("a password Login refused for a replaced credential at the limit locks",
+                        Event.PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL, false, run(LIMIT - 1),
+                        new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null)),
+                row("a password Login refused for a Lockout found under the lock counts nothing",
+                        Event.PASSWORD_LOGIN_DECIDED, false, locked(LockCause.FAILURES),
+                        locked(LockCause.FAILURES)),
+                row("so does the dormancy-locked Bootstrap Admin's, whose failures else count",
+                        Event.PASSWORD_LOGIN_DECIDED, true, locked(LockCause.DORMANCY),
+                        locked(LockCause.DORMANCY)),
                 row("a password change clears the run, completes the change and moves the basis",
                         Event.PASSWORD_CHANGED, false, flaggedWithRun(2),
                         new ScimLoginState("new-hash", 0, null, null, NOW, null)),
@@ -217,6 +247,10 @@ class LoginStateServiceTests {
                         Event.FAILURE_COUNTED, true, run(LIMIT - 1), RUN),
                 moved("a failure against a User with no password moves nothing",
                         Event.FAILURE_COUNTED, false, passwordlessWithRun(LIMIT - 1)),
+                moved("a Login refused as a wrong password moves the run",
+                        Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1), RUN),
+                moved("a Login refused for a Lockout an Unlock has lifted since moves nothing",
+                        Event.LOGIN_REFUSED_FOR_A_LOCKOUT, false, run(LIMIT - 1)),
                 moved("a password Login moves the run it clears and the basis",
                         Event.PASSWORD_LOGIN, false, run(2), RUN, BASIS),
                 moved("a password Login with no run moves the basis alone",
@@ -225,6 +259,16 @@ class LoginStateServiceTests {
                         Event.PASSWORD_LOGIN, false, flaggedWithRun(2), RUN),
                 moved("an Epic Login by a flagged User moves the run and the basis, not the flag",
                         Event.EPIC_LOGIN, false, flaggedWithRun(2), RUN, BASIS),
+                moved("a password Login decided and accepted moves the run and the basis",
+                        Event.PASSWORD_LOGIN_DECIDED, false, run(2), RUN, BASIS),
+                moved("a password Login refused for a replaced credential moves the run",
+                        Event.PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL, false, run(1), RUN),
+                moved("a password Login refused for a replaced credential at the limit moves the"
+                                + " run and the lock",
+                        Event.PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL, false, run(LIMIT - 1),
+                        RUN, LOCKED_AT, LOCK_CAUSE),
+                moved("a password Login refused for a Lockout found under the lock moves nothing",
+                        Event.PASSWORD_LOGIN_DECIDED, false, locked(LockCause.FAILURES)),
                 moved("a password change moves the run, the basis and the flag it clears",
                         Event.PASSWORD_CHANGED, false, flaggedWithRun(2), RUN, BASIS, FLAG),
                 moved("a password change by a User owing none moves the basis alone",
@@ -598,6 +642,56 @@ class LoginStateServiceTests {
 
         assertThat(loginState.credentialVerified(stored, VerifiedCredential.epic()).refused())
                 .isFalse();
+    }
+
+    // ---- a password Login's decision, its refusal counted under the same lock ----------------
+
+    /**
+     * A password Login refused under the lock for a deactivation is counted as the authentication's
+     * own {@code ACCOUNT_DISABLED} refusal is: the run lengthens, on the state the refusal was
+     * decided from.
+     */
+    @Test
+    void aPasswordLoginRefusedOnADeactivationUnderTheLockIsCounted() {
+        ScimUser stored = users.given(ScimIdentities.withActive(
+                ScimIdentities.userWithLoginState("ada", run(1)), false, run(1)));
+
+        LoginStateService.Verification refused = loginState.passwordLoginVerified(
+                ScimIdentities.withActive(stored, true, run(0)), PASSWORD);
+
+        assertThat(List.of(refused.refusal(), users.require("ada").login().failedLoginAttempts()))
+                .containsExactly(LoginStateService.StandingRefusal.DEACTIVATED, 2);
+    }
+
+    /** It reports the refusal it counted, as the wrong password a replaced credential makes it. */
+    @Test
+    void aPasswordLoginRefusedForAReplacedCredentialIsReportedAsBadCredentials() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        assertThat(loginState.passwordLoginVerified(
+                        stored, VerifiedCredential.passwordHash("old-hash")).passwordRefusal())
+                .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS);
+    }
+
+    /** The refusal that reaches the limit imposes the Lockout, audited and revoking once. */
+    @Test
+    void aPasswordLoginRefusedUnderTheLockAtTheLimitImposesTheLockout() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
+
+        loginState.passwordLoginVerified(stored, VerifiedCredential.passwordHash("old-hash"));
+
+        assertThat(List.of(audit.recorded(), transaction.pending())).containsExactly(
+                List.of(new Recorded(AuditOperation.LOCKOUT_SET, null, stored.id(), null)), 1);
+    }
+
+    /** An accepted password Login decides exactly as {@code credentialVerified} does, unconfined. */
+    @Test
+    void anAcceptedPasswordLoginIsNotRefusedAndNotConfined() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
+
+        LoginStateService.Verification accepted = loginState.passwordLoginVerified(stored, PASSWORD);
+
+        assertThat(List.of(accepted.refused(), accepted.confined())).containsExactly(false, false);
     }
 
     /** The verified credential is never printed: it is a password hash. */

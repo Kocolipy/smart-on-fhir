@@ -2,7 +2,6 @@ package com.example.backend.auth;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
@@ -23,8 +22,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * The login decision ({@link LoginService}) assembled once, for every test that drives a Login by
  * hand rather than through a Spring context: the real authentication chain that
- * {@link SecurityConfig} builds, the real attempt, state, identity and outcome modules, over the
- * in-memory directory, write locks, session registry and transaction.
+ * {@link SecurityConfig} builds, the real state, identity and outcome modules, over the in-memory
+ * directory, write locks, session registry and transactions.
  *
  * <p>A test varies only what its claim needs — the clock, the User store (one that compares names
  * as SQL Server does, say), the password encoder, the audit trail, the lockout threshold, or the
@@ -50,13 +49,13 @@ public final class LoginHarness {
     private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
+    private final RecordingTransactions transactions = new RecordingTransactions();
     private final RecordingLoginCounts counts = new RecordingLoginCounts();
     private final RecordingAuditTrail audit;
     private final PasswordEncoder passwordEncoder;
     private final LoginIdentityService identities;
     private final SessionRevocationService revocation;
     private final LoginStateService loginState;
-    private final LoginAttemptService attempts;
     private final LoginOutcomeService outcomes;
     private final LoginService login;
 
@@ -73,11 +72,10 @@ public final class LoginHarness {
                 sessions, transaction, audit, new RecordingOperationalAlerts());
         loginState = new LoginStateService(users, locks, revocation,
                 new LockoutPolicy(builder.lockoutThreshold), audit, clock);
-        attempts = new LoginAttemptService(users, loginState, revocation, audit);
-        outcomes = new LoginOutcomeService(attempts, audit, counts, counts);
+        outcomes = new LoginOutcomeService(audit, counts, counts);
         AuthenticationManager real = config.authenticationManager(identities, passwordEncoder);
-        login = new LoginService(
-                builder.authentication.apply(real), attempts, identities, outcomes);
+        login = new LoginService(builder.authentication.apply(real), identities, users, loginState,
+                revocation, audit, outcomes, transactions);
     }
 
     /** A harness with every default. */
@@ -119,6 +117,11 @@ public final class LoginHarness {
         return transaction;
     }
 
+    /** The transactions the decision opened, and how each ended. */
+    public RecordingTransactions transactions() {
+        return transactions;
+    }
+
     /** Every audit event the Login and the modules beneath it recorded. */
     public RecordingAuditTrail audit() {
         return audit;
@@ -149,10 +152,6 @@ public final class LoginHarness {
 
     public LoginStateService loginState() {
         return loginState;
-    }
-
-    public LoginAttemptService attempts() {
-        return attempts;
     }
 
     public LoginOutcomeService outcomes() {

@@ -131,7 +131,6 @@ class AuthControllerTests {
                         new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
-                        harness.attempts(),
                         harness.loginState(),
                         harness.revocation(),
                         audit),

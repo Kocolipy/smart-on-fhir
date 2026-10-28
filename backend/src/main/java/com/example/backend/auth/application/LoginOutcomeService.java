@@ -23,31 +23,35 @@ import org.springframework.stereotype.Service;
 
 /**
  * Records how a Login ended, by either login method (ADR 0012, flow steps 6–8, and ADR 0001 for
- * password Login): the one place each ending's audit record, log line and
- * counts are written, so no two endings — and no two login methods — can disagree about what an
- * ending emits. When each ending is recorded is the web adapter's Login completion's
+ * password Login): the one place each ending's log line and counts are written, and an Epic
+ * Login's failure record, so no two endings — and no two login methods — can disagree about what
+ * an ending emits. When each ending is recorded is the web adapter's Login completion's
  * ({@code LoginCompletion}), which runs one order for both methods: a success only once its
- * session is signed in (ADR 0001). Where the browser goes next is each
- * method's web adapter's, and a function of the outcome alone: a password Login's bare
+ * session is signed in (ADR 0001) — save for a password Login's refusal, which the login decision
+ * ({@link LoginService}) records once its transaction has committed. Where the browser goes next
+ * is each method's web adapter's, and a function of the outcome alone: a password Login's bare
  * {@code 401}, an Epic Login's redirect.
+ *
+ * <p>What a Login did to the login state, and the audit records written with it, are not here:
+ * they are the login decision's, in its own transaction. The fail-closed {@code LOGIN_SUCCESS}
+ * of either method, and a password Login's {@code LOGIN_FAILURE} with the failure it counted, are
+ * written there ({@link LoginService}), so a refusal is decided, counted and audited together.
  *
  * <ul>
  *   <li><b>Signed in.</b> The {@code user-authentication} record at {@code INFO}, naming the
  *       User and the login method (D15) — and an Epic Login's MFA factor (D17) — and
- *       {@code login} {@code outcome=success}. The {@code LOGIN_SUCCESS} is not here: it is
- *       fail-closed, and so written in the login decision's own transaction
- *       ({@link LoginAttemptService}).
- *   <li><b>Refused.</b> A {@code LOGIN_FAILURE} under the login method with its reason; one
- *       {@code WARN} saying only that the Login was refused — "Login refused", or "Epic sign-in
- *       refused" with the field and rule of a refused input — but never the reason, which is
- *       the audit trail's alone (Logging §2.2; ADR 0012, "the account reasons are audit-only");
- *       and {@code login} {@code outcome=refused} with the reason. A password Login's refusal
- *       is counted toward the failure run of the User the authentication's one read resolved,
- *       by stable id, and its {@code LOGIN_FAILURE} names that User, or nobody, as
- *       {@code UNKNOWN_ACCOUNT}, when the read found none. An
- *       Epic Login's names the refused User, if the login decision found one, and counts toward
- *       no failure run (D12). A refusal that was an Epic call answering with something unusable
- *       is also that call's {@code ERROR}, followed up: a key or a registration is likely wrong.
+ *       {@code login} {@code outcome=success}.
+ *   <li><b>Refused.</b> One {@code WARN} saying only that the Login was refused — "Login
+ *       refused", or "Epic sign-in refused" with the field and rule of a refused input — but never
+ *       the reason, which is the audit trail's alone (Logging §2.2; ADR 0012, "the account reasons
+ *       are audit-only"); and {@code login} {@code outcome=refused} with the reason. A password
+ *       Login's reason is the one its {@code LOGIN_FAILURE} was recorded under
+ *       ({@link PasswordRefused#recorded}): {@code UNKNOWN_ACCOUNT} when it was recorded against
+ *       nobody. An Epic Login's refusal is also its {@code LOGIN_FAILURE}, written here under the
+ *       login method with its reason, naming the refused User if the login decision found one,
+ *       and counting toward no failure run (D12). A refusal that was an Epic call answering with
+ *       something unusable is also that call's {@code ERROR}, followed up: a key or a
+ *       registration is likely wrong.
  *   <li><b>Unavailable</b>, an Epic Login only. A {@code LOGIN_FAILURE} with
  *       {@code EPIC_UNAVAILABLE} and no subject, and {@code login} {@code outcome=unavailable}.
  *       The call's {@code ERROR}, with no follow-up, is written here for a {@code 5xx} only: a
@@ -67,17 +71,13 @@ public class LoginOutcomeService {
 
     private static final Logger log = LoggerFactory.getLogger(LoginOutcomeService.class);
 
-    private final LoginAttemptService attempts;
-
     private final AuditTrail audit;
 
     private final LoginCounts counts;
 
     private final EpicCallCounts epicCalls;
 
-    public LoginOutcomeService(LoginAttemptService attempts, AuditTrail audit,
-            LoginCounts counts, EpicCallCounts epicCalls) {
-        this.attempts = attempts;
+    public LoginOutcomeService(AuditTrail audit, LoginCounts counts, EpicCallCounts epicCalls) {
         this.audit = audit;
         this.counts = counts;
         this.epicCalls = epicCalls;
@@ -113,13 +113,16 @@ public class LoginOutcomeService {
         counts.signedIn(signedIn.method());
     }
 
+    /**
+     * A password Login's refusal, already counted and audited by the login decision that refused
+     * it ({@link LoginService}): its {@code WARN}, and its count under the reason it was recorded
+     * under.
+     */
     private void passwordRefused(PasswordRefused refused, String sessionHash) {
-        PasswordRefusalReason recorded =
-                attempts.recordFailure(refused.subjectId(), refused.reason());
         try (LogContext.Scope unresolved = LogContext.userId(null)) {
             refusedWarning(Operation.LOGIN, refused, sessionHash).log();
         }
-        counts.refused(refused.method(), recorded.audited());
+        counts.refused(refused.method(), refused.recorded().audited());
     }
 
     private void epicRefused(EpicRefused refused, String sessionHash) {
