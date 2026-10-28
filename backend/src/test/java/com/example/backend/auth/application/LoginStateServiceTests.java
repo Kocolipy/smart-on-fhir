@@ -14,6 +14,7 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.LoginStateService.VerifiedCredential;
+import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
@@ -71,7 +72,7 @@ class LoginStateServiceTests {
     private LoginStateService loginState = moduleDeferringTo(transaction);
 
     /** What a password Login's authentication verified: the credential every arranged state holds. */
-    private static final VerifiedCredential PASSWORD = VerifiedCredential.passwordHash("hash");
+    private static final VerifiedPassword PASSWORD = VerifiedCredential.passwordHash("hash");
 
     /** The route a Login came by, naming each parameterized case. */
     private enum Route { PASSWORD, EPIC }
@@ -691,23 +692,6 @@ class LoginStateServiceTests {
         LoginStateService.Verification accepted = loginState.passwordLoginVerified(stored, PASSWORD);
 
         assertThat(List.of(accepted.refused(), accepted.confined())).containsExactly(false, false);
-    }
-
-    /**
-     * An Epic Login's refusal counts toward no failure run (D12), so its credential is refused
-     * before anything is locked, read or written.
-     */
-    @Test
-    void anEpicCredentialIsNotDecidedAsAPasswordLogin() {
-        ScimUser stored = users.given(ScimIdentities.withActive(
-                ScimIdentities.userWithLoginState("ada", run(1)), false, run(1)));
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loginState.passwordLoginVerified(
-                        stored, VerifiedCredential.epic()))
-                .withMessage("only a password Login's refusal is counted");
-        assertThat(List.of(locks.requests(), users.require("ada").login()))
-                .containsExactly(List.of(), run(1));
     }
 
     /** The verified credential is never printed: it is a password hash. */

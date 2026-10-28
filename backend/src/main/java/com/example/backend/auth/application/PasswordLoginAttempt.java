@@ -62,7 +62,7 @@ final class PasswordLoginAttempt extends UsernamePasswordAuthenticationToken {
      *     authentication that did not come from {@link PasswordLoginProvider} verified nothing
      *     this Login can stand on, so it fails closed rather than skip the check
      */
-    LoginStateService.VerifiedCredential verifiedCredential() {
+    LoginStateService.VerifiedPassword verifiedCredential() {
         if (comparedPasswordHash == null) {
             throw new IllegalStateException("the authentication verified no stored credential");
         }

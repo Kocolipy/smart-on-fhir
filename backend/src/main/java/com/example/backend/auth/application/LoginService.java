@@ -10,6 +10,7 @@ import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.application.LoginStateService.Verification;
 import com.example.backend.auth.application.LoginStateService.VerifiedCredential;
+import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ScimUser;
@@ -211,7 +212,7 @@ public class LoginService {
         // move to another User in between. Outside the catch above on purpose: a failure
         // recording the success is not a refusal, and must not be reported to the caller as one.
         UUID userId = LoginPrincipal.userIdOf(authentication);
-        VerifiedCredential credential = attempt.verifiedCredential();
+        VerifiedPassword credential = attempt.verifiedCredential();
         return ended(decision.execute(status ->
                         decided(authentication, userId, credential, retainedSessionId)),
                 retainedSessionId);
@@ -237,7 +238,7 @@ public class LoginService {
      * one transaction.
      */
     private LoginDecision decided(Authentication authentication, UUID userId,
-            VerifiedCredential credential, String retainedSessionId) {
+            VerifiedPassword credential, String retainedSessionId) {
         Optional<ScimUser> found = users.findById(userId);
         if (found.isEmpty()) {
             // Deleted while the password was being compared: refused as a User gone under its

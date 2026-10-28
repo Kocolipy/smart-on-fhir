@@ -186,7 +186,7 @@ public class LoginStateService implements ScimUserLoginState {
          * against and matched. A salted hash differs on every write, so a credential replaced
          * since the comparison — even by the same password — is told apart from it.
          */
-        static VerifiedCredential passwordHash(String passwordHash) {
+        static VerifiedPassword passwordHash(String passwordHash) {
             return new VerifiedPassword(passwordHash);
         }
 
@@ -197,13 +197,17 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A password Login's verified credential. Held only for the decision, never in the session,
-     * and never printed.
+     * A password Login's verified credential ({@link VerifiedCredential#passwordHash}). Held only
+     * for the decision, never in the session, and never printed: the hash it carries is read by
+     * nothing outside this module.
      */
-    private record VerifiedPassword(String passwordHash) implements VerifiedCredential {
+    public static final class VerifiedPassword implements VerifiedCredential {
 
-        private VerifiedPassword {
-            Objects.requireNonNull(passwordHash, "a password Login verified a stored credential");
+        private final String passwordHash;
+
+        private VerifiedPassword(String passwordHash) {
+            this.passwordHash = Objects.requireNonNull(
+                    passwordHash, "a password Login verified a stored credential");
         }
 
         /** The change-required flag marks the very credential the Login presented. */
@@ -499,16 +503,12 @@ public class LoginStateService implements ScimUserLoginState {
      * holds both, and commits them together.
      *
      * @param credential the stored password the authentication compared the submitted one
-     *     against ({@link VerifiedCredential#passwordHash})
+     *     against ({@link VerifiedCredential#passwordHash}); never an Epic Login's, whose refusal
+     *     counts toward no failure run (D12) and is decided by {@link #credentialVerified} alone
      * @return the decision, its {@link Verification#change} what was moved — the cleared run of
      *     an accepted Login, or the counted failure of a refused one
-     * @throws IllegalArgumentException for an Epic Login's credential: an Epic refusal counts
-     *     toward no failure run (D12), so it is decided by {@link #credentialVerified} alone
      */
-    public Verification passwordLoginVerified(ScimUser user, VerifiedCredential credential) {
-        if (!(credential instanceof VerifiedPassword)) {
-            throw new IllegalArgumentException("only a password Login's refusal is counted");
-        }
+    public Verification passwordLoginVerified(ScimUser user, VerifiedPassword credential) {
         ScimLoginState before = stateUnderLock(user);
         Verification decided = decided(user, before, credential);
         if (!decided.refused()) {
