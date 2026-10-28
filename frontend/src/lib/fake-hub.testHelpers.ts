@@ -27,9 +27,9 @@ export const TOKEN_ENDPOINT = "http://127.0.0.1:8103/dcr/token";
 export const REVOCATION_ENDPOINT = "http://127.0.0.1:8103/dcr/revoke";
 
 /** The `n`th subscription's channel endpoint, from 1. */
-const channelEndpoint = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
+export const endpointOf = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
 
-export const CHANNEL_ENDPOINT = channelEndpoint(1);
+export const CHANNEL_ENDPOINT = endpointOf(1);
 
 export const CLIENT_ID = "client-1";
 
@@ -39,6 +39,9 @@ export const REGISTRATION_CLIENT_URI = `${REGISTRATION_ENDPOINT}/${CLIENT_ID}`;
 export const REGISTRATION_ACCESS_TOKEN = `rat-${crypto.randomUUID()}`;
 
 export const HUB_TOKEN = `hub-${crypto.randomUUID()}`;
+
+/** The `n`th Hub Token the hub grants, from 1: {@link HUB_TOKEN} the first. */
+export const hubTokenOf = (n: number) => (n === 1 ? HUB_TOKEN : `${HUB_TOKEN}-${n}`);
 
 /** One request the hub was sent. */
 export interface HubRequest {
@@ -147,12 +150,12 @@ const REGISTERED = json(
 );
 
 /** The `n`th subscription's answer, from 1: a channel endpoint of its own, the first {@link CHANNEL_ENDPOINT}. */
-const subscribed = (n: number) => json({ "hub.channel.endpoint": channelEndpoint(n) }, 202);
+const subscribed = (n: number) => json({ "hub.channel.endpoint": endpointOf(n) }, 202);
 
 /** The `n`th token answer, from 1: a Hub Token of an hour, the first {@link HUB_TOKEN}. */
 const granted = (n: number) =>
   json({
-    access_token: n === 1 ? HUB_TOKEN : `${HUB_TOKEN}-${n}`,
+    access_token: hubTokenOf(n),
     expires_in: 3600,
     token_type: "Bearer",
   });

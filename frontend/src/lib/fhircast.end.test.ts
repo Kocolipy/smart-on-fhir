@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_ENDPOINT,
   CLIENT_ID,
+  endpointOf,
   HUB_TOKEN,
   HUB_URL,
+  hubTokenOf,
   type HubAnswer,
   hubOnly,
   type HubOptions,
@@ -197,6 +199,30 @@ describe("endFhircast", () => {
     await endFhircast();
 
     expect(routes(since())).toEqual([REVOKE, DELETE]);
+  });
+
+  it("cancels the subscription and Hub Token of a first connection whose socket closed unconfirmed, as well as its retry's", async () => {
+    const hub = hubOnly({ socket: ["closes", "confirms"] });
+    expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    const since = requestsSince(hub);
+
+    await endFhircast();
+
+    const cancelled = since().map(({ authorization, body, method, url }) =>
+      url === HUB_URL
+        ? `unsubscribe ${form(body)["hub.channel.endpoint"]} ${authorization}`
+        : url === REVOCATION_ENDPOINT
+          ? `revoke ${form(body).token}`
+          : `${method} ${url}`,
+    );
+    expect(cancelled).toEqual([
+      `unsubscribe ${endpointOf(1)} Bearer ${hubTokenOf(1)}`,
+      `revoke ${hubTokenOf(1)}`,
+      `unsubscribe ${endpointOf(2)} Bearer ${hubTokenOf(2)}`,
+      `revoke ${hubTokenOf(2)}`,
+      DELETE,
+    ]);
   });
 
   it("deletes the registration of a connection the hub granted no Hub Token", async () => {

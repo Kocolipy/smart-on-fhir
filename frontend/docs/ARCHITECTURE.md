@@ -272,7 +272,10 @@ cancels each subscription it moves off once the new one's socket is confirmed.
 session, clears what the tab kept at once, then tears down at the hub every
 connection it registered or resumed and what the tab kept — the
 unsubscription, RFC 7009 revocation, RFC 7592 deletion, then the socket —
-best-effort, each step bounded.
+best-effort, each step bounded. Every subscription and Hub Token a connection
+was granted is among them, including those of a renewal or retry whose socket
+was never confirmed, which the connection keeps until then rather than
+cancelling at once; each distinct one is cancelled once.
 It holds the session's one connection as a module-level singleton
 (`startFhircast`, idempotent; `retryFhircast`; `fhircastSnapshot` and
 `watchFhircast` for the card), which `endFhircast()` resets: no component
