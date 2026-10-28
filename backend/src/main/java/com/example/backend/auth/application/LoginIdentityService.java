@@ -209,7 +209,8 @@ public class LoginIdentityService implements UserDetailsService {
      * and the authorities its Groups confer.
      *
      * <p>Not whether the session is confined: that is decided once, under the User's lock, on the
-     * state the login-state module reads there ({@link LoginStateService#credentialVerified}),
+     * state the login-state module reads there ({@link LoginStateService#passwordLoginVerified}
+     * for a password Login, {@link LoginStateService#credentialVerified} for an Epic one),
      * and applied by {@link #issued} — not from this read, which a change required while the
      * password was compared would leave behind.
      */

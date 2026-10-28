@@ -2,8 +2,7 @@ package com.example.backend.auth.infrastructure.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.auth.application.PasswordRefusalReason;
-import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.LoginService;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
@@ -18,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -49,7 +49,10 @@ class RedisSessionRevocationIntegrationTests {
     private ScimUserRepository users;
 
     @Autowired
-    private LoginAttemptService attempts;
+    private LoginService login;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -93,8 +96,8 @@ class RedisSessionRevocationIntegrationTests {
     }
 
     /**
-     * Session-revocation-on-lockout, driven through the real login-attempt
-     * counter and the real Redis-indexed repository. The lock is imposed by
+     * Session-revocation-on-lockout, driven through the real password Login,
+     * which counts every wrong password, and the real Redis-indexed repository. The lock is imposed by
      * counting failures, not by writing the row directly, so the revocation is
      * observed on the path a real brute-force attempt takes: the identity's live
      * session must be gone once the lock lands, or a locked identity would keep
@@ -106,7 +109,7 @@ class RedisSessionRevocationIntegrationTests {
         Session session = openSessionFor(created.id());
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
+            login.logIn(created.profile().userName(), "not-the-password");
         }
 
         assertThat(require(created.profile().userName()).login().isLocked()).isTrue();
@@ -119,7 +122,7 @@ class RedisSessionRevocationIntegrationTests {
                 ScimUser.created(
                         UUID.randomUUID(),
                         ScimIdentities.profile(userName, true),
-                        "hash",
+                        passwordEncoder.encode("the-password"),
                         ScimIdentities.NOW)));
         seeded.add(created.id());
         return created;

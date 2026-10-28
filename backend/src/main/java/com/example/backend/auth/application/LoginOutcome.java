@@ -56,15 +56,19 @@ public sealed interface LoginOutcome {
     }
 
     /**
-     * A password Login was refused for {@code reason}, as the login decision reported it.
+     * A password Login was refused for {@code reason}, as the login decision reported it, and
+     * recorded against {@code subjectId}.
      *
-     * <p>It names the User the authentication's one read resolved, by stable id, whether the
-     * authentication refused it or the decision under the User's lock did — and so whom the
-     * refusal is counted and audited against. Never the submitted name: looking that up again
-     * would follow whichever User holds it by then, and a directory rename can land in between.
+     * <p>It names the User the refusal was counted and audited against: the one the
+     * authentication's one read resolved, by stable id, whether the authentication refused it or
+     * the decision under the User's lock did — or nobody, when that read found no User or the User
+     * it found was gone by the time the refusal was recorded. Never the submitted name: looking
+     * that up again would follow whichever User holds it by then, and a directory rename can land
+     * in between.
      *
-     * @param subjectId the stable id of the User the authentication's read resolved; {@code null}
-     *     when it found none, which recording the refusal settles as {@code UNKNOWN_ACCOUNT}
+     * @param subjectId the stable id of the User the refusal was recorded against; {@code null}
+     *     when there was none, which settles the refusal as {@code UNKNOWN_ACCOUNT}
+     *     ({@link #recorded})
      * @param reason    the refusal as reported — never {@code UNKNOWN_ACCOUNT}, which Spring
      *     Security hides behind a wrong password, and which recording the refusal settles
      *     ({@link PasswordRefusalReason#reported})
@@ -81,6 +85,15 @@ public sealed interface LoginOutcome {
         @Override
         public AuditLoginMethod method() {
             return AuditLoginMethod.PASSWORD;
+        }
+
+        /**
+         * The reason the refusal is recorded and counted under: {@link #reason} as
+         * {@link PasswordRefusalReason#settled} settles it — {@code UNKNOWN_ACCOUNT} when it was
+         * recorded against nobody.
+         */
+        public PasswordRefusalReason recorded() {
+            return reason.settled(subjectId != null);
         }
     }
 

@@ -7,15 +7,10 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
-import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.LoginStateModules;
-import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
@@ -31,10 +26,8 @@ import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -65,21 +58,7 @@ class LoginOutcomeServiceTests {
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
-    private final SessionRevocationService revocation = new SessionRevocationService(
-            new InMemoryAccountSessions(),
-            new PendingCommit(),
-            audit,
-            new RecordingOperationalAlerts());
-
-    private final LoginOutcomeService outcomes = new LoginOutcomeService(
-            new LoginAttemptService(
-                    users,
-                    LoginStateModules.over(
-                            users, revocation, new LockoutPolicy(5), audit,
-                            new MutableClock(Instant.parse("2026-10-09T00:00:00Z"))),
-                    revocation,
-                    audit),
-            audit, counts, counts);
+    private final LoginOutcomeService outcomes = new LoginOutcomeService(audit, counts, counts);
 
     // ---- signed in ----------------------------------------------------------------------------
 
@@ -129,17 +108,19 @@ class LoginOutcomeServiceTests {
 
     // ---- password refused ---------------------------------------------------------------------
 
-    /** The reason is the audit trail's: it names the User, and counts toward its failure run. */
+    /**
+     * A password refusal is counted and audited by the login decision that refused it
+     * ({@code PasswordLoginRecordingTests}), so recording its ending writes no audit record and
+     * counts toward no failure run.
+     */
     @Test
-    void aPasswordRefusalIsAuditedWithItsReasonAndSubjectAndCountsTowardTheFailureRun() {
+    void aPasswordRefusalWritesNoAuditRecordAndCountsTowardNoFailureRun() {
         UUID ada = users.given(ScimIdentities.user("ada")).id();
 
         outcomes.record(new PasswordRefused(ada, PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
-        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
-                AuditOperation.LOGIN_FAILURE, null, ada, "BAD_CREDENTIALS"));
-        assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.PASSWORD);
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
     /**
@@ -184,15 +165,13 @@ class LoginOutcomeServiceTests {
     }
 
     /**
-     * A refusal whose authentication resolved no User is recorded, and counted, as the unknown
-     * account it is.
+     * A refusal recorded against no User — its authentication resolved none — is counted as the
+     * unknown account it is.
      */
     @Test
-    void aPasswordRefusalOfAnUnknownNameIsAuditedAndCountedAsAnUnknownAccount() {
+    void aPasswordRefusalOfAnUnknownNameIsCountedAsAnUnknownAccount() {
         outcomes.record(new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS), SESSION);
 
-        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
-                AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT"));
         assertThat(counts.moved()).containsExactly("password:refused:UNKNOWN_ACCOUNT");
     }
 

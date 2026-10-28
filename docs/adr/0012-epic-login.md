@@ -9,7 +9,7 @@ D1–D29, the accepted risk D13, the IM8 policy position and the App-Standards
 deviations. Two things are other ADRs': ADR 0016 decides the SMART access
 token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
 tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
-ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-26. History
+ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-28. History
 is in git.
 
 ## Context
@@ -148,8 +148,9 @@ authorization-request filter builds the request.
    detail, and both end the browser's session first (D24).
 
 How a Login ends is ADR 0001's: `LoginCompletion` runs the decision, the session,
-the method's own work and the recording in one order, and `LoginOutcomeService`
-writes each ending's audit record, log line and counts. For an Epic Login:
+the method's own work and the recording in one order. `LoginService` writes the
+decision's own audit record, and `LoginOutcomeService` each ending's log line and
+counts, and an Epic Login's failure record. For an Epic Login:
 
 - **An account refusal** (flow step 6) is recorded by the login decision. It
   writes a `LOGIN_FAILURE` under method `sso`, with its reason and the refused
